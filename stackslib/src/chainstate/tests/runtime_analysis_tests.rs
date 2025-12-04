@@ -305,6 +305,85 @@ fn check_error_cost_balance_exceeded_cdeploy() {
     );
 }
 
+/// CheckErrorKind: [`CheckErrorKind::MemoryBalanceExceeded`]
+/// Caused by: This test creates a contract that successfully passes analysis but fails during initialization
+///   The contract defines large buffer constants (buff-20 = 1MB) and then creates many references
+///   to it in a top-level `is-eq` expression, which exhausts the 100MB memory limit during initialization.
+/// Outcome: block accepted.
+#[test]
+fn check_error_memory_balance_exceeded_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "test-exceeds",
+        contract_code: &{
+            let define_data_var = "(define-constant buff-0 0x00)";
+
+            let mut contract = define_data_var.to_string();
+            for i in 0..20 {
+                contract.push('\n');
+                contract.push_str(&format!(
+                    "(define-constant buff-{} (concat buff-{i} buff-{i}))",
+                    i + 1,
+                ));
+            }
+
+            contract.push('\n');
+            contract.push_str("(is-eq ");
+
+            for _i in 0..100 {
+                let exploder = "buff-20 ";
+                contract.push_str(exploder);
+            }
+
+            contract.push(')');
+            contract
+        },
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::MemoryBalanceExceeded`]
+/// Caused by: This test creates a contract that successfully passes analysis but fails during contract call.
+///   The contract defines large buffer constants (buff-20 = 1MB) and then creates many references
+///   to it in a top-level `is-eq` expression, which exhausts the 100MB memory limit during contract call.
+/// Outcome: block accepted.
+#[test]
+fn check_error_memory_balance_exceeded_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "memory-test-contract",
+        contract_code: &{
+            // Procedurally generate a contract with large buffer constants and a function
+            // that creates many references to them, similar to argument_memory_test
+            let mut contract = String::new();
+
+            // Create buff-0 through buff-20 via repeated doubling: buff-20 = 1MB
+            contract.push_str("(define-constant buff-0 0x00)\n");
+            for i in 0..20 {
+                contract.push_str(&format!(
+                    "(define-constant buff-{} (concat buff-{i} buff-{i}))\n",
+                    i + 1
+                ));
+            }
+
+            // Create a public function that makes many references to buff-20
+            contract.push_str("\n(define-public (create-many-references)\n");
+            contract.push_str("    (ok (is-eq ");
+
+            // Create 100 references to buff-20 (1MB each = ~100MB total)
+            for _ in 0..100 {
+                contract.push_str("buff-20 ");
+            }
+
+            contract.push_str(")))\n");
+            contract
+        },
+        function_name: "create-many-references",
+        function_args: &[],
+        // we only test epochs 2.4 and later because the call takes ~200 milion runtime cost,
+        // if we test all epochs, the tenure limit will be exceeded and the last 2 calls in
+        // epoch 3.3 will cause a block rejection.
+        deploy_epochs: &StacksEpochId::ALL[6..], // Epochs 2.4 and later
+    );
+}
+
 /// CheckErrorKind: [`CheckErrorKind::CostBalanceExceeded`]
 /// Caused by: exceeding the cost analysis budget during contract initialization.
 ///   The contract repeatedly performs `var-get` lookups on a data variable,

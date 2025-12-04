@@ -59,6 +59,40 @@ fn static_check_error_cost_balance_exceeded() {
     );
 }
 
+/// CheckErrorKind: [`CheckErrorKind::MemoryBalanceExceeded`]
+/// Caused by: This test creates a contract that fails during analysis phase.
+///   The contract defines large nested tuple constants that exhaust
+///   the 100MB memory limit during analysis.
+/// Outcome: block rejected.
+#[test]
+fn static_check_error_memory_balance_exceeded() {
+    contract_deploy_consensus_test!(
+        contract_name: "analysis-memory-test",
+        contract_code: &{
+            let mut contract = String::new();
+            // size: t0: 36 bytes
+            contract.push_str("(define-constant t0 (tuple (f0 0x00) (f1 0x00) (f2 0x00) (f3 0x00)))");
+            // size: t1: 160 bytes
+            contract.push_str("(define-constant t1 (tuple (f0 t0) (f1 t0) (f2 t0) (f3 t0)))");
+            // size: t2: 656 bytes
+            contract.push_str("(define-constant t2 (tuple (f0 t1) (f1 t1) (f2 t1) (f3 t1)))");
+            // size: t3: 2640 bytes
+            contract.push_str("(define-constant t3 (tuple (f0 t2) (f1 t2) (f2 t2) (f3 t2)))");
+            // size: t4: 10576 bytes
+            contract.push_str("(define-constant t4 (tuple (f0 t3) (f1 t3) (f2 t3) (f3 t3)))");
+            // size: t5: 42320 bytes
+            contract.push_str("(define-constant t5 (tuple (f0 t4) (f1 t4) (f2 t4) (f3 t4)))");
+            // size: t6: 126972 bytes
+            contract.push_str("(define-constant t6 (tuple (f0 t5) (f1 t5) (f2 t5)))");
+            // 126972 bytes * 800 ~= 101577600. Triggers MemoryBalanceExceeded during analysis.
+            for i in 0..800 {
+                contract.push_str(&format!("(define-constant l{} t6)", i + 1));
+            }
+            contract
+        },
+    );
+}
+
 /// CheckErrorKind: [`CheckErrorKind::ValueTooLarge`]
 /// Caused by: Value exceeds the maximum allowed size for type-checking
 /// Outcome: block accepted.
@@ -366,6 +400,17 @@ fn static_check_error_unknown_type_name() {
         (define-public (trigger)
             (ok (from-consensus-buff? foo 0x00)))",
         exclude_clarity_versions: &[ClarityVersion::Clarity1],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::PublicFunctionMustReturnResponse`]
+/// Caused by: defining a public function that does not return a response (ok or err).
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_public_function_must_return_response() {
+    contract_deploy_consensus_test!(
+        contract_name: "non-response",
+        contract_code: "(define-public (non-response) true)",
     );
 }
 
