@@ -825,10 +825,6 @@ pub enum CheckErrorKind {
     /// String contains invalid UTF-8 encoding.
     InvalidUTF8Encoding,
 
-    // secp256k1 signature
-    /// Invalid secp256k1 signature provided in an expression.
-    InvalidSecp65k1Signature,
-
     /// Attempt to write to contract state in a read-only function.
     WriteAttemptedInReadOnly,
 
@@ -1367,7 +1363,6 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::WithNftExpectedListOfIdentifiers => "with-nft allowance must include a list of asset identifiers".into(),
             StaticCheckErrorKind::MaxIdentifierLengthExceeded(max_len, len) => format!("with-nft allowance identifiers list must not exceed {max_len} elements, got {len}"),
             StaticCheckErrorKind::TooManyAllowances(max_allowed, found) => format!("too many allowances specified, the maximum is {max_allowed}, found {found}"),
-
         }
     }
 

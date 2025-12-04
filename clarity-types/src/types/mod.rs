@@ -1059,6 +1059,8 @@ impl Value {
                     .ok_or_else(|| VmInternalError::Expect("Expected capture".into()))?;
                 let scalar_value = window[matched.start()..matched.end()].to_string();
                 let unicode_char = {
+                    // This first InvalidUTF8Encoding is logically unreachable: the escape regex rejects non-hex digits,
+                    // so from_str_radix only sees valid hex and never errors here.
                     let u = u32::from_str_radix(&scalar_value, 16)
                         .map_err(|_| CheckErrorKind::InvalidUTF8Encoding)?;
                     let c = char::from_u32(u).ok_or_else(|| CheckErrorKind::InvalidUTF8Encoding)?;
@@ -1452,6 +1454,10 @@ impl PrincipalData {
         literal: &str,
     ) -> Result<StandardPrincipalData, VmExecutionError> {
         let (version, data) = c32::c32_address_decode(literal).map_err(|x| {
+            // This `TypeParseFailure` is unreachable in normal Clarity execution.
+            // - All principal literals are validated by the Clarity lexer *before* reaching `parse_standard_principal`.
+            // - The lexer rejects any literal containing characters outside the C32 alphabet.
+            // Therefore, only malformed input fed directly into low-level VM entry points can cause this branch to execute.
             RuntimeError::TypeParseFailure(format!("Invalid principal literal: {x}"))
         })?;
         if data.len() != 20 {
@@ -1645,10 +1651,7 @@ impl TupleData {
         })
     }
 
-    pub fn shallow_merge(
-        mut base: TupleData,
-        updates: TupleData,
-    ) -> Result<TupleData, VmExecutionError> {
+    pub fn shallow_merge(mut base: TupleData, updates: TupleData) -> TupleData {
         let TupleData {
             data_map,
             mut type_signature,
@@ -1657,7 +1660,7 @@ impl TupleData {
             base.data_map.insert(name, value);
         }
         base.type_signature.shallow_merge(&mut type_signature);
-        Ok(base)
+        base
     }
 }
 

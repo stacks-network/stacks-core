@@ -171,6 +171,10 @@ pub fn linear(n: u64, a: u64, b: u64) -> u64 {
 }
 pub fn logn(n: u64, a: u64, b: u64) -> Result<u64, VmExecutionError> {
     if n < 1 {
+        // This branch is **unreachable** in standard Clarity execution:
+        // - `logn` is only called from tuple access operations.
+        // - Tuples must have at least one field, so `n >= 1` is always true (this is enforced via static checks).
+        // - Hitting this branch requires manual VM manipulation or internal test harnesses.
         return Err(VmExecutionError::Runtime(
             RuntimeError::Arithmetic("log2 must be passed a positive integer".to_string()),
             Some(vec![]),
