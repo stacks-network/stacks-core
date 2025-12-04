@@ -9551,16 +9551,13 @@ pub mod test {
         ))) = &err
         {
         } else {
-            #[cfg(feature = "clarity-wasm")]
-            if let Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(_))) = &err
-            {
-                // WASM error type - expected in WASM context
-            } else {
-                panic!("Did not get unchecked interpreter error or WASM generator error");
-            }
-            #[cfg(not(feature = "clarity-wasm"))]
-            {
+            if !cfg!(feature = "clarity-wasm") {
                 panic!("Did not get unchecked interpreter error");
+            } else if !matches!(
+                &err,
+                Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(_)))
+            ) {
+                panic!("Did not get WASM generator error");
             }
         }
         let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
@@ -9664,16 +9661,13 @@ pub mod test {
         ))) = &err
         {
         } else {
-            #[cfg(feature = "clarity-wasm")]
-            if let Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(_))) = &err
-            {
-                // WASM error type - expected in WASM context
-            } else {
-                panic!("Did not get unchecked interpreter error or WASM generator error");
-            }
-            #[cfg(not(feature = "clarity-wasm"))]
-            {
+            if !cfg!(feature = "clarity-wasm") {
                 panic!("Did not get unchecked interpreter error");
+            } else if !matches!(
+                &err,
+                Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(_)))
+            ) {
+                panic!("Did not get WASM generator error");
             }
         }
         let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
@@ -9741,15 +9735,11 @@ pub mod test {
 
         assert!(tx_receipt.vm_error.is_some());
         let err_str = tx_receipt.vm_error.unwrap();
-
+        let expected_err = "TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier";
         if cfg!(feature = "clarity-wasm") {
-            assert!(err_str
-                .find("TypeError(CallableType(Trait(TraitIdentifier")
-                .is_some());
+            assert!(err_str.contains("TypeError(CallableType(Trait(TraitIdentifier"));
         } else {
-            assert!(err_str
-                .find("TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier")
-                .is_some());
+            assert!(err_str.contains(expected_err));
         }
 
         // we ignore this in wasm as the contract call is failing in wasm due to a type_checker error
@@ -9766,11 +9756,10 @@ pub mod test {
 
         // nonce keeps advancing despite error
         let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
-        if cfg!(feature = "clarity-wasm") {
-            assert_eq!(acct.nonce, 4);
-        } else {
-            assert_eq!(acct.nonce, 5);
-        }
+        assert_eq!(
+            acct.nonce,
+            if cfg!(feature = "clarity-wasm") { 4 } else { 5 }
+        );
 
         // no state change materialized
         let executed_var =
@@ -9781,9 +9770,7 @@ pub mod test {
         {
             assert!(tx_receipt.vm_error.is_some());
             let err_str = tx_receipt.vm_error.unwrap();
-            assert!(err_str
-                .find("TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier ")
-                .is_some());
+            assert!(err_str.contains(expected_err));
         }
 
         conn.commit_block();
@@ -9837,10 +9824,16 @@ pub mod test {
         let executed_var =
             StacksChainState::get_data_var(&mut conn, &contract_id, "executed").unwrap();
         // in wasm, the contract call is failing in wasm due to a type_checker error so it is not executed
-        if cfg!(feature = "clarity-wasm") {
-            assert_eq!(executed_var, Some(Value::Bool(false)));
-        } else {
-            assert_eq!(executed_var, Some(Value::Bool(true)));
+        assert_eq!(
+            executed_var,
+            Some(Value::Bool(if cfg!(feature = "clarity-wasm") {
+                false
+            } else {
+                true
+            }))
+        );
+        #[cfg(not(feature = "clarity-wasm"))]
+        {
             assert!(tx_receipt.vm_error.is_none());
         }
 
