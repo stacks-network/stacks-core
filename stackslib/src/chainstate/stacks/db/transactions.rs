@@ -9735,12 +9735,12 @@ pub mod test {
 
         assert!(tx_receipt.vm_error.is_some());
         let err_str = tx_receipt.vm_error.unwrap();
-        let expected_err = "TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier";
-        if cfg!(feature = "clarity-wasm") {
-            assert!(err_str.contains("TypeError(CallableType(Trait(TraitIdentifier"));
+        let expected_err = if !cfg!(feature = "clarity-wasm") {
+            "TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier"
         } else {
-            assert!(err_str.contains(expected_err));
-        }
+            "TypeError(CallableType(Trait(TraitIdentifier"
+        };
+        assert!(err_str.contains(expected_err));
 
         // we ignore this in wasm as the contract call is failing in wasm due to a type_checker error
         #[cfg(not(feature = "clarity-wasm"))]
