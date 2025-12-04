@@ -509,7 +509,7 @@ impl TriePtr {
         }
     }
 
-    /// Load up this TriePtr from a slice of bytes, assuming that they represent a compresesd
+    /// Load up this TriePtr from a slice of bytes, assuming that they represent a compressed
     /// TriePtr.  A TriePtr that is compressed will not have a stored `back_block` field if the
     /// node ID does not have the backptr bit set.
     #[inline]

@@ -42,7 +42,7 @@ pub fn get_path_byte_len(p: &[u8]) -> usize {
 /// This is up to 32 bytes, and must be prefixed by a 1-byte length.
 ///
 /// Returns Ok(path-bytes) on success
-/// Returns Err(CorruptionError) if the path doesn't decode, or if the length prefix is invali
+/// Returns Err(CorruptionError) if the path doesn't decode, or if the length prefix is invalid
 /// Returns Err(IOError) on disk I/O failure
 pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
     let mut lenbuf = [0u8; 1];
@@ -50,7 +50,7 @@ pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
         if e.kind() == ErrorKind::UnexpectedEof {
             Error::CorruptionError("Failed to read len buf".to_string())
         } else {
-            error!("failed: {:?}", &e);
+            error!("failed: {e:?}");
             Error::IOError(e)
         }
     })?;
@@ -72,7 +72,7 @@ pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
         if e.kind() == ErrorKind::UnexpectedEof {
             Error::CorruptionError(format!("Failed to read {} bytes of path", lenbuf[0]))
         } else {
-            error!("failed: {:?}", &e);
+            error!("failed: {e:?}");
             Error::IOError(e)
         }
     })?;
@@ -181,7 +181,7 @@ pub fn get_ptrs_byte_len_compressed(id: u8, ptrs: &[TriePtr]) -> usize {
 ///
 /// 0                                     N
 /// |-------------------------------------|
-///   list of compresed `TriePtr`s
+///   list of compressed `TriePtr`s
 ///
 /// The dense form includes empty `TriePtr`s.  The dense form is used if the size of using the
 /// sparse form (with the bitmap) exceeds the size of using the dense form.  The dense form is used
@@ -192,7 +192,7 @@ pub fn get_ptrs_byte_len_compressed(id: u8, ptrs: &[TriePtr]) -> usize {
 /// across a copy-on-write operation.  If a `TriePatchNode` is found, then it is returned as an
 /// Err(..) result, so the caller can apply it atop its targeted trie node.
 ///
-/// Returns Ok(node-id) on success, where the compressed bit in `node-id` iw NOT set.  However, the
+/// Returns Ok(node-id) on success, where the compressed bit in `node-id` is NOT set.  However, the
 /// backptr bit MAY be set (it is preserved).
 ///
 /// Returns Err(Patch(..)) if the code encountered a TrieNodePatch instead of the expected trie
@@ -352,7 +352,7 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
                     Error::CorruptionError("infallible: nextptr < ptrs_buf.len()".into())
                 })?;
                 let byte = *bitmap.get(bi).ok_or_else(|| {
-                    Error::CorruptionError("infallbile: i / 8 < bitmap.len()".into())
+                    Error::CorruptionError("infallible: i / 8 < bitmap.len()".into())
                 })?;
                 if byte & mask == 0 {
                     // empty
@@ -397,7 +397,7 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
         } else {
             trace!("Node {} has dense compressed ptrs", clear_ctrl_bits(*nid));
             // this is a nearly-full ptrs list
-            // ptrs list is compresesd, meaning each ptr might be a different size
+            // ptrs list is compressed, meaning each ptr might be a different size
             let mut cursor = 0;
             for nextptr in 0..num_ptrs {
                 let next_ptrs_buf = ptrs_buf
@@ -770,14 +770,7 @@ pub fn write_nodetype_bytes<F: Write + Seek>(
     f.write_all(hash.as_bytes())?;
     node.write_bytes(f)?;
     let end = f.stream_position().map_err(Error::IOError)?;
-    trace!(
-        "write_nodetype_bytes: {:?} {:?} at {}-{}",
-        node,
-        &hash,
-        start,
-        end
-    );
-
+    trace!("write_nodetype_bytes: {node:?} {hash:?} at {start}-{end}");
     Ok(end - start)
 }
 

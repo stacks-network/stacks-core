@@ -943,7 +943,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     /// Walk through the buffered TrieNodes and dump them to f.
     /// This consumes this TrieRAM instance.
     fn dump_consume<F: Write + Seek>(mut self, f: &mut F) -> Result<u64, Error> {
-        // step 1: write out each node in breadth-first order to get their ptr ffsets
+        // step 1: write out each node in breadth-first order to get their ptr offsets
         let mut frontier: VecDeque<u32> = VecDeque::new();
 
         let mut node_data = vec![];
@@ -1095,7 +1095,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         storage_tx: &mut TrieStorageTransaction<T>,
         f: &mut F,
     ) -> Result<u64, Error> {
-        // step 1: write out each node in breadth-first order to get their ptr ffsets
+        // step 1: write out each node in breadth-first order to get their ptr offsets
         let mut frontier: VecDeque<u32> = VecDeque::new();
 
         let mut node_data = vec![];
@@ -3008,7 +3008,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
             .map(|(node, _)| node)
     }
 
-    /// Inner loop of inner_read_patched_persisted_nodetype
+    /// Inner loop of [`TrieStorageConnection::inner_read_patched_persisted_nodetype`]
     fn inner_read_persisted_nodetype(
         &mut self,
         block_id: u32,
