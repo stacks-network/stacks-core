@@ -67,7 +67,13 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             check_error_memory_balance_exceeded_ccall
         ]),
         CostComputationFailed(_) => Unreachable_ExpectLike,
-        ExecutionTimeExpired => todo!(),
+        ExecutionTimeExpired => Unreachable_Functionally(
+            "All consensus-critical code paths (block validation and transaction processing)
+             pass `None` for max_execution_time to StacksChainState::process_transaction,
+             causing GlobalContext::execution_time_tracker to remain ExecutionTimeTracker::NoTracking.
+             The check_max_execution_time_expired function always returns Ok(()) when tracker
+             is NoTracking. Execution time limits are only enforced in RPC API calls
+             and miner-local transaction filtering."),
         ValueTooLarge => Tested(vec![
             check_error_kind_value_too_large_cdeploy,
             check_error_kind_value_too_large_ccall
@@ -99,7 +105,10 @@ fn variant_coverage_report(variant: CheckErrorKind) {
              The static pass invokes check_special_match, which enforces the 2 argument
              structure and the input type before any code is accepted."),
         ListTypesMustMatch => Tested(vec![check_error_kind_list_types_must_match_cdeploy]),
-        TypeError(_, _) => todo!(),
+        TypeError(_, _) => Tested(vec![
+            check_error_kind_type_error_cdeploy,
+            check_error_kind_type_error_ccall
+        ]),
         TypeValueError(_, _) => Tested(vec![
             check_error_kind_type_value_error_cdeploy,
             check_error_kind_type_value_error_ccall
@@ -404,7 +413,7 @@ fn check_error_memory_balance_exceeded_ccall() {
         // we only test epochs 2.4 and later because the call takes ~200 milion runtime cost,
         // if we test all epochs, the tenure limit will be exceeded and the last 2 calls in
         // epoch 3.3 will cause a block rejection.
-        deploy_epochs: &StacksEpochId::ALL[6..], // Epochs 2.4 and later
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
     );
 }
 
@@ -660,6 +669,118 @@ fn check_error_kind_type_signature_too_deep_ccall() {
     );
 }
 
+/// CheckErrorKind: [`CheckErrorKind::TypeError`]
+/// Caused by: `at-block` evaluates an expression at a historical block where the contract's
+/// state doesn't exist yet (block 0). The result is `none` with no type info (`OptionalType(NoType)`),
+/// which then fails when compared with `uint` via `is-eq`.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_type_error_cdeploy() {
+    let contract_1 = SetupContract::new(
+        "pool-trait",
+        "
+    (define-trait pool-trait
+        ((get-shares-at (uint) (response uint uint))))",
+    );
+
+    let contract_2 = SetupContract::new(
+        "pool",
+        "
+    ;; Pool - uses at-block with map access
+    (impl-trait .pool-trait.pool-trait)
+
+    (define-data-var zero uint u0)
+
+    (define-read-only (get-shares-at (block uint))
+        (let (
+            (hash (unwrap-panic (get-block-info? id-header-hash block)))
+            (total-amt (unwrap-panic (at-block hash (ok (var-get zero)))))
+            (is-zero (is-eq total-amt u0))) ;; this is triggering the TypeError
+        (ok u0)))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity2); // Only works with clarity 1 or 2
+
+    contract_deploy_consensus_test!(
+        contract_name: "value-too-large",
+        contract_code: "
+    ;; Rewards - calls pool via trait
+    (use-trait pool-trait .pool-trait.pool-trait)
+
+    (define-map reward-info { id: uint } { share-block: uint })
+
+    (define-read-only (get-reward-info (id uint))
+        (default-to { share-block: u0 } (map-get? reward-info { id: id })))
+
+    (define-public (get-shares (id uint) (pool <pool-trait>))
+        (let (
+            (info (get-reward-info id))
+            (block (get share-block info))
+            ;; the following line triggers the TypeError
+            (shares (unwrap-panic (contract-call? pool get-shares-at block))))
+        (ok shares)))
+
+    (define-constant result (get-shares u999 .pool))",
+        setup_contracts: &[contract_1, contract_2],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::TypeError`]
+/// Caused by: `at-block` evaluates an expression at a historical block where the contract's
+/// state doesn't exist yet (block 0). The result is `none` with no type info (`OptionalType(NoType)`),
+/// which then fails when compared with `uint` via `is-eq`.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_type_error_ccall() {
+    let contract_1 = SetupContract::new(
+        "pool-trait",
+        "
+    (define-trait pool-trait
+        ((get-shares-at (uint) (response uint uint))))",
+    );
+
+    let contract_2 = SetupContract::new(
+        "pool",
+        "
+    ;; Pool - uses at-block with map access
+    (impl-trait .pool-trait.pool-trait)
+
+    (define-data-var zero uint u0)
+
+    (define-read-only (get-shares-at (block uint))
+        (let (
+            (hash (unwrap-panic (get-block-info? id-header-hash block)))
+            (total-amt (unwrap-panic (at-block hash (ok (var-get zero)))))
+            (is-zero (is-eq total-amt u0))) ;; this is triggering the TypeError
+        (ok u0)))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1); // Only works with clarity 1 or 2
+
+    contract_call_consensus_test!(
+        contract_name: "value-too-large",
+        contract_code: "
+    (use-trait pool-trait .pool-trait.pool-trait)
+
+    (define-map reward-info { id: uint } { share-block: uint })
+
+    (define-read-only (get-reward-info (id uint))
+        (default-to { share-block: u0 } (map-get? reward-info { id: id })))
+
+    (define-public (get-shares (id uint) (pool <pool-trait>))
+        (let (
+            (info (get-reward-info id))
+            (block (get share-block info))
+            ;; the following line triggers the TypeError
+            (shares (unwrap-panic (contract-call? pool get-shares-at block))))
+        (ok shares)))
+
+    (define-public (trigger-error)
+        (get-shares u999 .pool))",
+        function_name: "trigger-error",
+        function_args: &[],
+        setup_contracts: &[contract_1, contract_2],
+    );
+}
+
 /// CheckErrorKind: [`CheckErrorKind::TypeValueError`]
 /// Caused by: passing a value of the wrong type to a function.
 /// Outcome: block accepted.
@@ -824,7 +945,7 @@ fn check_error_kind_union_type_value_error_ccall() {
                 (foo .contract-1))",
         function_name: "trigger-runtime-error",
         function_args: &[],
-        deploy_epochs: &StacksEpochId::ALL[11..], // Epochs 3.3 and later
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch33),
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
         setup_contracts: &[contract_1],
     );
@@ -961,7 +1082,7 @@ fn check_error_kind_expected_contract_principal_value_ccall() {
                     true))"#,
         function_name: "trigger-error",
         function_args: &[],
-        deploy_epochs: &StacksEpochId::ALL[11..], // Epochs 3.3 and later
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch33),
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
     );
 }
@@ -1061,7 +1182,7 @@ fn check_error_kind_could_not_determine_type_ccall() {
         function_name: "trigger-error",
         function_args: &[],
         deploy_epochs: &[StacksEpochId::Epoch23],
-        call_epochs: &StacksEpochId::ALL[6..], // Epochs 2.4 and later
+        call_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity3, ClarityVersion::Clarity4],
         setup_contracts: &[trait_contract, trait_impl],
     );
