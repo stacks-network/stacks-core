@@ -259,9 +259,7 @@ fn collect_epoch2_entries(
             .unwrap_or_else(|e| {
                 panic!("Failed to open staging blocks DB at {staging_blocks_db_path}: {e}");
             });
-    let sql = format!(
-        "SELECT index_block_hash, consensus_hash, anchored_block_hash, height FROM staging_blocks {clause}"
-    );
+    let sql = format!("SELECT index_block_hash FROM staging_blocks {clause}");
     let mut stmt = conn.prepare(&sql).unwrap_or_else(|e| {
         panic!("Failed to prepare query over staging_blocks: {e}");
     });
@@ -299,7 +297,7 @@ fn collect_nakamoto_entries(
         return true;
     }
 
-    let sql = format!("SELECT index_block_hash, height FROM nakamoto_staging_blocks {clause}");
+    let sql = format!("SELECT index_block_hash FROM nakamoto_staging_blocks {clause}");
     let conn = chainstate.nakamoto_blocks_db();
     let mut stmt = conn.prepare(&sql).unwrap_or_else(|e| {
         panic!("Failed to prepare query over nakamoto_staging_blocks: {e}");
