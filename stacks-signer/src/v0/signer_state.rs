@@ -48,9 +48,9 @@ use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClien
 use crate::signerdb::{BlockValidatedByReplaySet, SignerDb};
 
 /// This is the latest supported protocol version for this signer binary
-pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
+pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 2;
 /// The version at which global signer state activates
-pub static GLOBAL_SIGNER_STATE_ACTIVATION_VERSION: u64 = u64::MAX;
+pub static GLOBAL_SIGNER_STATE_ACTIVATION_VERSION: u64 = 2;
 
 /// Vec of pubkeys that should ignore checking for a bitcoin fork
 #[cfg(any(test, feature = "testing"))]
