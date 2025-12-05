@@ -2141,15 +2141,13 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         if let Some((bhh, trie_ram)) = self.data.uncommitted_writes.take() {
             trace!("Buffering block flush started.");
 
-            let buffer = if self.compress {
-                let mut compressed_buffer = Cursor::new(Vec::new());
-                trie_ram.dump_compressed(self, &mut compressed_buffer, &bhh)?;
-                compressed_buffer.into_inner()
+            let mut cursor = Cursor::new(Vec::new());
+            if self.compress {
+                trie_ram.dump_compressed(self, &mut cursor, &bhh)?;
             } else {
-                let mut buffer = Cursor::new(Vec::new());
-                trie_ram.dump(self, &mut buffer, &bhh)?;
-                buffer.into_inner()
-            };
+                trie_ram.dump(self, &mut cursor, &bhh)?;
+            }
+            let buffer = cursor.into_inner();
 
             trace!("Buffering block flush finished.");
             debug!("Flush: {} to {}", &bhh, flush_options);
