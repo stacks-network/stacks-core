@@ -17,4 +17,4 @@ RUN case ${TARGETPLATFORM} in \
 
 FROM alpine
 COPY --from=builder /out/* /bin/
-CMD ["/bin/stacks-signer", "run", "--config", "/signer-config.toml"]
+CMD ["/bin/stacks-signer run --config /signer-config.toml"]

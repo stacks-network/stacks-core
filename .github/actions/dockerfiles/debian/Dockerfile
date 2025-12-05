@@ -16,4 +16,4 @@ RUN case ${TARGETPLATFORM} in \
 
 FROM debian:stable-slim
 COPY --from=builder /out/* /bin/
-CMD ["/bin/stacks-node", "mainnet"]
+CMD ["/bin/stacks-node mainnet"]
