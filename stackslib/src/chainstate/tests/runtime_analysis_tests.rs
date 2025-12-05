@@ -57,14 +57,17 @@ fn variant_coverage_report(variant: CheckErrorKind) {
     use VariantCoverage::*;
 
     _ = match variant {
-        CostOverflow => todo!(),
+        CostOverflow => Unreachable_ExpectLike, // Should exceed u64
         CostBalanceExceeded(_, _) => Tested(vec![
             check_error_cost_balance_exceeded_cdeploy,
             check_error_cost_balance_exceeded_ccall
         ]),
-        MemoryBalanceExceeded(_, _)
-        | CostComputationFailed(_)
-        | ExecutionTimeExpired => todo!(),
+        MemoryBalanceExceeded(_, _) => Tested(vec![
+            check_error_memory_balance_exceeded_cdeploy,
+            check_error_memory_balance_exceeded_ccall
+        ]),
+        CostComputationFailed(_) => Unreachable_ExpectLike,
+        ExecutionTimeExpired => todo!(),
         ValueTooLarge => Tested(vec![
             check_error_kind_value_too_large_cdeploy,
             check_error_kind_value_too_large_ccall
@@ -74,47 +77,114 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             check_error_kind_type_signature_too_deep_cdeploy,
             check_error_kind_type_signature_too_deep_ccall
         ]),
-        | ExpectedName
-        | SupertypeTooLarge
-        | Expects(_)
-        | BadMatchOptionSyntax(_)
-        | BadMatchResponseSyntax(_)
-        | BadMatchInput(_) => todo!(),
+        ExpectedName => Unreachable_Functionally(
+            "Every place in the runtime where ExpectedName is raised comes from a direct
+            call to SymbolicExpression::match_atom() on the original AST node and the type
+            checker runs the same structure check during analysis."),
+        SupertypeTooLarge => Unreachable_Functionally(
+            "least_supertype checks already run in analysis, and runtime values are
+             sanitized to their declared signatures, so the VM never sees a pair of
+             values whose unified type wasn't accepted earlier."),
+        Expects(_) => Unreachable_ExpectLike,
+        BadMatchOptionSyntax(_) => Unreachable_Functionally(
+            "Both the analyzer and the runtime examine the exact same match AST slice.
+             The static pass invokes check_special_match_opt, which enforces the 3
+             argument structure and the some binding name before any code is accepted"),
+        BadMatchResponseSyntax(_) => Unreachable_Functionally(
+            "Both the analyzer and the runtime examine the exact same match AST slice.
+             The static pass invokes check_special_match_resp, which enforces the 4
+             argument structure and the ok and err binding names before any code is accepted."),
+        BadMatchInput(_) => Unreachable_Functionally(
+            "Both the analyzer and the runtime examine the exact same match AST slice.
+             The static pass invokes check_special_match, which enforces the 2 argument
+             structure and the input type before any code is accepted."),
         ListTypesMustMatch => Tested(vec![check_error_kind_list_types_must_match_cdeploy]),
         TypeError(_, _) => todo!(),
         TypeValueError(_, _) => Tested(vec![
             check_error_kind_type_value_error_cdeploy,
             check_error_kind_type_value_error_ccall
         ]),
-        InvalidTypeDescription
-        | UnknownTypeName(_)
-        | UnionTypeError(_, _) => todo!(),
+        InvalidTypeDescription => Unreachable_Functionally(
+            "Every invalid type literal is parsed both by the analyzer and by the runtime.
+             Both paths invoke the same TypeSignature::parse_* helpers, so analysis
+             always fails before initialization can trigger it."),
+        UnknownTypeName(_) => Unreachable_Functionally(
+            "Static analysis catches invalid types via `TypeSignature::parse_atom_type`."),
+        UnionTypeError(_, _) => Unreachable_Functionally(
+            "The analyzer enforces that every call to `bit-shift-left` / `bit-shift-right`
+             supplies an argument whose type is exactly `int` or `uint` (see
+             `NativeFunctions::BitwiseLShift|BitwiseRShift` using
+             `FunctionArgSignature::Union(IntType, UIntType)` and the
+             `TypeSignature::admits_type` checks in `type_checker::check_function_arg_signature`)"),
         UnionTypeValueError(_, _) => Tested(vec![
             check_error_kind_union_type_value_error_cdeploy,
             check_error_kind_union_type_value_error_ccall
         ]),
-        | ExpectedOptionalValue(_)
-        | ExpectedResponseValue(_)
-        | ExpectedOptionalOrResponseValue(_)=> todo!(),
+        ExpectedOptionalValue(_) => Unreachable_Functionally(
+            "Every optional primitive (`is-some`, `default-to`, `unwrap!`, etc.)
+             has a dedicated analysis hook (`check_special_is_optional`,
+             `check_special_default_to`, `inner_unwrap`, …) that enforces the optional
+             type before a contract can be published, so the runtime never sees a plain
+             `Value` arrive at `native_default_to` / `is_some`."),
+        ExpectedResponseValue(_) => Unreachable_Functionally(
+            "Response helpers are validated by `check_special_is_response` and `inner_unwrap_err`
+            during static analysis, preventing a non-response from reaching the runtime handlers"),
+        ExpectedOptionalOrResponseValue(_) => Unreachable_Functionally(
+            "The mixed helpers (`match`, `try!`, `unwrap!`, `unwrap-err!`) ultimately
+             delegate to `check_special_match` and `inner_unwrap` in the analyzer, which enforces
+             that the argument is either an optional or a response before the code is accepted.
+             There is no runtime path where a plain value reaches `native_try_ret` or the
+             option/response matchers"),
         ExpectedContractPrincipalValue(_) => Tested(vec![
             check_error_kind_expected_contract_principal_value_cdeploy,
             check_error_kind_expected_contract_principal_value_ccall
         ]),
         CouldNotDetermineType => Tested(vec![check_error_kind_could_not_determine_type_ccall]),
-        BadTokenName
-        | NoSuchNFT(_)
-        | NoSuchFT(_)
-        | BadTransferSTXArguments
-        | BadTransferFTArguments
-        | BadTransferNFTArguments
-        | BadMintFTArguments
-        | BadBurnFTArguments
-        | ExpectedTuple(_) => todo!(),
-        NoSuchTupleField(_, _) | DefineFunctionBadSignature | BadFunctionName | PublicFunctionMustReturnResponse(_) => Unreachable_Functionally("On contract deploy checked during static analysis."),
-        EmptyTuplesNotAllowed | NoSuchMap(_) => Unreachable_Functionally("On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)"),
-        NoSuchDataVariable(_) => Unreachable_Functionally("On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)"),
+        BadTokenName => Unreachable_Functionally(
+            "Asset natives call `match_atom()` on their token arg during analysis."),
+        NoSuchNFT(_) => Unreachable_Functionally(
+            "Analysis uses contract_context.get_nft_type during every nft-* checker,
+             so a reference to an undefined NFT aborts before initialization"),
+        NoSuchFT(_) => Unreachable_Functionally(
+            "ft-* analyzers call contract_context.ft_exists, preventing undefined
+             fungible tokens from ever reaching the runtime handlers."),
+        BadTransferSTXArguments => Unreachable_Functionally(
+            "The analyzer routes all `stx-transfer?`, `stx-transfer-memo?`, and `stx-burn?`
+             calls through `check_special_stx_transfer` / `check_special_stx_burn`
+             which demand a `(uint, principal, principal)` signature before a contract
+             can be published. Because the runtime caches only sanitized values,
+             `special_stx_transfer` never receives a malformed value at runtime."),
+        BadTransferFTArguments => Unreachable_Functionally(
+            "`check_special_transfer_token` enforces the `(uint, principal, principal)`
+            argument contract for every FT transfer during analysis, so `special_transfer_token`
+            never sees a mismatched set of values at runtime."),
+        BadTransferNFTArguments => Unreachable_Functionally(
+            "`check_special_transfer_asset` ensures that the NFT
+            identifier plus `(principal, principal)` pair have the right types,
+            preventing `special_transfer_asset` from failing at runtime."),
+        BadMintFTArguments => Unreachable_Functionally(
+            "`check_special_mint_token` requires a `(uint, principal)`
+             argument tuple for fungible minting before deployment, so the runtime
+             never raises `BadMintFTArguments`"),
+        BadBurnFTArguments => Unreachable_Functionally(
+            "`check_special_burn_token` enforces `(uint, principal)`
+             during static analysis, making the runtime variant unobservable."),
+        ExpectedTuple(_) => Unreachable_Functionally(
+            "`check_special_get`/`check_special_merge` ensure every
+             `(get …)`/`(merge …)` argument is statically typed as a tuple (or
+             option wrapping a tuple), so `tuple_get` / `tuple_merge` never see
+             a non-tuple at runtime"),
+        NoSuchTupleField(_, _) => Unreachable_Functionally(
+            "`check_special_get` verifies tuple field existence for every `(get …)`
+             during static analysis, so `tuple_get` never receives a missing field"),
+        DefineFunctionBadSignature | BadFunctionName | PublicFunctionMustReturnResponse(_) => Unreachable_Functionally(
+            "On contract deploy checked during static analysis."),
+        EmptyTuplesNotAllowed | NoSuchMap(_) => Unreachable_Functionally(
+            "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)"),
+        NoSuchDataVariable(_) => Unreachable_Functionally(
+            "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)"),
         ReturnTypesMustMatch(_, _) => Tested(vec![check_error_kind_return_types_must_match_ccall]),
-        CircularReference(_) => Tested(vec![check_error_kind_circular_reference_ccall]),
+        CircularReference(_) => Tested(vec![check_error_kind_circular_reference_ccall]), // Possible only during contract call. On contract deploy checked during parsing.
         NoSuchContract(_) => Tested(vec![check_error_kind_no_such_contract_ccall]),
         NoSuchPublicFunction(_, _) => Tested(vec![check_error_kind_no_such_public_function_ccall]),
         PublicFunctionNotReadOnly(_, _) => Unreachable_Functionally("Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped."),
