@@ -2226,3 +2226,114 @@ fn test_marf_unconfirmed() {
     .unwrap_err();
     assert!(matches!(e, Error::NotFoundError));
 }
+
+#[test]
+fn test_marf_commit_to_same_block_hash() {
+    let sentinel: StacksBlockId = StacksBlockId::sentinel();
+    let block_0 = StacksBlockId::from_bytes(&[0u8; 32]).unwrap();
+
+    let marf_opts = MARFOpenOpts::default();
+    let mut marf: MARF<StacksBlockId> = MARF::from_path(":memory:", marf_opts).unwrap();
+
+    marf.begin(&sentinel, &block_0).unwrap();
+    marf.insert("key1", MARFValue::from_value("value2"))
+        .unwrap();
+    marf.seal().unwrap();
+
+    marf.with_conn(|conn| {
+        let (cur_block, cur_opt_id) = conn.get_cur_block_and_id();
+        // Before the commit the `TrieStorageConnection` knows just the next_chain_tip block
+        assert_eq!(block_0, cur_block, "Current block before commit");
+        assert_eq!(None, cur_opt_id, "Current id before commit");
+    });
+
+    // ensure that before a commit open chain tip is properly set
+    assert_eq!(
+        Some(&block_0),
+        marf.get_open_chain_tip(),
+        "Open tip block before commit"
+    );
+    assert_eq!(
+        Some(0),
+        marf.get_open_chain_tip_height(),
+        "Open tip block height before commit"
+    );
+
+    // commit to the same block used in begin as next_chain_tip
+    marf.commit_to(&block_0).unwrap();
+
+    marf.with_conn(|conn| {
+        let (cur_block, cur_opt_id) = conn.get_cur_block_and_id();
+        // After the commit the `TrieStorageConnection` must knows both block and id (related to the block specified in `commit_to`)
+        assert_eq!(block_0, cur_block, "Current block after commit");
+        assert_eq!(Some(1), cur_opt_id, "Current id after commit");
+    });
+
+    // ensure that after a commit open chain tip gets reset
+    assert_eq!(
+        None,
+        marf.get_open_chain_tip(),
+        "Open tip block after commit"
+    );
+    assert_eq!(
+        None,
+        marf.get_open_chain_tip_height(),
+        "Open tip block height after commit"
+    );
+}
+
+#[test]
+fn test_marf_commit_to_other_block_hash() {
+    let sentinel: StacksBlockId = StacksBlockId::sentinel();
+    let block_0 = StacksBlockId::from_bytes(&[0u8; 32]).unwrap();
+    let block_1 = StacksBlockId::from_bytes(&[1u8; 32]).unwrap();
+
+    let marf_opts = MARFOpenOpts::default();
+    let mut marf: MARF<StacksBlockId> = MARF::from_path(":memory:", marf_opts).unwrap();
+
+    marf.begin(&sentinel, &block_0).unwrap();
+    marf.insert("key1", MARFValue::from_value("value2"))
+        .unwrap();
+    marf.seal().unwrap();
+
+    marf.with_conn(|conn| {
+        let (cur_block, cur_opt_id) = conn.get_cur_block_and_id();
+        // Before the commit the `TrieStorageConnection` knows just the next_chain_tip block
+        assert_eq!(block_0, cur_block, "Current block before commit");
+        assert_eq!(None, cur_opt_id, "Current id before commit");
+    });
+
+    // ensure that before a commit open chain tip is properly set
+    assert_eq!(
+        Some(&block_0),
+        marf.get_open_chain_tip(),
+        "Open tip block before commit"
+    );
+    assert_eq!(
+        Some(0),
+        marf.get_open_chain_tip_height(),
+        "Open tip block height before commit"
+    );
+
+    // commit to the same block used in begin as next_chain_tip
+    marf.commit_to(&block_1).unwrap();
+
+    marf.with_conn(|conn| {
+        let (cur_block, cur_opt_id) = conn.get_cur_block_and_id();
+        // After the commit the `TrieStorageConnection` must knows both block and id (related to the block specified in `commit_to`)
+        assert_eq!(block_1, cur_block, "Current block after commit");
+        assert_eq!(Some(1), cur_opt_id, "Current id after commit");
+    });
+
+    // ensure that after a commit open chain tip gets reset
+    assert_eq!(
+        None,
+        marf.get_open_chain_tip(),
+        "Open tip block after commit"
+    );
+    assert_eq!(
+        None,
+        marf.get_open_chain_tip_height(),
+        "Open tip block height after commit"
+    );
+}
