@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -125,7 +124,7 @@ enum BlockSource {
 
 #[derive(Clone)]
 struct BlockScanEntry {
-    index_block_hash: String,
+    index_block_hash: StacksBlockId,
     source: BlockSource,
 }
 
@@ -217,21 +216,19 @@ fn collect_block_entries_for_selection(
     selection: &BlockSelection,
     chainstate: &StacksChainState,
 ) -> Vec<BlockScanEntry> {
-    let mut seen = HashSet::new();
     let mut entries = Vec::new();
     let clause = selection.clause();
 
     match selection {
         BlockSelection::Last(limit) => {
-            if collect_nakamoto_entries(&mut entries, &mut seen, &clause, chainstate, Some(*limit))
-            {
+            if collect_nakamoto_entries(&mut entries, &clause, chainstate, Some(*limit)) {
                 return entries;
             }
-            collect_epoch2_entries(&mut entries, &mut seen, &clause, db_path, Some(*limit));
+            collect_epoch2_entries(&mut entries, &clause, db_path, Some(*limit));
         }
         _ => {
-            collect_epoch2_entries(&mut entries, &mut seen, &clause, db_path, None);
-            collect_nakamoto_entries(&mut entries, &mut seen, &clause, chainstate, None);
+            collect_epoch2_entries(&mut entries, &clause, db_path, None);
+            collect_nakamoto_entries(&mut entries, &clause, chainstate, None);
         }
     }
 
@@ -244,7 +241,6 @@ fn limit_reached(limit: Option<u64>, current: usize) -> bool {
 
 fn collect_epoch2_entries(
     entries: &mut Vec<BlockScanEntry>,
-    seen: &mut HashSet<String>,
     clause: &str,
     db_path: &str,
     limit: Option<u64>,
@@ -269,10 +265,7 @@ fn collect_epoch2_entries(
     while let Some(row) = rows.next().unwrap_or_else(|e| {
         panic!("Failed to read staging block row: {e}");
     }) {
-        let index_block_hash: String = row.get(0).unwrap();
-        if !seen.insert(index_block_hash.clone()) {
-            panic!("Duplicate block found: {index_block_hash}");
-        }
+        let index_block_hash: StacksBlockId = row.get(0).unwrap();
         entries.push(BlockScanEntry {
             index_block_hash,
             source: BlockSource::Epoch2,
@@ -288,7 +281,6 @@ fn collect_epoch2_entries(
 
 fn collect_nakamoto_entries(
     entries: &mut Vec<BlockScanEntry>,
-    seen: &mut HashSet<String>,
     clause: &str,
     chainstate: &StacksChainState,
     limit: Option<u64>,
@@ -308,10 +300,7 @@ fn collect_nakamoto_entries(
     while let Some(row) = rows.next().unwrap_or_else(|e| {
         panic!("Failed to read Nakamoto staging block row: {e}");
     }) {
-        let index_block_hash: String = row.get(0).unwrap();
-        if !seen.insert(index_block_hash.clone()) {
-            panic!("Duplicate block found: {index_block_hash}");
-        }
+        let index_block_hash: StacksBlockId = row.get(0).unwrap();
         entries.push(BlockScanEntry {
             index_block_hash,
             source: BlockSource::Nakamoto,
@@ -729,7 +718,7 @@ pub fn command_contract_hash(argv: &[String], _conf: Option<&Config>) {
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
 fn replay_staging_block(
     db_path: &str,
-    index_block_hash_hex: &str,
+    block_id: &StacksBlockId,
     conf: Option<&Config>,
 ) -> Result<(), String> {
     let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
@@ -758,8 +747,6 @@ fn replay_staging_block(
     )
     .map_err(|e| format!("Failed to open sortition DB at {sort_db_path}: {e:?}"))?;
 
-    let block_id = StacksBlockId::from_hex(index_block_hash_hex)
-        .map_err(|e| format!("Invalid block hash {index_block_hash_hex}: {e}"))?;
     let sort_tx = sortdb.tx_begin_at_tip();
 
     let blocks_path = chainstate.blocks_path.clone();
@@ -767,7 +754,7 @@ fn replay_staging_block(
         .chainstate_tx_begin()
         .map_err(|e| format!("{e:?}"))?;
     let mut next_staging_block =
-        StacksChainState::load_staging_block_info(&chainstate_tx.tx, &block_id)
+        StacksChainState::load_staging_block_info(&chainstate_tx.tx, block_id)
             .map_err(|e| format!("Failed to load staging block info: {e:?}"))?
             .ok_or_else(|| "No such index block hash in block database".to_string())?;
 
@@ -795,7 +782,7 @@ fn replay_staging_block(
         &parent_header_info,
         &next_staging_block.parent_microblock_hash,
         next_staging_block.parent_microblock_seq,
-        &block_id,
+        block_id,
         &block,
         block_size,
         &next_staging_block.consensus_hash,
@@ -1017,7 +1004,7 @@ fn replay_block(
 /// Fetch and process a NakamotoBlock from database and call `replay_block_nakamoto()` to validate
 fn replay_naka_staging_block(
     db_path: &str,
-    index_block_hash_hex: &str,
+    block_id: &StacksBlockId,
     conf: Option<&Config>,
 ) -> Result<(), String> {
     let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
@@ -1046,11 +1033,9 @@ fn replay_naka_staging_block(
     )
     .map_err(|e| format!("Failed to open sortition DB: {e:?}"))?;
 
-    let block_id = StacksBlockId::from_hex(index_block_hash_hex)
-        .map_err(|e| format!("Invalid block hash {index_block_hash_hex}: {e}"))?;
     let (block, block_size) = chainstate
         .nakamoto_blocks_db()
-        .get_nakamoto_block(&block_id)
+        .get_nakamoto_block(block_id)
         .map_err(|e| format!("Failed to load Nakamoto block: {e:?}"))?
         .ok_or_else(|| "No block data found".to_string())?;
 
