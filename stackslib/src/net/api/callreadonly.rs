@@ -14,22 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::errors::VmExecutionError::Unchecked;
+use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
+use clarity::vm::{ClarityName, ContractName, Environment, EventHook, SymbolicExpression, Value};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
-    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
-    HttpResponsePreamble,
+    HttpRequestPreamble, HttpRequestTimeout, HttpResponse, HttpResponseContents,
+    HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
     request, HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest,
@@ -46,6 +50,13 @@ pub struct CallReadOnlyRequestBody {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CallReadOnlyEvent {
+    pub sender: String,
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallReadOnlyResponse {
     pub okay: bool,
     #[serde(default)]
@@ -54,6 +65,25 @@ pub struct CallReadOnlyResponse {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events: Option<Vec<CallReadOnlyEvent>>,
+}
+
+#[derive(Clone)]
+struct RPCCallReadOnlyEventHook {
+    events: Vec<StacksTransactionEvent>,
+}
+
+impl EventHook for RPCCallReadOnlyEventHook {
+    fn on_event(&mut self, event: &StacksTransactionEvent) {
+        self.events.push(event.clone());
+    }
+}
+
+impl RPCCallReadOnlyEventHook {
+    fn new() -> Self {
+        Self { events: vec![] }
+    }
 }
 
 #[derive(Clone)]
@@ -80,6 +110,186 @@ impl RPCCallReadOnlyRequestHandler {
             sponsor: None,
             arguments: None,
         }
+    }
+
+    pub fn execute_contract_function<F>(
+        &mut self,
+        preamble: HttpRequestPreamble,
+        contents: HttpRequestContents,
+        node: &mut StacksNodeState,
+        override_cost_tracker: Option<LimitedCostTracker>,
+        to_do: F,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError>
+    where
+        F: FnOnce(&mut Environment),
+    {
+        let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
+            Ok(tip) => tip,
+            Err(error_resp) => {
+                return error_resp.try_into_contents().map_err(NetError::from);
+            }
+        };
+
+        let contract_identifier = self
+            .contract_identifier
+            .take()
+            .ok_or(NetError::SendError("Missing `contract_identifier`".into()))?;
+        let function = self
+            .function
+            .take()
+            .ok_or(NetError::SendError("Missing `function`".into()))?;
+        let sender = self
+            .sender
+            .take()
+            .ok_or(NetError::SendError("Missing `sender`".into()))?;
+        let sponsor = self.sponsor.clone();
+        let arguments = self
+            .arguments
+            .take()
+            .ok_or(NetError::SendError("Missing `arguments`".into()))?;
+
+        let event_hook = Rc::new(RefCell::new(RPCCallReadOnlyEventHook::new()));
+
+        // run the read-only call
+        let data_resp =
+            node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
+                let args: Vec<_> = arguments
+                    .iter()
+                    .map(|x| SymbolicExpression::atom_value(x.clone()))
+                    .collect();
+
+                let mainnet = chainstate.mainnet;
+                let chain_id = chainstate.chain_id;
+                let mut cost_limit = self.read_only_call_limit.clone();
+                cost_limit.write_length = 0;
+                cost_limit.write_count = 0;
+
+                chainstate.maybe_read_only_clarity_tx(
+                    &sortdb.index_handle_at_block(chainstate, &tip)?,
+                    &tip,
+                    |clarity_tx| {
+                        let epoch = clarity_tx.get_epoch();
+                        let cost_track = clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                            if let Some(cost_tracker) = override_cost_tracker {
+                                Ok(cost_tracker)
+                            } else {
+                                LimitedCostTracker::new_mid_block(
+                                    mainnet, chain_id, cost_limit, clarity_db, epoch,
+                                )
+                            }
+                        })?;
+
+                        clarity_tx.with_readonly_clarity_env(
+                            mainnet,
+                            chain_id,
+                            sender,
+                            sponsor,
+                            cost_track,
+                            |env| {
+                                let event_hook_clone = Rc::clone(&event_hook);
+
+                                env.global_context.event_hooks = Some(vec![event_hook_clone]);
+
+                                to_do(env);
+
+                                // we want to execute any function as long as no actual writes are made as
+                                // opposed to be limited to purely calling `define-read-only` functions,
+                                // so use `read_only = false`.  This broadens the number of functions that
+                                // can be called, and also circumvents limitations on `define-read-only`
+                                // functions that can not use `contrac-call?`, even when calling other
+                                // read-only functions
+                                env.execute_contract(
+                                    &contract_identifier,
+                                    function.as_str(),
+                                    &args,
+                                    false,
+                                )
+                            },
+                        )
+                    },
+                )
+            });
+
+        let events = {
+            let events: Vec<CallReadOnlyEvent> = event_hook
+                .borrow()
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    StacksTransactionEvent::SmartContractEvent(event_data) => {
+                        if let Ok(event_hex) = event_data.value.serialize_to_hex() {
+                            Some(CallReadOnlyEvent {
+                                sender: event_data.key.0.to_string(),
+                                key: event_data.key.1.clone(),
+                                value: event_hex,
+                            })
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                })
+                .collect();
+            if events.is_empty() {
+                None
+            } else {
+                Some(events)
+            }
+        };
+
+        // decode the response
+        let data_resp = match data_resp {
+            Ok(Some(Ok(data))) => {
+                let hex_result = data
+                    .serialize_to_hex()
+                    .map_err(|e| NetError::SerializeError(format!("{:?}", &e)))?;
+
+                CallReadOnlyResponse {
+                    okay: true,
+                    result: Some(format!("0x{}", hex_result)),
+                    cause: None,
+                    events,
+                }
+            }
+            Ok(Some(Err(e))) => match e {
+                Unchecked(CheckErrorKind::CostBalanceExceeded(actual_cost, _))
+                    if actual_cost.write_count > 0 =>
+                {
+                    CallReadOnlyResponse {
+                        okay: false,
+                        result: None,
+                        cause: Some("NotReadOnly".to_string()),
+                        events: None,
+                    }
+                }
+                Unchecked(CheckErrorKind::ExecutionTimeExpired) => {
+                    return StacksHttpResponse::new_error(
+                        &preamble,
+                        &HttpRequestTimeout::new("ExecutionTime expired".to_string()),
+                    )
+                    .try_into_contents()
+                    .map_err(NetError::from)
+                }
+                _ => CallReadOnlyResponse {
+                    okay: false,
+                    result: None,
+                    cause: Some(e.to_string()),
+                    events: None,
+                },
+            },
+            Ok(None) | Err(_) => {
+                return StacksHttpResponse::new_error(
+                    &preamble,
+                    &HttpNotFound::new("Chain tip not found".to_string()),
+                )
+                .try_into_contents()
+                .map_err(NetError::from);
+            }
+        };
+
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
+        let body = HttpResponseContents::try_from_json(&data_resp)?;
+        Ok((preamble, body))
     }
 }
 
@@ -176,123 +386,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
         contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
-            Ok(tip) => tip,
-            Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
-            }
-        };
-
-        let contract_identifier = self
-            .contract_identifier
-            .take()
-            .ok_or(NetError::SendError("Missing `contract_identifier`".into()))?;
-        let function = self
-            .function
-            .take()
-            .ok_or(NetError::SendError("Missing `function`".into()))?;
-        let sender = self
-            .sender
-            .take()
-            .ok_or(NetError::SendError("Missing `sender`".into()))?;
-        let sponsor = self.sponsor.clone();
-        let arguments = self
-            .arguments
-            .take()
-            .ok_or(NetError::SendError("Missing `arguments`".into()))?;
-
-        // run the read-only call
-        let data_resp =
-            node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-                let args: Vec<_> = arguments
-                    .iter()
-                    .map(|x| SymbolicExpression::atom_value(x.clone()))
-                    .collect();
-
-                let mainnet = chainstate.mainnet;
-                let chain_id = chainstate.chain_id;
-                let mut cost_limit = self.read_only_call_limit.clone();
-                cost_limit.write_length = 0;
-                cost_limit.write_count = 0;
-
-                chainstate.maybe_read_only_clarity_tx(
-                    &sortdb.index_handle_at_block(chainstate, &tip)?,
-                    &tip,
-                    |clarity_tx| {
-                        let epoch = clarity_tx.get_epoch();
-                        let cost_track = clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                            LimitedCostTracker::new_mid_block(
-                                mainnet, chain_id, cost_limit, clarity_db, epoch,
-                            )
-                        })?;
-
-                        clarity_tx.with_readonly_clarity_env(
-                            mainnet,
-                            chain_id,
-                            sender,
-                            sponsor,
-                            cost_track,
-                            |env| {
-                                // we want to execute any function as long as no actual writes are made as
-                                // opposed to be limited to purely calling `define-read-only` functions,
-                                // so use `read_only = false`.  This broadens the number of functions that
-                                // can be called, and also circumvents limitations on `define-read-only`
-                                // functions that can not use `contrac-call?`, even when calling other
-                                // read-only functions
-                                env.execute_contract(
-                                    &contract_identifier,
-                                    function.as_str(),
-                                    &args,
-                                    false,
-                                )
-                            },
-                        )
-                    },
-                )
-            });
-
-        // decode the response
-        let data_resp = match data_resp {
-            Ok(Some(Ok(data))) => {
-                let hex_result = data
-                    .serialize_to_hex()
-                    .map_err(|e| NetError::SerializeError(format!("{:?}", &e)))?;
-
-                CallReadOnlyResponse {
-                    okay: true,
-                    result: Some(format!("0x{}", hex_result)),
-                    cause: None,
-                }
-            }
-            Ok(Some(Err(e))) => match e {
-                Unchecked(CheckErrorKind::CostBalanceExceeded(actual_cost, _))
-                    if actual_cost.write_count > 0 =>
-                {
-                    CallReadOnlyResponse {
-                        okay: false,
-                        result: None,
-                        cause: Some("NotReadOnly".to_string()),
-                    }
-                }
-                _ => CallReadOnlyResponse {
-                    okay: false,
-                    result: None,
-                    cause: Some(e.to_string()),
-                },
-            },
-            Ok(None) | Err(_) => {
-                return StacksHttpResponse::new_error(
-                    &preamble,
-                    &HttpNotFound::new("Chain tip not found".to_string()),
-                )
-                .try_into_contents()
-                .map_err(NetError::from);
-            }
-        };
-
-        let preamble = HttpResponsePreamble::ok_json(&preamble);
-        let body = HttpResponseContents::try_from_json(&data_resp)?;
-        Ok((preamble, body))
+        self.execute_contract_function(preamble, contents, node, None, |_| {})
     }
 }
 

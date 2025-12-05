@@ -160,6 +160,14 @@ const TEST_CONTRACT: &str = "
             max-neighbors: u32,
             hint-replicas: (list )
         }))
+
+    (define-read-only (printer)
+        (begin
+        (print 100)
+        (print u1000)
+        (print \"test\")
+        (print true)
+        (ok u1)))
 ";
 
 const TEST_CONTRACT_UNCONFIRMED: &str = "
