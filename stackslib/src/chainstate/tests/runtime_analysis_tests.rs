@@ -670,9 +670,10 @@ fn check_error_kind_type_signature_too_deep_ccall() {
 }
 
 /// CheckErrorKind: [`CheckErrorKind::TypeError`]
-/// Caused by: `at-block` evaluates an expression at a historical block where the contract's
-/// state doesn't exist yet (block 0). The result is `none` with no type info (`OptionalType(NoType)`),
-/// which then fails when compared with `uint` via `is-eq`.
+/// Caused by: `(at-block … (ok (var-get zero)))` returns `none` when evaluated at
+/// a block where the contract state doesn't exist yet. The code immediately feeds
+/// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
+/// runtime `TypeError(UIntType, OptionalType(NoType))`.
 /// Outcome: block accepted.
 #[test]
 fn check_error_kind_type_error_cdeploy() {
@@ -725,9 +726,10 @@ fn check_error_kind_type_error_cdeploy() {
 }
 
 /// CheckErrorKind: [`CheckErrorKind::TypeError`]
-/// Caused by: `at-block` evaluates an expression at a historical block where the contract's
-/// state doesn't exist yet (block 0). The result is `none` with no type info (`OptionalType(NoType)`),
-/// which then fails when compared with `uint` via `is-eq`.
+/// Caused by: `(at-block … (ok (var-get zero)))` returns `none` when evaluated at
+/// a block where the contract state doesn't exist yet. The code immediately feeds
+/// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
+/// runtime `TypeError(UIntType, OptionalType(NoType))`.
 /// Outcome: block accepted.
 #[test]
 fn check_error_kind_type_error_ccall() {
