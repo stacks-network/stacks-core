@@ -132,7 +132,6 @@ struct BlockScanEntry {
 enum BlockSelection {
     All,
     Prefix(String),
-    First(u64),
     Last(u64),
     HeightRange { start: u64, end: u64 },
     IndexRange { start: u64, end: u64 },
@@ -145,9 +144,6 @@ impl BlockSelection {
             BlockSelection::Prefix(prefix) => format!(
                 "WHERE orphaned = 0 AND index_block_hash LIKE '{prefix}%' ORDER BY height ASC",
             ),
-            BlockSelection::First(count) => {
-                format!("WHERE orphaned = 0 ORDER BY height ASC LIMIT {count}")
-            }
             BlockSelection::Last(count) => {
                 format!("WHERE orphaned = 0 ORDER BY height DESC LIMIT {count}")
             }
@@ -170,14 +166,6 @@ fn parse_block_selection(mode: Option<&str>, argv: &[String]) -> Result<BlockSel
                 .ok_or_else(|| "Missing <index-block-hash-prefix>".to_string())?
                 .clone();
             Ok(BlockSelection::Prefix(prefix))
-        }
-        Some("first") => {
-            let count = argv
-                .get(3)
-                .ok_or_else(|| "Missing <block-count>".to_string())?
-                .parse::<u64>()
-                .map_err(|_| "<block-count> must be a u64".to_string())?;
-            Ok(BlockSelection::First(count))
         }
         Some("last") => {
             let count = argv
@@ -233,6 +221,38 @@ fn collect_block_entries_for_selection(
     let mut entries = Vec::new();
     let clause = selection.clause();
 
+    match selection {
+        BlockSelection::Last(limit) => {
+            if collect_nakamoto_entries(&mut entries, &mut seen, &clause, chainstate, Some(*limit))
+            {
+                return entries;
+            }
+            collect_epoch2_entries(&mut entries, &mut seen, &clause, db_path, Some(*limit));
+        }
+        _ => {
+            collect_epoch2_entries(&mut entries, &mut seen, &clause, db_path, None);
+            collect_nakamoto_entries(&mut entries, &mut seen, &clause, chainstate, None);
+        }
+    }
+
+    entries
+}
+
+fn limit_reached(limit: Option<u64>, current: usize) -> bool {
+    limit.is_some_and(|max| current >= max as usize)
+}
+
+fn collect_epoch2_entries(
+    entries: &mut Vec<BlockScanEntry>,
+    seen: &mut HashSet<String>,
+    clause: &str,
+    db_path: &str,
+    limit: Option<u64>,
+) -> bool {
+    if limit_reached(limit, entries.len()) {
+        return true;
+    }
+
     let staging_blocks_db_path = format!("{db_path}/chainstate/vm/index.sqlite");
     let conn =
         Connection::open_with_flags(&staging_blocks_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -259,6 +279,24 @@ fn collect_block_entries_for_selection(
             index_block_hash,
             source: BlockSource::Epoch2,
         });
+
+        if limit_reached(limit, entries.len()) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn collect_nakamoto_entries(
+    entries: &mut Vec<BlockScanEntry>,
+    seen: &mut HashSet<String>,
+    clause: &str,
+    chainstate: &StacksChainState,
+    limit: Option<u64>,
+) -> bool {
+    if limit_reached(limit, entries.len()) {
+        return true;
     }
 
     let sql = format!("SELECT index_block_hash, height FROM nakamoto_staging_blocks {clause}");
@@ -280,9 +318,13 @@ fn collect_block_entries_for_selection(
             index_block_hash,
             source: BlockSource::Nakamoto,
         });
+
+        if limit_reached(limit, entries.len()) {
+            return true;
+        }
     }
 
-    entries
+    false
 }
 
 /// Replay blocks from chainstate database
@@ -298,7 +340,7 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
         eprintln!("  {n} <database-path> prefix <index-block-hash-prefix>");
         eprintln!("  {n} <database-path> index-range <start-block> <end-block>");
         eprintln!("  {n} <database-path> range <start-block> <end-block>");
-        eprintln!("  {n} <database-path> <first|last> <block-count>");
+        eprintln!("  {n} <database-path> <last> <block-count>");
         eprintln!("  {n} --early-exit ... # Exit on first error found");
         process::exit(1);
     };
