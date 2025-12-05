@@ -309,7 +309,7 @@ fn test_try_make_response() {
     // contract size metadata
     let response = responses.remove(0);
     let resp = response.decode_clarity_metadata_response().unwrap();
-    assert_eq!(resp.data, "1432");
+    assert_eq!(resp.data, "1584");
 
     // data map metadata
     let response = responses.remove(0);
@@ -352,7 +352,7 @@ fn test_try_make_response() {
     // contract size metadata
     let response = responses.remove(0);
     let resp = response.decode_clarity_metadata_response().unwrap();
-    assert_eq!(resp.data, "1432");
+    assert_eq!(resp.data, "1584");
 
     // unknwnon data var
     let response = responses.remove(0);
