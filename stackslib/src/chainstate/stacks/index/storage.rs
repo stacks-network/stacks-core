@@ -644,7 +644,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         assert_eq!(node_data_order.len(), offsets.len());
 
         // write parent block ptr
-        f.seek(SeekFrom::Start(0))?;
+        f.rewind()?;
         f.write_all(parent_hash.as_bytes())
             .map_err(Error::IOError)?;
 
@@ -686,7 +686,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         assert_eq!(node_data_order.len(), offsets.len());
 
         // write parent block ptr
-        f.seek(SeekFrom::Start(0))?;
+        f.rewind()?;
         f.write_all(parent_hash.as_bytes())
             .map_err(Error::IOError)?;
 
@@ -697,13 +697,13 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         for (ix, indirect) in node_data_order.iter().enumerate() {
             if let Some((hash_bytes, patch)) = indirect.hash_and_patch() {
-                let f_pos_before = f.seek(SeekFrom::Current(0))?;
+                let f_pos_before = f.stream_position()?;
                 f.write_all(hash_bytes)?;
                 patch.consensus_serialize(f).map_err(|e| {
                     Error::CorruptionError(format!("Failed to serialize patch: {e:?}"))
                 })?;
 
-                let f_pos_after = f.seek(SeekFrom::Current(0))?;
+                let f_pos_after = f.stream_position()?;
                 trace!(
                     "write {:?} {} at {}-{}",
                     &patch,
@@ -1268,7 +1268,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let mut frontier = VecDeque::new();
 
         // read parent
-        f.seek(SeekFrom::Start(0))?;
+        f.rewind()?;
         let parent_hash_bytes = read_hash_bytes(f)?;
         let parent_hash = T::from_bytes(parent_hash_bytes);
 

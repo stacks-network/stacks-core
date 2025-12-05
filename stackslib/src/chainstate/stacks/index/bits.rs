@@ -224,7 +224,7 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
     // NOTE: this may overshoot the length of the readable object, since this is the maximum possible size of the
     // concatenated ptr bytes.  As such, treat EOF as a non-error
     let ptrs_start_disk_ptr = r
-        .seek(SeekFrom::Current(0))
+        .stream_position()
         .inspect_err(|e| error!("Failed to ftell the read handle: {e:?}"))?;
 
     trace!(
@@ -534,7 +534,7 @@ pub fn read_block_identifier<F: Read + Seek>(f: &mut F) -> Result<u32, Error> {
         if e.kind() == ErrorKind::UnexpectedEof {
             Error::CorruptionError(format!(
                 "Failed to read hash in full from {}",
-                f.seek(SeekFrom::Current(0)).unwrap()
+                f.stream_position().unwrap()
             ))
         } else {
             eprintln!("failed: {:?}", &e);

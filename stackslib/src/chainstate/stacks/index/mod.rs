@@ -18,12 +18,12 @@ use std::hash::Hash;
 use std::{error, fmt, io};
 
 use sha2::{Digest, Sha512_256 as TrieHasher};
-
 #[cfg(test)]
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, SortitionId, StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE,
 };
+
 use crate::util_lib::db::Error as db_error;
 
 pub mod bits;
