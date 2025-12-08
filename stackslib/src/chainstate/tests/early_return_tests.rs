@@ -88,7 +88,7 @@ fn native_try_ret_err_ccall() {
     contract_call_consensus_test!(
         contract_name: "unwrap-err",
         contract_code: "
-            (define-read-only (trigger (resp (response uint uint)))
+            (define-public (trigger (resp (response uint uint)))
                 (begin
                     (try! resp)
                     (ok u1)
@@ -124,10 +124,17 @@ fn native_try_ret_none_ccall() {
     contract_call_consensus_test!(
         contract_name: "unwrap-try-opt",
         contract_code: "
-            (define-read-only (trigger (opt (optional bool)))
+            (define-read-only (trigger-ro (opt (optional bool)))
                 (begin
                     (try! opt)
                     (some true)
+                )
+            )
+            (define-public (trigger (opt (optional bool)))
+                (match (trigger-ro opt)
+                    value
+                    (ok u1)
+                    (err u404)
                 )
             )
         ",
@@ -190,7 +197,7 @@ fn native_unwrap_or_ret_none_ccall() {
     contract_call_consensus_test!(
         contract_name: "unwrap-opt",
         contract_code: "
-            (define-read-only (trigger (opt (optional bool)))
+            (define-public (trigger (opt (optional bool)))
                 (begin
                     (unwrap! opt (err false))
                     (ok true)
