@@ -1226,3 +1226,12 @@ fn test_eval_func_arg_panic() {
     let e: VmExecutionError = CheckErrorKind::ExpectedSequence(Box::new(IntType)).into();
     assert_eq!(e, execute(test5).unwrap_err());
 }
+
+#[test]
+fn test_expected_list_application() {
+    // append expects (list, element)
+    // first argument is NOT a list
+    let test1 = "(append u1 u2)";
+    let e: VmExecutionError = CheckErrorKind::ExpectedListApplication.into();
+    assert_eq!(e, execute(test1).unwrap_err());
+}

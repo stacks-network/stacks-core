@@ -516,6 +516,13 @@ impl SignerCoordinator {
             .get_tenure_extend_timestamp(self.weight_threshold)
     }
 
+    /// Get the timestamp at which at least 70% of the signing power should be
+    /// willing to accept a time-based read-count extension.
+    pub fn get_read_count_extend_timestamp(&self) -> u64 {
+        self.stackerdb_comms
+            .get_read_count_extend_timestamp(self.weight_threshold)
+    }
+
     /// Get the signer global state view if there is one
     pub fn get_signer_global_state(&self) -> Option<SignerStateMachine> {
         self.stackerdb_comms.get_signer_global_state()
