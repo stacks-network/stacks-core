@@ -10877,10 +10877,16 @@ pub mod test {
             }) => (),
             _ => panic!("expected successful call"),
         }
-        assert_eq!(
-            tx_receipt.vm_error,
-            Some("TraitReferenceUnknown(\"foo\")".to_string())
-        );
+        if cfg!(feature = "clarity-wasm") {
+            assert!(tx_receipt.vm_error.unwrap().contains(
+                "TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"foo\")"
+            ));
+        } else {
+            assert_eq!(
+                tx_receipt.vm_error,
+                Some("TraitReferenceUnknown(\"foo\")".to_string())
+            );
+        }
 
         conn.commit_block();
 
@@ -10939,10 +10945,16 @@ pub mod test {
             }) => (),
             _ => panic!("expected successful call"),
         }
-        assert_eq!(
-            tx_receipt.vm_error,
-            Some("TraitReferenceUnknown(\"foo\")".to_string())
-        );
+        if cfg!(feature = "clarity-wasm") {
+            assert!(tx_receipt.vm_error.unwrap().contains(
+                "TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"foo\")"
+            ))
+        } else {
+            assert_eq!(
+                tx_receipt.vm_error,
+                Some("TraitReferenceUnknown(\"foo\")".to_string())
+            );
+        }
 
         conn.commit_block();
 
