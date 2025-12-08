@@ -132,26 +132,6 @@ define_stacks_epochs! {
     Epoch33 = 0x03003,
 }
 
-impl StacksEpochId {
-    /// Return the network epoch associated with the StacksEpochId
-    pub fn network_epoch(epoch: StacksEpochId) -> u8 {
-        match epoch {
-            StacksEpochId::Epoch10 => PEER_VERSION_EPOCH_1_0,
-            StacksEpochId::Epoch20 => PEER_VERSION_EPOCH_2_0,
-            StacksEpochId::Epoch2_05 => PEER_VERSION_EPOCH_2_05,
-            StacksEpochId::Epoch21 => PEER_VERSION_EPOCH_2_1,
-            StacksEpochId::Epoch22 => PEER_VERSION_EPOCH_2_2,
-            StacksEpochId::Epoch23 => PEER_VERSION_EPOCH_2_3,
-            StacksEpochId::Epoch24 => PEER_VERSION_EPOCH_2_4,
-            StacksEpochId::Epoch25 => PEER_VERSION_EPOCH_2_5,
-            StacksEpochId::Epoch30 => PEER_VERSION_EPOCH_3_0,
-            StacksEpochId::Epoch31 => PEER_VERSION_EPOCH_3_1,
-            StacksEpochId::Epoch32 => PEER_VERSION_EPOCH_3_2,
-            StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_3,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum MempoolCollectionBehavior {
     ByStacksHeight,
@@ -878,6 +858,34 @@ impl StacksEpochId {
             | StacksEpochId::Epoch32 => false,
             StacksEpochId::Epoch33 => true,
         }
+    }
+
+    /// Return the network epoch associated with the StacksEpochId
+    pub fn network_epoch(epoch: StacksEpochId) -> u8 {
+        match epoch {
+            StacksEpochId::Epoch10 => PEER_VERSION_EPOCH_1_0,
+            StacksEpochId::Epoch20 => PEER_VERSION_EPOCH_2_0,
+            StacksEpochId::Epoch2_05 => PEER_VERSION_EPOCH_2_05,
+            StacksEpochId::Epoch21 => PEER_VERSION_EPOCH_2_1,
+            StacksEpochId::Epoch22 => PEER_VERSION_EPOCH_2_2,
+            StacksEpochId::Epoch23 => PEER_VERSION_EPOCH_2_3,
+            StacksEpochId::Epoch24 => PEER_VERSION_EPOCH_2_4,
+            StacksEpochId::Epoch25 => PEER_VERSION_EPOCH_2_5,
+            StacksEpochId::Epoch30 => PEER_VERSION_EPOCH_3_0,
+            StacksEpochId::Epoch31 => PEER_VERSION_EPOCH_3_1,
+            StacksEpochId::Epoch32 => PEER_VERSION_EPOCH_3_2,
+            StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_3,
+        }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn since(epoch: StacksEpochId) -> &'static [StacksEpochId] {
+        let idx = Self::ALL
+            .iter()
+            .position(|&e| e == epoch)
+            .expect("epoch not found in ALL");
+
+        &Self::ALL[idx..]
     }
 }
 

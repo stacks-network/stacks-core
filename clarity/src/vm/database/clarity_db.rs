@@ -944,6 +944,10 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn decrement_ustx_liquid_supply(&mut self, decr_by: u128) -> Result<(), VmExecutionError> {
         let current = self.get_total_liquid_ustx()?;
+        // This `ArithmeticUnderflow` is **unreachable** in normal Clarity execution.
+        // The sender's balance is always checked first (`amount <= sender_balance`),
+        // and `sender_balance <= current_supply` always holds.
+        // Thus, `decr_by > current_supply` cannot occur.
         let next = current.checked_sub(decr_by).ok_or_else(|| {
             error!("`stx-burn?` accepted that reduces `ustx-liquid-supply` below 0");
             RuntimeError::ArithmeticUnderflow
@@ -2091,6 +2095,10 @@ impl ClarityDatabase<'_> {
         })?;
 
         if amount > current_supply {
+            // `SupplyUnderflow` is **unreachable** in normal Clarity execution:
+            // the sender's balance is checked first (`amount <= sender_balance`),
+            // and `sender_balance <= current_supply` always holds.
+            // Thus, `amount > current_supply` cannot occur.
             return Err(RuntimeError::SupplyUnderflow(current_supply, amount).into());
         }
 
@@ -2410,4 +2418,143 @@ impl ClarityDatabase<'_> {
             .ok_or_else(|| VmInternalError::Expect("Failed to get block data.".into()))?;
         Ok(epoch.epoch_id)
     }
+}
+
+#[test]
+fn increment_ustx_liquid_supply_overflow() {
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::errors::{RuntimeError, VmExecutionError};
+
+    let mut store = MemoryBackingStore::new();
+    let mut db = store.as_clarity_db();
+
+    db.begin();
+    // Set the liquid supply to one less than the max
+    db.set_ustx_liquid_supply(u128::MAX - 1)
+        .expect("Failed to set liquid supply");
+    // Trust but verify.
+    assert_eq!(
+        db.get_total_liquid_ustx().unwrap(),
+        u128::MAX - 1,
+        "Supply should now be u128::MAX - 1"
+    );
+
+    db.increment_ustx_liquid_supply(1)
+        .expect("Increment by 1 should succeed");
+
+    // Trust but verify.
+    assert_eq!(
+        db.get_total_liquid_ustx().unwrap(),
+        u128::MAX,
+        "Supply should now be u128::MAX"
+    );
+
+    // Attempt to overflow
+    let err = db.increment_ustx_liquid_supply(1).unwrap_err();
+    assert!(matches!(
+        err,
+        VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
+    ));
+
+    // Verify adding 0 doesn't overflow
+    db.increment_ustx_liquid_supply(0)
+        .expect("Increment by 0 should succeed");
+
+    assert_eq!(db.get_total_liquid_ustx().unwrap(), u128::MAX);
+
+    db.commit().unwrap();
+}
+
+#[test]
+fn checked_decrease_token_supply_underflow() {
+    use crate::vm::database::{MemoryBackingStore, StoreType};
+    use crate::vm::errors::{RuntimeError, VmExecutionError};
+
+    let mut store = MemoryBackingStore::new();
+    let mut db = store.as_clarity_db();
+    let contract_id = QualifiedContractIdentifier::transient();
+    let token_name = "token".to_string();
+
+    db.begin();
+
+    // Set initial supply to 1000
+    let key =
+        ClarityDatabase::make_key_for_trip(&contract_id, StoreType::CirculatingSupply, &token_name);
+    db.put_data(&key, &1000u128)
+        .expect("Failed to set initial token supply");
+
+    // Trust but verify.
+    let current_supply: u128 = db.get_data(&key).unwrap().unwrap();
+    assert_eq!(current_supply, 1000, "Initial supply should be 1000");
+
+    // Decrease by 500: should succeed
+    db.checked_decrease_token_supply(&contract_id, &token_name, 500)
+        .expect("Decreasing by 500 should succeed");
+
+    let new_supply: u128 = db.get_data(&key).unwrap().unwrap();
+    assert_eq!(new_supply, 500, "Supply should now be 500");
+
+    // Decrease by 0: should succeed (no change)
+    db.checked_decrease_token_supply(&contract_id, &token_name, 0)
+        .expect("Decreasing by 0 should succeed");
+    let supply_after_zero: u128 = db.get_data(&key).unwrap().unwrap();
+    assert_eq!(
+        supply_after_zero, 500,
+        "Supply should remain 500 after decreasing by 0"
+    );
+
+    // Attempt to decrease by 501; should trigger SupplyUnderflow
+    let err = db
+        .checked_decrease_token_supply(&contract_id, &token_name, 501)
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            err,
+            VmExecutionError::Runtime(RuntimeError::SupplyUnderflow(500, 501), _)
+        ),
+        "Expected SupplyUnderflow(500, 501), got: {err:?}"
+    );
+
+    // Supply should remain unchanged after failed underflow
+    let final_supply: u128 = db.get_data(&key).unwrap().unwrap();
+    assert_eq!(
+        final_supply, 500,
+        "Supply should not change after underflow error"
+    );
+
+    db.commit().unwrap();
+}
+
+#[test]
+fn trigger_no_such_token_rust() {
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::errors::{RuntimeError, VmExecutionError};
+    // Set up a memory backing store and Clarity database
+    let mut store = MemoryBackingStore::default();
+    let mut db = store.as_clarity_db();
+
+    db.begin();
+    // Define a fake contract identifier
+    let contract_id = QualifiedContractIdentifier::transient();
+
+    // Simulate querying a non-existent NFT
+    let asset_id = Value::Bool(false); // this token does not exist
+    let asset_name = "test-nft";
+
+    // Call get_nft_owner directly
+    let err = db
+        .get_nft_owner(
+            &contract_id,
+            asset_name,
+            &asset_id,
+            &TypeSignature::BoolType,
+        )
+        .unwrap_err();
+
+    // Assert that it produces NoSuchToken
+    assert!(
+        matches!(err, VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)),
+        "Expected NoSuchToken. Got: {err}"
+    );
 }
