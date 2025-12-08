@@ -34,7 +34,7 @@ use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, Transac
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
 use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::net::api::blockreplay::{
-    BlockReplayProfilerResult, RPCReplayedBlock, RPCReplayedBlockTransaction,
+    remine_nakamoto_block, BlockReplayProfilerResult, RPCReplayedBlock, RPCReplayedBlockTransaction,
 };
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
@@ -49,6 +49,7 @@ pub struct RPCNakamotoBlockSimulateRequestHandler {
     pub block_id: Option<StacksBlockId>,
     pub auth: Option<String>,
     pub profiler: bool,
+    pub disable_fees: bool,
     pub transactions: Vec<StacksTransaction>,
 }
 
@@ -58,6 +59,7 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             block_id: None,
             auth,
             profiler: false,
+            disable_fees: false,
             transactions: vec![],
         }
     }
@@ -93,154 +95,16 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             return Err(ChainError::InvalidStacksBlock("block_id is None".into()));
         };
 
-        let Some((tenure_id, parent_block_id)) = chainstate
-            .nakamoto_blocks_db()
-            .get_tenure_and_parent_block_id(&block_id)?
-        else {
-            return Err(ChainError::NoSuchBlockError);
-        };
+        let rpc_simulated_block = remine_nakamoto_block(
+            block_id,
+            sortdb,
+            chainstate,
+            self.profiler,
+            self.disable_fees,
+            |_| self.transactions.clone(),
+        )?;
 
-        let staging_db_path = chainstate.get_nakamoto_staging_blocks_path()?;
-        let db_conn = StacksChainState::open_nakamoto_staging_blocks(&staging_db_path, false)?;
-        let rowid = db_conn
-            .conn()
-            .get_nakamoto_block_rowid(&block_id)?
-            .ok_or(ChainError::NoSuchBlockError)?;
-
-        let mut blob_fd = match db_conn.open_nakamoto_block(rowid, false).map_err(|e| {
-            let msg = format!("Failed to open Nakamoto block {}: {:?}", &block_id, &e);
-            warn!("{}", &msg);
-            msg
-        }) {
-            Ok(blob_fd) => blob_fd,
-            Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
-        };
-
-        let block = match NakamotoBlock::consensus_deserialize(&mut blob_fd).map_err(|e| {
-            let msg = format!("Failed to read Nakamoto block {}: {:?}", &block_id, &e);
-            warn!("{}", &msg);
-            msg
-        }) {
-            Ok(block) => block,
-            Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
-        };
-
-        let burn_dbconn = match sortdb.index_handle_at_block(chainstate, &parent_block_id) {
-            Ok(burn_dbconn) => burn_dbconn,
-            Err(_) => return Err(ChainError::NoSuchBlockError),
-        };
-
-        let tenure_change = block
-            .txs
-            .iter()
-            .find(|tx| matches!(tx.payload, TransactionPayload::TenureChange(..)));
-        let coinbase = block
-            .txs
-            .iter()
-            .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
-        let tenure_cause = tenure_change
-            .and_then(|tx| match &tx.payload {
-                TransactionPayload::TenureChange(tc) => Some(tc.into()),
-                _ => None,
-            })
-            .unwrap_or(MinerTenureInfoCause::NoTenureChange);
-
-        let parent_stacks_header_opt =
-            match NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id) {
-                Ok(parent_stacks_header_opt) => parent_stacks_header_opt,
-                Err(e) => return Err(e),
-            };
-
-        let Some(parent_stacks_header) = parent_stacks_header_opt else {
-            return Err(ChainError::InvalidStacksBlock(
-                "Invalid Parent Block".into(),
-            ));
-        };
-
-        let mut builder = match NakamotoBlockBuilder::new(
-            &parent_stacks_header,
-            &block.header.consensus_hash,
-            block.header.burn_spent,
-            tenure_change,
-            coinbase,
-            block.header.pox_treatment.len(),
-            None,
-            None,
-            Some(block.header.timestamp),
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
-        ) {
-            Ok(builder) => builder,
-            Err(e) => return Err(e),
-        };
-
-        let mut miner_tenure_info =
-            match builder.load_ephemeral_tenure_info(chainstate, &burn_dbconn, tenure_cause) {
-                Ok(miner_tenure_info) => miner_tenure_info,
-                Err(e) => return Err(e),
-            };
-
-        let burn_chain_height = miner_tenure_info.burn_tip_height;
-        let mut tenure_tx = match builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info) {
-            Ok(tenure_tx) => tenure_tx,
-            Err(e) => return Err(e),
-        };
-
-        tenure_tx.disable_fees();
-
-        let mut block_fees: u128 = 0;
-        let mut txs_receipts = vec![];
-
-        for (i, tx) in self.transactions.iter().enumerate() {
-            let tx_len = tx.tx_len();
-
-            let tx_result = builder.try_mine_tx_with_len(
-                &mut tenure_tx,
-                tx,
-                tx_len,
-                &BlockLimitFunction::NO_LIMIT_HIT,
-                None,
-            );
-
-            let err = match tx_result {
-                TransactionResult::Success(tx_result) => {
-                    txs_receipts.push(tx_result.receipt);
-                    Ok(())
-                }
-                TransactionResult::ProcessingError(e) => {
-                    Err(format!("Error processing tx {}: {}", i, e.error))
-                }
-                TransactionResult::Skipped(e) => Err(format!("Skipped tx {}: {}", i, e.error)),
-                TransactionResult::Problematic(e) => {
-                    Err(format!("Problematic tx {}: {}", i, e.error))
-                }
-            };
-            if let Err(reason) = err {
-                let txid = tx.txid();
-                return Err(ChainError::InvalidStacksTransaction(
-                    format!("Unable to simulate transaction {txid}: {reason}").into(),
-                    false,
-                ));
-            }
-
-            block_fees += tx.get_tx_fee() as u128;
-        }
-
-        let simulated_block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
-
-        tenure_tx.rollback_block();
-
-        let tx_merkle_root = block.header.tx_merkle_root.clone();
-
-        let mut rpc_replayed_block =
-            RPCReplayedBlock::from_block(&simulated_block, block_fees, tenure_id, parent_block_id);
-
-        for receipt in &txs_receipts {
-            let profiler_result = BlockReplayProfilerResult::default();
-            let transaction = RPCReplayedBlockTransaction::from_receipt(receipt, &profiler_result);
-            rpc_replayed_block.transactions.push(transaction);
-        }
-
-        Ok(rpc_replayed_block)
+        Ok(rpc_simulated_block)
     }
 }
 
@@ -296,7 +160,10 @@ impl HttpRequest for RPCNakamotoBlockSimulateRequestHandler {
                     if value == "1" {
                         self.profiler = true;
                     }
-                    break;
+                } else if key == "disable_fees" {
+                    if value == "1" {
+                        self.disable_fees = true;
+                    }
                 }
             }
         }
