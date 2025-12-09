@@ -374,19 +374,12 @@ fn test_try_make_response_with_unsuccessful_transaction() {
 
     assert_eq!(resp.transactions.len(), tip_block.receipts.len());
 
-    for tx_index in 0..resp.transactions.len() {
-        assert_eq!(
-            resp.transactions[tx_index].txid,
-            tip_block.receipts[tx_index].transaction.txid()
-        );
-        assert_eq!(
-            resp.transactions[tx_index].events.len(),
-            tip_block.receipts[tx_index].events.len()
-        );
-        assert_eq!(
-            resp.transactions[tx_index].result,
-            tip_block.receipts[tx_index].result
-        );
+    for (resp_tx, tip_tx) in resp.transactions.iter().zip(tip_block.receipts.iter()) {
+        assert_eq!(resp_tx.txid, tip_tx.transaction.txid());
+        assert_eq!(resp_tx.events.len(), tip_tx.events.len());
+        assert_eq!(resp_tx.result, tip_tx.result);
+        assert_eq!(resp_tx.result_hex, tip_tx.result);
+        assert!(!resp_tx.post_condition_aborted);
     }
 
     assert_eq!(

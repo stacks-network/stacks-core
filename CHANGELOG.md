@@ -5,13 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [3.3.0.0.2]
 
 ### Added
 
 - Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
 - Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
 - Added `--epoch <epoch_number>` flag to `clarity-cli` commands to specify the epoch context for evaluation.
+- Added miner support for generating read-count tenure extends
+  - Added `read_count_extend_cost_threshold` config option (in the miner config) which specifies the percentage of the block budget that must be used before attempting a time-based tenure extend. Defaults to 25%.
 
 ### Fixed
 

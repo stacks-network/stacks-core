@@ -65,6 +65,19 @@ pub struct StacksBlockEventData {
     pub parent_microblock_sequence: u16,
 }
 
+impl StacksTransactionReceipt {
+    pub fn size(&self) -> Option<u64> {
+        let mut out = 0u64;
+        for event in self.events.iter() {
+            if let StacksTransactionEvent::SmartContractEvent(event) = event {
+                out = out.saturating_add(event.value.size().ok()?.into());
+            }
+        }
+        out = out.saturating_add(self.result.size().ok()?.into());
+        Some(out)
+    }
+}
+
 impl From<StacksBlock> for StacksBlockEventData {
     fn from(block: StacksBlock) -> StacksBlockEventData {
         StacksBlockEventData {

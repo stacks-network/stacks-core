@@ -16,6 +16,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Read, Write};
+use std::sync::Arc;
 
 use regex::{Captures, Regex};
 use serde_json;
@@ -449,6 +450,8 @@ pub enum HttpRequestPayload {
     Empty,
     /// JSON body
     JSON(serde_json::Value),
+    /// Pre-serialized JSON body
+    JSONBytes(Arc<[u8]>),
     /// Bytes body
     Bytes(Vec<u8>),
     /// Text body
@@ -461,6 +464,7 @@ impl HttpRequestPayload {
         match self {
             Self::Empty => None,
             Self::JSON(..) => Some(HttpContentType::JSON),
+            Self::JSONBytes(..) => Some(HttpContentType::JSON),
             Self::Bytes(..) => Some(HttpContentType::Bytes),
             Self::Text(..) => Some(HttpContentType::Text),
         }
@@ -476,6 +480,7 @@ impl HttpRequestPayload {
                 let bytes = serde_json::to_vec(val)?;
                 Ok(bytes.len() as u32)
             }
+            Self::JSONBytes(ref val) => Ok(val.len() as u32),
             Self::Bytes(ref val) => Ok(val.len() as u32),
             Self::Text(ref val) => Ok(val.as_str().as_bytes().len() as u32),
         }
@@ -486,6 +491,7 @@ impl HttpRequestPayload {
         match self {
             Self::Empty => Ok(()),
             Self::JSON(ref value) => serde_json::to_writer(fd, value).map_err(Error::JsonError),
+            Self::JSONBytes(ref value) => fd.write_all(value.as_ref()).map_err(Error::WriteError),
             Self::Bytes(ref value) => fd.write_all(value).map_err(Error::WriteError),
             Self::Text(ref value) => fd.write_all(value.as_bytes()).map_err(Error::WriteError),
         }
@@ -542,6 +548,22 @@ impl HttpRequestContents {
     pub fn payload_json(mut self, value: serde_json::Value) -> Self {
         self.payload = HttpRequestPayload::JSON(value);
         self
+    }
+
+    /// chain constructor -- set the payload to a shared, pre-serialized JSON blob
+    pub fn payload_json_bytes(mut self, bytes: Arc<[u8]>) -> Self {
+        self.payload = HttpRequestPayload::JSONBytes(bytes);
+        self
+    }
+
+    /// chain constructor -- serialize a referenced JSON value once and reuse it
+    pub fn try_payload_json_ref(
+        mut self,
+        value: &serde_json::Value,
+    ) -> Result<Self, serde_json::Error> {
+        let bytes = serde_json::to_vec(value)?;
+        self.payload = HttpRequestPayload::JSONBytes(Arc::from(bytes));
+        Ok(self)
     }
 
     /// chain constructor -- set the payload to bytes

@@ -687,15 +687,17 @@ impl ConsensusChain<'_> {
                 .pre_epoch_begin(&mut chainstate, &burndb, true)
                 .unwrap();
             let (mut epoch_tx, _) = builder.epoch_begin(&burndb, &mut miner_epoch_info).unwrap();
+            let mut total_receipt_size = 0;
+
             // First mine the coinbase transaction
             builder
-                .try_mine_tx(&mut epoch_tx, &coinbase_tx, None)
+                .try_mine_tx(&mut epoch_tx, &coinbase_tx, None, &mut total_receipt_size)
                 .unwrap();
 
             // We attempt to mine each transaction to build the hash
             for tx in &test_block.transactions {
                 // NOTE: It is expected to fail when trying computing the marf for invalid block/transactions.
-                let _ = builder.try_mine_tx(&mut epoch_tx, tx, None);
+                let _ = builder.try_mine_tx(&mut epoch_tx, tx, None, &mut total_receipt_size);
             }
 
             let stacks_block = builder.mine_anchored_block(&mut epoch_tx);

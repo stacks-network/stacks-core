@@ -156,7 +156,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
 
         let mut block_fees: u128 = 0;
         let mut txs_receipts = vec![];
-
+        let mut total_receipts = 0u64;
         for (i, tx) in block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
@@ -166,6 +166,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
+                &mut total_receipts,
             );
             let err = match tx_result {
                 TransactionResult::Success(tx_result) => {
@@ -256,6 +257,11 @@ impl RPCReplayedBlockTransaction {
         };
 
         let txid = receipt.transaction.txid();
+        let mut serialized_result = vec![];
+        receipt
+            .result
+            .serialize_write(&mut serialized_result)
+            .expect("failed to serialize transaction result");
 
         Self {
             txid,

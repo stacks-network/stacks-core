@@ -80,6 +80,8 @@ pub enum Error {
     OldSchema(u64),
     /// Database is too old for epoch
     TooOldForEpoch,
+    /// Block height is out of range
+    BlockHeightOutOfRange,
     /// Other error
     Other(String),
 }
@@ -105,6 +107,7 @@ impl fmt::Display for Error {
             Error::TooOldForEpoch => {
                 write!(f, "Database is not compatible with current system epoch")
             }
+            Error::BlockHeightOutOfRange => write!(f, "Block height is out of range"),
             Error::Other(ref s) => fmt::Display::fmt(s, f),
         }
     }
@@ -129,6 +132,7 @@ impl error::Error for Error {
             Error::IndexError(ref e) => Some(e),
             Error::OldSchema(ref _s) => None,
             Error::TooOldForEpoch => None,
+            Error::BlockHeightOutOfRange => None,
             Error::Other(ref _s) => None,
         }
     }
@@ -746,9 +750,11 @@ pub fn get_ancestor_block_hash<T: MarfTrieId>(
     block_height: u64,
     tip_block_hash: &T,
 ) -> Result<Option<T>, Error> {
-    assert!(block_height <= u32::MAX as u64);
+    let block_height = block_height
+        .try_into()
+        .map_err(|_e| Error::BlockHeightOutOfRange)?;
     let mut read_only = index.reopen_connection()?;
-    let bh = read_only.get_block_at_height(block_height as u32, tip_block_hash)?;
+    let bh = read_only.get_block_at_height(block_height, tip_block_hash)?;
     Ok(bh)
 }
 

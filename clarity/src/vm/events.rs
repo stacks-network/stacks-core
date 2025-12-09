@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use serde_json::json;
+use stacks_common::util::hash::to_hex_prefixed;
 
 use super::types::serialization::SerializationError;
 use crate::vm::types::{
@@ -219,18 +220,15 @@ pub struct NFTTransferEventData {
 
 impl NFTTransferEventData {
     pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
-        let raw_value = {
-            let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes)?;
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            formatted_bytes
-        };
+        let mut byte_serialization = Vec::new();
+        self.value.serialize_write(&mut byte_serialization)?;
+        let raw_value = to_hex_prefixed(byte_serialization.as_slice(), true);
         Ok(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "sender": format!("{}",self.sender),
             "recipient": format!("{}",self.recipient),
             "value": self.value,
-            "raw_value": format!("0x{}", raw_value.join("")),
+            "raw_value": raw_value,
         }))
     }
 }
@@ -244,17 +242,14 @@ pub struct NFTMintEventData {
 
 impl NFTMintEventData {
     pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
-        let raw_value = {
-            let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes)?;
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            formatted_bytes
-        };
+        let mut byte_serialization = Vec::new();
+        self.value.serialize_write(&mut byte_serialization)?;
+        let raw_value = to_hex_prefixed(byte_serialization.as_slice(), true);
         Ok(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "recipient": format!("{}",self.recipient),
             "value": self.value,
-            "raw_value": format!("0x{}", raw_value.join("")),
+            "raw_value": raw_value,
         }))
     }
 }
@@ -268,17 +263,14 @@ pub struct NFTBurnEventData {
 
 impl NFTBurnEventData {
     pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
-        let raw_value = {
-            let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes)?;
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            formatted_bytes
-        };
+        let mut byte_serialization = Vec::new();
+        self.value.serialize_write(&mut byte_serialization)?;
+        let raw_value = to_hex_prefixed(byte_serialization.as_slice(), true);
         Ok(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "sender": format!("{}",self.sender),
             "value": self.value,
-            "raw_value": format!("0x{}", raw_value.join("")),
+            "raw_value": raw_value,
         }))
     }
 }
@@ -344,17 +336,14 @@ pub struct SmartContractEventData {
 
 impl SmartContractEventData {
     pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
-        let raw_value = {
-            let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes)?;
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            formatted_bytes
-        };
+        let mut byte_serialization = Vec::new();
+        self.value.serialize_write(&mut byte_serialization)?;
+        let raw_value = to_hex_prefixed(byte_serialization.as_slice(), true);
         Ok(json!({
             "contract_identifier": self.key.0.to_string(),
             "topic": self.key.1,
             "value": self.value,
-            "raw_value": format!("0x{}", raw_value.join("")),
+            "raw_value": raw_value,
         }))
     }
 }

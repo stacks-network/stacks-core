@@ -21,14 +21,15 @@ use stacks_common::types::net::PeerHost;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::api::getblock_v3::NakamotoBlockStream;
 use crate::net::http::{
-    parse_bytes, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
-    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
-    HttpResponsePreamble, HttpServerError,
+    parse_bytes, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
+    HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
+    HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{
     HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
+use crate::util_lib::db::Error as DBError;
 
 #[derive(Clone)]
 pub struct RPCNakamotoBlockByHeightRequestHandler {
@@ -134,9 +135,12 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
                 // error querying the db
                 let msg = format!("Failed to load block #{}: {:?}\n", block_height, &e);
                 warn!("{}", &msg);
-                return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                let resp = if matches!(e, DBError::BlockHeightOutOfRange) {
+                    StacksHttpResponse::new_error(&preamble, &HttpBadRequest::new(msg))
+                } else {
+                    StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
+                };
+                return resp.try_into_contents().map_err(NetError::from);
             }
         };
 
