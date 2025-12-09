@@ -766,6 +766,8 @@ pub fn special_transfer_token(
             Some(ft_info),
         )?;
 
+        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
+        // - the total liquid ustx supply will overflow before such an overflowing transfer is allowed.
         let final_to_bal = to_bal
             .checked_add(amount)
             .ok_or(RuntimeError::ArithmeticOverflow)?;

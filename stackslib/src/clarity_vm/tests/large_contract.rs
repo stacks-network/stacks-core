@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
+
 use clarity::util::get_epoch_time_secs;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
@@ -22,7 +24,10 @@ use clarity::vm::database::HeadersDB;
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::test_util::*;
 use clarity::vm::tests::{test_clarity_versions, BurnStateDB};
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use clarity::vm::types::{
+    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value as ClarityValue,
+    Value,
+};
 use clarity::vm::version::ClarityVersion;
 use clarity::vm::{ast, ContractContext, MAX_CALL_STACK_DEPTH};
 #[cfg(test)]
@@ -35,6 +40,9 @@ use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::tests::consensus::{
+    ConsensusTest, ConsensusUtils, ExpectedResult, TestBlock,
+};
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityError, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
@@ -71,7 +79,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
                    (token-credit! to amount)))))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (print (token-transfer (print original-sender) u1)))))                     
+             (as-contract (print (token-transfer (print original-sender) u1)))))
          (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
@@ -512,7 +520,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                         \"not enough balance\")
                    (err 1) (err 3)))))
 
-         (define-public (register 
+         (define-public (register
                         (recipient-principal principal)
                         (name int)
                         (salt int))
@@ -1357,5 +1365,114 @@ fn test_deep_type_nesting() {
             }
         }
         block.rollback_block();
+    }
+}
+
+/// Tests that when `MemoryBalanceExceeded` error occurs in a block, the transactions fail, but are
+/// still committed to the block, and the "valid" transactions are still executed without errors.
+///
+/// 1. Deploy the memory-test-contract once in epoch 3.2
+/// 2. Create a second block with 21 transactions:
+///    - 20 transactions that call the contract (should fail with MemoryBalanceExceeded)
+///    - 1 transaction that is expected to succeed
+#[test]
+fn test_memory_balance_exceeded_multiple_calls() {
+    // Generate the same contract code as chainstate_error_memory_balance_exceeded_during_contract_call
+    let contract_name = "memory-test-contract";
+    let contract_code = {
+        // Procedurally generate a contract with large buffer constants and a function
+        // that creates many references to them, similar to argument_memory_test
+        let mut contract = String::new();
+
+        // Create buff-0 through buff-20 via repeated doubling: buff-20 = 1MB
+        contract.push_str("(define-constant buff-0 0x00)\n");
+        for i in 0..20 {
+            contract.push_str(&format!(
+                "(define-constant buff-{} (concat buff-{i} buff-{i}))\n",
+                i + 1
+            ));
+        }
+
+        // Create a public function that makes many references to buff-20
+        contract.push_str("\n(define-public (create-many-references)\n");
+        contract.push_str("    (ok (is-eq ");
+
+        // Create 100 references to buff-20 (1MB each = ~100MB total)
+        for _ in 0..100 {
+            contract.push_str("buff-20 ");
+        }
+
+        contract.push_str(")))\n");
+        contract.push_str("(define-public (foo) (ok 1))");
+        contract
+    };
+
+    let mut nonce = 0;
+
+    let deploy_tx = ConsensusUtils::new_deploy_tx(
+        nonce,
+        contract_name,
+        &contract_code,
+        Some(ClarityVersion::Clarity4),
+    );
+
+    let block1 = TestBlock {
+        transactions: vec![deploy_tx],
+    };
+
+    // Block 2: 50 transactions calling the contract
+    let mut call_transactions = Vec::new();
+
+    for _ in 0..20 {
+        nonce += 1;
+        let call_tx = ConsensusUtils::new_call_tx(nonce, contract_name, "create-many-references");
+        call_transactions.push(call_tx);
+    }
+    nonce += 1;
+    let call_tx = ConsensusUtils::new_call_tx(nonce, contract_name, "foo");
+    call_transactions.push(call_tx);
+
+    let block2 = TestBlock {
+        transactions: call_transactions,
+    };
+
+    // Create epoch blocks map - both blocks in the latest epoch
+    let mut epoch_blocks = HashMap::new();
+    epoch_blocks.insert(StacksEpochId::latest(), vec![block1, block2]);
+
+    let result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
+    if let ExpectedResult::Success(expected_block_output) = &result[0] {
+        assert_eq!(expected_block_output.transactions.len(), 1);
+        assert_eq!(
+            expected_block_output.transactions[0].return_type,
+            ClarityValue::Response(ResponseData {
+                committed: true,
+                data: Box::new(ClarityValue::Bool(true)),
+            })
+        );
+    } else {
+        panic!("First block should be successful");
+    }
+    if let ExpectedResult::Success(expected_block_output) = &result[1] {
+        assert_eq!(expected_block_output.transactions.len(), 21);
+        let expected_vm_error = Some("MemoryBalanceExceeded(100665664, 100000000)".to_string());
+        let expected_failure_return_type = ClarityValue::Response(ResponseData {
+            committed: false,
+            data: Box::new(ClarityValue::Optional(OptionalData { data: None })),
+        });
+
+        for transaction in &expected_block_output.transactions[..20] {
+            assert_eq!(transaction.return_type, expected_failure_return_type);
+            assert_eq!(transaction.vm_error, expected_vm_error);
+        }
+        assert_eq!(
+            expected_block_output.transactions[20].return_type,
+            ClarityValue::Response(ResponseData {
+                committed: true,
+                data: Box::new(ClarityValue::Int(1)),
+            })
+        );
+    } else {
+        panic!("Second block should be successful");
     }
 }

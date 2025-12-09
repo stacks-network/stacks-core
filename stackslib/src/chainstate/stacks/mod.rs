@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt::Display;
 use std::hash::Hash;
 use std::{error, fmt, io};
 
@@ -709,6 +710,21 @@ pub enum TenureChangeCause {
     ExtendedWriteLength = 6,
 }
 
+impl Display for TenureChangeCause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            TenureChangeCause::BlockFound => "BlockFound",
+            TenureChangeCause::Extended => "Extend",
+            TenureChangeCause::ExtendedRuntime => "ExtendRuntime",
+            TenureChangeCause::ExtendedReadCount => "ExtendReadCount",
+            TenureChangeCause::ExtendedReadLength => "ExtendReadLength",
+            TenureChangeCause::ExtendedWriteCount => "ExtendWriteCount",
+            TenureChangeCause::ExtendedWriteLength => "ExtendWriteLength",
+        };
+        name.fmt(f)
+    }
+}
+
 impl TryFrom<u8> for TenureChangeCause {
     type Error = ();
 
@@ -775,6 +791,14 @@ impl TenureChangeCause {
         }
     }
 
+    pub fn is_full_extend(&self) -> bool {
+        matches!(self, TenureChangeCause::Extended)
+    }
+
+    pub fn is_read_count_extend(&self) -> bool {
+        matches!(self, TenureChangeCause::ExtendedReadCount)
+    }
+
     pub fn is_extended(&self) -> bool {
         match self {
             TenureChangeCause::BlockFound => false,
@@ -838,6 +862,22 @@ impl TenureChangePayload {
             cause: TenureChangeCause::Extended,
             pubkey_hash: self.pubkey_hash.clone(),
         }
+    }
+
+    pub fn extend_with_cause(
+        &self,
+        burn_view_consensus_hash: ConsensusHash,
+        last_tenure_block_id: StacksBlockId,
+        num_blocks_so_far: u32,
+        cause: TenureChangeCause,
+    ) -> Self {
+        let mut ext = self.extend(
+            burn_view_consensus_hash,
+            last_tenure_block_id,
+            num_blocks_so_far,
+        );
+        ext.cause = cause;
+        ext
     }
 }
 
