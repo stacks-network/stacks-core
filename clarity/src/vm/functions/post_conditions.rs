@@ -557,3 +557,59 @@ pub fn special_allowance(
 ) -> Result<Value, VmExecutionError> {
     Err(CheckErrorKind::AllowanceExprNotAllowed.into())
 }
+
+#[cfg(test)]
+mod test {
+    use clarity_types::types::QualifiedContractIdentifier;
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::StacksEpochId;
+
+    use super::*;
+    use crate::vm::contexts::GlobalContext;
+    use crate::vm::costs::LimitedCostTracker;
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::tests::test_clarity_versions;
+    use crate::vm::{CallStack, ClarityVersion, ContractContext};
+
+    #[apply(test_clarity_versions)]
+    fn non_function_application_in_eval_allowance(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        let allowance_expr = SymbolicExpression::atom_value(Value::UInt(1)); // not a list
+
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            StacksEpochId::latest(),
+        );
+
+        let contract_context = ContractContext::new(
+            QualifiedContractIdentifier::transient(),
+            ClarityVersion::Clarity3,
+        );
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let result = eval_allowance(&allowance_expr, &mut env, &context);
+
+        assert!(matches!(
+            result,
+            Err(VmExecutionError::Unchecked(
+                CheckErrorKind::NonFunctionApplication
+            ))
+        ));
+    }
+}

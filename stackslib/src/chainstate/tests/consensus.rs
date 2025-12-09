@@ -1893,3 +1893,19 @@ fn problematic_supertype_list() {
     deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch20),
     );
 }
+
+#[test]
+/// Test that a read-only function call can be included in a block without issue.
+/// The fn also shows that a non-response is handled without issue with the testing framework.
+fn read_only_transaction_block() {
+    contract_call_consensus_test!(
+        contract_name: "read-only-call",
+        contract_code: "
+            (define-read-only (trigger)
+                (some u1)
+            )
+        ",
+        function_name: "trigger",
+        function_args: &[],
+    );
+}
