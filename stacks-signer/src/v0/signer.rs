@@ -1036,6 +1036,13 @@ impl Signer {
             return;
         };
 
+        if block_info.signed_self.is_some() {
+            debug!(
+                "{self}: Received pre-commit for a block that we have already signed. Ignoring...",
+            );
+            return;
+        }
+
         if self.signer_db.has_committed(block_hash, stacker_address).inspect_err(|e| warn!("Failed to check if pre-commit message already considered for {stacker_address:?} for {block_hash}: {e}")).unwrap_or(false) {
             debug!("{self}: Already considered pre-commit message from {stacker_address:?} for {block_hash}. Ignoring...");
             return;
