@@ -19,6 +19,7 @@ use rstest::rstest;
 use stacks_common::types::StacksEpochId;
 
 use crate::VmExecutionError;
+use crate::errors::analysis::CommonCheckErrorKind;
 use crate::errors::{CheckErrorKind, RuntimeError, VmInternalError};
 use crate::types::{
     ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
@@ -38,7 +39,7 @@ fn test_constructors() {
     );
     assert_eq!(
         ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE),
-        Err(CheckErrorKind::ValueTooLarge)
+        Err(CommonCheckErrorKind::ValueTooLarge)
     );
 
     assert_eq!(

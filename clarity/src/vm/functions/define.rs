@@ -19,8 +19,8 @@ use std::collections::BTreeMap;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, SyntaxBindingErrorType,
-    VmExecutionError,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, CommonCheckErrorKind,
+    SyntaxBindingErrorType, VmExecutionError,
 };
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
@@ -291,7 +291,7 @@ impl<'a> DefineFunctionsParsed<'a> {
     /// a define-statement, returns None if the supplied expression is not a define.
     pub fn try_parse(
         expression: &'a SymbolicExpression,
-    ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrorKind> {
+    ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CommonCheckErrorKind> {
         let (define_type, args) = match DefineFunctions::try_parse(expression) {
             Some(x) => x,
             None => return Ok(None),
@@ -299,7 +299,9 @@ impl<'a> DefineFunctionsParsed<'a> {
         let result = match define_type {
             DefineFunctions::Constant => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Constant {
                     name,
                     value: &args[1],
@@ -309,7 +311,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
+                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::PrivateFunction {
                     signature,
                     body: &args[1],
@@ -319,7 +321,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
+                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::ReadOnlyFunction {
                     signature,
                     body: &args[1],
@@ -329,7 +331,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
+                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::PublicFunction {
                     signature,
                     body: &args[1],
@@ -337,7 +339,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::NonFungibleToken => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::NonFungibleToken {
                     name,
                     nft_type: &args[1],
@@ -345,7 +349,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::FungibleToken => {
                 check_arguments_at_least(1, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 if args.len() == 1 {
                     DefineFunctionsParsed::UnboundedFungibleToken { name }
                 } else if args.len() == 2 {
@@ -354,12 +360,14 @@ impl<'a> DefineFunctionsParsed<'a> {
                         max_supply: &args[1],
                     }
                 } else {
-                    return Err(CheckErrorKind::IncorrectArgumentCount(1, args.len()));
+                    return Err(CommonCheckErrorKind::IncorrectArgumentCount(1, args.len()));
                 }
             }
             DefineFunctions::Map => {
                 check_argument_count(3, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Map {
                     name,
                     key_type: &args[1],
@@ -368,7 +376,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::PersistedVariable => {
                 check_argument_count(3, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::PersistedVariable {
                     name,
                     data_type: &args[1],
@@ -377,7 +387,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::Trait => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Trait {
                     name,
                     functions: &args[1..],
@@ -385,13 +397,15 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::UseTrait => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 match &args[1].expr {
                     Field(ref field) => DefineFunctionsParsed::UseTrait {
                         name,
                         trait_identifier: field,
                     },
-                    _ => return Err(CheckErrorKind::ExpectedTraitIdentifier),
+                    _ => return Err(CommonCheckErrorKind::ExpectedTraitIdentifier),
                 }
             }
             DefineFunctions::ImplTrait => {
@@ -400,7 +414,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                     Field(ref field) => DefineFunctionsParsed::ImplTrait {
                         trait_identifier: field,
                     },
-                    _ => return Err(CheckErrorKind::ExpectedTraitIdentifier),
+                    _ => return Err(CommonCheckErrorKind::ExpectedTraitIdentifier),
                 }
             }
         };
