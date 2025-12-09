@@ -1,0 +1,126 @@
+---
+source: stackslib/src/chainstate/tests/early_return_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "b3682d178c3fec0a62c6e3f4241b80bfcda985ff793369ea7c14dcf6e25c8a90",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-try-resp-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Response(ResponseData { committed: false, data: UInt(200) })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 58,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10660,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 58,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10660,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "01f825bc881ff9d7b7a6cb28bd193bec276a87457696aeef63ee1011f66afca4",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-try-resp-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Response(ResponseData { committed: false, data: UInt(200) })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 58,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10659,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 58,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10659,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "175ec7f77d9f7625f588aa65f25f18af630c1f6b435ab67615c6a3cd5623eb3f",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-try-resp-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Response(ResponseData { committed: false, data: UInt(200) })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 58,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10659,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 58,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10659,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "48c57b251a382d0019b09a77dd8c5ce2e374123224fbae9af086756b20acde3f",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-try-resp-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Response(ResponseData { committed: false, data: UInt(200) })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 58,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10659,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 58,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10659,
+    ),
+  )),
+]
