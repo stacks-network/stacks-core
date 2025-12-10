@@ -551,12 +551,9 @@ impl<'a> ClarityDatabase<'a> {
                 .map_err(|e| VmInternalError::Expect(e.to_string()))?
                 as u64;
 
-            let (sanitized_value, did_sanitize) = Value::sanitize_value(
-                epoch,
-                &TypeSignature::type_of(&value).map_err(CheckErrorKind::from_clarity_type_error)?,
-                value,
-            )
-            .ok_or_else(|| CheckErrorKind::CouldNotDetermineType)?;
+            let (sanitized_value, did_sanitize) =
+                Value::sanitize_value(epoch, &TypeSignature::type_of(&value)?, value)
+                    .ok_or_else(|| CheckErrorKind::CouldNotDetermineType)?;
             // if data needed to be sanitized *charge* for the unsanitized cost
             if did_sanitize {
                 pre_sanitized_size = Some(value_size);
@@ -1573,8 +1570,7 @@ impl ClarityDatabase<'_> {
     ) -> Result<ValueResult, VmExecutionError> {
         if !variable_descriptor
             .value_type
-            .admits(&self.get_clarity_epoch_version()?, &value)
-            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .admits(&self.get_clarity_epoch_version()?, &value)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(variable_descriptor.value_type.clone()),
@@ -1735,8 +1731,7 @@ impl ClarityDatabase<'_> {
     ) -> Result<Value, VmExecutionError> {
         if !map_descriptor
             .key_type
-            .admits(&self.get_clarity_epoch_version()?, key_value)
-            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
@@ -1748,8 +1743,7 @@ impl ClarityDatabase<'_> {
         let key =
             ClarityDatabase::make_key_for_data_map_entry(contract_identifier, map_name, key_value)?;
 
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())
-            .map_err(CheckErrorKind::from_clarity_type_error)?;
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
         let result = self.get_value(&key, &stored_type, epoch)?;
 
         match result {
@@ -1768,8 +1762,7 @@ impl ClarityDatabase<'_> {
     ) -> Result<ValueResult, VmExecutionError> {
         if !map_descriptor
             .key_type
-            .admits(&self.get_clarity_epoch_version()?, key_value)
-            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
@@ -1787,8 +1780,7 @@ impl ClarityDatabase<'_> {
             &key_serialized,
         );
 
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())
-            .map_err(CheckErrorKind::from_clarity_type_error)?;
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
         let result = self.get_value(&key, &stored_type, epoch)?;
 
         match result {
@@ -1915,8 +1907,7 @@ impl ClarityDatabase<'_> {
     ) -> Result<ValueResult, VmExecutionError> {
         if !map_descriptor
             .key_type
-            .admits(&self.get_clarity_epoch_version()?, &key_value)
-            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .admits(&self.get_clarity_epoch_version()?, &key_value)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
@@ -1926,8 +1917,7 @@ impl ClarityDatabase<'_> {
         }
         if !map_descriptor
             .value_type
-            .admits(&self.get_clarity_epoch_version()?, &value)
-            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .admits(&self.get_clarity_epoch_version()?, &value)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.value_type.clone()),
@@ -1946,8 +1936,7 @@ impl ClarityDatabase<'_> {
             map_name,
             &key_serialized,
         );
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())
-            .map_err(CheckErrorKind::from_clarity_type_error)?;
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
 
         if return_if_exists && self.data_map_entry_exists(&key, &stored_type, epoch)? {
             return Ok(ValueResult {
@@ -1956,7 +1945,7 @@ impl ClarityDatabase<'_> {
             });
         }
 
-        let placed_value = Value::some(value).map_err(CheckErrorKind::from_clarity_type_error)?;
+        let placed_value = Value::some(value)?;
         let placed_size = self.put_value_with_size(&key, placed_value, epoch)?;
 
         Ok(ValueResult {
@@ -1979,8 +1968,7 @@ impl ClarityDatabase<'_> {
     ) -> Result<ValueResult, VmExecutionError> {
         if !map_descriptor
             .key_type
-            .admits(&self.get_clarity_epoch_version()?, key_value)
-            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
@@ -1999,8 +1987,7 @@ impl ClarityDatabase<'_> {
             map_name,
             &key_serialized,
         );
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())
-            .map_err(CheckErrorKind::from_clarity_type_error)?;
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
         if !self.data_map_entry_exists(&key, &stored_type, epoch)? {
             return Ok(ValueResult {
                 value: Value::Bool(false),
@@ -2206,10 +2193,7 @@ impl ClarityDatabase<'_> {
         asset: &Value,
         key_type: &TypeSignature,
     ) -> Result<PrincipalData, VmExecutionError> {
-        if !key_type
-            .admits(&self.get_clarity_epoch_version()?, asset)
-            .map_err(CheckErrorKind::from_clarity_type_error)?
-        {
+        if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),
@@ -2269,10 +2253,7 @@ impl ClarityDatabase<'_> {
         key_type: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<(), VmExecutionError> {
-        if !key_type
-            .admits(&self.get_clarity_epoch_version()?, asset)
-            .map_err(CheckErrorKind::from_clarity_type_error)?
-        {
+        if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),
@@ -2289,8 +2270,7 @@ impl ClarityDatabase<'_> {
                 .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         );
 
-        let value = Value::some(Value::Principal(principal.clone()))
-            .map_err(CheckErrorKind::from_clarity_type_error)?;
+        let value = Value::some(Value::Principal(principal.clone()))?;
         self.put_value(&key, value, epoch)?;
 
         Ok(())
@@ -2304,10 +2284,7 @@ impl ClarityDatabase<'_> {
         key_type: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<(), VmExecutionError> {
-        if !key_type
-            .admits(&self.get_clarity_epoch_version()?, asset)
-            .map_err(CheckErrorKind::from_clarity_type_error)?
-        {
+        if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),

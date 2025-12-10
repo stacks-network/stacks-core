@@ -260,61 +260,6 @@ pub enum CommonCheckErrorKind {
     TraitTooManyMethods(usize, usize),
 }
 
-impl CommonCheckErrorKind {
-    pub fn from_clarity_type_error(err: ClarityTypeError) -> Self {
-        match err {
-            ClarityTypeError::ValueTooLarge => CommonCheckErrorKind::ValueTooLarge,
-            ClarityTypeError::TypeSignatureTooDeep => CommonCheckErrorKind::TypeSignatureTooDeep,
-            ClarityTypeError::ValueOutOfBounds => CommonCheckErrorKind::ValueOutOfBounds,
-            ClarityTypeError::DuplicateTupleField(name) => {
-                CommonCheckErrorKind::NameAlreadyUsed(name)
-            }
-            ClarityTypeError::TypeMismatch(expected, found) => {
-                CommonCheckErrorKind::TypeError(expected, found)
-            }
-            ClarityTypeError::EmptyTuplesNotAllowed => CommonCheckErrorKind::EmptyTuplesNotAllowed,
-            ClarityTypeError::SupertypeTooLarge => CommonCheckErrorKind::SupertypeTooLarge,
-            ClarityTypeError::InvalidTypeDescription => {
-                CommonCheckErrorKind::InvalidTypeDescription
-            }
-            ClarityTypeError::CouldNotDetermineType => CommonCheckErrorKind::CouldNotDetermineType,
-            ClarityTypeError::ListTypeMismatch
-            | ClarityTypeError::SequenceElementArityMismatch { .. }
-            | ClarityTypeError::ExpectedSequenceValue
-            | ClarityTypeError::InvalidAsciiCharacter(_)
-            | ClarityTypeError::InvalidUtf8Encoding
-            | ClarityTypeError::NoSuchTupleField(_, _)
-            | ClarityTypeError::TypeMismatchValue(_, _)
-            | ClarityTypeError::CouldNotDetermineSerializationType
-            | ClarityTypeError::InvalidUrlString(_)
-            | ClarityTypeError::InvalidClarityName(_)
-            | ClarityTypeError::InvalidContractName(_)
-            | ClarityTypeError::QualifiedContractEmptyIssuer
-            | ClarityTypeError::QualifiedContractMissingDot
-            | ClarityTypeError::InvalidPrincipalEncoding(_)
-            | ClarityTypeError::InvalidPrincipalLength(_)
-            | ClarityTypeError::ResponseTypeMismatch { .. } => {
-                CommonCheckErrorKind::ExpectsAcceptable(format!(
-                    "Unexpected error type during analysis: {err}"
-                ))
-            }
-            ClarityTypeError::InvariantViolation(_)
-            | ClarityTypeError::InvalidPrincipalVersion(_) => {
-                CommonCheckErrorKind::ExpectsRejectable(format!(
-                    "Unexpected error type during analysis: {err}"
-                ))
-            }
-            ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
-                CommonCheckErrorKind::ExpectsRejectable(format!(
-                    "{ty} should not be used in {epoch}"
-                ))
-            }
-            ClarityTypeError::UnsupportedEpoch(epoch) => {
-                CommonCheckErrorKind::ExpectsRejectable(format!("{epoch} is not supported"))
-            }
-        }
-    }
-}
 /// An error detected during the static analysis of a smart contract at deployment time.
 ///
 /// These checks are performed once, before any contract execution occurs, to find issues
@@ -933,54 +878,6 @@ impl CheckErrorKind {
             CheckErrorKind::SupertypeTooLarge | CheckErrorKind::ExpectsRejectable(_)
         )
     }
-
-    pub fn from_clarity_type_error(err: ClarityTypeError) -> Self {
-        match err {
-            ClarityTypeError::ValueTooLarge => CheckErrorKind::ValueTooLarge,
-            ClarityTypeError::TypeSignatureTooDeep => CheckErrorKind::TypeSignatureTooDeep,
-            ClarityTypeError::ValueOutOfBounds => CheckErrorKind::ValueOutOfBounds,
-            ClarityTypeError::DuplicateTupleField(name) => CheckErrorKind::NameAlreadyUsed(name),
-            ClarityTypeError::NoSuchTupleField(field, tuple_sig) => {
-                CheckErrorKind::NoSuchTupleField(field, tuple_sig)
-            }
-            ClarityTypeError::TypeMismatchValue(ty, value) => {
-                CheckErrorKind::TypeValueError(ty, value)
-            }
-            ClarityTypeError::TypeMismatch(expected, found) => {
-                CheckErrorKind::TypeError(expected, found)
-            }
-            ClarityTypeError::EmptyTuplesNotAllowed => CheckErrorKind::EmptyTuplesNotAllowed,
-            ClarityTypeError::SupertypeTooLarge => CheckErrorKind::SupertypeTooLarge,
-            ClarityTypeError::InvalidTypeDescription => CheckErrorKind::InvalidTypeDescription,
-            ClarityTypeError::ListTypeMismatch => CheckErrorKind::ListTypesMustMatch,
-            ClarityTypeError::InvalidAsciiCharacter(_) => CheckErrorKind::InvalidCharactersDetected,
-            ClarityTypeError::InvalidUtf8Encoding => CheckErrorKind::InvalidUTF8Encoding,
-            ClarityTypeError::ExpectedSequenceValue
-            | ClarityTypeError::SequenceElementArityMismatch { .. }
-            | ClarityTypeError::CouldNotDetermineSerializationType
-            | ClarityTypeError::InvalidUrlString(_)
-            | ClarityTypeError::InvalidClarityName(_)
-            | ClarityTypeError::InvalidContractName(_)
-            | ClarityTypeError::QualifiedContractEmptyIssuer
-            | ClarityTypeError::QualifiedContractMissingDot
-            | ClarityTypeError::InvalidPrincipalEncoding(_)
-            | ClarityTypeError::InvalidPrincipalLength(_)
-            | ClarityTypeError::ResponseTypeMismatch { .. } => CheckErrorKind::ExpectsAcceptable(
-                format!("Unexpected error type during runtime analysis: {err}"),
-            ),
-            ClarityTypeError::InvariantViolation(_)
-            | ClarityTypeError::InvalidPrincipalVersion(_) => CheckErrorKind::ExpectsRejectable(
-                format!("Unexpected error type during runtime analysis: {err}"),
-            ),
-            ClarityTypeError::CouldNotDetermineType => CheckErrorKind::CouldNotDetermineType,
-            ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
-                CheckErrorKind::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
-            }
-            ClarityTypeError::UnsupportedEpoch(epoch) => {
-                CheckErrorKind::ExpectsRejectable(format!("{epoch} is not supported"))
-            }
-        }
-    }
 }
 
 impl StaticCheckErrorKind {
@@ -990,62 +887,6 @@ impl StaticCheckErrorKind {
             self,
             StaticCheckErrorKind::SupertypeTooLarge | StaticCheckErrorKind::ExpectsRejectable(_)
         )
-    }
-
-    pub fn from_clarity_type_error(err: ClarityTypeError) -> Self {
-        match err {
-            ClarityTypeError::ValueTooLarge => StaticCheckErrorKind::ValueTooLarge,
-            ClarityTypeError::TypeSignatureTooDeep => StaticCheckErrorKind::TypeSignatureTooDeep,
-            ClarityTypeError::ValueOutOfBounds => StaticCheckErrorKind::ValueOutOfBounds,
-            ClarityTypeError::DuplicateTupleField(name) => {
-                StaticCheckErrorKind::NameAlreadyUsed(name)
-            }
-            ClarityTypeError::NoSuchTupleField(field, tuple_sig) => {
-                StaticCheckErrorKind::NoSuchTupleField(field, tuple_sig)
-            }
-            ClarityTypeError::TypeMismatch(expected, found) => {
-                StaticCheckErrorKind::TypeError(expected, found)
-            }
-            ClarityTypeError::EmptyTuplesNotAllowed => StaticCheckErrorKind::EmptyTuplesNotAllowed,
-            ClarityTypeError::SupertypeTooLarge => StaticCheckErrorKind::SupertypeTooLarge,
-            ClarityTypeError::InvalidTypeDescription => {
-                StaticCheckErrorKind::InvalidTypeDescription
-            }
-            ClarityTypeError::InvalidUrlString(_)
-            | ClarityTypeError::InvalidClarityName(_)
-            | ClarityTypeError::InvalidContractName(_)
-            | ClarityTypeError::QualifiedContractEmptyIssuer
-            | ClarityTypeError::QualifiedContractMissingDot
-            | ClarityTypeError::InvalidPrincipalEncoding(_)
-            | ClarityTypeError::InvalidPrincipalLength(_)
-            | ClarityTypeError::ListTypeMismatch
-            | ClarityTypeError::SequenceElementArityMismatch { .. }
-            | ClarityTypeError::ExpectedSequenceValue
-            | ClarityTypeError::TypeMismatchValue(_, _)
-            | ClarityTypeError::ResponseTypeMismatch { .. }
-            | ClarityTypeError::InvalidAsciiCharacter(_)
-            | ClarityTypeError::InvalidUtf8Encoding => StaticCheckErrorKind::ExpectsAcceptable(
-                format!("Unexpected error type during static analysis: {err}"),
-            ),
-            ClarityTypeError::InvariantViolation(_)
-            | ClarityTypeError::InvalidPrincipalVersion(_) => {
-                StaticCheckErrorKind::ExpectsRejectable(format!(
-                    "Unexpected error type during static analysis: {err}"
-                ))
-            }
-            ClarityTypeError::CouldNotDetermineSerializationType => {
-                StaticCheckErrorKind::CouldNotDetermineSerializationType
-            }
-            ClarityTypeError::CouldNotDetermineType => StaticCheckErrorKind::CouldNotDetermineType,
-            ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
-                StaticCheckErrorKind::ExpectsRejectable(format!(
-                    "{ty} should not be used in {epoch}"
-                ))
-            }
-            ClarityTypeError::UnsupportedEpoch(epoch) => {
-                StaticCheckErrorKind::ExpectsRejectable(format!("{epoch} is not supported"))
-            }
-        }
     }
 }
 
@@ -1078,9 +919,59 @@ impl StaticCheckError {
         r.set_expression(expr);
         r
     }
+}
 
-    pub fn from_clarity_type_error(err: ClarityTypeError) -> Self {
-        StaticCheckErrorKind::from_clarity_type_error(err).into()
+impl From<ClarityTypeError> for StaticCheckErrorKind {
+    fn from(err: ClarityTypeError) -> Self {
+        match err {
+            ClarityTypeError::ValueTooLarge => Self::ValueTooLarge,
+            ClarityTypeError::TypeSignatureTooDeep => Self::TypeSignatureTooDeep,
+            ClarityTypeError::ValueOutOfBounds => Self::ValueOutOfBounds,
+            ClarityTypeError::DuplicateTupleField(name) => Self::NameAlreadyUsed(name),
+            ClarityTypeError::NoSuchTupleField(field, tuple_sig) => {
+                Self::NoSuchTupleField(field, tuple_sig)
+            }
+            ClarityTypeError::TypeMismatch(expected, found) => Self::TypeError(expected, found),
+            ClarityTypeError::EmptyTuplesNotAllowed => Self::EmptyTuplesNotAllowed,
+            ClarityTypeError::SupertypeTooLarge => Self::SupertypeTooLarge,
+            ClarityTypeError::InvalidTypeDescription => Self::InvalidTypeDescription,
+            ClarityTypeError::InvalidUrlString(_)
+            | ClarityTypeError::InvalidClarityName(_)
+            | ClarityTypeError::InvalidContractName(_)
+            | ClarityTypeError::QualifiedContractEmptyIssuer
+            | ClarityTypeError::QualifiedContractMissingDot
+            | ClarityTypeError::InvalidPrincipalEncoding(_)
+            | ClarityTypeError::InvalidPrincipalLength(_)
+            | ClarityTypeError::ListTypeMismatch
+            | ClarityTypeError::SequenceElementArityMismatch { .. }
+            | ClarityTypeError::ExpectedSequenceValue
+            | ClarityTypeError::TypeMismatchValue(_, _)
+            | ClarityTypeError::ResponseTypeMismatch { .. }
+            | ClarityTypeError::InvalidAsciiCharacter(_)
+            | ClarityTypeError::InvalidUtf8Encoding => Self::ExpectsAcceptable(format!(
+                "Unexpected error type during static analysis: {err}"
+            )),
+            ClarityTypeError::InvariantViolation(_)
+            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::ExpectsRejectable(format!(
+                "Unexpected error type during static analysis: {err}"
+            )),
+            ClarityTypeError::CouldNotDetermineSerializationType => {
+                Self::CouldNotDetermineSerializationType
+            }
+            ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
+            ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
+                Self::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
+            }
+            ClarityTypeError::UnsupportedEpoch(epoch) => {
+                Self::ExpectsRejectable(format!("{epoch} is not supported"))
+            }
+        }
+    }
+}
+
+impl From<ClarityTypeError> for StaticCheckError {
+    fn from(err: ClarityTypeError) -> Self {
+        StaticCheckErrorKind::from(err).into()
     }
 }
 
@@ -1105,6 +996,96 @@ impl From<(CommonCheckErrorKind, &SymbolicExpression)> for CommonCheckErrorKind 
 impl From<(CommonCheckErrorKind, &SymbolicExpression)> for CheckErrorKind {
     fn from(e: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         e.0.into()
+    }
+}
+
+impl From<ClarityTypeError> for CheckErrorKind {
+    fn from(err: ClarityTypeError) -> Self {
+        match err {
+            ClarityTypeError::ValueTooLarge => Self::ValueTooLarge,
+            ClarityTypeError::TypeSignatureTooDeep => Self::TypeSignatureTooDeep,
+            ClarityTypeError::ValueOutOfBounds => Self::ValueOutOfBounds,
+            ClarityTypeError::DuplicateTupleField(name) => Self::NameAlreadyUsed(name),
+            ClarityTypeError::NoSuchTupleField(field, tuple_sig) => {
+                Self::NoSuchTupleField(field, tuple_sig)
+            }
+            ClarityTypeError::TypeMismatchValue(ty, value) => Self::TypeValueError(ty, value),
+            ClarityTypeError::TypeMismatch(expected, found) => Self::TypeError(expected, found),
+            ClarityTypeError::EmptyTuplesNotAllowed => Self::EmptyTuplesNotAllowed,
+            ClarityTypeError::SupertypeTooLarge => Self::SupertypeTooLarge,
+            ClarityTypeError::InvalidTypeDescription => Self::InvalidTypeDescription,
+            ClarityTypeError::ListTypeMismatch => Self::ListTypesMustMatch,
+            ClarityTypeError::InvalidAsciiCharacter(_) => Self::InvalidCharactersDetected,
+            ClarityTypeError::InvalidUtf8Encoding => Self::InvalidUTF8Encoding,
+            ClarityTypeError::ExpectedSequenceValue
+            | ClarityTypeError::SequenceElementArityMismatch { .. }
+            | ClarityTypeError::CouldNotDetermineSerializationType
+            | ClarityTypeError::InvalidUrlString(_)
+            | ClarityTypeError::InvalidClarityName(_)
+            | ClarityTypeError::InvalidContractName(_)
+            | ClarityTypeError::QualifiedContractEmptyIssuer
+            | ClarityTypeError::QualifiedContractMissingDot
+            | ClarityTypeError::InvalidPrincipalEncoding(_)
+            | ClarityTypeError::InvalidPrincipalLength(_)
+            | ClarityTypeError::ResponseTypeMismatch { .. } => Self::ExpectsAcceptable(format!(
+                "Unexpected error type during runtime analysis: {err}"
+            )),
+            ClarityTypeError::InvariantViolation(_)
+            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::ExpectsRejectable(format!(
+                "Unexpected error type during runtime analysis: {err}"
+            )),
+            ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
+            ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
+                Self::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
+            }
+            ClarityTypeError::UnsupportedEpoch(epoch) => {
+                Self::ExpectsRejectable(format!("{epoch} is not supported"))
+            }
+        }
+    }
+}
+
+impl From<ClarityTypeError> for CommonCheckErrorKind {
+    fn from(err: ClarityTypeError) -> Self {
+        match err {
+            ClarityTypeError::ValueTooLarge => Self::ValueTooLarge,
+            ClarityTypeError::TypeSignatureTooDeep => Self::TypeSignatureTooDeep,
+            ClarityTypeError::ValueOutOfBounds => Self::ValueOutOfBounds,
+            ClarityTypeError::DuplicateTupleField(name) => Self::NameAlreadyUsed(name),
+            ClarityTypeError::TypeMismatch(expected, found) => Self::TypeError(expected, found),
+            ClarityTypeError::EmptyTuplesNotAllowed => Self::EmptyTuplesNotAllowed,
+            ClarityTypeError::SupertypeTooLarge => Self::SupertypeTooLarge,
+            ClarityTypeError::InvalidTypeDescription => Self::InvalidTypeDescription,
+            ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
+            ClarityTypeError::ListTypeMismatch
+            | ClarityTypeError::SequenceElementArityMismatch { .. }
+            | ClarityTypeError::ExpectedSequenceValue
+            | ClarityTypeError::InvalidAsciiCharacter(_)
+            | ClarityTypeError::InvalidUtf8Encoding
+            | ClarityTypeError::NoSuchTupleField(_, _)
+            | ClarityTypeError::TypeMismatchValue(_, _)
+            | ClarityTypeError::CouldNotDetermineSerializationType
+            | ClarityTypeError::InvalidUrlString(_)
+            | ClarityTypeError::InvalidClarityName(_)
+            | ClarityTypeError::InvalidContractName(_)
+            | ClarityTypeError::QualifiedContractEmptyIssuer
+            | ClarityTypeError::QualifiedContractMissingDot
+            | ClarityTypeError::InvalidPrincipalEncoding(_)
+            | ClarityTypeError::InvalidPrincipalLength(_)
+            | ClarityTypeError::ResponseTypeMismatch { .. } => {
+                Self::ExpectsAcceptable(format!("Unexpected error type during analysis: {err}"))
+            }
+            ClarityTypeError::InvariantViolation(_)
+            | ClarityTypeError::InvalidPrincipalVersion(_) => {
+                Self::ExpectsRejectable(format!("Unexpected error type during analysis: {err}"))
+            }
+            ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
+                Self::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
+            }
+            ClarityTypeError::UnsupportedEpoch(epoch) => {
+                Self::ExpectsRejectable(format!("{epoch} is not supported"))
+            }
+        }
     }
 }
 

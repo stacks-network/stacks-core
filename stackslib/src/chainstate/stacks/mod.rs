@@ -363,9 +363,7 @@ impl From<VmExecutionError> for Error {
 /// if its a runtime issue, it would be really hitting VmExecutionError already
 impl From<ClarityTypeError> for Error {
     fn from(e: ClarityTypeError) -> Error {
-        Error::ClarityError(ClarityError::StaticCheck(
-            StaticCheckError::from_clarity_type_error(e),
-        ))
+        Error::ClarityError(ClarityError::StaticCheck(StaticCheckError::from(e)))
     }
 }
 

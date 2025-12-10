@@ -45,26 +45,18 @@ pub fn check_special_fetch_entry(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_key_type
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        expected_key_type.type_size()?,
     )?;
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        value_type.type_size()?,
     )?;
     analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
 
-    let option_type = TypeSignature::new_option(value_type.clone())
-        .map_err(StaticCheckError::from_clarity_type_error)?;
+    let option_type = TypeSignature::new_option(value_type.clone())?;
 
-    if !expected_key_type
-        .admits_type(&StacksEpochId::Epoch21, &key_type)
-        .map_err(StaticCheckError::from_clarity_type_error)?
-    {
+    if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
         Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
             Box::new(expected_key_type.clone()),
             Box::new(key_type),
@@ -95,16 +87,11 @@ pub fn check_special_delete_entry(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_key_type
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        expected_key_type.type_size()?,
     )?;
     analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
 
-    if !expected_key_type
-        .admits_type(&StacksEpochId::Epoch21, &key_type)
-        .map_err(StaticCheckError::from_clarity_type_error)?
-    {
+    if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
         Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
             Box::new(expected_key_type.clone()),
             Box::new(key_type),
@@ -136,33 +123,23 @@ fn check_set_or_insert_entry(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_key_type
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        expected_key_type.type_size()?,
     )?;
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        value_type.type_size()?,
     )?;
 
     analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
     analysis_typecheck_cost(&mut checker.cost_track, expected_value_type, &value_type)?;
 
-    if !expected_key_type
-        .admits_type(&StacksEpochId::Epoch21, &key_type)
-        .map_err(StaticCheckError::from_clarity_type_error)?
-    {
+    if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
         Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
             Box::new(expected_key_type.clone()),
             Box::new(key_type),
         )))
-    } else if !expected_value_type
-        .admits_type(&StacksEpochId::Epoch21, &value_type)
-        .map_err(StaticCheckError::from_clarity_type_error)?
-    {
+    } else if !expected_value_type.admits_type(&StacksEpochId::Epoch21, &value_type)? {
         Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
             Box::new(expected_value_type.clone()),
             Box::new(value_type),

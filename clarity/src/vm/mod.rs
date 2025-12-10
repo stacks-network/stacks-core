@@ -179,28 +179,13 @@ fn lookup_variable(
             context.depth(),
         )?;
         if let Some(value) = context.lookup_variable(name) {
-            runtime_cost(
-                ClarityCostFunction::LookupVariableSize,
-                env,
-                value
-                    .size()
-                    .map_err(CheckErrorKind::from_clarity_type_error)?,
-            )?;
+            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
             Ok(value.clone())
         } else if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
-            runtime_cost(
-                ClarityCostFunction::LookupVariableSize,
-                env,
-                value
-                    .size()
-                    .map_err(CheckErrorKind::from_clarity_type_error)?,
-            )?;
-            let (value, _) = Value::sanitize_value(
-                env.epoch(),
-                &TypeSignature::type_of(&value).map_err(CheckErrorKind::from_clarity_type_error)?,
-                value,
-            )
-            .ok_or_else(|| CheckErrorKind::CouldNotDetermineType)?;
+            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
+            let (value, _) =
+                Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value)?, value)
+                    .ok_or_else(|| CheckErrorKind::CouldNotDetermineType)?;
             Ok(value)
         } else if let Some(callable_data) = context.lookup_callable_contract(name) {
             if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
@@ -432,13 +417,13 @@ pub fn eval_all(
                     contract_context.functions.insert(name, value);
                 },
                 DefineResult::PersistedVariable(name, value_type, value) => {
-                    runtime_cost(ClarityCostFunction::CreateVar, global_context, value_type.size().map_err(CheckErrorKind::from_clarity_type_error)?)?;
+                    runtime_cost(ClarityCostFunction::CreateVar, global_context, value_type.size()?)?;
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(value_type.type_size()
                                               .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
-                    global_context.add_memory(value.size().map_err(CheckErrorKind::from_clarity_type_error)?.into())?;
+                    global_context.add_memory(value.size()?.into())?;
 
                     let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type)?;
                     global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &global_context.epoch_id)?;
@@ -447,8 +432,8 @@ pub fn eval_all(
                 },
                 DefineResult::Map(name, key_type, value_type) => {
                     runtime_cost(ClarityCostFunction::CreateMap, global_context,
-                                  u64::from(key_type.size().map_err(CheckErrorKind::from_clarity_type_error)?).cost_overflow_add(
-                                      u64::from(value_type.size().map_err(CheckErrorKind::from_clarity_type_error)?))?)?;
+                                  u64::from(key_type.size()?).cost_overflow_add(
+                                      u64::from(value_type.size()?))?)?;
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(key_type.type_size()
@@ -472,7 +457,7 @@ pub fn eval_all(
                     contract_context.meta_ft.insert(name, data_type);
                 },
                 DefineResult::NonFungibleAsset(name, asset_type) => {
-                    runtime_cost(ClarityCostFunction::CreateNft, global_context, asset_type.size().map_err(CheckErrorKind::from_clarity_type_error)?)?;
+                    runtime_cost(ClarityCostFunction::CreateNft, global_context, asset_type.size()?)?;
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(asset_type.type_size()

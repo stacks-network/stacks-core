@@ -41,17 +41,12 @@ pub fn list_cons(
 
     let mut arg_size = 0;
     for a in args.iter() {
-        arg_size = arg_size.cost_overflow_add(
-            a.size()
-                .map_err(CheckErrorKind::from_clarity_type_error)?
-                .into(),
-        )?;
+        arg_size = arg_size.cost_overflow_add(a.size()?.into())?;
     }
 
     runtime_cost(ClarityCostFunction::ListCons, env, arg_size)?;
 
-    let value =
-        Value::cons_list(args, env.epoch()).map_err(CheckErrorKind::from_clarity_type_error)?;
+    let value = Value::cons_list(args, env.epoch())?;
     Ok(value)
 }
 
@@ -85,11 +80,10 @@ pub fn special_filter(
             })?;
         }
         _ => {
-            return Err(CheckErrorKind::ExpectedSequence(Box::new(
-                TypeSignature::type_of(&sequence)
-                    .map_err(CheckErrorKind::from_clarity_type_error)?,
-            ))
-            .into())
+            return Err(
+                CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
+                    .into(),
+            )
         }
     };
     Ok(sequence)
@@ -112,8 +106,7 @@ pub fn special_fold(
 
     match sequence {
         Value::Sequence(ref mut sequence_data) => sequence_data
-            .atom_values()
-            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .atom_values()?
             .into_iter()
             .try_fold(initial, |acc, x| {
                 apply(
@@ -123,10 +116,9 @@ pub fn special_fold(
                     context,
                 )
             }),
-        _ => Err(CheckErrorKind::ExpectedSequence(Box::new(
-            TypeSignature::type_of(&sequence).map_err(CheckErrorKind::from_clarity_type_error)?,
-        ))
-        .into()),
+        _ => Err(
+            CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into(),
+        ),
     }
 }
 
@@ -152,12 +144,7 @@ pub fn special_map(
         match sequence {
             Value::Sequence(ref mut sequence_data) => {
                 min_args_len = min_args_len.min(sequence_data.len());
-                for (apply_index, value) in sequence_data
-                    .atom_values()
-                    .map_err(CheckErrorKind::from_clarity_type_error)?
-                    .into_iter()
-                    .enumerate()
-                {
+                for (apply_index, value) in sequence_data.atom_values()?.into_iter().enumerate() {
                     if apply_index > min_args_len {
                         break;
                     }
@@ -169,11 +156,10 @@ pub fn special_map(
                 }
             }
             _ => {
-                return Err(CheckErrorKind::ExpectedSequence(Box::new(
-                    TypeSignature::type_of(&sequence)
-                        .map_err(CheckErrorKind::from_clarity_type_error)?,
-                ))
-                .into())
+                return Err(
+                    CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
+                        .into(),
+                )
             }
         }
     }
@@ -194,8 +180,7 @@ pub fn special_map(
         mapped_results.push(res);
     }
 
-    let value = Value::cons_list(mapped_results, env.epoch())
-        .map_err(CheckErrorKind::from_clarity_type_error)?;
+    let value = Value::cons_list(mapped_results, env.epoch())?;
     Ok(value)
 }
 
@@ -215,24 +200,15 @@ pub fn special_append(
                 type_signature,
             } = list;
             let (entry_type, size) = type_signature.destruct();
-            let element_type = TypeSignature::type_of(&element)
-                .map_err(CheckErrorKind::from_clarity_type_error)?;
+            let element_type = TypeSignature::type_of(&element)?;
             runtime_cost(
                 ClarityCostFunction::Append,
                 env,
-                u64::from(cmp::max(
-                    entry_type
-                        .size()
-                        .map_err(CheckErrorKind::from_clarity_type_error)?,
-                    element_type
-                        .size()
-                        .map_err(CheckErrorKind::from_clarity_type_error)?,
-                )),
+                u64::from(cmp::max(entry_type.size()?, element_type.size()?)),
             )?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
-                return Ok(Value::cons_list(vec![element], env.epoch())
-                    .map_err(CheckErrorKind::from_clarity_type_error)?);
+                return Ok(Value::cons_list(vec![element], env.epoch())?);
             }
             if let Ok(next_entry_type) =
                 TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)
@@ -240,8 +216,7 @@ pub fn special_append(
                 let (element, _) = Value::sanitize_value(env.epoch(), &next_entry_type, element)
                     .ok_or_else(|| CheckErrorKind::ListTypesMustMatch)?;
 
-                let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)
-                    .map_err(CheckErrorKind::from_clarity_type_error)?;
+                let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
                 data.push(element);
                 Ok(Value::Sequence(SequenceData::List(ListData {
                     type_signature: next_type_signature,
@@ -270,29 +245,16 @@ pub fn special_concat_v200(
     runtime_cost(
         ClarityCostFunction::Concat,
         env,
-        u64::from(
-            wrapped_seq
-                .size()
-                .map_err(CheckErrorKind::from_clarity_type_error)?,
-        )
-        .cost_overflow_add(u64::from(
-            other_wrapped_seq
-                .size()
-                .map_err(CheckErrorKind::from_clarity_type_error)?,
-        ))?,
+        u64::from(wrapped_seq.size()?).cost_overflow_add(u64::from(other_wrapped_seq.size()?))?,
     )?;
 
     match (&mut wrapped_seq, other_wrapped_seq) {
-        (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => seq
-            .concat(env.epoch(), other_seq)
-            .map_err(CheckErrorKind::from_clarity_type_error)?,
+        (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
+            seq.concat(env.epoch(), other_seq)?
+        }
         (Value::Sequence(ref mut seq_data), other_value) => {
             return Err(CheckErrorKind::TypeValueError(
-                Box::new(
-                    seq_data
-                        .type_signature()
-                        .map_err(CheckErrorKind::from_clarity_type_error)?,
-                ),
+                Box::new(seq_data.type_signature()?),
                 Box::new(other_value),
             )
             .into())
@@ -321,17 +283,12 @@ pub fn special_concat_v205(
                 (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
             )?;
 
-            seq.concat(env.epoch(), other_seq)
-                .map_err(CheckErrorKind::from_clarity_type_error)?
+            seq.concat(env.epoch(), other_seq)?
         }
         (Value::Sequence(ref mut seq_data), other_value) => {
             runtime_cost(ClarityCostFunction::Concat, env, 1)?;
             return Err(CheckErrorKind::TypeValueError(
-                Box::new(
-                    seq_data
-                        .type_signature()
-                        .map_err(CheckErrorKind::from_clarity_type_error)?,
-                ),
+                Box::new(seq_data.type_signature()?),
                 Box::new(other_value),
             )
             .into());
@@ -360,11 +317,10 @@ pub fn special_as_max_len(
         let sequence_len = match sequence {
             Value::Sequence(ref sequence_data) => sequence_data.len() as u128,
             _ => {
-                return Err(CheckErrorKind::ExpectedSequence(Box::new(
-                    TypeSignature::type_of(&sequence)
-                        .map_err(CheckErrorKind::from_clarity_type_error)?,
-                ))
-                .into())
+                return Err(
+                    CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
+                        .into(),
+                )
             }
         };
         if sequence_len > *expected_len {
@@ -373,16 +329,13 @@ pub fn special_as_max_len(
             if let Value::Sequence(SequenceData::List(ref mut list)) = sequence {
                 list.type_signature.reduce_max_len(*expected_len as u32);
             }
-            Ok(Value::some(sequence).map_err(CheckErrorKind::from_clarity_type_error)?)
+            Ok(Value::some(sequence)?)
         }
     } else {
         let actual_len = eval(&args[1], env, context)?;
         Err(CheckErrorKind::TypeError(
             Box::new(TypeSignature::UIntType),
-            Box::new(
-                TypeSignature::type_of(&actual_len)
-                    .map_err(CheckErrorKind::from_clarity_type_error)?,
-            ),
+            Box::new(TypeSignature::type_of(&actual_len)?),
         )
         .into())
     }
@@ -391,28 +344,20 @@ pub fn special_as_max_len(
 pub fn native_len(sequence: Value) -> Result<Value, VmExecutionError> {
     match sequence {
         Value::Sequence(sequence_data) => Ok(Value::UInt(sequence_data.len() as u128)),
-        _ => Err(CheckErrorKind::ExpectedSequence(Box::new(
-            TypeSignature::type_of(&sequence).map_err(CheckErrorKind::from_clarity_type_error)?,
-        ))
-        .into()),
+        _ => Err(
+            CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into(),
+        ),
     }
 }
 
 pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value, VmExecutionError> {
     if let Value::Sequence(sequence_data) = sequence {
-        match sequence_data
-            .contains(to_find)
-            .map_err(CheckErrorKind::from_clarity_type_error)?
-        {
-            Some(index) => Ok(Value::some(Value::UInt(index as u128))
-                .map_err(CheckErrorKind::from_clarity_type_error)?),
+        match sequence_data.contains(to_find)? {
+            Some(index) => Ok(Value::some(Value::UInt(index as u128))?),
             None => Ok(Value::none()),
         }
     } else {
-        Err(CheckErrorKind::ExpectedSequence(Box::new(
-            TypeSignature::type_of(&sequence).map_err(CheckErrorKind::from_clarity_type_error)?,
-        ))
-        .into())
+        Err(CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into())
     }
 }
 
@@ -420,10 +365,9 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value, VmExecu
     let sequence_data = if let Value::Sequence(sequence_data) = sequence {
         sequence_data
     } else {
-        return Err(CheckErrorKind::ExpectedSequence(Box::new(
-            TypeSignature::type_of(&sequence).map_err(CheckErrorKind::from_clarity_type_error)?,
-        ))
-        .into());
+        return Err(
+            CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into(),
+        );
     };
 
     let index = if let Value::UInt(index_u128) = index {
@@ -443,7 +387,7 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value, VmExecu
     if let Some(result) = sequence_data.element_at(index).map_err(|_| {
         VmInternalError::Expect("Sequence data constructed with invalid data.".into())
     })? {
-        Ok(Value::some(result).map_err(CheckErrorKind::from_clarity_type_error)?)
+        Ok(Value::some(result)?)
     } else {
         Ok(Value::none())
     }
@@ -481,15 +425,11 @@ pub fn special_slice(
                 runtime_cost(
                     ClarityCostFunction::Slice,
                     env,
-                    (right_position - left_position)
-                        * seq
-                            .element_size()
-                            .map_err(CheckErrorKind::from_clarity_type_error)?,
+                    (right_position - left_position) * seq.element_size()?,
                 )?;
-                let seq_value = seq
-                    .slice(env.epoch(), left_position as usize, right_position as usize)
-                    .map_err(CheckErrorKind::from_clarity_type_error)?;
-                Ok(Value::some(seq_value).map_err(CheckErrorKind::from_clarity_type_error)?)
+                let seq_value =
+                    seq.slice(env.epoch(), left_position as usize, right_position as usize)?;
+                Ok(Value::some(seq_value)?)
             }
             (seq, left_position, right_position) => {
                 // TODO: REMOVE THIS COMMENT: Is it better to keep RuntimeError::BadTypeConstruction? It just seems weird
@@ -541,16 +481,10 @@ pub fn special_replace_at(
     check_argument_count(3, args)?;
 
     let seq = eval(&args[0], env, context)?;
-    let seq_type = TypeSignature::type_of(&seq).map_err(CheckErrorKind::from_clarity_type_error)?;
+    let seq_type = TypeSignature::type_of(&seq)?;
 
     // runtime is the cost to copy over one element into its place
-    runtime_cost(
-        ClarityCostFunction::ReplaceAt,
-        env,
-        seq_type
-            .size()
-            .map_err(CheckErrorKind::from_clarity_type_error)?,
-    )?;
+    runtime_cost(ClarityCostFunction::ReplaceAt, env, seq_type.size()?)?;
 
     let expected_elem_type = if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
         seq_subtype.unit_type()
@@ -561,9 +495,7 @@ pub fn special_replace_at(
     let new_element = eval(&args[2], env, context)?;
 
     if expected_elem_type != TypeSignature::NoType
-        && !expected_elem_type
-            .admits(env.epoch(), &new_element)
-            .map_err(CheckErrorKind::from_clarity_type_error)?
+        && !expected_elem_type.admits(env.epoch(), &new_element)?
     {
         return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_elem_type),
@@ -593,7 +525,5 @@ pub fn special_replace_at(
     if index >= seq_len {
         return Ok(Value::none());
     }
-    Ok(data
-        .replace_at(env.epoch(), index, new_element)
-        .map_err(CheckErrorKind::from_clarity_type_error)?)
+    Ok(data.replace_at(env.epoch(), index, new_element)?)
 }

@@ -1186,7 +1186,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                         .ok_or_else(|| VmInternalError::InvariantViolation(format!("Passed non-value expression to exec_tx on {tx_name}!")))?;
                     // sanitize contract-call inputs in epochs >= 2.4
                     // testing todo: ensure sanitize_value() preserves trait callability!
-                    let expected_type = TypeSignature::type_of(value).map_err(CheckErrorKind::from_clarity_type_error)?;
+                    let expected_type = TypeSignature::type_of(value)?;
                     let (sanitized_value, _) = Value::sanitize_value(
                         self.epoch(),
                         &expected_type,
@@ -1882,8 +1882,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 Ok(result)
             } else {
                 Err(CheckErrorKind::PublicFunctionMustReturnResponse(Box::new(
-                    TypeSignature::type_of(&result)
-                        .map_err(CheckErrorKind::from_clarity_type_error)?,
+                    TypeSignature::type_of(&result)?,
                 ))
                 .into())
             }

@@ -43,9 +43,7 @@ pub fn check_special_get_owner(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        expected_asset_type.type_size()?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
@@ -99,9 +97,7 @@ pub fn check_special_mint_asset(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        expected_asset_type.type_size()?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
@@ -163,9 +159,7 @@ pub fn check_special_transfer_asset(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        expected_asset_type.type_size()?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
@@ -300,9 +294,7 @@ pub fn check_special_burn_asset(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        expected_asset_type.type_size()?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;

@@ -186,7 +186,7 @@ impl FunctionType {
                 let cost = Some(compute_typecheck_cost(accounting, expected_type, arg_type));
                 let admitted = match expected_type.admits_type(&StacksEpochId::Epoch21, arg_type) {
                     Ok(admitted) => admitted,
-                    Err(e) => return (cost, Err(StaticCheckError::from_clarity_type_error(e))),
+                    Err(e) => return (cost, Err(StaticCheckError::from(e))),
                 };
                 if !admitted {
                     return (
@@ -292,10 +292,7 @@ impl FunctionType {
                 check_arguments_at_least(1, args)?;
                 for found_type in args.iter() {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
-                    if !expected_type
-                        .admits_type(&StacksEpochId::Epoch21, found_type)
-                        .map_err(StaticCheckError::from_clarity_type_error)?
-                    {
+                    if !expected_type.admits_type(&StacksEpochId::Epoch21, found_type)? {
                         return Err(StaticCheckErrorKind::TypeError(
                             Box::new(expected_type.clone()),
                             Box::new(found_type.clone()),
@@ -313,10 +310,7 @@ impl FunctionType {
                 for (expected_type, found_type) in arg_types.iter().map(|x| &x.signature).zip(args)
                 {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
-                    if !expected_type
-                        .admits_type(&StacksEpochId::Epoch21, found_type)
-                        .map_err(StaticCheckError::from_clarity_type_error)?
-                    {
+                    if !expected_type.admits_type(&StacksEpochId::Epoch21, found_type)? {
                         return Err(StaticCheckErrorKind::TypeError(
                             Box::new(expected_type.clone()),
                             Box::new(found_type.clone()),
@@ -331,10 +325,7 @@ impl FunctionType {
                 let found_type = &args[0];
                 for expected_type in arg_types.iter() {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
-                    if expected_type
-                        .admits_type(&StacksEpochId::Epoch21, found_type)
-                        .map_err(StaticCheckError::from_clarity_type_error)?
-                    {
+                    if expected_type.admits_type(&StacksEpochId::Epoch21, found_type)? {
                         return Ok(return_type.clone());
                     }
                 }
@@ -494,8 +485,7 @@ impl FunctionType {
                         contract_identifier.clone(),
                     ))
                 }
-                _ => TypeSignature::type_of(value)
-                    .map_err(StaticCheckError::from_clarity_type_error)?,
+                _ => TypeSignature::type_of(value)?,
             })
         }
     }
@@ -518,8 +508,7 @@ impl FunctionType {
                 data: Some(inner_value),
             }) => TypeSignature::new_option(
                 self.clarity2_principal_to_callable_type(inner_value, depth + 1)?,
-            )
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+            )?,
             Value::Response(ResponseData { committed, data }) => {
                 let (ok_type, err_type) = if *committed {
                     (
@@ -532,8 +521,7 @@ impl FunctionType {
                         self.clarity2_principal_to_callable_type(data, depth + 1)?,
                     )
                 };
-                TypeSignature::new_response(ok_type, err_type)
-                    .map_err(StaticCheckError::from_clarity_type_error)?
+                TypeSignature::new_response(ok_type, err_type)?
             }
             Value::Sequence(SequenceData::List(ListData {
                 data,
@@ -545,10 +533,10 @@ impl FunctionType {
                     }
                     None => TypeSignature::NoType,
                 };
-                TypeSignature::SequenceType(SequenceSubtype::ListType(
-                    ListTypeData::new_list(inner_type, data.len() as u32)
-                        .map_err(StaticCheckError::from_clarity_type_error)?,
-                ))
+                TypeSignature::SequenceType(SequenceSubtype::ListType(ListTypeData::new_list(
+                    inner_type,
+                    data.len() as u32,
+                )?))
             }
             Value::Tuple(TupleData {
                 type_signature: _,
@@ -561,14 +549,9 @@ impl FunctionType {
                         self.clarity2_principal_to_callable_type(field_value, depth + 1)?,
                     );
                 }
-                TypeSignature::TupleType(
-                    TupleTypeSignature::try_from(type_map)
-                        .map_err(StaticCheckError::from_clarity_type_error)?,
-                )
+                TypeSignature::TupleType(TupleTypeSignature::try_from(type_map)?)
             }
-            _ => {
-                TypeSignature::type_of(value).map_err(StaticCheckError::from_clarity_type_error)?
-            }
+            _ => TypeSignature::type_of(value)?,
         })
     }
 
@@ -626,12 +609,8 @@ impl FunctionType {
                         )?;
                     }
                     (expected_type, value) => {
-                        if !expected_type
-                            .admits(&StacksEpochId::Epoch21, value)
-                            .map_err(StaticCheckError::from_clarity_type_error)?
-                        {
-                            let actual_type = TypeSignature::type_of(value)
-                                .map_err(StaticCheckError::from_clarity_type_error)?;
+                        if !expected_type.admits(&StacksEpochId::Epoch21, value)? {
+                            let actual_type = TypeSignature::type_of(value)?;
                             return Err(StaticCheckErrorKind::TypeError(
                                 Box::new(expected_type.clone()),
                                 Box::new(actual_type.clone()),
@@ -670,10 +649,7 @@ fn check_function_arg_signature<T: CostTracker>(
     match expected_sig {
         FunctionArgSignature::Single(expected_type) => {
             analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
-            if !expected_type
-                .admits_type(&StacksEpochId::Epoch21, actual_type)
-                .map_err(StaticCheckError::from_clarity_type_error)?
-            {
+            if !expected_type.admits_type(&StacksEpochId::Epoch21, actual_type)? {
                 return Err(StaticCheckErrorKind::TypeError(
                     Box::new(expected_type.clone()),
                     Box::new(actual_type.clone()),
@@ -685,10 +661,7 @@ fn check_function_arg_signature<T: CostTracker>(
             let mut admitted = false;
             for expected_type in expected_types.iter() {
                 analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
-                if expected_type
-                    .admits_type(&StacksEpochId::Epoch21, actual_type)
-                    .map_err(StaticCheckError::from_clarity_type_error)?
-                {
+                if expected_type.admits_type(&StacksEpochId::Epoch21, actual_type)? {
                     admitted = true;
                     break;
                 }
@@ -965,10 +938,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
         }
         (TypeSignature::NoType, _) => (),
         (_, _) => {
-            if !expected_type
-                .admits_type(&StacksEpochId::Epoch21, actual_type)
-                .map_err(StaticCheckError::from_clarity_type_error)?
-            {
+            if !expected_type.admits_type(&StacksEpochId::Epoch21, actual_type)? {
                 return Err(StaticCheckErrorKind::TypeError(
                     Box::new(expected_type.clone()),
                     Box::new(actual_type.clone()),
@@ -1120,9 +1090,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         runtime_cost(
             ClarityCostFunction::AnalysisTypeCheck,
             self,
-            return_type
-                .type_size()
-                .map_err(StaticCheckError::from_clarity_type_error)?,
+            return_type.type_size()?,
         )?;
 
         match self.function_return_tracker {
@@ -1386,12 +1354,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
             if self.epoch.analysis_memory() {
                 let added_memory = u64::from(arg_name.len())
-                    .checked_add(
-                        arg_type
-                            .type_size()
-                            .map_err(StaticCheckError::from_clarity_type_error)?
-                            .into(),
-                    )
+                    .checked_add(arg_type.type_size()?.into())
                     .ok_or_else(|| CostErrors::CostOverflow)?;
                 self.add_memory(added_memory)?;
                 tracked_mem = tracked_mem
@@ -1442,8 +1405,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     } else {
                         return_type
                     }
-                    .concretize()
-                    .map_err(StaticCheckError::from_clarity_type_error)?
+                    .concretize()?
                 };
 
                 self.function_return_tracker = None;
@@ -1619,10 +1581,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let actual_type = self.type_check(expr, context)?;
         analysis_typecheck_cost(self, expected_type, &actual_type)?;
 
-        if !expected_type
-            .admits_type(&StacksEpochId::Epoch21, &actual_type)
-            .map_err(StaticCheckError::from_clarity_type_error)?
-        {
+        if !expected_type.admits_type(&StacksEpochId::Epoch21, &actual_type)? {
             let mut err: StaticCheckError = StaticCheckErrorKind::TypeError(
                 Box::new(expected_type.clone()),
                 Box::new(actual_type.clone()),
@@ -1642,11 +1601,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         expected_type: &TypeSignature,
     ) -> Result<TypeSignature, StaticCheckError> {
         let mut expr_type = match expr.expr {
-            AtomValue(ref value) => {
-                TypeSignature::type_of(value).map_err(StaticCheckError::from_clarity_type_error)?
-            }
-            LiteralValue(ref value) => TypeSignature::literal_type_of(value)
-                .map_err(StaticCheckError::from_clarity_type_error)?,
+            AtomValue(ref value) => TypeSignature::type_of(value)?,
+            LiteralValue(ref value) => TypeSignature::literal_type_of(value)?,
             Atom(ref name) => self.lookup_variable(name, context)?,
             List(ref expression) => self.type_check_function_application(expression, context)?,
             TraitReference(_, _) | Field(_) => {
@@ -1671,9 +1627,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         runtime_cost(
             ClarityCostFunction::AnalysisTypeAnnotate,
             self,
-            expr_type
-                .type_size()
-                .map_err(StaticCheckError::from_clarity_type_error)?,
+            expr_type.type_size()?,
         )?;
         self.type_map.set_type(expr, expr_type.clone())?;
         Ok(expr_type)
@@ -1685,11 +1639,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
     ) -> Result<TypeSignature, StaticCheckError> {
         let expr_type = match expr.expr {
-            AtomValue(ref value) => {
-                TypeSignature::type_of(value).map_err(StaticCheckError::from_clarity_type_error)?
-            }
-            LiteralValue(ref value) => TypeSignature::literal_type_of(value)
-                .map_err(StaticCheckError::from_clarity_type_error)?,
+            AtomValue(ref value) => TypeSignature::type_of(value)?,
+            LiteralValue(ref value) => TypeSignature::literal_type_of(value)?,
             Atom(ref name) => self.lookup_variable(name, context)?,
             List(ref expression) => self.type_check_function_application(expression, context)?,
             TraitReference(_, _) | Field(_) => {
@@ -1700,9 +1651,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         runtime_cost(
             ClarityCostFunction::AnalysisTypeAnnotate,
             self,
-            expr_type
-                .type_size()
-                .map_err(StaticCheckError::from_clarity_type_error)?,
+            expr_type.type_size()?,
         )?;
         self.type_map.set_type(expr, expr_type.clone())?;
         Ok(expr_type)
@@ -1789,18 +1738,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        v_type
-                            .type_size()
-                            .map_err(StaticCheckError::from_clarity_type_error)?,
+                        v_type.type_size()?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(v_name.len().into())?;
-                        self.add_memory(
-                            v_type
-                                .type_size()
-                                .map_err(StaticCheckError::from_clarity_type_error)?
-                                .into(),
-                        )?;
+                        self.add_memory(v_type.type_size()?.into())?;
                     }
                     self.contract_context.add_variable_type(v_name, v_type)?;
                 }
@@ -1865,35 +1807,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 } => {
                     let (f_name, map_type) =
                         self.type_check_define_map(name, key_type, value_type)?;
-                    let total_type_size = u64::from(
-                        map_type
-                            .0
-                            .type_size()
-                            .map_err(StaticCheckError::from_clarity_type_error)?,
-                    )
-                    .cost_overflow_add(u64::from(
-                        map_type
-                            .1
-                            .type_size()
-                            .map_err(StaticCheckError::from_clarity_type_error)?,
-                    ))?;
+                    let total_type_size = u64::from(map_type.0.type_size()?)
+                        .cost_overflow_add(u64::from(map_type.1.type_size()?))?;
                     runtime_cost(ClarityCostFunction::AnalysisBindName, self, total_type_size)?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(f_name.len().into())?;
-                        self.add_memory(
-                            map_type
-                                .0
-                                .type_size()
-                                .map_err(StaticCheckError::from_clarity_type_error)?
-                                .into(),
-                        )?;
-                        self.add_memory(
-                            map_type
-                                .1
-                                .type_size()
-                                .map_err(StaticCheckError::from_clarity_type_error)?
-                                .into(),
-                        )?;
+                        self.add_memory(map_type.0.type_size()?.into())?;
+                        self.add_memory(map_type.1.type_size()?.into())?;
                     }
                     self.contract_context.add_map_type(f_name, map_type)?;
                 }
@@ -1907,18 +1827,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        v_type
-                            .type_size()
-                            .map_err(StaticCheckError::from_clarity_type_error)?,
+                        v_type.type_size()?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(v_name.len().into())?;
-                        self.add_memory(
-                            v_type
-                                .type_size()
-                                .map_err(StaticCheckError::from_clarity_type_error)?
-                                .into(),
-                        )?;
+                        self.add_memory(v_type.type_size()?.into())?;
                     }
                     self.contract_context
                         .add_persisted_variable_type(v_name, v_type)?;
@@ -1928,18 +1841,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        TypeSignature::UIntType
-                            .type_size()
-                            .map_err(StaticCheckError::from_clarity_type_error)?,
+                        TypeSignature::UIntType.type_size()?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(token_name.len().into())?;
-                        self.add_memory(
-                            TypeSignature::UIntType
-                                .type_size()
-                                .map_err(StaticCheckError::from_clarity_type_error)?
-                                .into(),
-                        )?;
+                        self.add_memory(TypeSignature::UIntType.type_size()?.into())?;
                     }
                     self.contract_context.add_ft(token_name)?;
                 }
@@ -1948,18 +1854,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        TypeSignature::UIntType
-                            .type_size()
-                            .map_err(StaticCheckError::from_clarity_type_error)?,
+                        TypeSignature::UIntType.type_size()?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(token_name.len().into())?;
-                        self.add_memory(
-                            TypeSignature::UIntType
-                                .type_size()
-                                .map_err(StaticCheckError::from_clarity_type_error)?
-                                .into(),
-                        )?;
+                        self.add_memory(TypeSignature::UIntType.type_size()?.into())?;
                     }
                     self.contract_context.add_ft(token_name)?;
                 }
@@ -1969,18 +1868,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
                         self,
-                        token_type
-                            .type_size()
-                            .map_err(StaticCheckError::from_clarity_type_error)?,
+                        token_type.type_size()?,
                     )?;
                     if self.epoch.analysis_memory() {
                         self.add_memory(token_name.len().into())?;
-                        self.add_memory(
-                            token_type
-                                .type_size()
-                                .map_err(StaticCheckError::from_clarity_type_error)?
-                                .into(),
-                        )?;
+                        self.add_memory(token_type.type_size()?.into())?;
                     }
                     self.contract_context.add_nft(token_name, token_type)?;
                 }

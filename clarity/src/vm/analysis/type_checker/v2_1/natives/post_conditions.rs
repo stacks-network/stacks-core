@@ -87,8 +87,10 @@ pub fn check_restrict_assets(
 
     let ok_type = last_return.ok_or_else(|| StaticCheckErrorKind::CheckerImplementationFailure)?;
 
-    TypeSignature::new_response(ok_type, TypeSignature::UIntType)
-        .map_err(StaticCheckError::from_clarity_type_error)
+    Ok(TypeSignature::new_response(
+        ok_type,
+        TypeSignature::UIntType,
+    )?)
 }
 
 pub fn check_as_contract(
@@ -139,8 +141,10 @@ pub fn check_as_contract(
     }
 
     let ok_type = last_return.ok_or_else(|| StaticCheckErrorKind::CheckerImplementationFailure)?;
-    TypeSignature::new_response(ok_type, TypeSignature::UIntType)
-        .map_err(StaticCheckError::from_clarity_type_error)
+    Ok(TypeSignature::new_response(
+        ok_type,
+        TypeSignature::UIntType,
+    )?)
 }
 
 /// Type-checking for allowance expressions. These are only allowed within the

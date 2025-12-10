@@ -59,13 +59,10 @@ fn check_special_list_cons(
         runtime_cost(
             ClarityCostFunction::AnalysisListItemsCheck,
             checker,
-            type_arg
-                .type_size()
-                .map_err(StaticCheckError::from_clarity_type_error)?,
+            type_arg.type_size()?,
         )?;
     }
-    let list_type = TypeSignature::parent_list_type(&typed_args)
-        .map_err(StaticCheckError::from_clarity_type_error)?;
+    let list_type = TypeSignature::parent_list_type(&typed_args)?;
     Ok(TypeSignature::from(list_type))
 }
 
@@ -148,8 +145,7 @@ fn check_special_get(
     } else if let TypeSignature::OptionalType(value_type_sig) = argument_type {
         if let TypeSignature::TupleType(tuple_type_sig) = *value_type_sig {
             let inner_type = inner_handle_tuple_get(&tuple_type_sig, field_to_get, checker)?;
-            let option_type = TypeSignature::new_option(inner_type)
-                .map_err(StaticCheckError::from_clarity_type_error)?;
+            let option_type = TypeSignature::new_option(inner_type)?;
             Ok(option_type)
         } else {
             Err(StaticCheckErrorKind::ExpectedTuple(value_type_sig).into())
@@ -207,9 +203,7 @@ pub fn check_special_tuple_cons(
                 runtime_cost(
                     ClarityCostFunction::AnalysisTupleItemsCheck,
                     checker,
-                    var_type
-                        .type_size()
-                        .map_err(StaticCheckError::from_clarity_type_error)?,
+                    var_type.type_size()?,
                 )?;
                 tuple_type_data.push((var_name.clone(), var_type));
                 Ok(())
@@ -218,9 +212,7 @@ pub fn check_special_tuple_cons(
     )?;
 
     let tuple_signature = TupleTypeSignature::try_from(tuple_type_data).map_err(|e| {
-        StaticCheckErrorKind::BadTupleConstruction(
-            StaticCheckErrorKind::from_clarity_type_error(e).message(),
-        )
+        StaticCheckErrorKind::BadTupleConstruction(StaticCheckErrorKind::from(e).message())
     })?;
 
     Ok(TypeSignature::TupleType(tuple_signature))
@@ -257,9 +249,7 @@ fn check_special_let(
             runtime_cost(
                 ClarityCostFunction::AnalysisBindName,
                 checker,
-                typed_result
-                    .type_size()
-                    .map_err(StaticCheckError::from_clarity_type_error)?,
+                typed_result.type_size()?,
             )?;
             out_context
                 .variable_types
@@ -292,9 +282,7 @@ fn check_special_fetch_var(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        value_type.type_size()?,
     )?;
 
     Ok(value_type.clone())
@@ -323,16 +311,11 @@ fn check_special_set_var(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_value_type
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        expected_value_type.type_size()?,
     )?;
     analysis_typecheck_cost(&mut checker.cost_track, &value_type, expected_value_type)?;
 
-    if !expected_value_type
-        .admits_type(&StacksEpochId::Epoch2_05, &value_type)
-        .map_err(StaticCheckError::from_clarity_type_error)?
-    {
+    if !expected_value_type.admits_type(&StacksEpochId::Epoch2_05, &value_type)? {
         Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
             Box::new(expected_value_type.clone()),
             Box::new(value_type),
@@ -578,8 +561,7 @@ fn check_get_block_info(
 
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 
-    TypeSignature::new_option(block_info_prop.type_result())
-        .map_err(StaticCheckError::from_clarity_type_error)
+    Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
 
 impl TypedNativeFunction {

@@ -39,7 +39,6 @@ pub use self::signatures::{
 };
 use crate::VmExecutionError;
 use crate::diagnostic::DiagnosableError;
-use crate::errors::CheckErrorKind;
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 
 /// Maximum size in bytes allowed for types.
@@ -710,10 +709,8 @@ impl SequenceData {
             ($data:expr, $seq_type:ident) => {
                 let mut i = 0;
                 while i != $data.data.len() {
-                    let atom_value = SymbolicExpression::atom_value(
-                        $seq_type::to_value(&$data.data[i])
-                            .map_err(CheckErrorKind::from_clarity_type_error)?,
-                    );
+                    let atom_value =
+                        SymbolicExpression::atom_value($seq_type::to_value(&$data.data[i])?);
                     match filter(atom_value) {
                         Ok(res) if res == false => {
                             $data.data.remove(i);

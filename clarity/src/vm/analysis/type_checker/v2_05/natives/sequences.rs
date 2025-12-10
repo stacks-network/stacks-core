@@ -234,40 +234,29 @@ pub fn check_special_concat(
                         &StacksEpochId::Epoch2_05,
                         lhs_entry_type,
                         rhs_entry_type,
-                    )
-                    .map_err(StaticCheckError::from_clarity_type_error)?;
+                    )?;
                     let new_len = lhs_max_len
                         .checked_add(rhs_max_len)
                         .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::list_of(list_entry_type, new_len)
-                        .map_err(StaticCheckError::from_clarity_type_error)?
+                    TypeSignature::list_of(list_entry_type, new_len)?
                 }
                 (BufferType(lhs_len), BufferType(rhs_len)) => {
                     let size: u32 = u32::from(lhs_len)
                         .checked_add(u32::from(rhs_len))
                         .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::SequenceType(BufferType(
-                        size.try_into()
-                            .map_err(StaticCheckError::from_clarity_type_error)?,
-                    ))
+                    TypeSignature::SequenceType(BufferType(size.try_into()?))
                 }
                 (StringType(ASCII(lhs_len)), StringType(ASCII(rhs_len))) => {
                     let size: u32 = u32::from(lhs_len)
                         .checked_add(u32::from(rhs_len))
                         .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::SequenceType(StringType(ASCII(
-                        size.try_into()
-                            .map_err(StaticCheckError::from_clarity_type_error)?,
-                    )))
+                    TypeSignature::SequenceType(StringType(ASCII(size.try_into()?)))
                 }
                 (StringType(UTF8(lhs_len)), StringType(UTF8(rhs_len))) => {
                     let size: u32 = u32::from(lhs_len)
                         .checked_add(u32::from(rhs_len))
                         .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-                    TypeSignature::SequenceType(StringType(UTF8(
-                        size.try_into()
-                            .map_err(StaticCheckError::from_clarity_type_error)?,
-                    )))
+                    TypeSignature::SequenceType(StringType(UTF8(size.try_into()?)))
                 }
                 (_, _) => {
                     return Err(StaticCheckErrorKind::TypeError(
@@ -304,13 +293,11 @@ pub fn check_special_append(
                 &StacksEpochId::Epoch2_05,
                 &lhs_entry_type,
                 &rhs_type,
-            )
-            .map_err(StaticCheckError::from_clarity_type_error)?;
+            )?;
             let new_len = lhs_max_len
                 .checked_add(1)
                 .ok_or(StaticCheckErrorKind::MaxLengthOverflow)?;
-            let return_type = TypeSignature::list_of(list_entry_type, new_len)
-                .map_err(StaticCheckError::from_clarity_type_error)?;
+            let return_type = TypeSignature::list_of(list_entry_type, new_len)?;
             Ok(return_type)
         }
         _ => Err(StaticCheckErrorKind::ExpectedListApplication.into()),
@@ -338,9 +325,7 @@ pub fn check_special_as_max_len(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeAnnotate,
         checker,
-        TypeSignature::UIntType
-            .type_size()
-            .map_err(StaticCheckError::from_clarity_type_error)?,
+        TypeSignature::UIntType.type_size()?,
     )?;
     checker
         .type_map
@@ -355,28 +340,22 @@ pub fn check_special_as_max_len(
     match sequence {
         TypeSignature::SequenceType(ListType(list)) => {
             let (lhs_entry_type, _) = list.destruct();
-            let resized_list = ListTypeData::new_list(lhs_entry_type, expected_len)
-                .map_err(StaticCheckError::from_clarity_type_error)?;
+            let resized_list = ListTypeData::new_list(lhs_entry_type, expected_len)?;
             Ok(TypeSignature::OptionalType(Box::new(
                 TypeSignature::SequenceType(ListType(resized_list)),
             )))
         }
         TypeSignature::SequenceType(BufferType(_)) => Ok(TypeSignature::OptionalType(Box::new(
-            TypeSignature::SequenceType(BufferType(
-                BufferLength::try_from(expected_len)
-                    .map_err(StaticCheckError::from_clarity_type_error)?,
-            )),
+            TypeSignature::SequenceType(BufferType(BufferLength::try_from(expected_len)?)),
         ))),
         TypeSignature::SequenceType(StringType(ASCII(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(ASCII(
-                BufferLength::try_from(expected_len)
-                    .map_err(StaticCheckError::from_clarity_type_error)?,
+                BufferLength::try_from(expected_len)?,
             )))),
         )),
         TypeSignature::SequenceType(StringType(UTF8(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(UTF8(
-                StringUTF8Length::try_from(expected_len)
-                    .map_err(StaticCheckError::from_clarity_type_error)?,
+                StringUTF8Length::try_from(expected_len)?,
             )))),
         )),
         _ => Err(StaticCheckErrorKind::ExpectedSequence(Box::new(sequence)).into()),
@@ -418,7 +397,7 @@ pub fn check_special_element_at(
     match collection_type {
         TypeSignature::SequenceType(ListType(list)) => {
             let (entry_type, _) = list.destruct();
-            TypeSignature::new_option(entry_type).map_err(StaticCheckError::from_clarity_type_error)
+            Ok(TypeSignature::new_option(entry_type)?)
         }
         TypeSignature::SequenceType(BufferType(_)) => Ok(TypeSignature::OptionalType(Box::new(
             TypeSignature::BUFFER_1,
@@ -458,6 +437,5 @@ pub fn check_special_index_of(
 
     checker.type_check_expects(&args[1], context, &expected_input_type)?;
 
-    TypeSignature::new_option(TypeSignature::UIntType)
-        .map_err(StaticCheckError::from_clarity_type_error)
+    Ok(TypeSignature::new_option(TypeSignature::UIntType)?)
 }

@@ -37,9 +37,7 @@ pub fn tuple_cons(
     let bindings = parse_eval_bindings(args, SyntaxBindingErrorType::TupleCons, env, context)?;
     runtime_cost(ClarityCostFunction::TupleCons, env, bindings.len())?;
 
-    Ok(TupleData::from_data(bindings)
-        .map(Value::from)
-        .map_err(CheckErrorKind::from_clarity_type_error)?)
+    Ok(TupleData::from_data(bindings).map(Value::from)?)
 }
 
 pub fn tuple_get(
@@ -61,22 +59,16 @@ pub fn tuple_get(
                 Some(data) => {
                     if let Value::Tuple(tuple_data) = *data {
                         runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
-                        Ok(Value::some(
-                            tuple_data
-                                .get_owned(arg_name)
-                                .map_err(CheckErrorKind::from_clarity_type_error)?,
-                        )
-                        .map_err(|_| {
+                        Ok(Value::some(tuple_data.get_owned(arg_name)?).map_err(|_| {
                             VmInternalError::Expect(
                                 "Tuple contents should *always* fit in a some wrapper".into(),
                             )
                         })?)
                     } else {
-                        Err(CheckErrorKind::ExpectedTuple(Box::new(
-                            TypeSignature::type_of(&data)
-                                .map_err(CheckErrorKind::from_clarity_type_error)?,
-                        ))
-                        .into())
+                        Err(
+                            CheckErrorKind::ExpectedTuple(Box::new(TypeSignature::type_of(&data)?))
+                                .into(),
+                        )
                     }
                 }
                 None => Ok(Value::none()), // just pass through none-types.
@@ -84,14 +76,9 @@ pub fn tuple_get(
         }
         Value::Tuple(tuple_data) => {
             runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
-            Ok(tuple_data
-                .get_owned(arg_name)
-                .map_err(CheckErrorKind::from_clarity_type_error)?)
+            Ok(tuple_data.get_owned(arg_name)?)
         }
-        _ => Err(CheckErrorKind::ExpectedTuple(Box::new(
-            TypeSignature::type_of(&value).map_err(CheckErrorKind::from_clarity_type_error)?,
-        ))
-        .into()),
+        _ => Err(CheckErrorKind::ExpectedTuple(Box::new(TypeSignature::type_of(&value)?)).into()),
     }
 }
 
@@ -99,14 +86,14 @@ pub fn tuple_merge(base: Value, update: Value) -> Result<Value, VmExecutionError
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
         _ => Err(CheckErrorKind::ExpectedTuple(Box::new(
-            TypeSignature::type_of(&base).map_err(CheckErrorKind::from_clarity_type_error)?,
+            TypeSignature::type_of(&base)?,
         ))),
     }?;
 
     let new_values = match update {
         Value::Tuple(new_values) => Ok(new_values),
         _ => Err(CheckErrorKind::ExpectedTuple(Box::new(
-            TypeSignature::type_of(&update).map_err(CheckErrorKind::from_clarity_type_error)?,
+            TypeSignature::type_of(&update)?,
         ))),
     }?;
 

@@ -28,6 +28,7 @@ pub use lexer::LexerError;
 use rusqlite::Error as SqliteError;
 use stacks_common::types::chainstate::BlockHeaderHash;
 
+use crate::ClarityTypeError;
 use crate::representations::SymbolicExpression;
 use crate::types::{FunctionIdentifier, Value};
 
@@ -253,6 +254,12 @@ impl error::Error for VmExecutionError {
 impl error::Error for RuntimeError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
+    }
+}
+
+impl From<ClarityTypeError> for VmExecutionError {
+    fn from(err: ClarityTypeError) -> Self {
+        Self::from(CheckErrorKind::from(err))
     }
 }
 
