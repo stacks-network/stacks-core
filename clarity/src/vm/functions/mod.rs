@@ -79,6 +79,7 @@ mod options;
 mod post_conditions;
 pub mod principals;
 mod sequences;
+pub mod special_costs;
 pub mod tuples;
 
 define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {

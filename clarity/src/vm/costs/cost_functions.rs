@@ -14,6 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use super::ExecutionCost;
+use super::costs_1::Costs1;
+use super::costs_2::Costs2;
+use super::costs_3::Costs3;
+use super::costs_4::Costs4;
+use stacks_common::types::StacksEpochId;
 use crate::vm::errors::{RuntimeError, VmExecutionError};
 
 define_named_enum!(ClarityCostFunction {
@@ -342,6 +347,31 @@ pub trait CostValues {
 }
 
 impl ClarityCostFunction {
+    /// shortcut to eval()<Costs1>
+    pub fn eval_for_epoch(
+        &self,
+        n: u64,
+        epoch: StacksEpochId,
+    ) -> Result<ExecutionCost, VmExecutionError> {
+        match epoch {
+            StacksEpochId::Epoch20 => self.eval::<Costs1>(n),
+            StacksEpochId::Epoch2_05 => self.eval::<Costs2>(n),
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => self.eval::<Costs3>(n),
+            StacksEpochId::Epoch33 => self.eval::<Costs4>(n),
+            StacksEpochId::Epoch10 => {
+                // fallback to costs 1 since epoch 1 doesn't have direct cost mapping
+                self.eval::<Costs1>(n)
+            }
+        }
+    }
+
     pub fn eval<C: CostValues>(&self, n: u64) -> Result<ExecutionCost, VmExecutionError> {
         match self {
             ClarityCostFunction::AnalysisTypeAnnotate => C::cost_analysis_type_annotate(n),

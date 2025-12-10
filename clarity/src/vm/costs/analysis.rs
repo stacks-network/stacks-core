@@ -6,8 +6,7 @@ use clarity_types::types::TraitIdentifier;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::build_ast;
-#[cfg(test)]
-use crate::vm::ast::static_cost::is_node_branching;
+// #[cfg(feature = "developer-mode")]
 use crate::vm::ast::static_cost::{
     calculate_function_cost, calculate_function_cost_from_native_function,
     calculate_total_cost_with_branching, calculate_value_cost, TraitCount, TraitCountCollector,
@@ -543,15 +542,19 @@ fn build_listlike_cost_analysis_tree(
         }
         SymbolicExpressionType::Atom(name) => {
             // Try to get function name from first element
-            // Try to lookup the function as a native function first
+            // lookup the function as a native function first
+            // special functions
+            //   - let, etc use bindings lengths not argument lengths
             if let Some(native_function) =
                 NativeFunctions::lookup_by_name_at_version(name.as_str(), clarity_version)
             {
-                let cost = calculate_function_cost_from_native_function(
-                    native_function,
-                    children.len() as u64,
-                    epoch,
-                )?;
+                    let cost = calculate_function_cost_from_native_function(
+                        native_function,
+                        children.len() as u64,
+                        &exprs[1..],
+                        epoch,
+                    )?;
+
                 (CostExprNode::NativeFunction(native_function), cost)
             } else {
                 // If not a native function, treat as user-defined function and look it up
@@ -608,6 +611,7 @@ pub(crate) fn get_trait_count(costs: &HashMap<String, CostAnalysisNode>) -> Opti
 mod tests {
 
     use super::*;
+    use crate::vm::ast::static_cost::is_node_branching;
 
     fn static_cost_native_test(
         source: &str,

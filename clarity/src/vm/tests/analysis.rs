@@ -51,6 +51,28 @@ fn test_build_cost_analysis_tree_function_definition() {
 }
 
 #[test]
+fn test_let_cost() {
+    let src = "(let ((a 1) (b 2)) (+ a b))";
+    let src2 = "(let ((a 1) (b 2) (c 3)) (+ a b))"; // should compute for 3 bindings not 2
+
+    let contract_id = QualifiedContractIdentifier::transient();
+    let epoch = StacksEpochId::Epoch32;
+    let ast = crate::vm::ast::build_ast(
+        &QualifiedContractIdentifier::transient(),
+        src,
+        &mut (),
+        ClarityVersion::Clarity3,
+        epoch,
+    )
+    .unwrap();
+    let function_map = static_cost_from_ast(&ast, &ClarityVersion::Clarity3, epoch).unwrap();
+    let (let_cost, _) = function_map.get("let").unwrap();
+    let (let2_cost, _) = function_map.get("let2").unwrap();
+    assert_ne!(let2_cost.min.runtime, let_cost.min.runtime);
+}
+
+
+#[test]
 fn test_dependent_function_calls() {
     let src = r#"(define-public (add-one (a uint))
   (begin
