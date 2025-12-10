@@ -1551,6 +1551,20 @@ impl StacksChainState {
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
+        Self::process_transaction_with_check(clarity_block, tx, quiet, max_execution_time, |_| {
+            Ok(())
+        })
+    }
+
+    pub fn process_transaction_with_check<
+        F: FnMut(&StacksTransactionReceipt) -> Result<(), Error>,
+    >(
+        clarity_block: &mut ClarityTx,
+        tx: &StacksTransaction,
+        quiet: bool,
+        max_execution_time: Option<std::time::Duration>,
+        mut check: F,
+    ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let epoch = clarity_block.get_epoch();
 
@@ -1638,6 +1652,8 @@ impl StacksChainState {
 
             tx_receipt
         };
+
+        check(&tx_receipt)?;
 
         transaction
             .commit()
