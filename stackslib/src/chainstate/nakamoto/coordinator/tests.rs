@@ -942,7 +942,7 @@ fn block_descendant() {
     pox_constants.v2_unlock_height = 21;
     pox_constants.pox_3_activation_height = 26;
     pox_constants.v3_unlock_height = 27;
-    pox_constants.pox_4_activation_height = 28;
+    pox_constants.pox_4_activation_height = 33;
 
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers)
@@ -1031,7 +1031,7 @@ fn block_info_tests(use_primary_testnet: bool) {
     pox_constants.v2_unlock_height = 21;
     pox_constants.pox_3_activation_height = 26;
     pox_constants.v3_unlock_height = 27;
-    pox_constants.pox_4_activation_height = 28;
+    pox_constants.pox_4_activation_height = 33;
 
     let chain_id = if use_primary_testnet {
         CHAIN_ID_TESTNET
@@ -1466,7 +1466,7 @@ fn pox_treatment() {
     pox_constants.v2_unlock_height = 21;
     pox_constants.pox_3_activation_height = 26;
     pox_constants.v3_unlock_height = 27;
-    pox_constants.pox_4_activation_height = 28;
+    pox_constants.pox_4_activation_height = 33;
 
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers.clone())
@@ -1719,7 +1719,7 @@ fn transactions_indexing() {
     pox_constants.v2_unlock_height = 21;
     pox_constants.pox_3_activation_height = 26;
     pox_constants.v3_unlock_height = 27;
-    pox_constants.pox_4_activation_height = 28;
+    pox_constants.pox_4_activation_height = 33;
 
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers.clone())
@@ -1784,7 +1784,7 @@ fn transactions_not_indexing() {
     pox_constants.v2_unlock_height = 21;
     pox_constants.pox_3_activation_height = 26;
     pox_constants.v3_unlock_height = 27;
-    pox_constants.pox_4_activation_height = 28;
+    pox_constants.pox_4_activation_height = 33;
 
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers.clone())
@@ -3897,7 +3897,7 @@ fn process_next_nakamoto_block_deadlock() {
     pox_constants.v2_unlock_height = 21;
     pox_constants.pox_3_activation_height = 26;
     pox_constants.v3_unlock_height = 27;
-    pox_constants.pox_4_activation_height = 28;
+    pox_constants.pox_4_activation_height = 33;
 
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_test_stackers(test_stackers)

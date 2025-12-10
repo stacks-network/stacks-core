@@ -39,7 +39,7 @@ use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
 };
 use crate::vm::contexts::GlobalContext;
 use crate::vm::database::STXBalance;
-use crate::vm::errors::Error as VmError;
+use crate::vm::errors::VmExecutionError;
 use crate::vm::{execute_with_parameters_and_call_in_global_context, ClarityVersion};
 
 const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
@@ -51,7 +51,7 @@ const UTF8_SIMPLE_ESCAPES: [&str; 6] = ["\\\"", "\\\\", "\\n", "\\t", "\\r", "\\
 fn initialize_balances(
     g: &mut GlobalContext,
     sender: &StandardPrincipalData,
-) -> Result<(), VmError> {
+) -> Result<(), VmExecutionError> {
     let sender_principal = PrincipalData::Standard(sender.clone());
     let contract_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
         sender.clone(),

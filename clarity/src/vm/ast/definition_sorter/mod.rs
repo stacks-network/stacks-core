@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 
 use clarity_types::representations::ClarityName;
 
-use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::types::ContractAST;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker};
@@ -90,7 +90,7 @@ impl DefinitionSorter {
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph);
 
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let functions_names = deps
+            let mut function_names = deps
                 .into_iter()
                 .filter_map(|i| {
                     let exp = &contract_ast.pre_expressions[i];
@@ -99,7 +99,10 @@ impl DefinitionSorter {
                 .map(|i| i.0.to_string())
                 .collect::<Vec<_>>();
 
-            let error = ParseError::new(ParseErrors::CircularReference(functions_names));
+            // Sorting function names to make the error contents deterministic
+            function_names.sort();
+
+            let error = ParseError::new(ParseErrorKind::CircularReference(function_names));
             return Err(error);
         }
 
@@ -421,7 +424,7 @@ impl Graph {
         let list = self
             .adjacency_list
             .get_mut(src_expr_index)
-            .ok_or(ParseErrors::InterpreterFailure)?;
+            .ok_or(ParseErrorKind::InterpreterFailure)?;
         list.push(dst_expr_index);
         Ok(())
     }
@@ -443,7 +446,7 @@ impl Graph {
         for node in self.adjacency_list.iter() {
             total = total
                 .checked_add(node.len() as u64)
-                .ok_or(ParseErrors::CostOverflow)?;
+                .ok_or(ParseErrorKind::CostOverflow)?;
         }
         Ok(total)
     }
