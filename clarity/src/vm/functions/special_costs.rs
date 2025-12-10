@@ -8,7 +8,11 @@ pub fn get_cost_for_special_function(native_function: NativeFunctions, args: &[S
         NativeFunctions::Let => cost_binding_list_len(args, epoch),
         NativeFunctions::If => cost_binding_list_len(args, epoch),
         NativeFunctions::TupleCons => cost_binding_list_len(args, epoch),
-        _ => ExecutionCost::ZERO,
+        native_function => {
+            ClarityCostFunction::from_native_function(native_function).eval_for_epoch(args.len() as u64, epoch).unwrap_or_else(|_| {
+                ExecutionCost::ZERO
+            })
+        }
     }
 }
 
