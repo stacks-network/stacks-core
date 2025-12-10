@@ -480,10 +480,6 @@ pub enum CheckErrorKind {
     /// String contains invalid UTF-8 encoding.
     InvalidUTF8Encoding,
 
-    // secp256k1 signature
-    /// Invalid secp256k1 signature provided in an expression.
-    InvalidSecp65k1Signature,
-
     /// Attempt to write to contract state in a read-only function.
     WriteAttemptedInReadOnly,
     /// `at-block` closure must be read-only but contains write operations.
@@ -814,7 +810,6 @@ impl DiagnosableError for CheckErrorKind {
             CheckErrorKind::TraitTooManyMethods(found, allowed) => format!("too many trait methods specified: found {found}, the maximum is {allowed}"),
             CheckErrorKind::InvalidCharactersDetected => "invalid characters detected".into(),
             CheckErrorKind::InvalidUTF8Encoding => "invalid UTF8 encoding".into(),
-            CheckErrorKind::InvalidSecp65k1Signature => "invalid seckp256k1 signature".into(),
             CheckErrorKind::TypeAlreadyAnnotatedFailure | CheckErrorKind::CheckerImplementationFailure => {
                 "internal error - please file an issue on https://github.com/stacks-network/stacks-blockchain".into()
             },

@@ -34,6 +34,7 @@ use madhouse::{execute_commands, prop_allof, scenario, Command, CommandWrapper};
 use pinny::tag;
 use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
+use reqwest::header::AUTHORIZATION;
 use rusqlite::Connection;
 use stacks::address::AddressHashMode;
 use stacks::burnchains::Txid;
@@ -67,6 +68,7 @@ use stacks::core::test_util::{
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::getsigner::GetSignerResponse;
+use stacks::net::api::gettransaction::TransactionResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateResponse, ValidateRejectCode, TEST_REJECT_REPLAY_TXS,
     TEST_VALIDATE_DELAY_DURATION_SECS, TEST_VALIDATE_STALL,
@@ -3990,6 +3992,7 @@ fn tx_replay_btc_on_stx_invalidation() {
                 c.reset_replay_set_after_fork_blocks = 5;
             },
             |node_config| {
+                node_config.node.txindex = true;
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -4002,7 +4005,7 @@ fn tx_replay_btc_on_stx_invalidation() {
 
     let conf = &signer_test.running_nodes.conf;
     let mut miner_keychain = Keychain::default(conf.node.seed.clone()).generate_op_signer();
-    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let mut btc_controller = BitcoinRegtestController::new(conf.clone(), None);
     let submitted_commits = signer_test
         .running_nodes
@@ -4082,7 +4085,7 @@ fn tx_replay_btc_on_stx_invalidation() {
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     wait_for(30, || {
-        let account = get_account(&_http_origin, &recipient_addr);
+        let account = get_account(&http_origin, &recipient_addr);
         Ok(account.balance == recipient_balance.into())
     })
     .expect("Timed out waiting for balance to be updated");
@@ -4179,8 +4182,34 @@ fn tx_replay_btc_on_stx_invalidation() {
 
     assert!(found_block, "Failed to mine the tenure change block");
     // Ensure that in the 30 seconds, the nonce did not increase. This also asserts that no tx replays were mined.
-    let account = get_account(&_http_origin, &recipient_addr);
+    let account = get_account(&http_origin, &recipient_addr);
     assert_eq!(account.nonce, 0, "Expected recipient nonce to be 0");
+
+    // Call `/v3/transaction/{txid}` and verify that `is_canonical` is false
+    let get_transaction = |txid: &String| {
+        let url = &format!("{http_origin}/v3/transaction/{txid}");
+        info!("Send request: GET {url}");
+        reqwest::blocking::Client::new()
+            .get(url)
+            .header(
+                AUTHORIZATION,
+                conf.connection_options.auth_token.clone().unwrap(),
+            )
+            .send()
+            .unwrap_or_else(|e| panic!("GET request failed: {e}"))
+            .json::<TransactionResponse>()
+            .unwrap()
+    };
+
+    let transaction = get_transaction(&txid);
+    assert!(
+        !transaction.is_canonical,
+        "Expected transaction response to be non-canonical"
+    );
+    assert!(
+        transaction.block_height.is_none(),
+        "Expected block height of tx response to be none"
+    );
 
     signer_test.shutdown();
 }
