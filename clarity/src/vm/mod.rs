@@ -160,12 +160,6 @@ pub trait EvalHook {
     fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>);
 }
 
-/// EventHook defines an interface for hooks to execute during events generation.
-pub trait EventHook {
-    // Called at every event generation
-    fn on_event(&mut self, _event: &StacksTransactionEvent);
-}
-
 fn lookup_variable(
     name: &str,
     context: &LocalContext,

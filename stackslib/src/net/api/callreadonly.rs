@@ -14,9 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
@@ -25,7 +22,7 @@ use clarity::vm::errors::VmExecutionError::Unchecked;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{ClarityName, ContractName, Environment, EventHook, SymbolicExpression, Value};
+use clarity::vm::{ClarityName, ContractName, Environment, SymbolicExpression, Value};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
@@ -67,23 +64,6 @@ pub struct CallReadOnlyResponse {
     pub cause: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub events: Option<Vec<CallReadOnlyEvent>>,
-}
-
-#[derive(Clone)]
-struct RPCCallReadOnlyEventHook {
-    events: Vec<StacksTransactionEvent>,
-}
-
-impl EventHook for RPCCallReadOnlyEventHook {
-    fn on_event(&mut self, event: &StacksTransactionEvent) {
-        self.events.push(event.clone());
-    }
-}
-
-impl RPCCallReadOnlyEventHook {
-    fn new() -> Self {
-        Self { events: vec![] }
-    }
 }
 
 #[derive(Clone)]
@@ -148,7 +128,7 @@ impl RPCCallReadOnlyRequestHandler {
             .take()
             .ok_or(NetError::SendError("Missing `arguments`".into()))?;
 
-        let event_hook = Rc::new(RefCell::new(RPCCallReadOnlyEventHook::new()));
+        let mut events: Vec<StacksTransactionEvent> = vec![];
 
         // run the read-only call
         let data_resp =
@@ -179,17 +159,14 @@ impl RPCCallReadOnlyRequestHandler {
                             }
                         })?;
 
-                        clarity_tx.with_readonly_clarity_env(
+                        clarity_tx.with_readonly_clarity_env_and_fill_events(
                             mainnet,
                             chain_id,
                             sender,
                             sponsor,
                             cost_track,
+                            &mut events,
                             |env| {
-                                let event_hook_clone = Rc::clone(&event_hook);
-
-                                env.global_context.event_hooks = Some(vec![event_hook_clone]);
-
                                 to_do(env);
 
                                 // we want to execute any function as long as no actual writes are made as
@@ -211,9 +188,7 @@ impl RPCCallReadOnlyRequestHandler {
             });
 
         let events = {
-            let events: Vec<CallReadOnlyEvent> = event_hook
-                .borrow()
-                .events
+            let events: Vec<CallReadOnlyEvent> = events
                 .iter()
                 .filter_map(|event| match event {
                     StacksTransactionEvent::SmartContractEvent(event_data) => {

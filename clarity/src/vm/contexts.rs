@@ -14,11 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::mem::replace;
-use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 pub use clarity_types::errors::StackTrace;
@@ -29,7 +27,7 @@ use serde_json::json;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
-use super::{EvalHook, EventHook};
+use super::EvalHook;
 use crate::vm::ast::ContractAST;
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
@@ -233,7 +231,6 @@ pub struct GlobalContext<'a, 'hooks> {
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
     pub execution_time_tracker: ExecutionTimeTracker,
-    pub event_hooks: Option<Vec<Rc<RefCell<dyn EventHook>>>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1443,12 +1440,6 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
 
     pub fn push_to_event_batch(&mut self, event: StacksTransactionEvent) {
         if let Some(batch) = self.global_context.event_batches.last_mut() {
-            if let Some(mut event_hooks) = self.global_context.event_hooks.take() {
-                for hook in event_hooks.iter_mut() {
-                    hook.borrow_mut().on_event(&event);
-                }
-                self.global_context.event_hooks = Some(event_hooks);
-            }
             batch.events.push(event);
         }
     }
@@ -1633,7 +1624,6 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_time_tracker: ExecutionTimeTracker::NoTracking,
-            event_hooks: None,
         }
     }
 
