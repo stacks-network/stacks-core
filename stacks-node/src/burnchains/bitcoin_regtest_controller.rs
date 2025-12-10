@@ -3567,6 +3567,7 @@ mod tests {
 
             let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
@@ -3626,6 +3627,7 @@ mod tests {
 
             let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
@@ -3675,6 +3677,7 @@ mod tests {
 
             let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
@@ -3726,6 +3729,7 @@ mod tests {
 
             let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
@@ -3809,6 +3813,7 @@ mod tests {
 
             let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
@@ -3882,6 +3887,7 @@ mod tests {
 
             let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
@@ -3927,6 +3933,7 @@ mod tests {
 
             let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
@@ -4063,6 +4070,7 @@ mod tests {
 
             let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller

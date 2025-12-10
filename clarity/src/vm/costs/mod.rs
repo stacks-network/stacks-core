@@ -19,6 +19,7 @@ use std::{cmp, fmt};
 
 pub use clarity_types::errors::CostErrors;
 pub use clarity_types::execution_cost::{CostOverflowingMath, ExecutionCost};
+use clarity_types::VmExecutionError;
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
@@ -28,13 +29,12 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{CheckErrors, RuntimeErrorType};
+use super::errors::{CheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
 use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::database::clarity_store::NullBackingStore;
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::InterpreterResult;
 use crate::vm::types::signatures::FunctionType::Fixed;
 use crate::vm::types::signatures::TupleTypeSignature;
 use crate::vm::types::Value::UInt;
@@ -215,8 +215,9 @@ impl DefaultVersion {
         };
         r.map_err(|e| {
             let e = match e {
-                crate::vm::errors::Error::Runtime(RuntimeErrorType::NotImplemented, _) => {
-                    CheckErrors::UndefinedFunction(cost_function_ref.function_name.clone()).into()
+                VmExecutionError::Runtime(RuntimeError::NotImplemented, _) => {
+                    CheckErrorKind::UndefinedFunction(cost_function_ref.function_name.clone())
+                        .into()
                 }
                 other => other,
             };
@@ -852,6 +853,49 @@ impl LimitedCostTracker {
         };
         Ok(result)
     }
+
+    /// Create a [`LimitedCostTracker`] given an epoch id and an execution cost limit for testing purpose
+    ///
+    /// Autoconfigure itself loading all clarity const functions without the need of passing a clarity database
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_with_limit(epoch_id: StacksEpochId, limit: ExecutionCost) -> LimitedCostTracker {
+        use stacks_common::consts::CHAIN_ID_TESTNET;
+
+        let contract_name = LimitedCostTracker::default_cost_contract_for_epoch(epoch_id)
+            .expect("Failed retrieving cost contract!");
+        let boot_costs_id = boot_code_id(&contract_name, false);
+
+        let version = DefaultVersion::try_from(false, &boot_costs_id)
+            .expect("Failed defining default version!");
+
+        let mut cost_functions = HashMap::new();
+        for each in ClarityCostFunction::ALL {
+            let evaluator = ClarityCostFunctionEvaluator::Default(
+                ClarityCostFunctionReference {
+                    contract_id: boot_costs_id.clone(),
+                    function_name: each.get_name(),
+                },
+                each.clone(),
+                version,
+            );
+            cost_functions.insert(each, evaluator);
+        }
+
+        let cost_tracker = TrackerData {
+            cost_function_references: cost_functions,
+            cost_contracts: HashMap::new(),
+            contract_call_circuits: HashMap::new(),
+            limit,
+            memory_limit: CLARITY_MEMORY_LIMIT,
+            total: ExecutionCost::ZERO,
+            memory: 0,
+            epoch: epoch_id,
+            mainnet: false,
+            chain_id: CHAIN_ID_TESTNET,
+        };
+
+        LimitedCostTracker::Limited(cost_tracker)
+    }
 }
 
 impl TrackerData {
@@ -1004,7 +1048,7 @@ impl LimitedCostTracker {
 
 pub fn parse_cost(
     cost_function_name: &str,
-    eval_result: InterpreterResult<Option<Value>>,
+    eval_result: Result<Option<Value>, VmExecutionError>,
 ) -> Result<ExecutionCost, CostErrors> {
     match eval_result {
         Ok(Some(Value::Tuple(data))) => {

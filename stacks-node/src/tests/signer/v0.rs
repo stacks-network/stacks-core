@@ -34,6 +34,7 @@ use madhouse::{execute_commands, prop_allof, scenario, Command, CommandWrapper};
 use pinny::tag;
 use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
+use reqwest::header::AUTHORIZATION;
 use rusqlite::Connection;
 use stacks::address::AddressHashMode;
 use stacks::burnchains::Txid;
@@ -56,7 +57,9 @@ use stacks::chainstate::stacks::{
     StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionPayload,
 };
 use stacks::codec::StacksMessageCodec;
-use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig};
+use stacks::config::{
+    Config as NeonConfig, EventKeyType, EventObserverConfig, DEFAULT_MAX_TENURE_BYTES,
+};
 use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::core::test_util::{
     insert_tx_in_mempool, make_big_read_count_contract, make_contract_call, make_contract_publish,
@@ -65,6 +68,7 @@ use stacks::core::test_util::{
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::getsigner::GetSignerResponse;
+use stacks::net::api::gettransaction::TransactionResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateResponse, ValidateRejectCode, TEST_REJECT_REPLAY_TXS,
     TEST_VALIDATE_DELAY_DURATION_SECS, TEST_VALIDATE_STALL,
@@ -1779,7 +1783,7 @@ fn block_proposal_rejection() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
+        read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -1888,7 +1892,15 @@ fn block_proposal_rejection() {
 /// Test Assertion:
 /// Each signer successfully rejects the invalid block proposal.
 fn sip034_tenure_extend_proposal_rejection() {
-    sip034_tenure_extend_proposal(false)
+    sip034_tenure_extend_proposal(
+        false,
+        &[
+            TenureChangeCause::ExtendedReadLength,
+            TenureChangeCause::ExtendedRuntime,
+            TenureChangeCause::ExtendedWriteLength,
+            TenureChangeCause::ExtendedWriteCount,
+        ],
+    )
 }
 
 #[tag(bitcoind)]
@@ -1909,16 +1921,12 @@ fn sip034_tenure_extend_proposal_rejection() {
 /// Test Assertion:
 /// Each signer successfully accepts the block proposal.
 fn sip034_tenure_extend_proposal_acceptance() {
-    sip034_tenure_extend_proposal(true)
+    sip034_tenure_extend_proposal(true, &[TenureChangeCause::ExtendedReadCount])
 }
 
-fn sip034_tenure_extend_proposal(allow: bool) {
+fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]) {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
-    }
-
-    if allow {
-        std::env::set_var("SIGNER_TEST_SIP034", "1");
     }
 
     tracing_subscriber::registry()
@@ -1933,6 +1941,7 @@ fn sip034_tenure_extend_proposal(allow: bool) {
         vec![],
         |signer_config| {
             signer_config.tenure_idle_timeout = Duration::from_millis(0);
+            signer_config.read_count_idle_timeout = Duration::from_millis(0);
         },
         |node_config| {
             // boot directly to epoch 3.3
@@ -1993,20 +2002,11 @@ fn sip034_tenure_extend_proposal(allow: bool) {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: allow,
+        read_count_idle_timeout: Duration::from_secs(12000),
     };
 
-    // Propose a tenure-extend for each kind of SIP-034 tenure extension
-    for (i, extend_cause) in [
-        TenureChangeCause::ExtendedRuntime,
-        TenureChangeCause::ExtendedReadCount,
-        TenureChangeCause::ExtendedReadLength,
-        TenureChangeCause::ExtendedWriteCount,
-        TenureChangeCause::ExtendedWriteLength,
-    ]
-    .iter()
-    .enumerate()
-    {
+    // Propose tenure-extends
+    for (i, extend_cause) in extend_types.iter().enumerate() {
         // force timestamp to advance
         sleep_ms(2000);
 
@@ -2054,6 +2054,7 @@ fn sip034_tenure_extend_proposal(allow: bool) {
                 None,
                 None,
                 None,
+                u64::from(DEFAULT_MAX_TENURE_BYTES),
             )
             .expect("Failed to build Nakamoto block");
 
@@ -3125,6 +3126,7 @@ fn forked_tenure_testing(
         burn_header_timestamp: tip_sn.burn_header_timestamp,
         anchored_block_size: tip_b_block.serialize_to_vec().len() as u64,
         burn_view: Some(tip_b_block.header.consensus_hash),
+        total_tenure_size: 0,
     };
 
     let blocks = test_observer::get_mined_nakamoto_blocks();
@@ -3995,6 +3997,7 @@ fn tx_replay_btc_on_stx_invalidation() {
                 c.reset_replay_set_after_fork_blocks = 5;
             },
             |node_config| {
+                node_config.node.txindex = true;
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -4007,7 +4010,7 @@ fn tx_replay_btc_on_stx_invalidation() {
 
     let conf = &signer_test.running_nodes.conf;
     let mut miner_keychain = Keychain::default(conf.node.seed.clone()).generate_op_signer();
-    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let mut btc_controller = BitcoinRegtestController::new(conf.clone(), None);
     let submitted_commits = signer_test
         .running_nodes
@@ -4087,7 +4090,7 @@ fn tx_replay_btc_on_stx_invalidation() {
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     wait_for(30, || {
-        let account = get_account(&_http_origin, &recipient_addr);
+        let account = get_account(&http_origin, &recipient_addr);
         Ok(account.balance == recipient_balance.into())
     })
     .expect("Timed out waiting for balance to be updated");
@@ -4184,8 +4187,34 @@ fn tx_replay_btc_on_stx_invalidation() {
 
     assert!(found_block, "Failed to mine the tenure change block");
     // Ensure that in the 30 seconds, the nonce did not increase. This also asserts that no tx replays were mined.
-    let account = get_account(&_http_origin, &recipient_addr);
+    let account = get_account(&http_origin, &recipient_addr);
     assert_eq!(account.nonce, 0, "Expected recipient nonce to be 0");
+
+    // Call `/v3/transaction/{txid}` and verify that `is_canonical` is false
+    let get_transaction = |txid: &String| {
+        let url = &format!("{http_origin}/v3/transaction/{txid}");
+        info!("Send request: GET {url}");
+        reqwest::blocking::Client::new()
+            .get(url)
+            .header(
+                AUTHORIZATION,
+                conf.connection_options.auth_token.clone().unwrap(),
+            )
+            .send()
+            .unwrap_or_else(|e| panic!("GET request failed: {e}"))
+            .json::<TransactionResponse>()
+            .unwrap()
+    };
+
+    let transaction = get_transaction(&txid);
+    assert!(
+        !transaction.is_canonical,
+        "Expected transaction response to be non-canonical"
+    );
+    assert!(
+        transaction.block_height.is_none(),
+        "Expected block height of tx response to be none"
+    );
 
     signer_test.shutdown();
 }
@@ -6466,6 +6495,70 @@ fn signers_broadcast_signed_blocks() {
             && signer_pushed > signer_pushed_before)
     })
     .expect("Timed out waiting for second nakamoto block to be mined");
+
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// This test verifies that a miner will produce a read-count
+/// extension after the signers' read count idle timeout is reached.
+fn read_count_extend_after_idle_signers() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let idle_timeout = Duration::from_secs(30);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |config| {
+            // use a different timeout to ensure that the correct timeout
+            //  is read by the miner
+            config.tenure_idle_timeout = Duration::from_secs(36000);
+            config.read_count_idle_timeout = idle_timeout;
+        },
+        |node_config| {
+            node_config.miner.tenure_extend_cost_threshold = 0;
+            node_config.miner.read_count_extend_cost_threshold = 0;
+
+            // boot directly to epoch 3.3
+            let epochs = node_config.burnchain.epochs.as_mut().unwrap();
+            let epoch_30_height = epochs[StacksEpochId::Epoch30].start_height;
+
+            epochs[StacksEpochId::Epoch30].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch31].start_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch31].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch32].start_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch32].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch33].start_height = epoch_30_height;
+        },
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+
+    info!("---- Nakamoto booted, starting test ----");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    signer_test.check_signer_states_normal();
+
+    info!("---- Waiting for a tenure extend ----");
+
+    // Now, wait for a block with a tenure extend
+    wait_for(idle_timeout.as_secs() + 10, || {
+        Ok(last_block_contains_tenure_change_tx(
+            TenureChangeCause::ExtendedReadCount,
+        ))
+    })
+    .expect("Timed out waiting for a block with a tenure extend");
 
     signer_test.shutdown();
 }
@@ -11029,7 +11122,7 @@ fn block_validation_response_timeout() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
+        read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -11326,7 +11419,7 @@ fn block_validation_pending_table() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
+        read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -12681,7 +12774,7 @@ fn incoming_signers_ignore_block_proposals() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
+        read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -12860,7 +12953,7 @@ fn outgoing_signers_ignore_block_proposals() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
+        read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -17846,6 +17939,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
         burn_header_timestamp: tip_sn.burn_header_timestamp,
         anchored_block_size: tenure_b_block.serialize_to_vec().len() as u64,
         burn_view: Some(tenure_b_block.header.consensus_hash),
+        total_tenure_size: 0,
     };
 
     // Block B was built atop block A
@@ -19032,7 +19126,8 @@ fn signers_treat_signatures_as_precommits() {
         let accepted = BlockResponse::accepted(
             block_proposal.header.signer_signature_hash(),
             signature,
-            get_epoch_time_secs().wrapping_add(u64::MAX),
+            get_epoch_time_secs().saturating_add(u64::MAX),
+            get_epoch_time_secs().saturating_add(u64::MAX),
         );
 
         let signers_contract_id =

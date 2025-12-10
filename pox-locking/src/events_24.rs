@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::contexts::GlobalContext;
-use clarity::vm::errors::Error as ClarityError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
 use clarity::vm::Value;
 #[cfg(any(test, feature = "testing"))]
@@ -343,7 +343,7 @@ pub fn synthesize_pox_2_or_3_event_info(
     sender_opt: Option<&PrincipalData>,
     function_name: &str,
     args: &[Value],
-) -> Result<Option<Value>, ClarityError> {
+) -> Result<Option<Value>, VmExecutionError> {
     let sender = match sender_opt {
         Some(sender) => sender,
         None => {
@@ -410,16 +410,12 @@ pub fn synthesize_pox_2_or_3_event_info(
                 let data_tuple = data_event_info
                     .expect_tuple()
                     .expect("FATAL: unexpected clarity value");
-                let event_tuple =
-                    TupleData::shallow_merge(base_event_tuple, data_tuple).map_err(|e| {
-                        error!("Failed to merge data-info and event-info: {e:?}");
-                        e
-                    })?;
+                let event_tuple = TupleData::shallow_merge(base_event_tuple, data_tuple);
 
                 Ok(Value::Tuple(event_tuple))
             },
         )
-        .map_err(|e: ClarityError| {
+        .map_err(|e: VmExecutionError| {
             error!("Failed to synthesize PoX event: {:?}", &e);
             e
         })?;

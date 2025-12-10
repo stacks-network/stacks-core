@@ -9,11 +9,26 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
-- Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
+- Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
+- Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
+- Added `--epoch <epoch_number>` flag to `clarity-cli` commands to specify the epoch context for evaluation.
+- In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
+
+### Fixed
+
+- Correctly produce the receipt for the `costs-4` contract, which was deployed on epoch 3.3 activation. Users who consume node events and want to fill in the missing receipt (e.g. the Hiro API) will need to revert their chainstate to before the 3.3 activation and then resume sync to receive the previously missing event.
+
+## [3.3.0.0.1]
+
+- Add indexes to `nakamoto_block_headers` to fix a performance regression. Node may take a few minutes to restart during the upgrade while the new indexes are created.
+
+## [3.3.0.0.0]
 
 ### Added
 
+- Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
 - New `block_proposal_validation_timeout_secs` configuration option in the connection options section, allowing to set the maximum duration a node will spend validating a proposed block.
+- Activation height selected and set for epoch 3.3 at Bitcoin block 923,222
 
 ### Changed
 

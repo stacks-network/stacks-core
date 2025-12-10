@@ -33,10 +33,10 @@ http-types = { version = "2.12", default-features = false, optional = true }
 thiserror = { workspace = true }
 
 # This dependency is used for the multiversion integration tests which live behind the build-v3-1-0-0-13 feature flag
-signer_v3_1_0_0_13 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
-libsigner_v3_1_0_0_13 = { package = "libsigner", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true}
-stacks_v3_1_00_13 = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
-stacks_common_v3_1_00_13 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
+signer_v3_3_0_0_1 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev="b3efa588571e168d2d154790e1c57d9e3e64adc5", optional = true, features = ["testing", "default"]}
+libsigner_v3_3_0_0_1 = { package = "libsigner", git = "https://github.com/stacks-network/stacks-core.git", rev="b3efa588571e168d2d154790e1c57d9e3e64adc5", optional = true}
+stacks_v3_3_0_0_1 = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", rev="b3efa588571e168d2d154790e1c57d9e3e64adc5", optional = true, features = ["testing", "default"]}
+stacks_common_v3_3_0_0_1 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev="b3efa588571e168d2d154790e1c57d9e3e64adc5", optional = true, features = ["testing", "default"]}
 [target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
 tikv-jemallocator = {workspace = true}
 
@@ -68,7 +68,7 @@ slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
 testing = ["stacks-common/testing", "stacks/testing", "clarity/testing"]
-build-signer-v3-1-0-0-13 = ["signer_v3_1_0_0_13", "libsigner_v3_1_0_0_13", "stacks_v3_1_00_13", "stacks_common_v3_1_00_13"]
+build-signer-v3-3-0-0-1 = ["signer_v3_3_0_0_1", "libsigner_v3_3_0_0_1", "stacks_v3_3_0_0_1", "stacks_common_v3_3_0_0_1"]
 
 [package.metadata.pinny]
 allowed = ["bitcoind", "flaky", "slow"]

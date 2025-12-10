@@ -33,6 +33,8 @@ pub struct TransactionResponse {
     pub index_block_hash: StacksBlockId,
     pub tx: String,
     pub result: String,
+    pub block_height: Option<u64>,
+    pub is_canonical: bool,
 }
 
 #[derive(Clone)]
@@ -91,7 +93,7 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
     fn try_handle_request(
         &mut self,
         preamble: HttpRequestPreamble,
-        _contents: HttpRequestContents,
+        contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         if !node.txindex {
@@ -107,6 +109,13 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
             .txid
             .take()
             .ok_or(NetError::SendError("`txid` no set".into()))?;
+
+        let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
+            Ok(tip) => tip,
+            Err(error_resp) => {
+                return error_resp.try_into_contents().map_err(NetError::from);
+            }
+        };
 
         node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
             let index_block_hash_and_tx_hex_opt = match NakamotoChainState::get_tx_info_from_txid(
@@ -126,11 +135,21 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
 
             match index_block_hash_and_tx_hex_opt {
                 Some((index_block_hash, tx_hex, result)) => {
+                    let block_height = chainstate
+                        .index_conn()
+                        .get_ancestor_block_height(&index_block_hash, &tip)?;
+                    let is_canonical = chainstate
+                        .index_conn()
+                        .get_ancestor_block_height(&index_block_hash, &tip)
+                        .map(|height_opt| height_opt.is_some())
+                        .unwrap_or(false);
                     let preamble = HttpResponsePreamble::ok_json(&preamble);
                     let body = HttpResponseContents::try_from_json(&TransactionResponse {
-                        index_block_hash,
+                        index_block_hash: index_block_hash.clone(),
                         tx: tx_hex,
                         result,
+                        block_height,
+                        is_canonical,
                     })?;
                     return Ok((preamble, body));
                 }

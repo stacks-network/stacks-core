@@ -19,10 +19,11 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{cmp, fs, io};
 
-pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
+pub use clarity::vm::analysis::errors::{CheckErrorKind, StaticCheckError};
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::BurnStateDB;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{
     BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
@@ -109,7 +110,7 @@ pub enum MemPoolRejection {
     NotEnoughFunds(u128, u128),
     NoSuchContract,
     NoSuchPublicFunction,
-    BadFunctionArgument(CheckError),
+    BadFunctionArgument(StaticCheckError),
     ContractAlreadyExists(QualifiedContractIdentifier),
     PoisonMicroblocksDoNotConflict,
     NoAnchorBlockWithPubkeyHash(Hash160),
@@ -306,8 +307,8 @@ impl From<db_error> for MemPoolRejection {
     }
 }
 
-impl From<clarity::vm::errors::Error> for MemPoolRejection {
-    fn from(e: clarity::vm::errors::Error) -> MemPoolRejection {
+impl From<VmExecutionError> for MemPoolRejection {
+    fn from(e: VmExecutionError) -> MemPoolRejection {
         MemPoolRejection::Other(e.to_string())
     }
 }
@@ -1513,6 +1514,31 @@ impl StacksChainState {
             }
         }
         return Ok(None);
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    /// A helper function for exposing store_staging_block
+    pub fn store_staging_block_test(
+        tx: &mut DBTx<'_>,
+        blocks_path: &str,
+        consensus_hash: &ConsensusHash,
+        block: &StacksBlock,
+        parent_consensus_hash: &ConsensusHash,
+        commit_burn: u64,
+        sortition_burn: u64,
+        download_time: u64,
+    ) -> Result<(), Error> {
+        Self::store_staging_block(
+            tx,
+            blocks_path,
+            consensus_hash,
+            block,
+            parent_consensus_hash,
+            commit_burn,
+            sortition_burn,
+            download_time,
+        )
     }
 
     /// Store a preprocessed block, queuing it up for subsequent processing.
@@ -3101,7 +3127,6 @@ impl StacksChainState {
                 return Err(e.into());
             }
         };
-
         // burn chain tip that selected this commit's block
         let burn_chain_tip = db_handle
             .get_block_snapshot(&block_commit.burn_header_hash)?
@@ -3927,7 +3952,7 @@ impl StacksChainState {
     ) -> Result<(bool, Vec<StacksTransactionReceipt>), Error> {
         // is this stacks block the first of a new epoch?
         let (stacks_parent_epoch, sortition_epoch) = clarity_tx
-            .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::Error>>(|db| {
+            .with_clarity_db_readonly::<_, Result<_, VmExecutionError>>(|db| {
                 Ok((
                     db.get_clarity_epoch_version()?,
                     db.get_stacks_epoch(chain_tip_burn_header_height),
@@ -6614,17 +6639,16 @@ impl StacksChainState {
         }
 
         let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) =
-            clarity_connection
-                .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::Error>>(
-                    |ref mut db| {
-                        Ok((
-                            db.get_current_burnchain_block_height()? as u64,
-                            db.get_v1_unlock_height(),
-                            db.get_v2_unlock_height()?,
-                            db.get_v3_unlock_height()?,
-                        ))
-                    },
-                )?;
+            clarity_connection.with_clarity_db_readonly::<_, Result<_, VmExecutionError>>(
+                |ref mut db| {
+                    Ok((
+                        db.get_current_burnchain_block_height()? as u64,
+                        db.get_v1_unlock_height(),
+                        db.get_v2_unlock_height()?,
+                        db.get_v3_unlock_height()?,
+                    ))
+                },
+            )?;
 
         // 6: the paying account must have enough funds
         if !payer.stx_balance.can_transfer_at_burn_block(

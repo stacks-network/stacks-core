@@ -44,7 +44,9 @@ extern crate stacks_common;
 #[macro_use]
 pub extern crate clarity;
 
-use stacks_common::versions::{GIT_BRANCH, GIT_COMMIT, GIT_TREE_CLEAN, STACKS_NODE_VERSION};
+use std::env::consts::{ARCH, OS};
+
+use stacks_common::versions::{GIT_COMMIT, GIT_TREE_CLEAN, STACKS_NODE_VERSION};
 pub use stacks_common::{address, codec, types, util};
 
 #[macro_use]
@@ -59,9 +61,6 @@ pub extern crate libstackerdb;
 pub mod chainstate;
 
 pub mod burnchains;
-/// Allow panics in CLI commands
-#[allow(clippy::indexing_slicing)]
-pub mod clarity_cli;
 /// A high level library for interacting with the Clarity vm
 pub mod clarity_vm;
 pub mod config;
@@ -82,19 +81,10 @@ const BUILD_TYPE: &str = "release";
 
 pub fn version_string(pkg_name: &str, pkg_version: Option<&str>) -> String {
     let pkg_version = pkg_version.unwrap_or(STACKS_NODE_VERSION);
-    let git_branch = GIT_BRANCH_ENV.unwrap_or_else(|| GIT_BRANCH.unwrap_or(""));
     let git_commit = GIT_COMMIT_ENV.unwrap_or_else(|| GIT_COMMIT.unwrap_or(""));
     let git_tree_clean = GIT_TREE_CLEAN_ENV.unwrap_or_else(|| GIT_TREE_CLEAN.unwrap_or(""));
 
     format!(
-        "{} {} ({}:{}{}, {} build, {} [{}])",
-        pkg_name,
-        pkg_version,
-        git_branch,
-        git_commit,
-        git_tree_clean,
-        BUILD_TYPE,
-        std::env::consts::OS,
-        std::env::consts::ARCH
+        "{pkg_name} {pkg_version} ({git_commit}{git_tree_clean}, {BUILD_TYPE} build, {OS} [{ARCH}])"
     )
 }

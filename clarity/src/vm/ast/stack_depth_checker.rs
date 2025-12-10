@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ast::errors::{ParseErrors, ParseResult};
+use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::representations::PreSymbolicExpressionType::{List, Tuple};
@@ -27,7 +27,7 @@ pub const AST_CALL_STACK_DEPTH_BUFFER: u64 = 5;
 
 fn check(args: &[PreSymbolicExpression], depth: u64) -> ParseResult<()> {
     if depth >= (AST_CALL_STACK_DEPTH_BUFFER + MAX_CALL_STACK_DEPTH as u64) {
-        return Err(ParseErrors::ExpressionStackDepthTooDeep.into());
+        return Err(ParseErrorKind::ExpressionStackDepthTooDeep.into());
     }
     for expression in args.iter() {
         match expression.pre_expr {
@@ -52,7 +52,7 @@ impl BuildASTPass for StackDepthChecker {
 
 fn check_vary(args: &[PreSymbolicExpression], depth: u64) -> ParseResult<()> {
     if depth >= (AST_CALL_STACK_DEPTH_BUFFER + MAX_CALL_STACK_DEPTH as u64) {
-        return Err(ParseErrors::VaryExpressionStackDepthTooDeep.into());
+        return Err(ParseErrorKind::VaryExpressionStackDepthTooDeep.into());
     }
     for expression in args.iter() {
         match expression.pre_expr {
