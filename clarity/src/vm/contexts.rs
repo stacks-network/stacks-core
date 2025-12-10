@@ -1454,9 +1454,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             batch.events.push(event);
             *total_size = total_size.saturating_add(size.into());
             if *total_size >= MAX_EVENTS_BATCH {
-                return Err(VmInternalError::Expect(format!(
-                    "Event batch grew too large during execution"
-                ))
+                return Err(VmInternalError::Expect(
+                    "Event batch grew too large during execution".to_string(),
+                )
                 .into());
             }
         }
