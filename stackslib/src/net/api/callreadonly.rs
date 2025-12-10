@@ -167,6 +167,8 @@ impl RPCCallReadOnlyRequestHandler {
                             cost_track,
                             &mut events,
                             |env| {
+                                env.global_context.keep_event_batches = true;
+
                                 to_do(env);
 
                                 // we want to execute any function as long as no actual writes are made as

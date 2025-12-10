@@ -231,6 +231,8 @@ pub struct GlobalContext<'a, 'hooks> {
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
     pub execution_time_tracker: ExecutionTimeTracker,
+    /// avoid events to be cleared too early while in read only mode
+    pub keep_event_batches: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1261,7 +1263,17 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         };
 
         if make_read_only {
+            let mut event_batches_clone = None;
+            if self.global_context.keep_event_batches {
+                event_batches_clone = Some(self.global_context.event_batches.clone());
+            }
+
             self.global_context.roll_back()?;
+
+            if let Some(event_batches_clone) = event_batches_clone {
+                self.global_context.event_batches = event_batches_clone
+            }
+
             result
         } else {
             self.global_context.handle_tx_result(result, allow_private)
@@ -1624,6 +1636,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_time_tracker: ExecutionTimeTracker::NoTracking,
+            keep_event_batches: false,
         }
     }
 
@@ -1801,7 +1814,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         let out_batch = match self.event_batches.last_mut() {
             Some(tail_back) => {
                 tail_back.events.append(&mut event_batch.events);
-                None
+                Some(tail_back.clone())
             }
             None => Some(event_batch),
         };
