@@ -551,16 +551,23 @@ impl<'a> ClarityDatabase<'a> {
                 .map_err(|e| VmInternalError::Expect(e.to_string()))?
                 as u64;
 
-            let (sanitized_value, did_sanitize) =
-                Value::sanitize_value(epoch, &TypeSignature::type_of(&value)?, value)
-                    .ok_or_else(|| CheckErrorKind::CouldNotDetermineType)?;
+            let (sanitized_value, did_sanitize) = Value::sanitize_value(
+                epoch,
+                &TypeSignature::type_of(&value).map_err(CheckErrorKind::from_clarity_type_error)?,
+                value,
+            )
+            .ok_or_else(|| CheckErrorKind::CouldNotDetermineType)?;
             // if data needed to be sanitized *charge* for the unsanitized cost
             if did_sanitize {
                 pre_sanitized_size = Some(value_size);
             }
-            sanitized_value.serialize_to_vec()?
+            sanitized_value
+                .serialize_to_vec()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?
         } else {
-            value.serialize_to_vec()?
+            value
+                .serialize_to_vec()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?
         };
 
         let size = serialized.len() as u64;
@@ -915,7 +922,11 @@ impl<'a> ClarityDatabase<'a> {
                     "FATAL: failed to load ustx_liquid_supply Clarity key".into(),
                 )
             })?
-            .map(|v| v.value.expect_u128())
+            .map(|v| {
+                v.value
+                    .expect_u128()
+                    .map_err(|_| VmInternalError::Expect("Expected u128".into()))
+            })
             .transpose()?
             .unwrap_or(0))
     }
@@ -1452,7 +1463,9 @@ impl ClarityDatabase<'_> {
                             "BUG: failed to decode serialized poison-microblock reporter".into(),
                         )
                     })?;
-                let tuple_data = reporter_value.expect_tuple()?;
+                let tuple_data = reporter_value
+                    .expect_tuple()
+                    .map_err(|_| VmInternalError::Expect("Expected tuple".into()))?;
                 let reporter_value = tuple_data
                     .get("reporter")
                     .map_err(|_| {
@@ -1470,8 +1483,12 @@ impl ClarityDatabase<'_> {
                     })?
                     .to_owned();
 
-                let reporter_principal = reporter_value.expect_principal()?;
-                let seq_u128 = seq_value.expect_u128()?;
+                let reporter_principal = reporter_value
+                    .expect_principal()
+                    .map_err(|_| VmInternalError::Expect("Expected principal".into()))?;
+                let seq_u128 = seq_value
+                    .expect_u128()
+                    .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
 
                 let seq: u16 = seq_u128
                     .try_into()
@@ -1556,7 +1573,8 @@ impl ClarityDatabase<'_> {
     ) -> Result<ValueResult, VmExecutionError> {
         if !variable_descriptor
             .value_type
-            .admits(&self.get_clarity_epoch_version()?, &value)?
+            .admits(&self.get_clarity_epoch_version()?, &value)
+            .map_err(CheckErrorKind::from_clarity_type_error)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(variable_descriptor.value_type.clone()),
@@ -1676,7 +1694,9 @@ impl ClarityDatabase<'_> {
         Ok(ClarityDatabase::make_key_for_data_map_entry_serialized(
             contract_identifier,
             map_name,
-            &key_value.serialize_to_hex()?,
+            &key_value
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         ))
     }
 
@@ -1715,7 +1735,8 @@ impl ClarityDatabase<'_> {
     ) -> Result<Value, VmExecutionError> {
         if !map_descriptor
             .key_type
-            .admits(&self.get_clarity_epoch_version()?, key_value)?
+            .admits(&self.get_clarity_epoch_version()?, key_value)
+            .map_err(CheckErrorKind::from_clarity_type_error)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
@@ -1727,7 +1748,8 @@ impl ClarityDatabase<'_> {
         let key =
             ClarityDatabase::make_key_for_data_map_entry(contract_identifier, map_name, key_value)?;
 
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())
+            .map_err(CheckErrorKind::from_clarity_type_error)?;
         let result = self.get_value(&key, &stored_type, epoch)?;
 
         match result {
@@ -1746,7 +1768,8 @@ impl ClarityDatabase<'_> {
     ) -> Result<ValueResult, VmExecutionError> {
         if !map_descriptor
             .key_type
-            .admits(&self.get_clarity_epoch_version()?, key_value)?
+            .admits(&self.get_clarity_epoch_version()?, key_value)
+            .map_err(CheckErrorKind::from_clarity_type_error)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
@@ -1755,14 +1778,17 @@ impl ClarityDatabase<'_> {
             .into());
         }
 
-        let key_serialized = key_value.serialize_to_hex()?;
+        let key_serialized = key_value
+            .serialize_to_hex()
+            .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?;
         let key = ClarityDatabase::make_key_for_data_map_entry_serialized(
             contract_identifier,
             map_name,
             &key_serialized,
         );
 
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())
+            .map_err(CheckErrorKind::from_clarity_type_error)?;
         let result = self.get_value(&key, &stored_type, epoch)?;
 
         match result {
@@ -1889,7 +1915,8 @@ impl ClarityDatabase<'_> {
     ) -> Result<ValueResult, VmExecutionError> {
         if !map_descriptor
             .key_type
-            .admits(&self.get_clarity_epoch_version()?, &key_value)?
+            .admits(&self.get_clarity_epoch_version()?, &key_value)
+            .map_err(CheckErrorKind::from_clarity_type_error)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
@@ -1899,7 +1926,8 @@ impl ClarityDatabase<'_> {
         }
         if !map_descriptor
             .value_type
-            .admits(&self.get_clarity_epoch_version()?, &value)?
+            .admits(&self.get_clarity_epoch_version()?, &value)
+            .map_err(CheckErrorKind::from_clarity_type_error)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.value_type.clone()),
@@ -1908,7 +1936,9 @@ impl ClarityDatabase<'_> {
             .into());
         }
 
-        let key_serialized = key_value.serialize_to_hex()?;
+        let key_serialized = key_value
+            .serialize_to_hex()
+            .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?;
         let key_serialized_byte_len = byte_len_of_serialization(&key_serialized);
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
@@ -1916,7 +1946,8 @@ impl ClarityDatabase<'_> {
             map_name,
             &key_serialized,
         );
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())
+            .map_err(CheckErrorKind::from_clarity_type_error)?;
 
         if return_if_exists && self.data_map_entry_exists(&key, &stored_type, epoch)? {
             return Ok(ValueResult {
@@ -1925,7 +1956,7 @@ impl ClarityDatabase<'_> {
             });
         }
 
-        let placed_value = Value::some(value)?;
+        let placed_value = Value::some(value).map_err(CheckErrorKind::from_clarity_type_error)?;
         let placed_size = self.put_value_with_size(&key, placed_value, epoch)?;
 
         Ok(ValueResult {
@@ -1948,7 +1979,8 @@ impl ClarityDatabase<'_> {
     ) -> Result<ValueResult, VmExecutionError> {
         if !map_descriptor
             .key_type
-            .admits(&self.get_clarity_epoch_version()?, key_value)?
+            .admits(&self.get_clarity_epoch_version()?, key_value)
+            .map_err(CheckErrorKind::from_clarity_type_error)?
         {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
@@ -1957,7 +1989,9 @@ impl ClarityDatabase<'_> {
             .into());
         }
 
-        let key_serialized = key_value.serialize_to_hex()?;
+        let key_serialized = key_value
+            .serialize_to_hex()
+            .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?;
         let key_serialized_byte_len = byte_len_of_serialization(&key_serialized);
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
@@ -1965,7 +1999,8 @@ impl ClarityDatabase<'_> {
             map_name,
             &key_serialized,
         );
-        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())
+            .map_err(CheckErrorKind::from_clarity_type_error)?;
         if !self.data_map_entry_exists(&key, &stored_type, epoch)? {
             return Ok(ValueResult {
                 value: Value::Bool(false),
@@ -2171,7 +2206,10 @@ impl ClarityDatabase<'_> {
         asset: &Value,
         key_type: &TypeSignature,
     ) -> Result<PrincipalData, VmExecutionError> {
-        if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
+        if !key_type
+            .admits(&self.get_clarity_epoch_version()?, asset)
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+        {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),
@@ -2183,7 +2221,9 @@ impl ClarityDatabase<'_> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize_to_hex()?,
+            &asset
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         );
 
         let epoch = self.get_clarity_epoch_version()?;
@@ -2194,12 +2234,17 @@ impl ClarityDatabase<'_> {
             &epoch,
         )?;
         let owner = match value {
-            Some(owner) => owner.value.expect_optional()?,
+            Some(owner) => owner
+                .value
+                .expect_optional()
+                .map_err(|_| VmInternalError::Expect("Expected an optional".into()))?,
             None => return Err(RuntimeError::NoSuchToken.into()),
         };
 
         let principal = match owner {
-            Some(value) => value.expect_principal()?,
+            Some(value) => value
+                .expect_principal()
+                .map_err(|_| VmInternalError::Expect("Expected principal.".into()))?,
             None => return Err(RuntimeError::NoSuchToken.into()),
         };
 
@@ -2224,7 +2269,10 @@ impl ClarityDatabase<'_> {
         key_type: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<(), VmExecutionError> {
-        if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
+        if !key_type
+            .admits(&self.get_clarity_epoch_version()?, asset)
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+        {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),
@@ -2236,10 +2284,13 @@ impl ClarityDatabase<'_> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize_to_hex()?,
+            &asset
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         );
 
-        let value = Value::some(Value::Principal(principal.clone()))?;
+        let value = Value::some(Value::Principal(principal.clone()))
+            .map_err(CheckErrorKind::from_clarity_type_error)?;
         self.put_value(&key, value, epoch)?;
 
         Ok(())
@@ -2253,7 +2304,10 @@ impl ClarityDatabase<'_> {
         key_type: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<(), VmExecutionError> {
-        if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
+        if !key_type
+            .admits(&self.get_clarity_epoch_version()?, asset)
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+        {
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),
@@ -2265,7 +2319,9 @@ impl ClarityDatabase<'_> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize_to_hex()?,
+            &asset
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         );
 
         self.put_value(&key, Value::none(), epoch)?;

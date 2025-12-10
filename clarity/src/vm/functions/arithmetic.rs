@@ -408,7 +408,10 @@ fn special_geq_v2(
     runtime_cost(
         ClarityCostFunction::Geq,
         env,
-        cmp::min(a.size()?, b.size()?),
+        cmp::min(
+            a.size().map_err(CheckErrorKind::from_clarity_type_error)?,
+            b.size().map_err(CheckErrorKind::from_clarity_type_error)?,
+        ),
     )?;
     type_force_binary_comparison_v2!(geq, a, b)
 }
@@ -455,7 +458,10 @@ fn special_leq_v2(
     runtime_cost(
         ClarityCostFunction::Leq,
         env,
-        cmp::min(a.size()?, b.size()?),
+        cmp::min(
+            a.size().map_err(CheckErrorKind::from_clarity_type_error)?,
+            b.size().map_err(CheckErrorKind::from_clarity_type_error)?,
+        ),
     )?;
     type_force_binary_comparison_v2!(leq, a, b)
 }
@@ -498,7 +504,14 @@ fn special_greater_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Ge, env, cmp::min(a.size()?, b.size()?))?;
+    runtime_cost(
+        ClarityCostFunction::Ge,
+        env,
+        cmp::min(
+            a.size().map_err(CheckErrorKind::from_clarity_type_error)?,
+            b.size().map_err(CheckErrorKind::from_clarity_type_error)?,
+        ),
+    )?;
     type_force_binary_comparison_v2!(greater, a, b)
 }
 
@@ -540,7 +553,14 @@ fn special_less_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Le, env, cmp::min(a.size()?, b.size()?))?;
+    runtime_cost(
+        ClarityCostFunction::Le,
+        env,
+        cmp::min(
+            a.size().map_err(CheckErrorKind::from_clarity_type_error)?,
+            b.size().map_err(CheckErrorKind::from_clarity_type_error)?,
+        ),
+    )?;
     type_force_binary_comparison_v2!(less, a, b)
 }
 
@@ -600,7 +620,10 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> Result<Value, VmEx
             }
             _ => Err(CheckErrorKind::UnionTypeError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                Box::new(TypeSignature::type_of(&input)?),
+                Box::new(
+                    TypeSignature::type_of(&input)
+                        .map_err(CheckErrorKind::from_clarity_type_error)?,
+                ),
             )
             .into()),
         }
@@ -626,7 +649,10 @@ pub fn native_bitwise_right_shift(input: Value, pos: Value) -> Result<Value, VmE
             }
             _ => Err(CheckErrorKind::UnionTypeError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                Box::new(TypeSignature::type_of(&input)?),
+                Box::new(
+                    TypeSignature::type_of(&input)
+                        .map_err(CheckErrorKind::from_clarity_type_error)?,
+                ),
             )
             .into()),
         }

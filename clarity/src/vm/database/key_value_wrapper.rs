@@ -445,7 +445,7 @@ impl RollbackWrapper<'_> {
         epoch: &StacksEpochId,
     ) -> Result<Option<ValueResult>, SerializationError> {
         self.stack.last().ok_or_else(|| {
-            SerializationError::DeserializationError(
+            SerializationError::DeserializationFailure(
                 "ERROR: Clarity VM attempted GET on non-nested context.".into(),
             )
         })?;
@@ -456,7 +456,9 @@ impl RollbackWrapper<'_> {
             }
         }
         let stored_data = self.store.get_data(key).map_err(|_| {
-            SerializationError::DeserializationError("ERROR: Clarity backing store failure".into())
+            SerializationError::DeserializationFailure(
+                "ERROR: Clarity backing store failure".into(),
+            )
         })?;
         match stored_data {
             Some(x) => Ok(Some(Self::deserialize_value(&x, expected, epoch)?)),

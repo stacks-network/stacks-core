@@ -1267,13 +1267,12 @@ impl StacksChainState {
                 sortdb,
                 block_id,
                 POX_4_NAME,
-                &format!("(get-reward-set-size u{})", reward_cycle),
+                &format!("(get-reward-set-size u{reward_cycle})"),
             )?
             .expect_u128()?;
 
         debug!(
-            "At block {:?} (reward cycle {}): {} PoX reward addresses",
-            block_id, reward_cycle, num_addrs
+            "At block {block_id:?} (reward cycle {reward_cycle}): {num_addrs} PoX reward addresses"
         );
 
         let mut ret = vec![];
@@ -1290,13 +1289,12 @@ impl StacksChainState {
                     sortdb,
                     block_id,
                     POX_4_NAME,
-                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
+                    &format!("(get-reward-set-pox-address u{reward_cycle} u{i})"),
                 )?
                 .expect_optional()?
                 .unwrap_or_else(|| {
                     panic!(
-                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                        i, num_addrs, reward_cycle
+                        "FATAL: missing PoX address in slot {i} out of {num_addrs} in reward cycle {reward_cycle}"
                     )
                 })
                 .expect_tuple()?;
@@ -1380,12 +1378,11 @@ impl StacksChainState {
                 sortdb,
                 block_id,
                 SIGNERS_VOTING_NAME,
-                &format!("(get-approved-aggregate-key u{})", reward_cycle),
+                &format!("(get-approved-aggregate-key u{reward_cycle})"),
             )?
             .expect_optional()?;
         debug!(
-            "Aggregate public key for reward cycle {} is {:?}",
-            reward_cycle, aggregate_public_key_opt
+            "Aggregate public key for reward cycle {reward_cycle} is {aggregate_public_key_opt:?}"
         );
 
         let aggregate_public_key = match aggregate_public_key_opt {

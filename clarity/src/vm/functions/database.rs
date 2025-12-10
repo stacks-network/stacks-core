@@ -76,7 +76,12 @@ pub fn special_contract_call(
     let mut rest_args_sizes = Vec::with_capacity(rest_args_len);
     for arg in rest_args_slice.iter() {
         let evaluated_arg = eval(arg, env, context)?;
-        rest_args_sizes.push(evaluated_arg.size()? as u64);
+        rest_args_sizes.push(
+            evaluated_arg
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        );
         rest_args.push(SymbolicExpression::atom_value(evaluated_arg));
     }
 
@@ -206,15 +211,20 @@ pub fn special_contract_call(
     }?;
 
     // sanitize contract-call outputs in epochs >= 2.4
-    let result_type = TypeSignature::type_of(&result)?;
+    let result_type =
+        TypeSignature::type_of(&result).map_err(CheckErrorKind::from_clarity_type_error)?;
     let (result, _) = Value::sanitize_value(env.epoch(), &result_type, result)
         .ok_or_else(|| CheckErrorKind::CouldNotDetermineType)?;
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
     if let Some(returns_type_signature) = type_returns_constraint {
-        let actual_returns = TypeSignature::type_of(&result)?;
-        if !returns_type_signature.admits_type(env.epoch(), &actual_returns)? {
+        let actual_returns =
+            TypeSignature::type_of(&result).map_err(CheckErrorKind::from_clarity_type_error)?;
+        if !returns_type_signature
+            .admits_type(env.epoch(), &actual_returns)
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+        {
             return Err(CheckErrorKind::ReturnTypesMustMatch(
                 Box::new(returns_type_signature),
                 Box::new(actual_returns),
@@ -246,7 +256,10 @@ pub fn special_fetch_variable_v200(
     runtime_cost(
         ClarityCostFunction::FetchVar,
         env,
-        data_types.value_type.size()?,
+        data_types
+            .value_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?,
     )?;
 
     let epoch = *env.epoch();
@@ -282,7 +295,11 @@ pub fn special_fetch_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size()? as u64,
+        Err(_e) => data_types
+            .value_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .into(),
     };
 
     runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
@@ -316,7 +333,10 @@ pub fn special_set_variable_v200(
     runtime_cost(
         ClarityCostFunction::SetVar,
         env,
-        data_types.value_type.size()?,
+        data_types
+            .value_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?,
     )?;
 
     env.add_memory(value.get_memory_use()?)?;
@@ -361,7 +381,11 @@ pub fn special_set_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size()? as u64,
+        Err(_e) => data_types
+            .value_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .into(),
     };
 
     runtime_cost(ClarityCostFunction::SetVar, env, result_size)?;
@@ -393,7 +417,14 @@ pub fn special_fetch_entry_v200(
     runtime_cost(
         ClarityCostFunction::FetchEntry,
         env,
-        data_types.value_type.size()? + data_types.key_type.size()?,
+        data_types
+            .value_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+            + data_types
+                .key_type
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?,
     )?;
 
     let epoch = *env.epoch();
@@ -431,7 +462,15 @@ pub fn special_fetch_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types
+            .value_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+            + data_types
+                .key_type
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?)
+        .into(),
     };
 
     runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
@@ -500,7 +539,14 @@ pub fn special_set_entry_v200(
     runtime_cost(
         ClarityCostFunction::SetEntry,
         env,
-        data_types.value_type.size()? + data_types.key_type.size()?,
+        data_types
+            .value_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+            + data_types
+                .key_type
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?,
     )?;
 
     env.add_memory(key.get_memory_use()?)?;
@@ -548,7 +594,15 @@ pub fn special_set_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types
+            .value_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+            + data_types
+                .key_type
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?)
+        .into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -586,7 +640,14 @@ pub fn special_insert_entry_v200(
     runtime_cost(
         ClarityCostFunction::SetEntry,
         env,
-        data_types.value_type.size()? + data_types.key_type.size()?,
+        data_types
+            .value_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+            + data_types
+                .key_type
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?,
     )?;
 
     env.add_memory(key.get_memory_use()?)?;
@@ -635,7 +696,15 @@ pub fn special_insert_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types
+            .value_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+            + data_types
+                .key_type
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?)
+        .into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -671,7 +740,10 @@ pub fn special_delete_entry_v200(
     runtime_cost(
         ClarityCostFunction::SetEntry,
         env,
-        data_types.key_type.size()?,
+        data_types
+            .key_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?,
     )?;
 
     env.add_memory(key.get_memory_use()?)?;
@@ -716,7 +788,11 @@ pub fn special_delete_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.key_type.size()? as u64,
+        Err(_e) => data_types
+            .key_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -876,13 +952,15 @@ pub fn special_get_block_info(
             // this is already an optional
             let block_reward_opt = env.global_context.database.get_block_reward(height_value)?;
             return Ok(match block_reward_opt {
-                Some(x) => Value::some(Value::UInt(x))?,
+                Some(x) => {
+                    Value::some(Value::UInt(x)).map_err(CheckErrorKind::from_clarity_type_error)?
+                }
                 None => Value::none(),
             });
         }
     };
 
-    Ok(Value::some(result)?)
+    Ok(Value::some(result).map_err(CheckErrorKind::from_clarity_type_error)?)
 }
 
 /// Handles the `get-burn-block-info?` special function.
@@ -941,11 +1019,12 @@ pub fn special_get_burn_block_info(
                 .get_burnchain_block_header_hash_for_burnchain_height(height_value)?;
 
             match burnchain_header_hash_opt {
-                Some(burnchain_header_hash) => Ok(Value::some(Value::Sequence(
-                    SequenceData::Buffer(BuffData {
+                Some(burnchain_header_hash) => {
+                    Ok(Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
                         data: burnchain_header_hash.as_bytes().to_vec(),
-                    }),
-                ))?),
+                    })))
+                    .map_err(CheckErrorKind::from_clarity_type_error)?)
+                }
                 None => Ok(Value::none()),
             }
         }
@@ -1060,7 +1139,7 @@ pub fn special_get_stacks_block_info(
         }
     };
 
-    Ok(Value::some(result)?)
+    Ok(Value::some(result).map_err(CheckErrorKind::from_clarity_type_error)?)
 }
 
 /// Handles the function `get-tenure-info?` special function.
@@ -1167,13 +1246,15 @@ pub fn special_get_tenure_info(
             // this is already an optional
             let block_reward_opt = env.global_context.database.get_block_reward(height_value)?;
             return Ok(match block_reward_opt {
-                Some(x) => Value::some(Value::UInt(x))?,
+                Some(x) => {
+                    Value::some(Value::UInt(x)).map_err(CheckErrorKind::from_clarity_type_error)?
+                }
                 None => Value::none(),
             });
         }
     };
 
-    Ok(Value::some(result)?)
+    Ok(Value::some(result).map_err(CheckErrorKind::from_clarity_type_error)?)
 }
 
 /// Handles the function `contract-hash?`
@@ -1212,7 +1293,9 @@ pub fn special_contract_hash(
         return Ok(Value::err_uint(2));
     };
 
-    Ok(Value::okay(Value::buff_from(
-        contract_hash.as_bytes().to_vec(),
-    )?)?)
+    Ok(Value::okay(
+        Value::buff_from(contract_hash.as_bytes().to_vec())
+            .map_err(CheckErrorKind::from_clarity_type_error)?,
+    )
+    .map_err(CheckErrorKind::from_clarity_type_error)?)
 }

@@ -103,7 +103,7 @@ impl BurnBlockInfoProperty {
                                 ("hashbytes".into(), TypeSignature::BUFFER_32),
                             ])
                             .map_err(|_| {
-                                CheckErrorKind::Expects(
+                                CheckErrorKind::ExpectsRejectable(
                                     "FATAL: bad type signature for pox addr".into(),
                                 )
                             })?,
@@ -111,12 +111,14 @@ impl BurnBlockInfoProperty {
                         2,
                     )
                     .map_err(|_| {
-                        CheckErrorKind::Expects("FATAL: bad list type signature".into())
+                        CheckErrorKind::ExpectsRejectable("FATAL: bad list type signature".into())
                     })?,
                 ),
                 ("payout".into(), TypeSignature::UIntType),
             ])
-            .map_err(|_| CheckErrorKind::Expects("FATAL: bad type signature for pox addr".into()))?
+            .map_err(|_| {
+                CheckErrorKind::ExpectsRejectable("FATAL: bad type signature for pox addr".into())
+            })?
             .into(),
         };
         Ok(result)

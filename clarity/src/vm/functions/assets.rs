@@ -137,8 +137,18 @@ pub fn stx_transfer_consolidated(
     }
 
     // loading from/to principals and balances
-    env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-    env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
+    env.add_memory(
+        TypeSignature::PrincipalType
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .into(),
+    )?;
+    env.add_memory(
+        TypeSignature::PrincipalType
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?
+            .into(),
+    )?;
     // loading from's locked amount and height
     // TODO: this does not count the inner stacks block header load, but arguably,
     // this could be optimized away, so it shouldn't penalize the caller.
@@ -264,7 +274,8 @@ pub fn special_stx_account(
             ))),
         ),
     ])
-    .map(Value::Tuple)?)
+    .map(Value::Tuple)
+    .map_err(CheckErrorKind::from_clarity_type_error)?)
 }
 
 pub fn special_stx_burn(
@@ -288,8 +299,17 @@ pub fn special_stx_burn(
             return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER);
         }
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
+        env.add_memory(
+            TypeSignature::PrincipalType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
+        env.add_memory(STXBalance::unlocked_and_v1_size.try_into().map_err(|_| {
+            CheckErrorKind::ExpectsRejectable(
+                "BUG: STXBalance::unlocked_and_v1_size does not fit into a u64".into(),
+            )
+        })?)?;
 
         let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(from)?;
         if !burner_snapshot.can_transfer(amount)? {
@@ -355,8 +375,18 @@ pub fn special_mint_token(
             .checked_add(amount)
             .ok_or_else(|| VmInternalError::Expect("STX overflow".into()))?;
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(TypeSignature::UIntType.size()? as u64)?;
+        env.add_memory(
+            TypeSignature::PrincipalType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
+        env.add_memory(
+            TypeSignature::UIntType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
 
         env.global_context.database.set_ft_balance(
             &env.contract_context.contract_identifier,
@@ -399,10 +429,15 @@ pub fn special_mint_asset_v200(
     runtime_cost(
         ClarityCostFunction::NftMint,
         env,
-        expected_asset_type.size()?,
+        expected_asset_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?,
     )?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type
+        .admits(env.epoch(), &asset)
+        .map_err(CheckErrorKind::from_clarity_type_error)?
+    {
         return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
@@ -422,8 +457,18 @@ pub fn special_mint_asset_v200(
             Err(e) => Err(e),
         }?;
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(expected_asset_type.size()? as u64)?;
+        env.add_memory(
+            TypeSignature::PrincipalType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
+        env.add_memory(
+            expected_asset_type
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
 
         let epoch = *env.epoch();
         env.global_context.database.set_nft_owner(
@@ -476,7 +521,10 @@ pub fn special_mint_asset_v205(
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftMint, env, asset_size)?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type
+        .admits(env.epoch(), &asset)
+        .map_err(CheckErrorKind::from_clarity_type_error)?
+    {
         return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
@@ -496,7 +544,12 @@ pub fn special_mint_asset_v205(
             Err(e) => Err(e),
         }?;
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
+        env.add_memory(
+            TypeSignature::PrincipalType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
         env.add_memory(asset_size)?;
 
         let epoch = *env.epoch();
@@ -547,10 +600,15 @@ pub fn special_transfer_asset_v200(
     runtime_cost(
         ClarityCostFunction::NftTransfer,
         env,
-        expected_asset_type.size()?,
+        expected_asset_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?,
     )?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type
+        .admits(env.epoch(), &asset)
+        .map_err(CheckErrorKind::from_clarity_type_error)?
+    {
         return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
@@ -580,8 +638,18 @@ pub fn special_transfer_asset_v200(
             return clarity_ecode!(TransferAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(expected_asset_type.size()? as u64)?;
+        env.add_memory(
+            TypeSignature::PrincipalType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
+        env.add_memory(
+            expected_asset_type
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
 
         let epoch = *env.epoch();
         env.global_context.database.set_nft_owner(
@@ -644,7 +712,10 @@ pub fn special_transfer_asset_v205(
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type
+        .admits(env.epoch(), &asset)
+        .map_err(CheckErrorKind::from_clarity_type_error)?
+    {
         return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
@@ -674,7 +745,12 @@ pub fn special_transfer_asset_v205(
             return clarity_ecode!(TransferAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
+        env.add_memory(
+            TypeSignature::PrincipalType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
         env.add_memory(asset_size)?;
 
         let epoch = *env.epoch();
@@ -772,10 +848,30 @@ pub fn special_transfer_token(
             .checked_add(amount)
             .ok_or(RuntimeError::ArithmeticOverflow)?;
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(TypeSignature::UIntType.size()? as u64)?;
-        env.add_memory(TypeSignature::UIntType.size()? as u64)?;
+        env.add_memory(
+            TypeSignature::PrincipalType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
+        env.add_memory(
+            TypeSignature::PrincipalType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
+        env.add_memory(
+            TypeSignature::UIntType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
+        env.add_memory(
+            TypeSignature::UIntType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
 
         env.global_context.database.set_ft_balance(
             &env.contract_context.contract_identifier,
@@ -870,10 +966,15 @@ pub fn special_get_owner_v200(
     runtime_cost(
         ClarityCostFunction::NftOwner,
         env,
-        expected_asset_type.size()?,
+        expected_asset_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?,
     )?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type
+        .admits(env.epoch(), &asset)
+        .map_err(CheckErrorKind::from_clarity_type_error)?
+    {
         return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
@@ -920,7 +1021,10 @@ pub fn special_get_owner_v205(
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftOwner, env, asset_size)?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type
+        .admits(env.epoch(), &asset)
+        .map_err(CheckErrorKind::from_clarity_type_error)?
+    {
         return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
@@ -1011,8 +1115,18 @@ pub fn special_burn_token(
         };
         env.register_ft_burn_event(burner.clone(), amount, asset_identifier)?;
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(TypeSignature::UIntType.size()? as u64)?;
+        env.add_memory(
+            TypeSignature::PrincipalType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
+        env.add_memory(
+            TypeSignature::UIntType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
 
         env.global_context.log_token_transfer(
             burner,
@@ -1051,10 +1165,15 @@ pub fn special_burn_asset_v200(
     runtime_cost(
         ClarityCostFunction::NftBurn,
         env,
-        expected_asset_type.size()?,
+        expected_asset_type
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?,
     )?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type
+        .admits(env.epoch(), &asset)
+        .map_err(CheckErrorKind::from_clarity_type_error)?
+    {
         return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
@@ -1080,8 +1199,18 @@ pub fn special_burn_asset_v200(
             return clarity_ecode!(BurnAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(expected_asset_type.size()? as u64)?;
+        env.add_memory(
+            TypeSignature::PrincipalType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
+        env.add_memory(
+            expected_asset_type
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
 
         let epoch = *env.epoch();
         env.global_context.database.burn_nft(
@@ -1143,7 +1272,10 @@ pub fn special_burn_asset_v205(
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftBurn, env, asset_size)?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type
+        .admits(env.epoch(), &asset)
+        .map_err(CheckErrorKind::from_clarity_type_error)?
+    {
         return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
@@ -1169,7 +1301,12 @@ pub fn special_burn_asset_v205(
             return clarity_ecode!(BurnAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
+        env.add_memory(
+            TypeSignature::PrincipalType
+                .size()
+                .map_err(CheckErrorKind::from_clarity_type_error)?
+                .into(),
+        )?;
         env.add_memory(asset_size)?;
 
         let epoch = *env.epoch();

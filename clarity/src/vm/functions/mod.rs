@@ -609,13 +609,15 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value, VmExecuti
     } else {
         let first = &args[0];
         // check types:
-        let mut arg_type = TypeSignature::type_of(first)?;
+        let mut arg_type =
+            TypeSignature::type_of(first).map_err(CheckErrorKind::from_clarity_type_error)?;
         for x in args.iter() {
             arg_type = TypeSignature::least_supertype(
                 env.epoch(),
-                &TypeSignature::type_of(x)?,
+                &TypeSignature::type_of(x).map_err(CheckErrorKind::from_clarity_type_error)?,
                 &arg_type,
-            )?;
+            )
+            .map_err(CheckErrorKind::from_clarity_type_error)?;
             if x != first {
                 return Ok(Value::Bool(false));
             }
@@ -641,7 +643,13 @@ fn special_print(
     })?;
     let input = eval(arg, env, context)?;
 
-    runtime_cost(ClarityCostFunction::Print, env, input.size()?)?;
+    runtime_cost(
+        ClarityCostFunction::Print,
+        env,
+        input
+            .size()
+            .map_err(CheckErrorKind::from_clarity_type_error)?,
+    )?;
 
     if cfg!(feature = "developer-mode") {
         debug!("{}", &input);

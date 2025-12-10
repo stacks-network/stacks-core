@@ -220,12 +220,15 @@ pub fn special_match(
     match input {
         Value::Response(data) => special_match_resp(data, &args[1..], env, context),
         Value::Optional(data) => special_match_opt(data, &args[1..], env, context),
-        _ => Err(CheckErrorKind::BadMatchInput(Box::new(TypeSignature::type_of(&input)?)).into()),
+        _ => Err(CheckErrorKind::BadMatchInput(Box::new(
+            TypeSignature::type_of(&input).map_err(CheckErrorKind::from_clarity_type_error)?,
+        ))
+        .into()),
     }
 }
 
 pub fn native_some(input: Value) -> Result<Value, VmExecutionError> {
-    Ok(Value::some(input)?)
+    Ok(Value::some(input).map_err(CheckErrorKind::from_clarity_type_error)?)
 }
 
 fn is_some(input: Value) -> Result<bool, CheckErrorKind> {
@@ -259,11 +262,11 @@ pub fn native_is_err(input: Value) -> Result<Value, VmExecutionError> {
 }
 
 pub fn native_okay(input: Value) -> Result<Value, VmExecutionError> {
-    Ok(Value::okay(input)?)
+    Ok(Value::okay(input).map_err(CheckErrorKind::from_clarity_type_error)?)
 }
 
 pub fn native_error(input: Value) -> Result<Value, VmExecutionError> {
-    Ok(Value::error(input)?)
+    Ok(Value::error(input).map_err(CheckErrorKind::from_clarity_type_error)?)
 }
 
 pub fn native_default_to(default: Value, input: Value) -> Result<Value, VmExecutionError> {

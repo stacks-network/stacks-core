@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::{error, fmt, io};
 
-use clarity::vm::errors::VmExecutionError;
+use clarity::vm::errors::{ClarityTypeError, StaticCheckError, VmExecutionError};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::{Error as libstackerdb_error, StackerDBChunkData};
 use p2p::{DropReason, DropSource};
@@ -530,6 +530,17 @@ impl From<burnchain_error> for Error {
 impl From<ClarityError> for Error {
     fn from(e: ClarityError) -> Self {
         Error::ClarityError(e)
+    }
+}
+
+/// TODO: remove this comment. Should this actually convert to a static check
+/// or is it possible for this to be a runtime error...I don't think so because
+/// if its a runtime issue, it would be really hitting VmExecutionError already
+impl From<ClarityTypeError> for Error {
+    fn from(e: ClarityTypeError) -> Self {
+        Error::ClarityError(ClarityError::StaticCheck(
+            StaticCheckError::from_clarity_type_error(e),
+        ))
     }
 }
 

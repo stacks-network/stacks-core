@@ -14,12 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
-use crate::VmExecutionError;
-use crate::errors::{CheckErrorKind, VmInternalError};
 use crate::types::serialization::SerializationError;
 use crate::types::{
-    ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    ASCIIData, CharType, ClarityTypeError, MAX_VALUE_SIZE, PrincipalData,
+    QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData, TypeSignature,
+    Value,
 };
 
 fn test_deser_ser(v: Value) {
@@ -374,7 +373,7 @@ fn try_deser_large_list() {
 
     assert_eq!(
         Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
-        SerializationError::DeserializationError("Illegal list type".to_string())
+        SerializationError::DeserializationFailure("Illegal list type".to_string())
     );
 }
 
@@ -386,7 +385,7 @@ fn try_deser_large_tuple() {
 
     assert_eq!(
         Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
-        SerializationError::DeserializationError("Illegal tuple type".to_string())
+        SerializationError::DeserializationFailure("Illegal tuple type".to_string())
     );
 }
 
@@ -394,7 +393,7 @@ fn try_deser_large_tuple() {
 fn try_overflow_stack() {
     let input = "08080808080808080808070707080807080808080808080708080808080708080707080707080807080808080808080708080808080708080707080708070807080808080808080708080808080708080708080808080808080807070807080808080808070808070707080807070808070808080808070808070708070807080808080808080707080708070807080708080808080808070808080808070808070808080808080808080707080708080808080807080807070708080707080807080808080807080807070807080708080808080808070708070808080808080708080707070808070708080807080807070708";
     assert_eq!(
-        Err(CheckErrorKind::TypeSignatureTooDeep.into()),
+        Err(ClarityTypeError::TypeSignatureTooDeep.into()),
         Value::try_deserialize_hex_untyped(input)
     );
 }
@@ -416,32 +415,30 @@ fn test_principals() {
     test_bad_expectation(standard_p, TypeSignature::BoolType);
 }
 
-/// The returned VmInternalError is consensus-critical.
+/// TODO: remove this comment: I have made it so that any serialize_to_vec that fails is mapped to an Expect.
+/// Not sure that is sufficient...
 #[test]
-fn test_serialize_to_vec_returns_vm_internal_error_consensus_critical() {
+fn test_serialize_to_vec_returns_serialization_failure() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
         data: vec![0; MAX_VALUE_SIZE as usize + 1],
     })));
     let err = value.serialize_to_vec().unwrap_err();
     assert_eq!(
-        VmExecutionError::from(VmInternalError::Expect(
-            "IOError filling byte buffer.".into()
-        )),
-        err.into()
+        SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
+        err
     );
 }
 
-/// The returned VmInternalError is consensus-critical.
+/// TODO: remove this comment: I have made it so that any serialize_to_vec that fails is mapped to an Expect.
+/// Not sure that is sufficient...
 #[test]
-fn test_serialize_to_hex_returns_vm_internal_error_consensus_critical() {
+fn test_serialize_to_hex_returns_serialization_failure() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
         data: vec![0; MAX_VALUE_SIZE as usize + 1],
     })));
     let err = value.serialize_to_hex().unwrap_err();
     assert_eq!(
-        VmExecutionError::from(VmInternalError::Expect(
-            "IOError filling byte buffer.".into()
-        )),
-        err.into()
+        SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
+        err
     );
 }

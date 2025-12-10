@@ -278,7 +278,8 @@ pub fn special_principal_construct(
     // Construct the principal.
     let mut transfer_buffer = [0u8; 20];
     transfer_buffer.copy_from_slice(verified_hash_bytes);
-    let principal_data = StandardPrincipalData::new(version_byte, transfer_buffer)?;
+    let principal_data = StandardPrincipalData::new(version_byte, transfer_buffer)
+        .map_err(CheckErrorKind::from_clarity_type_error)?;
 
     let principal = if let Some(name) = name_opt {
         // requested a contract principal.  Verify that the `name` is a valid ContractName.

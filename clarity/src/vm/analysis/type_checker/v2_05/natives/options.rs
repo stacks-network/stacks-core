@@ -36,7 +36,8 @@ pub fn check_special_okay(
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
 
     let inner_type = checker.type_check(&args[0], context)?;
-    let resp_type = TypeSignature::new_response(inner_type, no_type())?;
+    let resp_type = TypeSignature::new_response(inner_type, no_type())
+        .map_err(StaticCheckError::from_clarity_type_error)?;
     Ok(resp_type)
 }
 
@@ -50,7 +51,8 @@ pub fn check_special_some(
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
 
     let inner_type = checker.type_check(&args[0], context)?;
-    let resp_type = TypeSignature::new_option(inner_type)?;
+    let resp_type =
+        TypeSignature::new_option(inner_type).map_err(StaticCheckError::from_clarity_type_error)?;
     Ok(resp_type)
 }
 
@@ -64,7 +66,8 @@ pub fn check_special_error(
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
 
     let inner_type = checker.type_check(&args[0], context)?;
-    let resp_type = TypeSignature::new_response(no_type(), inner_type)?;
+    let resp_type = TypeSignature::new_response(no_type(), inner_type)
+        .map_err(StaticCheckError::from_clarity_type_error)?;
     Ok(resp_type)
 }
 
@@ -236,7 +239,10 @@ pub fn check_special_try_ret(
             if input_type.is_no_type() {
                 Err(StaticCheckErrorKind::CouldNotDetermineResponseOkType.into())
             } else {
-                checker.track_return_type(TypeSignature::new_option(TypeSignature::NoType)?)?;
+                checker.track_return_type(
+                    TypeSignature::new_option(TypeSignature::NoType)
+                        .map_err(StaticCheckError::from_clarity_type_error)?,
+                )?;
                 Ok(*input_type)
             }
         }
@@ -247,10 +253,10 @@ pub fn check_special_try_ret(
             } else if err_type.is_no_type() {
                 Err(StaticCheckErrorKind::CouldNotDetermineResponseErrType.into())
             } else {
-                checker.track_return_type(TypeSignature::new_response(
-                    TypeSignature::NoType,
-                    err_type,
-                )?)?;
+                checker.track_return_type(
+                    TypeSignature::new_response(TypeSignature::NoType, err_type)
+                        .map_err(StaticCheckError::from_clarity_type_error)?,
+                )?;
                 Ok(ok_type)
             }
         }
@@ -294,7 +300,9 @@ fn eval_with_new_binding(
     runtime_cost(
         ClarityCostFunction::AnalysisBindName,
         checker,
-        bind_type.type_size()?,
+        bind_type
+            .type_size()
+            .map_err(StaticCheckError::from_clarity_type_error)?,
     )?;
 
     checker.contract_context.check_name_used(&bind_name)?;

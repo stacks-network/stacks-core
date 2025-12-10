@@ -33,7 +33,7 @@ pub mod types;
 
 pub use errors::VmExecutionError;
 pub use representations::{ClarityName, ContractName};
-pub use types::Value;
+pub use types::{ClarityTypeError, Value};
 
 pub const MAX_CALL_STACK_DEPTH: usize = 64;
 

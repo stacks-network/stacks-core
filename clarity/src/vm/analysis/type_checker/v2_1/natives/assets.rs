@@ -43,7 +43,9 @@ pub fn check_special_get_owner(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type.type_size()?,
+        expected_asset_type
+            .type_size()
+            .map_err(StaticCheckError::from_clarity_type_error)?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
@@ -97,7 +99,9 @@ pub fn check_special_mint_asset(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type.type_size()?,
+        expected_asset_type
+            .type_size()
+            .map_err(StaticCheckError::from_clarity_type_error)?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
@@ -159,7 +163,9 @@ pub fn check_special_transfer_asset(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type.type_size()?,
+        expected_asset_type
+            .type_size()
+            .map_err(StaticCheckError::from_clarity_type_error)?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
@@ -237,7 +243,7 @@ pub fn check_special_stx_transfer_memo(
     let to_type: TypeSignature = TypeSignature::PrincipalType;
     let memo_type: TypeSignature = TypeSignature::SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(TOKEN_TRANSFER_MEMO_LENGTH as u32)
-            .map_err(|_| StaticCheckErrorKind::Expects("Bad constructor".into()))?,
+            .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into()))?,
     ));
 
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 0)?;
@@ -294,7 +300,9 @@ pub fn check_special_burn_asset(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         checker,
-        expected_asset_type.type_size()?,
+        expected_asset_type
+            .type_size()
+            .map_err(StaticCheckError::from_clarity_type_error)?,
     )?;
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;

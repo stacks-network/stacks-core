@@ -161,14 +161,21 @@ impl DefinedFunction {
 
         if env.epoch().uses_arg_size_for_cost() {
             for arg in args.iter() {
-                runtime_cost(ClarityCostFunction::InnerTypeCheckCost, env, arg.size()?)?;
+                runtime_cost(
+                    ClarityCostFunction::InnerTypeCheckCost,
+                    env,
+                    arg.size()
+                        .map_err(CheckErrorKind::from_clarity_type_error)?,
+                )?;
             }
         } else {
             for arg_type in self.arg_types.iter() {
                 runtime_cost(
                     ClarityCostFunction::InnerTypeCheckCost,
                     env,
-                    arg_type.size()?,
+                    arg_type
+                        .size()
+                        .map_err(CheckErrorKind::from_clarity_type_error)?,
                 )?;
             }
         }
@@ -245,7 +252,10 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(env.epoch(), value)? {
+                        if !type_sig
+                            .admits(env.epoch(), value)
+                            .map_err(CheckErrorKind::from_clarity_type_error)?
+                        {
                             return Err(CheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
                                 Box::new(value.clone()),
@@ -290,7 +300,10 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(env.epoch(), &cast_value)? {
+                        if !type_sig
+                            .admits(env.epoch(), &cast_value)
+                            .map_err(CheckErrorKind::from_clarity_type_error)?
+                        {
                             return Err(CheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
                                 Box::new(cast_value),
@@ -454,7 +467,8 @@ fn clarity2_implicit_cast(
             let cast_list_type_data = ListTypeData::new_list(
                 list_type.get_list_item_type().clone(),
                 type_signature.get_max_len(),
-            )?;
+            )
+            .map_err(CheckErrorKind::from_clarity_type_error)?;
             Value::Sequence(SequenceData::List(ListData {
                 data: values,
                 type_signature: cast_list_type_data,

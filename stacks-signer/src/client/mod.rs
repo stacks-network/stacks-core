@@ -21,7 +21,7 @@ pub(crate) mod stacks_client;
 
 use std::time::Duration;
 
-use clarity::vm::errors::VmExecutionError;
+use clarity::vm::errors::ClarityTypeError;
 use clarity::vm::types::serialization::SerializationError;
 use libsigner::RPCError;
 use libstackerdb::Error as StackerDBError;
@@ -79,9 +79,9 @@ pub enum ClientError {
     /// Not connected
     #[error("Not connected")]
     NotConnected,
-    /// Clarity interpreter error
-    #[error("Clarity interpreter error: {0}")]
-    ClarityError(#[from] VmExecutionError),
+    /// Clarity type error
+    #[error("Clarity error: {0}")]
+    ClarityError(#[from] ClarityTypeError),
     /// Malformed reward set
     #[error("Malformed contract data: {0}")]
     MalformedContractData(String),

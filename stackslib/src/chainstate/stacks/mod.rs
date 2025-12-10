@@ -20,7 +20,7 @@ use std::{error, fmt, io};
 
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::{CostErrors, ExecutionCost};
-use clarity::vm::errors::VmExecutionError;
+use clarity::vm::errors::{ClarityTypeError, StaticCheckError, VmExecutionError};
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
@@ -122,6 +122,8 @@ pub enum Error {
     InvalidChildOfNakomotoBlock,
     NoRegisteredSigners(u64),
     TenureTooBigError,
+    /// This error indicates an internal state or condition that should never actually happen
+    Expects(String),
 }
 
 impl From<marf_error> for Error {
@@ -225,6 +227,7 @@ impl fmt::Display for Error {
                 write!(f, "The supplied block identifiers are not in the same fork")
             }
             Error::TenureTooBigError => write!(f, "Too much data in tenure"),
+            Error::Expects(ref msg) => write!(f, "Unexpected state: {msg}"),
         }
     }
 }
@@ -272,6 +275,7 @@ impl error::Error for Error {
             Error::NoRegisteredSigners(_) => None,
             Error::NotInSameFork => None,
             Error::TenureTooBigError => None,
+            Error::Expects(ref _msg) => None,
         }
     }
 }
@@ -319,6 +323,7 @@ impl Error {
             Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
             Error::NotInSameFork => "NotInSameFork",
             Error::TenureTooBigError => "TenureTooBigError",
+            Error::Expects(_) => "Expects",
         }
     }
 
@@ -350,6 +355,17 @@ impl From<db_error> for Error {
 impl From<VmExecutionError> for Error {
     fn from(e: VmExecutionError) -> Error {
         Error::ClarityError(ClarityError::Interpreter(e))
+    }
+}
+
+/// TODO: remove this comment. Should this actually convert to a static check
+/// or is it possible for this to be a runtime error...I don't think so because
+/// if its a runtime issue, it would be really hitting VmExecutionError already
+impl From<ClarityTypeError> for Error {
+    fn from(e: ClarityTypeError) -> Error {
+        Error::ClarityError(ClarityError::StaticCheck(
+            StaticCheckError::from_clarity_type_error(e),
+        ))
     }
 }
 

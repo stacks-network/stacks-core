@@ -59,10 +59,13 @@ fn check_special_list_cons(
         runtime_cost(
             ClarityCostFunction::AnalysisListItemsCheck,
             checker,
-            type_arg.type_size()?,
+            type_arg
+                .type_size()
+                .map_err(StaticCheckError::from_clarity_type_error)?,
         )?;
     }
-    let list_type = TypeSignature::parent_list_type(&typed_args)?;
+    let list_type = TypeSignature::parent_list_type(&typed_args)
+        .map_err(StaticCheckError::from_clarity_type_error)?;
     Ok(TypeSignature::from(list_type))
 }
 
@@ -145,7 +148,8 @@ fn check_special_get(
     } else if let TypeSignature::OptionalType(value_type_sig) = argument_type {
         if let TypeSignature::TupleType(tuple_type_sig) = *value_type_sig {
             let inner_type = inner_handle_tuple_get(&tuple_type_sig, field_to_get, checker)?;
-            let option_type = TypeSignature::new_option(inner_type)?;
+            let option_type = TypeSignature::new_option(inner_type)
+                .map_err(StaticCheckError::from_clarity_type_error)?;
             Ok(option_type)
         } else {
             Err(StaticCheckErrorKind::ExpectedTuple(value_type_sig).into())
@@ -203,7 +207,9 @@ pub fn check_special_tuple_cons(
                 runtime_cost(
                     ClarityCostFunction::AnalysisTupleItemsCheck,
                     checker,
-                    var_type.type_size()?,
+                    var_type
+                        .type_size()
+                        .map_err(StaticCheckError::from_clarity_type_error)?,
                 )?;
                 tuple_type_data.push((var_name.clone(), var_type));
                 Ok(())
@@ -212,7 +218,9 @@ pub fn check_special_tuple_cons(
     )?;
 
     let tuple_signature = TupleTypeSignature::try_from(tuple_type_data).map_err(|e| {
-        StaticCheckErrorKind::BadTupleConstruction(StaticCheckErrorKind::from(e).message())
+        StaticCheckErrorKind::BadTupleConstruction(
+            StaticCheckErrorKind::from_clarity_type_error(e).message(),
+        )
     })?;
 
     Ok(TypeSignature::TupleType(tuple_signature))
@@ -249,7 +257,9 @@ fn check_special_let(
             runtime_cost(
                 ClarityCostFunction::AnalysisBindName,
                 checker,
-                typed_result.type_size()?,
+                typed_result
+                    .type_size()
+                    .map_err(StaticCheckError::from_clarity_type_error)?,
             )?;
             out_context
                 .variable_types
@@ -282,7 +292,9 @@ fn check_special_fetch_var(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        value_type.type_size()?,
+        value_type
+            .type_size()
+            .map_err(StaticCheckError::from_clarity_type_error)?,
     )?;
 
     Ok(value_type.clone())
@@ -311,11 +323,16 @@ fn check_special_set_var(
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
         &mut checker.cost_track,
-        expected_value_type.type_size()?,
+        expected_value_type
+            .type_size()
+            .map_err(StaticCheckError::from_clarity_type_error)?,
     )?;
     analysis_typecheck_cost(&mut checker.cost_track, &value_type, expected_value_type)?;
 
-    if !expected_value_type.admits_type(&StacksEpochId::Epoch2_05, &value_type)? {
+    if !expected_value_type
+        .admits_type(&StacksEpochId::Epoch2_05, &value_type)
+        .map_err(StaticCheckError::from_clarity_type_error)?
+    {
         Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
             Box::new(expected_value_type.clone()),
             Box::new(value_type),
@@ -510,7 +527,7 @@ fn check_principal_of(
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_33)?;
     Ok(
         TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType)
-            .map_err(|_| StaticCheckErrorKind::Expects("Bad constructor".into()))?,
+            .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into()))?,
     )
 }
 
@@ -524,7 +541,7 @@ fn check_secp256k1_recover(
     checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_65)?;
     Ok(
         TypeSignature::new_response(TypeSignature::BUFFER_33, TypeSignature::UIntType)
-            .map_err(|_| StaticCheckErrorKind::Expects("Bad constructor".into()))?,
+            .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into()))?,
     )
 }
 
@@ -561,7 +578,8 @@ fn check_get_block_info(
 
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 
-    Ok(TypeSignature::new_option(block_info_prop.type_result())?)
+    TypeSignature::new_option(block_info_prop.type_result())
+        .map_err(StaticCheckError::from_clarity_type_error)
 }
 
 impl TypedNativeFunction {
@@ -604,7 +622,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::IntType,
                     ClarityName::try_from("value".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::Expects(
+                        StaticCheckErrorKind::ExpectsRejectable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -615,7 +633,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::UIntType,
                     ClarityName::try_from("value".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::Expects(
+                        StaticCheckErrorKind::ExpectsRejectable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -626,7 +644,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,
                     ClarityName::try_from("value".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::Expects(
+                        StaticCheckErrorKind::ExpectsRejectable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -679,7 +697,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
                     ClarityName::try_from("owner".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::Expects(
+                        StaticCheckErrorKind::ExpectsRejectable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -691,7 +709,7 @@ impl TypedNativeFunction {
                     FunctionArg::new(
                         TypeSignature::UIntType,
                         ClarityName::try_from("amount".to_owned()).map_err(|_| {
-                            StaticCheckErrorKind::Expects(
+                            StaticCheckErrorKind::ExpectsRejectable(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -699,7 +717,7 @@ impl TypedNativeFunction {
                     FunctionArg::new(
                         TypeSignature::PrincipalType,
                         ClarityName::try_from("sender".to_owned()).map_err(|_| {
-                            StaticCheckErrorKind::Expects(
+                            StaticCheckErrorKind::ExpectsRejectable(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -707,7 +725,7 @@ impl TypedNativeFunction {
                     FunctionArg::new(
                         TypeSignature::PrincipalType,
                         ClarityName::try_from("recipient".to_owned()).map_err(|_| {
-                            StaticCheckErrorKind::Expects(
+                            StaticCheckErrorKind::ExpectsRejectable(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -717,14 +735,14 @@ impl TypedNativeFunction {
                     TypeSignature::BoolType,
                     TypeSignature::UIntType,
                 )
-                .map_err(|_| StaticCheckErrorKind::Expects("Bad constructor".into()))?,
+                .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into()))?,
             }))),
             StxBurn => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![
                     FunctionArg::new(
                         TypeSignature::UIntType,
                         ClarityName::try_from("amount".to_owned()).map_err(|_| {
-                            StaticCheckErrorKind::Expects(
+                            StaticCheckErrorKind::ExpectsRejectable(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -732,7 +750,7 @@ impl TypedNativeFunction {
                     FunctionArg::new(
                         TypeSignature::PrincipalType,
                         ClarityName::try_from("sender".to_owned()).map_err(|_| {
-                            StaticCheckErrorKind::Expects(
+                            StaticCheckErrorKind::ExpectsRejectable(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -742,7 +760,7 @@ impl TypedNativeFunction {
                     TypeSignature::BoolType,
                     TypeSignature::UIntType,
                 )
-                .map_err(|_| StaticCheckErrorKind::Expects("Bad constructor".into()))?,
+                .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into()))?,
             }))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
@@ -840,7 +858,7 @@ impl TypedNativeFunction {
             | AllowanceWithStacking
             | AllowanceAll
             | Secp256r1Verify => {
-                return Err(StaticCheckErrorKind::Expects(
+                return Err(StaticCheckErrorKind::ExpectsRejectable(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
                 ));
             }

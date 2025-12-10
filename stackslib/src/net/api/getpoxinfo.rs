@@ -206,34 +206,39 @@ impl RPCPoxInfoData {
         };
 
         let first_burnchain_block_height = res
-            .get("first-burnchain-block-height")
-            .unwrap_or_else(|_| panic!("FATAL: no 'first-burnchain-block-height'"))
+            .get("first-burnchain-block-height")?
             .to_owned()
-            .expect_u128()? as u64;
+            .expect_u128()?
+            .try_into()
+            .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
         let min_stacking_increment_ustx = res
-            .get("min-amount-ustx")
-            .unwrap_or_else(|_| panic!("FATAL: no 'min-amount-ustx'"))
+            .get("min-amount-ustx")?
             .to_owned()
-            .expect_u128()? as u64;
+            .expect_u128()?
+            .try_into()
+            .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
         let prepare_cycle_length = res
-            .get("prepare-cycle-length")
-            .unwrap_or_else(|_| panic!("FATAL: no 'prepare-cycle-length'"))
+            .get("prepare-cycle-length")?
             .to_owned()
-            .expect_u128()? as u64;
+            .expect_u128()?
+            .try_into()
+            .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
         let reward_cycle_length = res
-            .get("reward-cycle-length")
-            .unwrap_or_else(|_| panic!("FATAL: no 'reward-cycle-length'"))
+            .get("reward-cycle-length")?
             .to_owned()
-            .expect_u128()? as u64;
+            .expect_u128()?
+            .try_into()
+            .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
         let total_liquid_supply_ustx = res
-            .get("total-liquid-supply-ustx")
-            .unwrap_or_else(|_| panic!("FATAL: no 'total-liquid-supply-ustx'"))
+            .get("total-liquid-supply-ustx")?
             .to_owned()
-            .expect_u128()? as u64;
+            .expect_u128()?
+            .try_into()
+            .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
         let has_rejection_data = pox_contract_name == POX_1_NAME
             || pox_contract_name == POX_2_NAME
@@ -241,21 +246,24 @@ impl RPCPoxInfoData {
 
         let (rejection_fraction, rejection_votes_left_required) = if has_rejection_data {
             let rejection_fraction = res
-                .get("rejection-fraction")
-                .unwrap_or_else(|_| panic!("FATAL: no 'rejection-fraction'"))
+                .get("rejection-fraction")?
                 .to_owned()
-                .expect_u128()? as u64;
+                .expect_u128()?
+                .try_into()
+                .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
             let current_rejection_votes = res
-                .get("current-rejection-votes")
-                .unwrap_or_else(|_| panic!("FATAL: no 'current-rejection-votes'"))
+                .get("current-rejection-votes")?
                 .to_owned()
-                .expect_u128()? as u64;
+                .expect_u128()?
+                .try_into()
+                .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
-            let total_required = (total_liquid_supply_ustx as u128 / 100)
+            let total_required: u64 = (total_liquid_supply_ustx as u128 / 100)
                 .checked_mul(rejection_fraction as u128)
                 .ok_or_else(|| NetError::DBError(DBError::Overflow))?
-                as u64;
+                .try_into()
+                .map_err(|_| NetError::DBError(DBError::Overflow))?;
 
             let votes_left = total_required.saturating_sub(current_rejection_votes);
             (Some(rejection_fraction), Some(votes_left))

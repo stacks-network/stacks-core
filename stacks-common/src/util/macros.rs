@@ -204,19 +204,19 @@ macro_rules! define_versioned_named_enum_internal {
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! guarded_string {
-    ($Name:ident, $Label:literal, $Regex:expr, $MaxStringLength:expr, $ErrorType:ty, $ErrorVariant:path) => {
+    ($Name:ident, $Regex:expr, $MaxStringLength:expr, $ErrorType:ty, $ErrorVariant:path) => {
         #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $Name(String);
         impl TryFrom<String> for $Name {
             type Error = $ErrorType;
             fn try_from(value: String) -> Result<Self, Self::Error> {
                 if value.len() > ($MaxStringLength as usize) {
-                    return Err($ErrorVariant($Label, value));
+                    return Err($ErrorVariant(value));
                 }
                 if $Regex.is_match(&value) {
                     Ok(Self(value))
                 } else {
-                    Err($ErrorVariant($Label, value))
+                    Err($ErrorVariant(value))
                 }
             }
         }
@@ -426,8 +426,8 @@ macro_rules! impl_array_newtype {
             }
         }
 
+        #[allow(clippy::non_canonical_clone_impl)]
         impl Clone for $thing {
-            #[allow(clippy::non_canonical_clone_impl)]
             fn clone(&self) -> Self {
                 $thing(self.0.clone())
             }

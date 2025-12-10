@@ -114,7 +114,9 @@ fn eval_allowance(
                 return Err(CheckErrorKind::IncorrectArgumentCount(1, rest.len()).into());
             }
             let amount = eval(&rest[0], env, context)?;
-            let amount = amount.expect_u128()?;
+            let amount = amount
+                .expect_u128()
+                .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
             Ok(Allowance::Stx(StxAllowance { amount }))
         }
         NativeFunctions::AllowanceWithFt => {
@@ -123,7 +125,10 @@ fn eval_allowance(
             }
 
             let contract_value = eval(&rest[0], env, context)?;
-            let contract = contract_value.clone().expect_principal()?;
+            let contract = contract_value
+                .clone()
+                .expect_principal()
+                .map_err(|_| VmInternalError::Expect("Expected principal".into()))?;
             let contract_identifier = match contract {
                 PrincipalData::Standard(_) => {
                     return Err(CheckErrorKind::ExpectedContractPrincipalValue(
@@ -135,7 +140,11 @@ fn eval_allowance(
             };
 
             let asset_name = eval(&rest[1], env, context)?;
-            let asset_name = asset_name.expect_string_ascii()?.as_str().into();
+            let asset_name = asset_name
+                .expect_string_ascii()
+                .map_err(|_| VmInternalError::Expect("Expected ASCII String.".into()))?
+                .as_str()
+                .into();
 
             let asset = AssetIdentifier {
                 contract_identifier,
@@ -143,7 +152,9 @@ fn eval_allowance(
             };
 
             let amount = eval(&rest[2], env, context)?;
-            let amount = amount.expect_u128()?;
+            let amount = amount
+                .expect_u128()
+                .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
 
             Ok(Allowance::Ft(FtAllowance { asset, amount }))
         }
@@ -153,7 +164,10 @@ fn eval_allowance(
             }
 
             let contract_value = eval(&rest[0], env, context)?;
-            let contract = contract_value.clone().expect_principal()?;
+            let contract = contract_value
+                .clone()
+                .expect_principal()
+                .map_err(|_| VmInternalError::Expect("Expected principal".into()))?;
             let contract_identifier = match contract {
                 PrincipalData::Standard(_) => {
                     return Err(CheckErrorKind::ExpectedContractPrincipalValue(
@@ -165,7 +179,11 @@ fn eval_allowance(
             };
 
             let asset_name = eval(&rest[1], env, context)?;
-            let asset_name = asset_name.expect_string_ascii()?.as_str().into();
+            let asset_name = asset_name
+                .expect_string_ascii()
+                .map_err(|_| VmInternalError::Expect("Expected ASCII String.".into()))?
+                .as_str()
+                .into();
 
             let asset = AssetIdentifier {
                 contract_identifier,
@@ -173,7 +191,9 @@ fn eval_allowance(
             };
 
             let asset_id_list = eval(&rest[2], env, context)?;
-            let asset_ids = asset_id_list.expect_list()?;
+            let asset_ids = asset_id_list
+                .expect_list()
+                .map_err(|_| VmInternalError::Expect("Expected list".into()))?;
 
             Ok(Allowance::Nft(NftAllowance { asset, asset_ids }))
         }
@@ -182,7 +202,9 @@ fn eval_allowance(
                 return Err(CheckErrorKind::IncorrectArgumentCount(1, rest.len()).into());
             }
             let amount = eval(&rest[0], env, context)?;
-            let amount = amount.expect_u128()?;
+            let amount = amount
+                .expect_u128()
+                .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
             Ok(Allowance::Stacking(StackingAllowance { amount }))
         }
         NativeFunctions::AllowanceAll => {
@@ -217,7 +239,9 @@ pub fn special_restrict_assets(
     let body_exprs = &args[2..];
 
     let asset_owner = eval(asset_owner_expr, env, context)?;
-    let asset_owner = asset_owner.expect_principal()?;
+    let asset_owner = asset_owner
+        .expect_principal()
+        .map_err(|_| VmInternalError::Expect("Expected principal".into()))?;
 
     runtime_cost(
         ClarityCostFunction::RestrictAssets,
@@ -258,7 +282,8 @@ pub fn special_restrict_assets(
         Ok(None) => {}
         Ok(Some(violation_index)) => {
             env.global_context.roll_back()?;
-            return Ok(Value::error(Value::UInt(violation_index))?);
+            return Ok(Value::error(Value::UInt(violation_index))
+                .map_err(CheckErrorKind::from_clarity_type_error)?);
         }
         Err(e) => {
             env.global_context.roll_back()?;
@@ -272,7 +297,7 @@ pub fn special_restrict_assets(
     match eval_result {
         Ok(Some(last)) => {
             // body completed successfully — commit and return ok(last)
-            Ok(Value::okay(last)?)
+            Ok(Value::okay(last).map_err(CheckErrorKind::from_clarity_type_error)?)
         }
         Ok(None) => {
             // Body had no expressions (shouldn't happen due to argument checks)
@@ -352,7 +377,7 @@ pub fn special_as_contract(
             Ok(None) => {}
             Ok(Some(violation_index)) => {
                 nested_env.global_context.roll_back()?;
-                return Ok(Value::error(Value::UInt(violation_index))?);
+                return Ok(Value::error(Value::UInt(violation_index)).map_err(CheckErrorKind::from_clarity_type_error)?);
             }
             Err(e) => {
                 nested_env.global_context.roll_back()?;
@@ -366,7 +391,7 @@ pub fn special_as_contract(
         match eval_result {
             Ok(Some(last)) => {
                 // body completed successfully — commit and return ok(last)
-                Ok(Value::okay(last)?)
+                Ok(Value::okay(last).map_err(CheckErrorKind::from_clarity_type_error)?)
             }
             Ok(None) => {
                 // Body had no expressions (shouldn't happen due to argument checks)

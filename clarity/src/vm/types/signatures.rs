@@ -236,7 +236,9 @@ impl TypeSignatureExt for TypeSignature {
             let entry_type = TypeSignature::parse_type_repr(epoch, atomic_type_arg, accounting)?;
             let max_len =
                 u32::try_from(*max_len).map_err(|_| CommonCheckErrorKind::ValueTooLarge)?;
-            ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
+            Ok(ListTypeData::new_list(entry_type, max_len)
+                .map_err(CommonCheckErrorKind::from_clarity_type_error)?
+                .into())
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -255,7 +257,8 @@ impl TypeSignatureExt for TypeSignature {
             SyntaxBindingErrorType::TupleCons,
             accounting,
         )?;
-        let tuple_type_signature = TupleTypeSignature::try_from(mapped_key_types)?;
+        let tuple_type_signature = TupleTypeSignature::try_from(mapped_key_types)
+            .map_err(CommonCheckErrorKind::from_clarity_type_error)?;
         Ok(TypeSignature::from(tuple_type_signature))
     }
 
@@ -268,8 +271,10 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CommonCheckErrorKind::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
-            BufferLength::try_from(*buff_len)
-                .map(|buff_len| SequenceType(SequenceSubtype::BufferType(buff_len)))
+            Ok(SequenceType(SequenceSubtype::BufferType(
+                BufferLength::try_from(*buff_len)
+                    .map_err(CommonCheckErrorKind::from_clarity_type_error)?,
+            )))
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -284,9 +289,12 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CommonCheckErrorKind::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(utf8_len)) = &type_args[0].expr {
-            StringUTF8Length::try_from(*utf8_len).map(|utf8_len| {
-                SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(utf8_len)))
-            })
+            Ok(SequenceType(SequenceSubtype::StringType(
+                StringSubtype::UTF8(
+                    StringUTF8Length::try_from(*utf8_len)
+                        .map_err(CommonCheckErrorKind::from_clarity_type_error)?,
+                ),
+            )))
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -301,9 +309,12 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CommonCheckErrorKind::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
-            BufferLength::try_from(*buff_len).map(|buff_len| {
-                SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_len)))
-            })
+            Ok(SequenceType(SequenceSubtype::StringType(
+                StringSubtype::ASCII(
+                    BufferLength::try_from(*buff_len)
+                        .map_err(CommonCheckErrorKind::from_clarity_type_error)?,
+                ),
+            )))
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -319,7 +330,7 @@ impl TypeSignatureExt for TypeSignature {
         }
         let inner_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
 
-        TypeSignature::new_option(inner_type)
+        TypeSignature::new_option(inner_type).map_err(CommonCheckErrorKind::from_clarity_type_error)
     }
 
     fn parse_response_type_repr<A: CostTracker>(
@@ -332,7 +343,8 @@ impl TypeSignatureExt for TypeSignature {
         }
         let ok_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
         let err_type = TypeSignature::parse_type_repr(epoch, &type_args[1], accounting)?;
-        let response_type = TypeSignature::new_response(ok_type, err_type)?;
+        let response_type = TypeSignature::new_response(ok_type, err_type)
+            .map_err(CommonCheckErrorKind::from_clarity_type_error)?;
         Ok(response_type)
     }
 
@@ -505,10 +517,17 @@ impl TypeSignatureExt for TypeSignature {
 
 impl FixedFunction {
     pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
-        let mut function_type_size = u64::from(self.returns.type_size()?);
+        let mut function_type_size = u64::from(
+            self.returns
+                .type_size()
+                .map_err(StaticCheckErrorKind::from_clarity_type_error)?,
+        );
         for arg in self.args.iter() {
-            function_type_size =
-                function_type_size.cost_overflow_add(u64::from(arg.signature.type_size()?))?;
+            function_type_size = function_type_size.cost_overflow_add(u64::from(
+                arg.signature
+                    .type_size()
+                    .map_err(StaticCheckErrorKind::from_clarity_type_error)?,
+            ))?;
         }
         Ok(function_type_size)
     }
@@ -516,10 +535,17 @@ impl FixedFunction {
 
 impl FunctionSignature {
     pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
-        let mut function_type_size = u64::from(self.returns.type_size()?);
+        let mut function_type_size = u64::from(
+            self.returns
+                .type_size()
+                .map_err(StaticCheckErrorKind::from_clarity_type_error)?,
+        );
         for arg in self.args.iter() {
             function_type_size = function_type_size
-                .cost_overflow_add(u64::from(arg.type_size()?))
+                .cost_overflow_add(u64::from(
+                    arg.type_size()
+                        .map_err(StaticCheckErrorKind::from_clarity_type_error)?,
+                ))
                 .map_err(|_| StaticCheckErrorKind::CostOverflow)?;
         }
         Ok(function_type_size)
@@ -535,7 +561,10 @@ impl FunctionSignature {
         }
         let args_iter = self.args.iter().zip(args.iter());
         for (expected_arg, arg) in args_iter {
-            if !arg.admits_type(epoch, expected_arg)? {
+            if !arg
+                .admits_type(epoch, expected_arg)
+                .map_err(CommonCheckErrorKind::from_clarity_type_error)?
+            {
                 return Ok(false);
             }
         }
@@ -648,6 +677,7 @@ impl fmt::Display for FunctionArg {
 mod test {
     use clarity_types::errors::CheckErrorKind;
     use clarity_types::errors::CheckErrorKind::*;
+    use clarity_types::types::ClarityTypeError;
     #[cfg(test)]
     use rstest::rstest;
     #[cfg(test)]
@@ -698,7 +728,7 @@ mod test {
 
         assert_eq!(
             TupleTypeSignature::try_from(keys).unwrap_err(),
-            CommonCheckErrorKind::ValueTooLarge
+            ClarityTypeError::ValueTooLarge
         );
     }
 

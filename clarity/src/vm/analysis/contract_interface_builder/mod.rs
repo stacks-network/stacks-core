@@ -278,7 +278,7 @@ impl ContractInterfaceFunction {
                             FunctionType::Fixed(FixedFunction { returns, .. }) => {
                                 ContractInterfaceAtomType::from_type_signature(returns)
                             }
-                            _ => return Err(StaticCheckErrorKind::Expects(
+                            _ => return Err(StaticCheckErrorKind::ExpectsRejectable(
                                 "Contract functions should only have fixed function return types!"
                                     .into(),
                             )
@@ -290,7 +290,7 @@ impl ContractInterfaceFunction {
                             ContractInterfaceFunctionArg::from_function_args(args)
                         }
                         _ => {
-                            return Err(StaticCheckErrorKind::Expects(
+                            return Err(StaticCheckErrorKind::ExpectsRejectable(
                                 "Contract functions should only have fixed function arguments!"
                                     .into(),
                             )
@@ -402,7 +402,8 @@ impl ContractInterface {
 
     pub fn serialize(&self) -> Result<String, StaticCheckError> {
         serde_json::to_string(self).map_err(|_| {
-            StaticCheckErrorKind::Expects("Failed to serialize contract interface".into()).into()
+            StaticCheckErrorKind::ExpectsRejectable("Failed to serialize contract interface".into())
+                .into()
         })
     }
 }
