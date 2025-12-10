@@ -253,6 +253,13 @@ impl BlockInfo {
         Ok(())
     }
 
+    /// Mark this block as locally accepted, tentatively, because we have not signed yet, we've only broadcasted a pre-commit.
+    pub fn mark_tentatively_accepted(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::LocallyAccepted)?;
+        self.valid = Some(true);
+        Ok(())
+    }
+
     /// Mark this block as valid, signed over, and records a group timestamp in the block info if it wasn't
     ///  already set.
     fn mark_globally_accepted(&mut self) -> Result<(), String> {
