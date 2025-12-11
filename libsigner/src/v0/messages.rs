@@ -725,7 +725,7 @@ impl StateMachineUpdateContent {
         Ok(content)
     }
 
-    // Is the active protocol version supported by the one used by self's content?
+    // Is the current self's content supported by the given active protocol version?
     fn is_protocol_version_supported(&self, active_version: u64) -> bool {
         match self {
             Self::V0 { .. } => true,
