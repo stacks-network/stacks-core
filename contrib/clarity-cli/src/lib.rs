@@ -18,7 +18,21 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, io};
 
+use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use clarity::vm::ast::build_ast;
+use clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::coverage::CoverageReporter;
+use clarity::vm::database::{
+    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
+};
+use clarity::vm::errors::{RuntimeError, StaticCheckError, VmExecutionError};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::{
+    ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
+    eval_all,
+};
 use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::{Connection, OpenFlags};
@@ -41,21 +55,6 @@ use stackslib::chainstate::stacks::boot::{
     POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
 use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
-use stackslib::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
-use stackslib::clarity::vm::analysis::errors::StaticCheckError;
-use stackslib::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use stackslib::clarity::vm::ast::build_ast;
-use stackslib::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
-use stackslib::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use stackslib::clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
-};
-use stackslib::clarity::vm::errors::{RuntimeError, VmExecutionError};
-use stackslib::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use stackslib::clarity::vm::{
-    ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
-    eval_all,
-};
 use stackslib::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
 use stackslib::clarity_vm::database::MemoryBackingStore;
 use stackslib::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
