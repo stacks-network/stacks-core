@@ -123,7 +123,9 @@ BlockState {
     /// A threshold number of signers have signed the block
     GloballyAccepted = 3,
     /// A threshold number of signers have rejected the block
-    GloballyRejected = 4
+    GloballyRejected = 4,
+    /// The block is pre-committed by the signer, but not yet signed
+    PreCommitted = 5
 });
 
 impl TryFrom<u8> for BlockState {
@@ -135,6 +137,7 @@ impl TryFrom<u8> for BlockState {
             2 => BlockState::LocallyRejected,
             3 => BlockState::GloballyAccepted,
             4 => BlockState::GloballyRejected,
+            5 => BlockState::PreCommitted,
             _ => return Err("Invalid block state".into()),
         };
         Ok(state)
@@ -149,6 +152,7 @@ impl Display for BlockState {
             BlockState::LocallyRejected => "LocallyRejected",
             BlockState::GloballyAccepted => "GloballyAccepted",
             BlockState::GloballyRejected => "GloballyRejected",
+            BlockState::PreCommitted => "PreCommitted",
         };
         write!(f, "{state}")
     }
@@ -163,6 +167,7 @@ impl TryFrom<&str> for BlockState {
             "LocallyRejected" => BlockState::LocallyRejected,
             "GloballyAccepted" => BlockState::GloballyAccepted,
             "GloballyRejected" => BlockState::GloballyRejected,
+            "PreCommitted" => BlockState::PreCommitted,
             _ => return Err("Unparsable block state".into()),
         };
         Ok(state)
@@ -182,11 +187,11 @@ pub struct BlockInfo {
     pub vote: Option<NakamotoBlockVote>,
     /// Whether the block contents are valid
     pub valid: Option<bool>,
-    /// Whether this block is already being signed over
+    /// Whether this block is already being signed over (pre-committed or signed by self or group)
     pub signed_over: bool,
     /// Time at which the proposal was received by this signer (epoch time in seconds)
     pub proposed_time: u64,
-    /// Time at which the proposal was signed by this signer (epoch time in seconds)
+    /// Time at which the proposal was pre-committed or signed by this signer (epoch time in seconds)
     pub signed_self: Option<u64>,
     /// Time at which the proposal was signed by a threshold in the signer set (epoch time in seconds)
     pub signed_group: Option<u64>,
@@ -253,10 +258,14 @@ impl BlockInfo {
         Ok(())
     }
 
-    /// Mark this block as locally accepted, tentatively, because we have not signed yet, we've only broadcasted a pre-commit.
-    pub fn mark_tentatively_accepted(&mut self) -> Result<(), String> {
-        self.move_to(BlockState::LocallyAccepted)?;
+    /// Mark this block as valid and pre-committed. We set the `signed_self`
+    /// timestamp here because pre-committing to a block implies the same
+    /// behavior as a local acceptance from the signer's perspective.
+    pub fn mark_pre_committed(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::PreCommitted)?;
         self.valid = Some(true);
+        self.signed_over = true;
+        self.signed_self.get_or_insert(get_epoch_time_secs());
         Ok(())
     }
 
@@ -303,6 +312,7 @@ impl BlockInfo {
             ),
             BlockState::GloballyAccepted => !matches!(prev_state, BlockState::GloballyRejected),
             BlockState::GloballyRejected => !matches!(prev_state, BlockState::GloballyAccepted),
+            BlockState::PreCommitted => matches!(prev_state, BlockState::Unprocessed),
         }
     }
 
@@ -330,7 +340,7 @@ impl BlockInfo {
     pub fn is_locally_finalized(&self) -> bool {
         matches!(
             self.state,
-            BlockState::LocallyAccepted | BlockState::LocallyRejected
+            BlockState::PreCommitted | BlockState::LocallyAccepted | BlockState::LocallyRejected
         )
     }
 }
@@ -1189,11 +1199,12 @@ impl SignerDb {
         &self,
         tenure: &ConsensusHash,
     ) -> Result<Option<BlockInfo>, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3) ORDER BY stacks_height DESC LIMIT 1";
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3, ?4) ORDER BY stacks_height DESC LIMIT 1";
         let args = params![
             tenure,
             &BlockState::GloballyAccepted.to_string(),
-            &BlockState::LocallyAccepted.to_string()
+            &BlockState::LocallyAccepted.to_string(),
+            &BlockState::PreCommitted.to_string(),
         ];
         let result: Option<String> = query_row(&self.db, query, args)?;
 

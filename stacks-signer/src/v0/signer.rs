@@ -1036,9 +1036,11 @@ impl Signer {
             return;
         };
 
-        if block_info.signed_self.is_some() {
+        if block_info.state == BlockState::LocallyAccepted
+            || block_info.state == BlockState::LocallyRejected
+        {
             debug!(
-                "{self}: Received pre-commit for a block that we have already signed. Ignoring...",
+                "{self}: Received pre-commit for a block that we have already responded to. Ignoring...",
             );
             return;
         }
@@ -1411,11 +1413,12 @@ impl Signer {
             self.handle_block_rejection(&block_rejection, sortition_state);
             self.send_block_response(&block_info.block, block_rejection.into());
         } else {
-            if let Err(e) = block_info.mark_tentatively_accepted() {
+            if let Err(e) = block_info.mark_pre_committed() {
                 if !block_info.has_reached_consensus() {
                     warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
                     return;
                 }
+                block_info.signed_self.get_or_insert(get_epoch_time_secs());
             }
             // Record the block validation time but do not consider stx transfers or boot contract calls
             block_info.validation_time_ms = if block_validate_ok.cost.is_zero() {
