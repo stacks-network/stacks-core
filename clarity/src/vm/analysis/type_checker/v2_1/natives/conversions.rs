@@ -1,4 +1,4 @@
-use clarity_types::errors::CheckErrorKind;
+use clarity_types::errors::analysis::StaticCheckErrorKind;
 use clarity_types::types::{StringSubtype, MAX_TO_ASCII_BUFFER_LEN};
 use stacks_common::types::StacksEpochId;
 
@@ -62,7 +62,7 @@ pub fn check_special_to_ascii(
     check_argument_count(1, args)?;
     let input_type = checker.type_check(
         args.first()
-            .ok_or(CheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
         context,
     )?;
 
@@ -92,12 +92,14 @@ pub fn check_special_to_ascii(
                 TypeSignature::TO_ASCII_BUFFER_MAX,
                 TypeSignature::STRING_UTF8_MAX,
             ];
-            return Err(CheckErrorKind::UnionTypeError(types, input_type.into()).into());
+            return Err(StaticCheckErrorKind::UnionTypeError(types, input_type.into()).into());
         }
     };
     Ok(
         TypeSignature::new_response(result_type, TypeSignature::UIntType).map_err(|_| {
-            CheckErrorKind::Expects("FATAL: Legal Clarity response type marked invalid".into())
+            StaticCheckErrorKind::Expects(
+                "FATAL: Legal Clarity response type marked invalid".into(),
+            )
         })?,
     )
 }

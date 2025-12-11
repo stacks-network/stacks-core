@@ -193,16 +193,14 @@ pub fn special_secp256k1_recover(
         }
     };
 
-    match secp256k1_recover(message, signature)
-        .map_err(|_| CheckErrorKind::InvalidSecp65k1Signature)
-    {
-        Ok(pubkey) => Ok(Value::okay(
-            Value::buff_from(pubkey.to_vec())
-                .map_err(|_| VmInternalError::Expect("Failed to construct buff".into()))?,
-        )
-        .map_err(|_| VmInternalError::Expect("Failed to construct ok".into()))?),
-        _ => Ok(Value::err_uint(1)),
-    }
+    let Ok(pubkey) = secp256k1_recover(message, signature) else {
+        // We do not return the runtime error. Immediately map this to an error code.
+        return Ok(Value::err_uint(1));
+    };
+    let pubkey_buff = Value::buff_from(pubkey.to_vec())
+        .map_err(|_| VmInternalError::Expect("Failed to construct buff".into()))?;
+    Ok(Value::okay(pubkey_buff)
+        .map_err(|_| VmInternalError::Expect("Failed to construct ok".into()))?)
 }
 
 pub fn special_secp256k1_verify(

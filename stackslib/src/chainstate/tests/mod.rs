@@ -13,8 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 pub mod consensus;
+mod early_return_tests;
 mod parse_tests;
 mod runtime_analysis_tests;
+mod runtime_tests;
 mod static_analysis_tests;
 
 use std::fs;

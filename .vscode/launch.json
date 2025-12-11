@@ -27,7 +27,7 @@
         "args": [
           "build",
           "--bin=clarity-cli",
-          "--package=stackslib"
+          "--package=clarity-cli"
         ],
         "filter": {
           "name": "clarity-cli",

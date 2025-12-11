@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.3.0.0.2.0]
+
+### Added
+
+- Support read-count tenure extends
+  - Added `read_count_idle_timeout_secs` config option to set the amount of seconds of idle time must pass before a read-count tenure extend is allowed (defaults to 20 seconds)
+  - Send a read-count tenure extend timestamp in the block responses
+  - Approve a block with a read-count tenure extend when the appropriate amount of idle time has passed
 
 ## [3.2.0.0.2.0]
 
