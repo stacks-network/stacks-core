@@ -206,6 +206,8 @@ This technique allows to be sure that proptest generates a lot of cases where th
 
 Writing new input strategies may be the most tedious part of writing property tests, so it is worthwhile figuring out if the input you are looking for (or maybe a component of the input you're looking for) already has a strategy in the codebase. If you search for functions that return `impl Strategy<Value = ?>` in the codebase, you should find the set of functions that have already been written.
 
+Except in cases where input strategies are highly tailored to a particular test, strategy functions should be placed in common `proptest_utils` modules for the crate you are working in. For the examples discussed in this PR, those are in `stackslib::proptest_utils`. This makes discovery a bit easier for later consumers of those input strategies.
+
 ## Continuous Integration
 
 By default, we'll get some CI integration from `proptest` automatically: the new property tests will run with 250 randomly generated inputs on every execution of the unit test job in CI. This is great. However, we want some additional support for executing *new* property tests extra amounts before PRs merge.

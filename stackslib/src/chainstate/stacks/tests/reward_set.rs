@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 
-use clarity::types::chainstate::StacksAddress;
-use clarity::types::StacksEpochId;
-use clarity::util::hash::Hash160;
-use proptest::array::{uniform20, uniform32};
-use proptest::prelude::{any, prop, proptest, Strategy, TestCaseError};
-use proptest::{prop_assert_eq, prop_assume, prop_oneof};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::StacksEpochId;
+use proptest::prelude::{prop, proptest, TestCaseError};
+use proptest::{prop_assert_eq, prop_assume};
+use stacks_common::util::hash::Hash160;
 
 use crate::burnchains::PoxConstants;
-use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::RawRewardSetEntry;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::proptest_utils::reward_set_entry_strategy;
 
 pub fn check_make_reward_set(
     pox_settings: PoxConstants,
@@ -34,6 +34,8 @@ pub fn check_make_reward_set(
         addresses,
         liquid_ustx,
     );
+
+    prop_assume!(threshold > 0);
 
     let reward_set =
         StacksChainState::make_reward_set(threshold, addresses.to_vec(), StacksEpochId::Epoch33);
@@ -63,12 +65,139 @@ pub fn check_make_reward_set(
     Ok(())
 }
 
+#[test]
+/// Invoke the reward set property test with some known corner cases
+fn units_make_reward_set() {
+    struct TestVector {
+        entries: Vec<RawRewardSetEntry>,
+        unstacked_amount: u128,
+    }
+
+    let prepare_length = 10;
+    let reward_length = 2_000 * 2;
+    let cycle_length = reward_length + prepare_length;
+    let pox_settings = PoxConstants::new(
+        cycle_length,
+        prepare_length,
+        prepare_length / 2 + 1,
+        10,
+        10,
+        u64::MAX,
+        u64::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    );
+
+    let addrs: Vec<_> = (0..10u64).map(|x| PoxAddress::Standard(
+        StacksAddress::new(20, Hash160::from_data(&x.to_be_bytes())).unwrap(),
+        None)
+    ).collect();
+
+    let test_vectors = [
+        // Test a reward set where two participants don't stack enough to get slots
+        TestVector {
+            entries: vec![
+                RawRewardSetEntry {
+                    reward_address: addrs[0].clone(),
+                    amount_stacked: 1_000_000,
+                    stacker: None,
+                    signer: None,
+                },
+                RawRewardSetEntry {
+                    reward_address: addrs[1].clone(),
+                    amount_stacked: 500_000,
+                    stacker: None,
+                    signer: None,
+                },
+                RawRewardSetEntry {
+                    reward_address: addrs[3].clone(),
+                    amount_stacked: 0,
+                    stacker: None,
+                    signer: None,
+                },
+                RawRewardSetEntry {
+                    reward_address: addrs[4].clone(),
+                    amount_stacked: 10,
+                    stacker: None,
+                    signer: None,
+                },
+            ],
+            unstacked_amount: 4000,
+        },
+        // Test a reward set with not enough participation for any
+        // slots to be claimed
+        TestVector {
+            entries: vec![
+                RawRewardSetEntry {
+                    reward_address: addrs[0].clone(),
+                    amount_stacked: 100_000,
+                    stacker: None,
+                    signer: None,
+                },
+                RawRewardSetEntry {
+                    reward_address: addrs[1].clone(),
+                    amount_stacked: 50_000,
+                    stacker: None,
+                    signer: None,
+                },
+                RawRewardSetEntry {
+                    reward_address: addrs[0].clone(),
+                    amount_stacked: 20_000,
+                    stacker: None,
+                    signer: None,
+                },
+            ],
+            unstacked_amount: 40_000_000_000_000,
+        },
+        // Test a reward set with repeated entries for the same
+        // address
+        TestVector {
+            entries: vec![
+                RawRewardSetEntry {
+                    reward_address: addrs[0].clone(),
+                    amount_stacked: 100_000,
+                    stacker: None,
+                    signer: None,
+                },
+                RawRewardSetEntry {
+                    reward_address: addrs[1].clone(),
+                    amount_stacked: 50_000,
+                    stacker: None,
+                    signer: None,
+                },
+                RawRewardSetEntry {
+                    reward_address: addrs[0].clone(),
+                    amount_stacked: 20_000,
+                    stacker: None,
+                    signer: None,
+                },
+            ],
+            unstacked_amount: 0,
+        },
+    ];
+
+    for TestVector { ref entries, unstacked_amount } in test_vectors.iter() {
+        check_make_reward_set(pox_settings.clone(), entries.as_slice(), *unstacked_amount).unwrap();
+    }
+}
+
 proptest! {
+    /// Property testing for the make_reward_set:
+    ///
+    /// * Each reward set participants' allotted slots should equal
+    /// the integer division of their total amount stacked across all
+    /// entries, divided by the threshold number.
+    /// 
+    /// This test forces a number of the addresses to have multiple
+    /// entries (generated by the `to_duplicate` argument in the
+    /// proptest)
     #[test]
     fn make_reward_set(
         pox_slots in 1..4_000u32,
         unstacked_ustx in 0..1_000_000_000u128,
-        mut addrs in prop::collection::vec(reward_set_entry_strategy(), 1..25_000),
+        mut addrs in prop::collection::vec(reward_set_entry_strategy(1..100_000_000u128), 1..25_000),
         to_duplicate in prop::collection::vec((0..25_000usize, 0..100_000_000u128), 0..25_000)
     ) {
         let prepare_length = 10;
@@ -97,51 +226,4 @@ proptest! {
 
         check_make_reward_set(pox_settings, addrs.as_slice(), unstacked_ustx)?;
     }
-}
-
-pub fn pox_address_standard() -> impl Strategy<Value = PoxAddress> {
-    (
-        prop::sample::select(&[20u8, 21, 22, 26]),
-        uniform20(any::<u8>()),
-    )
-        .prop_map(|(version, bytes)| {
-            PoxAddress::Standard(StacksAddress::new(version, Hash160(bytes)).unwrap(), None)
-        })
-}
-
-pub fn pox_address_addr20() -> impl Strategy<Value = PoxAddress> {
-    (
-        any::<bool>(),
-        prop::sample::select(&[PoxAddressType20::P2WPKH]),
-        uniform20(any::<u8>()),
-    )
-        .prop_map(|(mainnet, addr_ty, bytes)| PoxAddress::Addr20(mainnet, addr_ty, bytes))
-}
-
-pub fn pox_address_addr32() -> impl Strategy<Value = PoxAddress> {
-    (
-        any::<bool>(),
-        prop::sample::select(&[PoxAddressType32::P2TR, PoxAddressType32::P2WSH]),
-        uniform32(any::<u8>()),
-    )
-        .prop_map(|(mainnet, addr_ty, bytes)| PoxAddress::Addr32(mainnet, addr_ty, bytes))
-}
-
-pub fn pox_address_strategy() -> impl Strategy<Value = PoxAddress> {
-    prop_oneof![
-        pox_address_standard(),
-        pox_address_addr32(),
-        pox_address_addr20()
-    ]
-}
-
-pub fn reward_set_entry_strategy() -> impl Strategy<Value = RawRewardSetEntry> {
-    (pox_address_strategy(), 1..100_000_000u128).prop_map(|(reward_address, amount_stacked)| {
-        RawRewardSetEntry {
-            reward_address,
-            amount_stacked,
-            stacker: None,
-            signer: None,
-        }
-    })
 }
