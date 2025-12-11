@@ -168,7 +168,7 @@ pub fn handle_contract_call(
         unlock_height,
     ) {
         Ok(_) => {
-            if let Some(batch) = global_context.event_batches.last_mut() {
+            if let Some((batch, _)) = global_context.event_batches.last_mut() {
                 batch.events.push(StacksTransactionEvent::STXEvent(
                     STXEventType::STXLockEvent(STXLockEventData {
                         locked_amount,

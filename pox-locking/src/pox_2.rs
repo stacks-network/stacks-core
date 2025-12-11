@@ -539,7 +539,7 @@ pub fn handle_contract_call(
     };
 
     // append the lockup event, so it looks as if the print event happened before the lock-up
-    if let Some(batch) = global_context.event_batches.last_mut() {
+    if let Some((batch, _)) = global_context.event_batches.last_mut() {
         if let Some(print_event) = print_event_opt {
             batch.events.push(print_event);
         }
