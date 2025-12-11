@@ -1,12 +1,13 @@
 use std::ops::Range;
 
 use proptest::array::{uniform20, uniform32};
-use proptest::{prop_oneof};
+use proptest::prelude::{any, prop, Strategy};
+use proptest::prop_oneof;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash::Hash160;
+
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::RawRewardSetEntry;
-use proptest::prelude::{any, prop, Strategy};
-use stacks_common::util::hash::Hash160;
-use stacks_common::types::chainstate::StacksAddress;
 
 /// Generate a PoxAddress::Standard with uniform sampling over the 4
 /// standard network versions and the 20-byte Hash160.
@@ -55,7 +56,9 @@ pub fn pox_address_strategy() -> impl Strategy<Value = PoxAddress> {
 
 /// Generate `RawRewardSetEntry`s, using the `pox_address_strategy` and the supplied range of u128s for generating
 ///  the total amount stacked.
-pub fn reward_set_entry_strategy(amount_stacked: Range<u128>) -> impl Strategy<Value = RawRewardSetEntry> {
+pub fn reward_set_entry_strategy(
+    amount_stacked: Range<u128>,
+) -> impl Strategy<Value = RawRewardSetEntry> {
     (pox_address_strategy(), amount_stacked).prop_map(|(reward_address, amount_stacked)| {
         RawRewardSetEntry {
             reward_address,
