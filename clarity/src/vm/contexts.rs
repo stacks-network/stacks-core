@@ -41,7 +41,7 @@ use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
 };
-use crate::vm::errors::{VmExecutionError, CheckErrorKind, RuntimeError, VmInternalError};
+use crate::vm::errors::{CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::FunctionSignature;
@@ -2104,13 +2104,13 @@ impl ContractContext {
     }
 
     #[cfg(feature = "clarity-wasm")]
-    pub fn with_wasm_module<T>(&self, f: impl Fn(&[u8]) -> Result<T, VmExecutionError>) -> Result<T, VmExecutionError> {
-        let wasm_module = self
-            .wasm_module
-            .as_ref()
-            .ok_or(VmExecutionError::Wasm(
-                crate::vm::errors::WasmError::ModuleNotFound,
-            ))?;
+    pub fn with_wasm_module<T>(
+        &self,
+        f: impl Fn(&[u8]) -> Result<T, VmExecutionError>,
+    ) -> Result<T, VmExecutionError> {
+        let wasm_module = self.wasm_module.as_ref().ok_or(VmExecutionError::Wasm(
+            crate::vm::errors::WasmError::ModuleNotFound,
+        ))?;
         f(&wasm_module)
     }
 

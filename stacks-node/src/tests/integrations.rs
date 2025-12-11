@@ -2000,11 +2000,12 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
 #[test]
 #[cfg(not(feature = "clarity-wasm"))]
 fn block_limit_runtime_test() {
+    use std::cmp::Ordering;
+
     use stacks::core::{
         EpochList, StacksEpoch, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
         PEER_VERSION_EPOCH_2_1,
     };
-    use std::cmp::Ordering;
 
     let mut conf = new_test_conf();
 

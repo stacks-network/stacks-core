@@ -9,9 +9,9 @@ use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
+use crate::vm::errors::VmExecutionError;
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, Value};
 use crate::vm::version::ClarityVersion;
-use crate::vm::errors::VmExecutionError;
 use crate::vm::{self, ContractContext};
 
 pub const DOCS_GENERATION_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;

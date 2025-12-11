@@ -59,7 +59,9 @@ native_hash_func!(native_keccak256, hash::Keccak256Hash);
 
 // Note: Clarity1 had a bug in how the address is computed (issues/2619).
 // This method preserves the old, incorrect behavior for those running Clarity1.
-pub fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> Result<StacksAddress, VmExecutionError> {
+pub fn pubkey_to_address_v1(
+    pub_key: Secp256k1PublicKey,
+) -> Result<StacksAddress, VmExecutionError> {
     StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,

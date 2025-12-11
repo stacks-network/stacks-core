@@ -75,7 +75,9 @@ use crate::vm::costs::{
 };
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
-use crate::vm::errors::{InterpreterResult as Result, VmExecutionError, RuntimeError, CheckErrorKind, VmInternalError};
+use crate::vm::errors::{
+    CheckErrorKind, InterpreterResult as Result, RuntimeError, VmExecutionError, VmInternalError,
+};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
 pub use crate::vm::functions::stx_transfer_consolidated;
@@ -163,11 +165,7 @@ pub trait EvalHook {
     fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>);
 }
 
-fn lookup_variable(
-    name: &str,
-    context: &LocalContext,
-    env: &mut Environment,
-) -> Result<Value> {
+fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(
             VmInternalError::BadSymbolicRepresentation(format!("Unexpected variable name: {name}"))
@@ -202,10 +200,7 @@ fn lookup_variable(
     }
 }
 
-pub fn lookup_function(
-    name: &str,
-    env: &mut Environment,
-) -> Result<CallableType> {
+pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType> {
     runtime_cost(ClarityCostFunction::LookupFunction, env, 0)?;
 
     if let Some(result) =
@@ -309,9 +304,7 @@ pub fn apply(
     }
 }
 
-fn check_max_execution_time_expired(
-    global_context: &GlobalContext,
-) -> Result<()> {
+fn check_max_execution_time_expired(global_context: &GlobalContext) -> Result<()> {
     match global_context.execution_time_tracker {
         ExecutionTimeTracker::NoTracking => Ok(()),
         ExecutionTimeTracker::MaxTime {
@@ -502,10 +495,7 @@ pub fn eval_all(
 /// This method executes the program in Epoch 2.0 *and* Epoch 2.05 and asserts
 /// that the result is the same before returning the result
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_on_network(
-    program: &str,
-    use_mainnet: bool,
-) -> Result<Option<Value>> {
+pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Value>> {
     let epoch_200_result = execute_with_parameters(
         program,
         ClarityVersion::Clarity2,
@@ -588,10 +578,7 @@ pub fn execute_with_parameters(
 
 /// Execute for test with `version`, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_against_version(
-    program: &str,
-    version: ClarityVersion,
-) -> Result<Option<Value>> {
+pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
     execute_with_parameters(program, version, StacksEpochId::Epoch20, false)
 }
 

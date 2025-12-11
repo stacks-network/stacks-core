@@ -13,13 +13,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use crate::vm::errors::VmExecutionError;
 use crate::vm::types::{TupleData, Value};
 #[cfg(test)]
 use crate::vm::{
     errors::{CheckErrorKind, EarlyReturnError, SyntaxBindingError},
     types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
 };
-use crate::vm::errors::VmExecutionError;
 use crate::vm::{execute, ClarityName};
 
 fn assert_executes(expected: Result<Value, VmExecutionError>, input: &str) {
