@@ -2068,6 +2068,7 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
                     tenure_change.serialize_to_vec().len() as u64,
                     &BlockLimitFunction::NO_LIMIT_HIT,
                     None,
+                    &mut 0,
                 )
                 .unwrap();
             let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
