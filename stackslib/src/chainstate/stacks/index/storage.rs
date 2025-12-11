@@ -2141,8 +2141,18 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         if let Some((bhh, trie_ram)) = self.data.uncommitted_writes.take() {
             trace!("Buffering block flush started.");
 
+            // Enable MARF compression only when:
+            // - Compression is explicitly requested, and
+            // - The flush option is *not* `FlushOptions::UnconfirmedTable`, which is used when
+            //   writing an unconfirmed trie for Stacks 2.x.
+            //
+            //   Compression is intentionally disabled for unconfirmed tries to avoid regressions
+            //   in `TrieRAM::load`, which is responsible for loading these unconfirmed structures.
+            let marf_compression_enabled =
+                self.compress && !matches!(flush_options, FlushOptions::UnconfirmedTable);
+
             let mut cursor = Cursor::new(Vec::new());
-            if self.compress {
+            if marf_compression_enabled {
                 trie_ram.dump_compressed(self, &mut cursor, &bhh)?;
             } else {
                 trie_ram.dump(self, &mut cursor, &bhh)?;
