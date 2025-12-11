@@ -13,8 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::errors::analysis::{check_argument_count, check_arguments_at_least};
-use clarity_types::errors::{CheckErrorKind, StaticCheckError};
+use clarity_types::errors::analysis::{
+    check_argument_count, check_arguments_at_least, StaticCheckErrorKind,
+};
+use clarity_types::errors::StaticCheckError;
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::{SequenceSubtype, TypeSignature};
 
@@ -40,21 +42,23 @@ pub fn check_restrict_assets(
 
     let asset_owner = args
         .first()
-        .ok_or(CheckErrorKind::CheckerImplementationFailure)?;
+        .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?;
     let allowance_list = args
         .get(1)
-        .ok_or(CheckErrorKind::CheckerImplementationFailure)?
+        .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?
         .match_list()
-        .ok_or(CheckErrorKind::ExpectedListOfAllowances(
+        .ok_or(StaticCheckErrorKind::ExpectedListOfAllowances(
             "restrict-assets?".into(),
             2,
         ))?;
     let body_exprs = args
         .get(2..)
-        .ok_or(CheckErrorKind::CheckerImplementationFailure)?;
+        .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?;
 
     if allowance_list.len() > MAX_ALLOWANCES {
-        return Err(CheckErrorKind::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into());
+        return Err(
+            StaticCheckErrorKind::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into(),
+        );
     }
 
     runtime_cost(
@@ -67,7 +71,7 @@ pub fn check_restrict_assets(
 
     for allowance in allowance_list {
         if check_allowance(checker, allowance, context)? {
-            return Err(CheckErrorKind::WithAllAllowanceNotAllowed.into());
+            return Err(StaticCheckErrorKind::WithAllAllowanceNotAllowed.into());
         }
     }
 
@@ -76,12 +80,12 @@ pub fn check_restrict_assets(
     for expr in body_exprs {
         let type_return = checker.type_check(expr, context)?;
         if type_return.is_response_type() {
-            return Err(CheckErrorKind::UncheckedIntermediaryResponses.into());
+            return Err(StaticCheckErrorKind::UncheckedIntermediaryResponses.into());
         }
         last_return = Some(type_return);
     }
 
-    let ok_type = last_return.ok_or_else(|| CheckErrorKind::CheckerImplementationFailure)?;
+    let ok_type = last_return.ok_or_else(|| StaticCheckErrorKind::CheckerImplementationFailure)?;
     Ok(TypeSignature::new_response(
         ok_type,
         TypeSignature::UIntType,
@@ -97,18 +101,20 @@ pub fn check_as_contract(
 
     let allowance_list = args
         .first()
-        .ok_or(CheckErrorKind::CheckerImplementationFailure)?
+        .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?
         .match_list()
-        .ok_or(CheckErrorKind::ExpectedListOfAllowances(
+        .ok_or(StaticCheckErrorKind::ExpectedListOfAllowances(
             "as-contract?".into(),
             1,
         ))?;
     let body_exprs = args
         .get(1..)
-        .ok_or(CheckErrorKind::CheckerImplementationFailure)?;
+        .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?;
 
     if allowance_list.len() > MAX_ALLOWANCES {
-        return Err(CheckErrorKind::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into());
+        return Err(
+            StaticCheckErrorKind::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into(),
+        );
     }
 
     runtime_cost(
@@ -119,7 +125,7 @@ pub fn check_as_contract(
 
     for allowance in allowance_list {
         if check_allowance(checker, allowance, context)? && allowance_list.len() > 1 {
-            return Err(CheckErrorKind::WithAllAllowanceNotAlone.into());
+            return Err(StaticCheckErrorKind::WithAllAllowanceNotAlone.into());
         }
     }
 
@@ -128,12 +134,12 @@ pub fn check_as_contract(
     for expr in body_exprs {
         let type_return = checker.type_check(expr, context)?;
         if type_return.is_response_type() {
-            return Err(CheckErrorKind::UncheckedIntermediaryResponses.into());
+            return Err(StaticCheckErrorKind::UncheckedIntermediaryResponses.into());
         }
         last_return = Some(type_return);
     }
 
-    let ok_type = last_return.ok_or_else(|| CheckErrorKind::CheckerImplementationFailure)?;
+    let ok_type = last_return.ok_or_else(|| StaticCheckErrorKind::CheckerImplementationFailure)?;
     Ok(TypeSignature::new_response(
         ok_type,
         TypeSignature::UIntType,
@@ -148,7 +154,7 @@ pub fn check_allowance_err(
     _args: &[SymbolicExpression],
     _context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
-    Err(CheckErrorKind::AllowanceExprNotAllowed.into())
+    Err(StaticCheckErrorKind::AllowanceExprNotAllowed.into())
 }
 
 /// Type check an allowance expression, returning whether it is a
@@ -160,17 +166,17 @@ pub fn check_allowance(
 ) -> Result<bool, StaticCheckError> {
     let list = allowance
         .match_list()
-        .ok_or(CheckErrorKind::ExpectedListApplication)?;
+        .ok_or(StaticCheckErrorKind::ExpectedListApplication)?;
     let (allowance_fn, args) = list
         .split_first()
-        .ok_or(CheckErrorKind::ExpectedListApplication)?;
+        .ok_or(StaticCheckErrorKind::ExpectedListApplication)?;
     let function_name = allowance_fn
         .match_atom()
-        .ok_or(CheckErrorKind::NonFunctionApplication)?;
+        .ok_or(StaticCheckErrorKind::NonFunctionApplication)?;
     let Some(ref native_function) =
         NativeFunctions::lookup_by_name_at_version(function_name, &checker.clarity_version)
     else {
-        return Err(CheckErrorKind::ExpectedAllowanceExpr(function_name.to_string()).into());
+        return Err(StaticCheckErrorKind::ExpectedAllowanceExpr(function_name.to_string()).into());
     };
 
     match native_function {
@@ -181,7 +187,7 @@ pub fn check_allowance(
             check_allowance_with_stacking(checker, args, context)
         }
         NativeFunctions::AllowanceAll => check_allowance_all(checker, args, context),
-        _ => Err(CheckErrorKind::ExpectedAllowanceExpr(function_name.to_string()).into()),
+        _ => Err(StaticCheckErrorKind::ExpectedAllowanceExpr(function_name.to_string()).into()),
     }
 }
 
@@ -196,7 +202,7 @@ fn check_allowance_with_stx(
 
     checker.type_check_expects(
         args.first()
-            .ok_or(CheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
         context,
         &TypeSignature::UIntType,
     )?;
@@ -215,19 +221,19 @@ fn check_allowance_with_ft(
 
     checker.type_check_expects(
         args.first()
-            .ok_or(CheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
         context,
         &TypeSignature::PrincipalType,
     )?;
     checker.type_check_expects(
         args.get(1)
-            .ok_or(CheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
         context,
         &TypeSignature::STRING_ASCII_128,
     )?;
     checker.type_check_expects(
         args.get(2)
-            .ok_or(CheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
         context,
         &TypeSignature::UIntType,
     )?;
@@ -246,13 +252,13 @@ fn check_allowance_with_nft(
 
     checker.type_check_expects(
         args.first()
-            .ok_or(CheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
         context,
         &TypeSignature::PrincipalType,
     )?;
     checker.type_check_expects(
         args.get(1)
-            .ok_or(CheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
         context,
         &TypeSignature::STRING_ASCII_128,
     )?;
@@ -260,14 +266,14 @@ fn check_allowance_with_nft(
     // Asset identifiers must be a Clarity list with any type of elements
     let id_list_ty = checker.type_check(
         args.get(2)
-            .ok_or(CheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
         context,
     )?;
     let TypeSignature::SequenceType(SequenceSubtype::ListType(list_data)) = id_list_ty else {
-        return Err(CheckErrorKind::WithNftExpectedListOfIdentifiers.into());
+        return Err(StaticCheckErrorKind::WithNftExpectedListOfIdentifiers.into());
     };
     if list_data.get_max_len() > MAX_NFT_IDENTIFIERS {
-        return Err(CheckErrorKind::MaxIdentifierLengthExceeded(
+        return Err(StaticCheckErrorKind::MaxIdentifierLengthExceeded(
             MAX_NFT_IDENTIFIERS,
             list_data.get_max_len(),
         )
@@ -288,7 +294,7 @@ fn check_allowance_with_stacking(
 
     checker.type_check_expects(
         args.first()
-            .ok_or(CheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
         context,
         &TypeSignature::UIntType,
     )?;

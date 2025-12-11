@@ -1012,6 +1012,7 @@ impl TestStacksNode {
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
         let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
+        let mut total = 0;
         for tx in txs.into_iter() {
             let tx_len = tx.tx_len();
             match builder.try_mine_tx_with_len(
@@ -1020,6 +1021,7 @@ impl TestStacksNode {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
+                &mut total,
             ) {
                 TransactionResult::Success(..) => {
                     debug!("Included {}", &tx.txid());

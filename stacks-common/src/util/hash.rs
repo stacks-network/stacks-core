@@ -619,13 +619,35 @@ pub fn bin_bytes(s: &str) -> Result<Vec<u8>, HexError> {
     Ok(v)
 }
 
+/// Precomputed hex characters for optimized conversion
+const HEX_CHARS: [u8; 16] = *b"0123456789abcdef";
+
+/// Convert a slice of u8 to a hex string, with optional "0x" prefix
+pub fn to_hex_prefixed(s: &[u8], prefix: bool) -> String {
+    let prefix_len = if prefix { 2 } else { 0 };
+    let mut bytes = Vec::with_capacity(s.len() * 2 + prefix_len);
+
+    if prefix {
+        bytes.push(b'0');
+        bytes.push(b'x');
+    }
+
+    for &b in s.iter() {
+        // get the first hex digit by shifting right 4 bits
+        bytes.push(HEX_CHARS[(b >> 4) as usize]);
+
+        // get the second hex digit by masking the lower 4 bits
+        bytes.push(HEX_CHARS[(b & 0x0f) as usize]);
+    }
+
+    // SAFETY: HEX_CHARS only contains valid ASCII characters, so this expect is safe
+    #[allow(clippy::expect_used)]
+    String::from_utf8(bytes).expect("Only valid UTF-8 characters (ASCII hex) should be present")
+}
+
 /// Convert a slice of u8 to a hex string
 pub fn to_hex(s: &[u8]) -> String {
-    let mut r = String::with_capacity(s.len() * 2);
-    for b in s.iter() {
-        write!(r, "{b:02x}").unwrap();
-    }
-    r
+    to_hex_prefixed(s, false)
 }
 
 /// Convert a slice of u8 into a binary string
