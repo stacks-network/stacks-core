@@ -26,35 +26,39 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::{ClarityName, ContractName};
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
-use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::codec::{Error as CodecError, MAX_MESSAGE_LEN, StacksMessageCodec, read_next};
+use stacks_common::types::Address;
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
 };
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
 use stacks_common::util::chunked_encoding::*;
 use stacks_common::util::retry::{BoundReader, RetryReader};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use url::Url;
 
 use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::core::StacksEpoch;
 use crate::net::connection::{ConnectionOptions, NetworkConnection};
-use crate::net::http::common::{parse_raw_bytes, HTTP_PREAMBLE_MAX_ENCODED_SIZE};
+use crate::net::http::common::{HTTP_PREAMBLE_MAX_ENCODED_SIZE, parse_raw_bytes};
 use crate::net::http::{
-    http_reason, parse_bytes, parse_json, Error as HttpError, HttpContentType, HttpErrorResponse,
-    HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
-    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    Error as HttpError, HttpContentType, HttpErrorResponse, HttpMethodNotAllowed, HttpNotFound,
+    HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
+    HttpResponsePayload, HttpResponsePreamble, HttpServerError, http_reason, parse_bytes,
+    parse_json,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
 use crate::net::{Error as NetError, MessageSequence, ProtocolFamily, StacksNodeState, UrlString};
 
 const CHUNK_BUF_LEN: usize = 32768;
+
+/// Prefix for 405 error messages - used to extract allowed methods for the Allow header
+const METHOD_NOT_ALLOWED_MSG_PREFIX: &str = "Method Not Allowed. Allowed: ";
 
 /// canonical stacks tip height header
 pub const STACKS_HEADER_HEIGHT: &str = "X-Canonical-Stacks-Tip-Height";
@@ -657,6 +661,15 @@ impl StacksHttpResponse {
         preamble: &HttpRequestPreamble,
         error: &dyn HttpErrorResponse,
     ) -> StacksHttpResponse {
+        Self::new_error_with_headers(preamble, error, vec![])
+    }
+
+    /// Make a new HTTP error response with additional headers, in reaction to a request
+    pub fn new_error_with_headers(
+        preamble: &HttpRequestPreamble,
+        error: &dyn HttpErrorResponse,
+        extra_headers: Vec<(String, String)>,
+    ) -> StacksHttpResponse {
         let payload = error.payload();
         let content_type = match &payload {
             HttpResponsePayload::Empty => HttpContentType::Bytes,
@@ -665,14 +678,17 @@ impl StacksHttpResponse {
             HttpResponsePayload::JSON(..) => HttpContentType::JSON,
         };
         let content_length = payload.try_content_length();
-        let preamble = HttpResponsePreamble::from_http_request_preamble(
+        let mut resp_preamble = HttpResponsePreamble::from_http_request_preamble(
             preamble,
             error.code(),
             http_reason(error.code()),
             content_length,
             content_type,
         );
-        StacksHttpResponse::new(preamble, payload)
+        for (key, value) in extra_headers {
+            resp_preamble.add_header(key, value);
+        }
+        StacksHttpResponse::new(resp_preamble, payload)
     }
 
     /// Make a new HTTP error response for text, apropos of nothing
@@ -780,15 +796,25 @@ impl StacksMessageCodec for StacksHttpPreamble {
                         // underflow?
                         match (e_request, e) {
                             (CodecError::ReadError(ref ioe1), CodecError::ReadError(ref ioe2)) => {
-                                if ioe1.kind() == io::ErrorKind::UnexpectedEof && ioe2.kind() == io::ErrorKind::UnexpectedEof {
+                                if ioe1.kind() == io::ErrorKind::UnexpectedEof
+                                    && ioe2.kind() == io::ErrorKind::UnexpectedEof
+                                {
                                     // out of bytes
-                                    Err(CodecError::UnderflowError("Not enough bytes to form a HTTP request or response".to_string()))
+                                    Err(CodecError::UnderflowError(
+                                        "Not enough bytes to form a HTTP request or response"
+                                            .to_string(),
+                                    ))
+                                } else {
+                                    Err(CodecError::DeserializeError(format!(
+                                        "Neither a HTTP request ({:?}) or HTTP response ({:?})",
+                                        ioe1, ioe2
+                                    )))
                                 }
-                                else {
-                                    Err(CodecError::DeserializeError(format!("Neither a HTTP request ({:?}) or HTTP response ({:?})", ioe1, ioe2)))
-                                }
-                            },
-                            (e_req, e_res) => Err(CodecError::DeserializeError(format!("Failed to decode HTTP request or HTTP response (request error: {:?}; response error: {:?})", &e_req, &e_res)))
+                            }
+                            (e_req, e_res) => Err(CodecError::DeserializeError(format!(
+                                "Failed to decode HTTP request or HTTP response (request error: {:?}; response error: {:?})",
+                                &e_req, &e_res
+                            ))),
                         }
                     }
                 }
@@ -965,8 +991,9 @@ pub struct StacksHttp {
     /// parse a reply.  If instead this state-machine is used by the server to parse a request and
     /// send a reply, it will be unused.
     request_handler_index: Option<usize>,
-    /// HTTP request handlers (verb, regex, request-handler, response-handler)
-    request_handlers: Vec<(String, Regex, Box<dyn RPCRequestHandler>)>,
+    /// HTTP request handlers (verb, regex, permissive_regex, request-handler)
+    /// The permissive_regex is used for 405 Method Not Allowed detection
+    request_handlers: Vec<(String, Regex, Regex, Box<dyn RPCRequestHandler>)>,
     /// Maximum size of call arguments
     pub maximum_call_argument_size: u32,
     /// Maximum execution budget of a read-only call
@@ -1034,6 +1061,7 @@ impl StacksHttp {
         self.request_handlers.push((
             handler.verb().to_string(),
             handler.path_regex(),
+            handler.path_regex_permissive(),
             Box::new(handler),
         ));
     }
@@ -1041,7 +1069,7 @@ impl StacksHttp {
     /// Find the HTTP request handler to use to process the reply, given the request path.
     /// Returns the index into the list of handlers
     fn find_response_handler(&self, request_verb: &str, request_path: &str) -> Option<usize> {
-        for (i, (verb, regex, _)) in self.request_handlers.iter().enumerate() {
+        for (i, (verb, regex, _, _)) in self.request_handlers.iter().enumerate() {
             if request_verb != verb {
                 continue;
             }
@@ -1052,6 +1080,21 @@ impl StacksHttp {
             return Some(i);
         }
         None
+    }
+
+    /// Find all allowed HTTP methods for a given path.
+    /// Returns a list of HTTP verbs that are allowed for handlers whose path regex matches.
+    fn find_allowed_methods(&self, request_path: &str) -> Vec<String> {
+        let mut allowed_methods = Vec::new();
+        for (verb, regex, permissive_regex, _) in self.request_handlers.iter() {
+            // Check if either the strict or permissive regex matches
+            if regex.is_match(request_path) || permissive_regex.is_match(request_path) {
+                if !allowed_methods.contains(verb) {
+                    allowed_methods.push(verb.clone());
+                }
+            }
+        }
+        allowed_methods
     }
 
     /// Force the state machine to expect a response
@@ -1108,16 +1151,27 @@ impl StacksHttp {
         let (decoded_path, query) = decode_request_path(&preamble.path_and_query_str)?;
         test_debug!("decoded_path: '{}', query: '{}'", &decoded_path, &query);
 
-        // NOTE: This loop starts out like `find_response_handler()`, but `captures`'s lifetime is
-        // bound to `regex` so we can't just return it from `find_response_handler()`.  Thus, it's
-        // duplicated here.
-        for (verb, regex, request) in self.request_handlers.iter_mut() {
+        let mut allowed_methods: Vec<String> = Vec::new();
+        let mut verb_matched_but_params_invalid = false;
+        let mut any_strict_match = false;
+        
+        for (verb, regex, permissive_regex, request) in self.request_handlers.iter_mut() {
+            let permissive_match = permissive_regex.is_match(&decoded_path);
+            let Some(captures) = regex.captures(&decoded_path) else {
+                if permissive_match {
+                    if &preamble.verb == verb {
+                        verb_matched_but_params_invalid = true;
+                    }
+                    allowed_methods.push(verb.to_string());
+                }
+                continue;
+            };
+
+            any_strict_match = true;
+            allowed_methods.push(verb.to_string());
             if &preamble.verb != verb {
                 continue;
             }
-            let Some(captures) = regex.captures(&decoded_path) else {
-                continue;
-            };
 
             let payload = match request.try_parse_request(
                 preamble,
@@ -1133,15 +1187,34 @@ impl StacksHttp {
             };
 
             debug!("Handle StacksHttpRequest"; "verb" => %verb, "peer_addr" => %self.peer_addr, "path" => %decoded_path, "query" => %query);
-            let request = StacksHttpRequest::new(preamble.clone(), payload);
-            return Ok(request);
+            return Ok(StacksHttpRequest::new(preamble.clone(), payload));
         }
 
         test_debug!("Failed to parse '{}'", &preamble.path_and_query_str);
-        Err(NetError::Http(HttpError::Http(
-            404,
-            "No such file or directory".into(),
-        )))
+
+        // 400 if path pattern matched but params invalid (e.g. GET /v3/blocks/65-char-hex)
+        // 405 if path exists but wrong method (e.g. DELETE /v2/info)
+        // 404 if path doesn't exist
+        if !any_strict_match && verb_matched_but_params_invalid {
+            Err(NetError::Http(HttpError::Http(
+                400,
+                "Invalid path parameters".into(),
+            )))
+        } else if !allowed_methods.is_empty() {
+            Err(NetError::Http(HttpError::Http(
+                405,
+                format!(
+                    "{}{}",
+                    METHOD_NOT_ALLOWED_MSG_PREFIX,
+                    allowed_methods.join(", ")
+                ),
+            )))
+        } else {
+            Err(NetError::Http(HttpError::Http(
+                404,
+                "No such file or directory".into(),
+            )))
+        }
     }
 
     /// Parse out an HTTP response error message
@@ -1194,7 +1267,7 @@ impl StacksHttp {
             return Self::try_parse_error_response(preamble, body);
         }
 
-        let (_, _, parser) = self
+        let (_, _, _, parser) = self
             .request_handlers
             .get(request_handler_index)
             .expect("FATAL: tried to use nonexistent response handler");
@@ -1217,7 +1290,22 @@ impl StacksHttp {
             .response_handler_index
             .or_else(|| self.find_response_handler(&request.preamble().verb, &decoded_path))
         else {
-            // method not found
+            // Handler not found - check if it's a method not allowed (405) or not found (404)
+            let allowed_methods = self.find_allowed_methods(&decoded_path);
+            if !allowed_methods.is_empty() {
+                // Path exists but method is not allowed (405)
+                let allowed_str = allowed_methods.join(", ");
+                return StacksHttpResponse::new_error_with_headers(
+                    &request.preamble,
+                    &HttpMethodNotAllowed::new(format!(
+                        "{}{}",
+                        METHOD_NOT_ALLOWED_MSG_PREFIX, &allowed_str
+                    )),
+                    vec![("Allow".to_string(), allowed_str)],
+                )
+                .try_into_contents();
+            }
+            // Path does not exist (404)
             return StacksHttpResponse::new_error(
                 &request.preamble,
                 &HttpNotFound::new(format!(
@@ -1229,7 +1317,7 @@ impl StacksHttp {
             .try_into_contents();
         };
 
-        let (_, _, request_handler) = self
+        let (_, _, _, request_handler) = self
             .request_handlers
             .get_mut(response_handler_index)
             .expect("FATAL: request points to a nonexistent handler");
@@ -1385,7 +1473,7 @@ impl StacksHttp {
         };
         req.response_handler_index = Some(response_handler_index);
 
-        let (_, _, request_handler) = self
+        let (_, _, _, request_handler) = self
             .request_handlers
             .get(response_handler_index)
             .expect("FATAL: request points to a nonexistent handler");
@@ -1627,9 +1715,22 @@ impl ProtocolFamily for StacksHttp {
                     Ok(data_request) => Ok((StacksHttpMessage::Request(data_request), len)),
                     Err(NetError::Http(http_error)) => {
                         // convert into a response
-                        let resp = StacksHttpResponse::new_error(
+                        // for 405 responses, extract allowed methods and add Allow header
+                        let extra_headers = if let HttpError::Http(405, ref msg) = &http_error {
+                            if let Some(allowed_part) =
+                                msg.strip_prefix(METHOD_NOT_ALLOWED_MSG_PREFIX)
+                            {
+                                vec![("Allow".to_string(), allowed_part.to_string())]
+                            } else {
+                                vec![]
+                            }
+                        } else {
+                            vec![]
+                        };
+                        let resp = StacksHttpResponse::new_error_with_headers(
                             http_request_preamble,
                             &*http_error.into_http_error(),
+                            extra_headers,
                         );
                         self.reset();
                         return Ok((
@@ -1950,7 +2051,9 @@ pub fn send_http_request(
         if last_heartbeat_time.elapsed() >= HEARTBEAT_INTERVAL {
             info!(
                 "send_request(sending data): heartbeat - still sending request to {} path='{}' (elapsed: {:?})",
-                addr, request_path, start.elapsed()
+                addr,
+                request_path,
+                start.elapsed()
             );
             last_heartbeat_time = Instant::now();
         }
@@ -2002,7 +2105,9 @@ pub fn send_http_request(
         if last_heartbeat_time.elapsed() >= HEARTBEAT_INTERVAL {
             info!(
                 "send_request(receiving data): heartbeat - still receiving response from {} path='{}' (elapsed: {:?})",
-                addr, request_path, start.elapsed()
+                addr,
+                request_path,
+                start.elapsed()
             );
             last_heartbeat_time = Instant::now();
         }
@@ -2016,11 +2121,9 @@ pub fn send_http_request(
             let path = &request.preamble().path_and_query_str;
             let resp_status_code = response.preamble().status_code;
             let resp_body = response.body();
-            return Err(io::Error::other(
-                format!(
-                    "HTTP '{verb} {path}' did not succeed ({resp_status_code} != 200). Response body = {resp_body:?}"
-                ),
-            ));
+            return Err(io::Error::other(format!(
+                "HTTP '{verb} {path}' did not succeed ({resp_status_code} != 200). Response body = {resp_body:?}"
+            )));
         }
         _ => {
             return Err(io::Error::other("Did not receive an HTTP response"));

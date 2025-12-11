@@ -117,6 +117,11 @@ impl HttpRequest for RPCNakamotoBlockRequestHandler {
         Regex::new(r#"^/v3/blocks/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
     }
 
+    fn path_regex_permissive(&self) -> Regex {
+        // Permissive regex for 405 detection - matches any block_id format
+        Regex::new(r#"^/v3/blocks/[^/]+$"#).unwrap()
+    }
+
     fn metrics_identifier(&self) -> &str {
         "/v3/blocks/:block_id"
     }

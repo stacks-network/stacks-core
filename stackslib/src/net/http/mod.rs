@@ -37,8 +37,8 @@ pub use crate::net::http::common::{
 };
 pub use crate::net::http::error::{
     http_error_from_code_and_text, http_reason, HttpBadRequest, HttpError, HttpErrorResponse,
-    HttpForbidden, HttpNotFound, HttpNotImplemented, HttpPaymentRequired, HttpRequestTimeout,
-    HttpServerError, HttpServiceUnavailable, HttpUnauthorized,
+    HttpForbidden, HttpMethodNotAllowed, HttpNotFound, HttpNotImplemented, HttpPaymentRequired,
+    HttpRequestTimeout, HttpServerError, HttpServiceUnavailable, HttpUnauthorized,
 };
 pub use crate::net::http::request::{
     HttpRequest, HttpRequestContents, HttpRequestPayload, HttpRequestPreamble,
