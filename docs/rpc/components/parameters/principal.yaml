@@ -2,12 +2,16 @@ name: principal
 in: path
 required: true
 description: |
-  Stacks address (28-41 characters) or a Contract identifier in format `{address}.{contract_name}`
+  Stacks address or a Contract identifier in format `{address}.{contract_name}`
   (e.g. `SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info`).
-  Contract names have a maximum length of 40 characters for new contracts. Legacy contracts may have names up to 128 characters.
+  Address must start with SP (mainnet) or ST (testnet) followed by c32check characters.
+  Note: The API validates the cryptographic checksum internally; invalid addresses return appropriate errors.
 schema:
   type: string
-  pattern: "^([0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})|([0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}\\.[a-zA-Z]([a-zA-Z0-9]|[-_]){0,127})$"
+  pattern: "^S[PT][0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26,39}(\\.[a-zA-Z]([a-zA-Z0-9]|[-_]){0,127})?$"
   minLength: 28
   maxLength: 170
-  example: SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info
+  examples:
+    - SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0
+    - SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info
+    - ST000000000000000000002AMW42H

@@ -1,8 +1,8 @@
-name: contract_address
+name: principal
 in: path
 required: true
 description: |
-  Standard Stacks address (e.g. `SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0`).
+  Stacks address (standard principal, not contract principal).
   Must start with SP (mainnet) or ST (testnet), followed by 26-39 c32check characters.
   Note: The API validates the cryptographic checksum internally; invalid addresses return appropriate errors.
 schema:
