@@ -1550,12 +1550,16 @@ paths:
         - name: pages_indexes
           in: query
           required: true
-          description: Comma-separated list of page indexes to query (max 8 pages, each index 0-4294967295)
+          description: |
+            Comma-separated list of page indexes to query.
+            - Maximum 8 pages per request
+            - Each index must be 0-4294967295 (u32 range)
+            - Values outside u32 range return 400 Bad Request
           schema:
             type: string
             example: "1,2,3"
+            # Pattern allows up to 10 digits; API validates u32 range at runtime
             pattern: "^[0-9]{1,10}(,[0-9]{1,10}){0,7}$"
-            description: max 8 pages per request, each page index max 10 digits (API validates u32 range)
       responses:
         "200":
           description: Attachment inventory bitfield
@@ -1735,10 +1739,11 @@ paths:
         - name: slot_id
           in: path
           required: true
-          description: Slot ID
+          description: Slot ID (u32 range)
           schema:
             type: integer
             minimum: 0
+            maximum: 4294967295
       responses:
         "200":
           description: StackerDB chunk data
@@ -1769,17 +1774,19 @@ paths:
         - name: slot_id
           in: path
           required: true
-          description: Slot ID
+          description: Slot ID (u32 range)
           schema:
             type: integer
             minimum: 0
+            maximum: 4294967295
         - name: slot_version
           in: path
           required: true
-          description: Specific slot version
+          description: Specific slot version (u32 range)
           schema:
             type: integer
             minimum: 0
+            maximum: 4294967295
       responses:
         "200":
           description: StackerDB chunk data
