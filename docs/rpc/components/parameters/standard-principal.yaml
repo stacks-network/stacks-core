@@ -1,15 +1,10 @@
+# Standard principal only (SP... or ST...), used by StackerDB endpoints
 name: principal
 in: path
 required: true
 description: |
-  Stacks address (standard principal, not contract principal).
+  Standard Stacks address (standard principal, not contract principal).
   Must start with SP (mainnet) or ST (testnet), followed by 26-39 c32check characters.
   Note: The API validates the cryptographic checksum internally; invalid addresses return appropriate errors.
 schema:
-  type: string
-  pattern: "^S[PT][0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26,39}$"
-  minLength: 28
-  maxLength: 41
-  examples:
-    - SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0
-    - ST000000000000000000002AMW42H
+  $ref: '../schemas/standard-principal.schema.yaml'

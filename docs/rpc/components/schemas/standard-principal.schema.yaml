@@ -1,0 +1,8 @@
+# Standard principal only (SP... or ST...), no contract suffix
+type: string
+pattern: "^S[PT][0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26,39}$"
+minLength: 28
+maxLength: 41
+examples:
+  - SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0
+  - ST000000000000000000002AMW42H

@@ -702,11 +702,7 @@ paths:
             Stacks address of the trait-defining contract.
             Must start with SP (mainnet) or ST (testnet).
           schema:
-            type: string
-            pattern: "^S[PT][0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26,39}$"
-            minLength: 28
-            maxLength: 41
-            example: "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0"
+            $ref: './components/schemas/standard-principal.schema.yaml'
         - name: trait_contract_name
           in: path
           required: true

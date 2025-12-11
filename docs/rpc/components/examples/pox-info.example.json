@@ -3,7 +3,7 @@
   "pox_activation_threshold_ustx": 52329761604388,
   "first_burnchain_block_height": 666050,
   "current_burnchain_block_height": 812345,
-  "current_epoch": "Epoch30",
+  "current_epoch": "Epoch33",
   "prepare_phase_block_length": 100,
   "reward_phase_block_length": 2000,
   "reward_slots": 4000,

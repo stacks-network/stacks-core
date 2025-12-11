@@ -1,3 +1,4 @@
+# Contract identifier (letters, numbers, hyphens, underscores)
 name: contract_name
 in: path
 required: true

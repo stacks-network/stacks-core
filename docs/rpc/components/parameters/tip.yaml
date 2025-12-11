@@ -2,6 +2,8 @@ name: tip
 in: query
 schema:
   type: string
+  pattern: "^(latest|[0-9a-f]{64})?$"
+  maxLength: 64
   example: latest
 description: |
   Stacks chain tip to query from. Options:
