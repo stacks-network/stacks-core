@@ -623,9 +623,18 @@ impl StateMachineUpdate {
         local_supported_signer_protocol_version: u64,
         content: StateMachineUpdateContent,
     ) -> Result<Self, CodecError> {
-        if !content.is_protocol_version_supported(active_signer_protocol_version) {
-            return Err(CodecError::DeserializeError(format!("StateMachineUpdateContent is incompatible with the active protocol version: {active_signer_protocol_version}")));
+        let version = content.version();
+        // The content version MUST be exactly the expected one:
+        // If local supports at least the active version, use active version
+        // Otherwise, use local supported version
+        let expected_version =
+            active_signer_protocol_version.min(local_supported_signer_protocol_version);
+        if version != expected_version {
+            return Err(CodecError::DeserializeError(format!(
+                "Content version {version} does not match expected protocol version {expected_version} (active={active_signer_protocol_version}, supported={local_supported_signer_protocol_version})"
+            )));
         }
+
         Ok(Self {
             active_signer_protocol_version,
             local_supported_signer_protocol_version,
@@ -725,12 +734,11 @@ impl StateMachineUpdateContent {
         Ok(content)
     }
 
-    // Is the current self's content supported by the given active protocol version?
-    fn is_protocol_version_supported(&self, active_version: u64) -> bool {
+    fn version(&self) -> u64 {
         match self {
-            Self::V0 { .. } => true,
-            Self::V1 { .. } => active_version >= 1,
-            Self::V2 { .. } => active_version >= 2,
+            Self::V0 { .. } => 0,
+            Self::V1 { .. } => 1,
+            Self::V2 { .. } => 2,
         }
     }
 
@@ -2457,23 +2465,29 @@ mod test {
 
     #[test]
     fn version_check_state_machine_update() {
-        let error = StateMachineUpdate::new(
-            1,
-            3,
-            StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x55; 20]),
-                burn_block_height: 100,
-                current_miner: StateMachineUpdateMinerState::ActiveMiner {
-                    current_miner_pkh: Hash160([0xab; 20]),
-                    tenure_id: ConsensusHash([0x44; 20]),
-                    parent_tenure_id: ConsensusHash([0x22; 20]),
-                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
-                    parent_tenure_last_block_height: 1,
-                },
+        let content = StateMachineUpdateContent::V1 {
+            burn_block: ConsensusHash([0x55; 20]),
+            burn_block_height: 100,
+            current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                current_miner_pkh: Hash160([0xab; 20]),
+                tenure_id: ConsensusHash([0x44; 20]),
+                parent_tenure_id: ConsensusHash([0x22; 20]),
+                parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                parent_tenure_last_block_height: 1,
             },
-        )
-        .unwrap_err();
+            replay_transactions: vec![],
+        };
+        // We active version does not support the content
+        let error = StateMachineUpdate::new(0, 1, content.clone()).unwrap_err();
         assert!(matches!(error, CodecError::DeserializeError(_)));
+        // The content should be the min of the active/local versions but it is lower
+        let error = StateMachineUpdate::new(2, 3, content.clone()).unwrap_err();
+        assert!(matches!(error, CodecError::DeserializeError(_)));
+        // The content should be the min of the active/local versions but it is greater
+        let error = StateMachineUpdate::new(2, 0, content.clone()).unwrap_err();
+        assert!(matches!(error, CodecError::DeserializeError(_)));
+        // the content version is equal to the min of the active/local versions
+        assert!(StateMachineUpdate::new(1, 2, content.clone()).is_ok())
     }
 
     #[test]
