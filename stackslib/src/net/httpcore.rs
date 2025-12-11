@@ -26,30 +26,29 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::{ClarityName, ContractName};
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
-use stacks_common::codec::{Error as CodecError, MAX_MESSAGE_LEN, StacksMessageCodec, read_next};
-use stacks_common::types::Address;
+use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
 };
 use stacks_common::types::net::PeerHost;
+use stacks_common::types::Address;
 use stacks_common::util::chunked_encoding::*;
 use stacks_common::util::retry::{BoundReader, RetryReader};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use url::Url;
 
 use crate::burnchains::Txid;
-use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::core::StacksEpoch;
 use crate::net::connection::{ConnectionOptions, NetworkConnection};
-use crate::net::http::common::{HTTP_PREAMBLE_MAX_ENCODED_SIZE, parse_raw_bytes};
+use crate::net::http::common::{parse_raw_bytes, HTTP_PREAMBLE_MAX_ENCODED_SIZE};
 use crate::net::http::{
-    Error as HttpError, HttpContentType, HttpErrorResponse, HttpMethodNotAllowed, HttpNotFound,
-    HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
-    HttpResponsePayload, HttpResponsePreamble, HttpServerError, http_reason, parse_bytes,
-    parse_json,
+    http_reason, parse_bytes, parse_json, Error as HttpError, HttpContentType, HttpErrorResponse,
+    HttpMethodNotAllowed, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
@@ -1154,7 +1153,7 @@ impl StacksHttp {
         let mut allowed_methods: Vec<String> = Vec::new();
         let mut verb_matched_but_params_invalid = false;
         let mut any_strict_match = false;
-        
+
         for (verb, regex, permissive_regex, request) in self.request_handlers.iter_mut() {
             let permissive_match = permissive_regex.is_match(&decoded_path);
             let Some(captures) = regex.captures(&decoded_path) else {
