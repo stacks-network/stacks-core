@@ -52,7 +52,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 
 use crate::stacks_common::types::PublicKey;
-use crate::v0::signer_state::ReplayTransactionSet;
+use crate::v0::signer_state::{ReplayTransactionSet, SignerStateMachine};
 use crate::{
     BlockProposal, MessageSlotID as MessageSlotIDTrait, SignerMessage as SignerMessageTrait,
     VERSION_STRING,
@@ -623,8 +623,8 @@ impl StateMachineUpdate {
         local_supported_signer_protocol_version: u64,
         content: StateMachineUpdateContent,
     ) -> Result<Self, CodecError> {
-        if !content.is_protocol_version_compatible(active_signer_protocol_version) {
-            return Err(CodecError::DeserializeError(format!("StateMachineUpdateContent is incompatible with protocol version: {active_signer_protocol_version}")));
+        if !content.is_protocol_version_supported(active_signer_protocol_version) {
+            return Err(CodecError::DeserializeError(format!("StateMachineUpdateContent is incompatible with the active protocol version: {active_signer_protocol_version}")));
         }
         Ok(Self {
             active_signer_protocol_version,
@@ -692,12 +692,45 @@ impl StacksMessageCodec for StateMachineUpdateMinerState {
 }
 
 impl StateMachineUpdateContent {
-    // Is the protocol version specified one that uses self's content?
-    fn is_protocol_version_compatible(&self, version: u64) -> bool {
+    /// Attempt to create a new state machine update content with the specified version
+    pub fn new(
+        version: u64,
+        current_miner: StateMachineUpdateMinerState,
+        state_machine: &SignerStateMachine,
+    ) -> Result<Self, CodecError> {
+        let content = match version {
+            0 => StateMachineUpdateContent::V0 {
+                burn_block: state_machine.burn_block.clone(),
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+            },
+            1 => StateMachineUpdateContent::V1 {
+                burn_block: state_machine.burn_block.clone(),
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
+            },
+            2 => StateMachineUpdateContent::V2 {
+                burn_block: state_machine.burn_block.clone(),
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
+            },
+            other => {
+                return Err(CodecError::DeserializeError(format!(
+                    "Signer protocol version is unknown: {other}"
+                )))
+            }
+        };
+        Ok(content)
+    }
+
+    // Is the active protocol version supported by the one used by self's content?
+    fn is_protocol_version_supported(&self, active_version: u64) -> bool {
         match self {
-            Self::V0 { .. } => version == 0,
-            Self::V1 { .. } => version == 1,
-            Self::V2 { .. } => version == 2,
+            Self::V0 { .. } => true,
+            Self::V1 { .. } => active_version >= 1,
+            Self::V2 { .. } => active_version >= 2,
         }
     }
 
