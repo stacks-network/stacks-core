@@ -1848,7 +1848,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         let out_batch = match self.event_batches.last_mut() {
             Some(tail_back) => {
                 tail_back.events.append(&mut event_batch.events);
-                Some(tail_back.clone())
+                None
             }
             None => Some(event_batch),
         };
