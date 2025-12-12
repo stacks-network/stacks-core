@@ -202,7 +202,7 @@ impl LocalStateMachine {
         };
 
         let content =
-            StateMachineUpdateContent::new(content_version, current_miner, &state_machine)?;
+            StateMachineUpdateContent::new(content_version, current_miner, state_machine)?;
 
         StateMachineUpdateMessage::new(
             state_machine.active_signer_protocol_version,
