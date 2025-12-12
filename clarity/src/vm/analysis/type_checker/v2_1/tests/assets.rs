@@ -21,7 +21,7 @@ use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use super::contracts::type_check;
-use crate::vm::analysis::errors::CheckErrorKind;
+use crate::vm::analysis::errors::StaticCheckErrorKind;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
@@ -173,108 +173,108 @@ fn test_bad_asset_usage() {
     ];
 
     let expected = [
-        CheckErrorKind::NoSuchFT("stackoos".to_string()),
-        CheckErrorKind::BadTokenName,
-        CheckErrorKind::BadTokenName,
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::NoSuchFT("stackoos".to_string()),
+        StaticCheckErrorKind::BadTokenName,
+        StaticCheckErrorKind::BadTokenName,
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(TypeSignature::IntType),
         ),
-        CheckErrorKind::BadTokenName,
-        CheckErrorKind::NoSuchNFT("stackoos".to_string()),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::BadTokenName,
+        StaticCheckErrorKind::NoSuchNFT("stackoos".to_string()),
+        StaticCheckErrorKind::TypeError(
             Box::new(string_ascii_type(10)),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(string_ascii_type(10)),
             Box::new(string_ascii_type(15)),
         ),
-        CheckErrorKind::BadTokenName,
-        CheckErrorKind::NoSuchNFT("stackoos".to_string()),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::BadTokenName,
+        StaticCheckErrorKind::NoSuchNFT("stackoos".to_string()),
+        StaticCheckErrorKind::TypeError(
             Box::new(string_ascii_type(10)),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(string_ascii_type(10)),
             Box::new(string_ascii_type(15)),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::NoSuchFT("stackoos".to_string()),
-        CheckErrorKind::BadTokenName,
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::NoSuchFT("stackoos".to_string()),
+        StaticCheckErrorKind::BadTokenName,
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::UIntType),
             Box::new(TypeSignature::BoolType),
         ),
-        CheckErrorKind::BadTokenName,
-        CheckErrorKind::NoSuchNFT("stackoos".to_string()),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::BadTokenName,
+        StaticCheckErrorKind::NoSuchNFT("stackoos".to_string()),
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(string_ascii_type(10)),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::BadTokenName,
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::BadTokenName,
+        StaticCheckErrorKind::TypeError(
             Box::new(string_ascii_type(10)),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::NoSuchFT("stackoos".to_string()),
-        CheckErrorKind::BadTokenName,
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::NoSuchFT("stackoos".to_string()),
+        StaticCheckErrorKind::BadTokenName,
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::UIntType),
             Box::new(TypeSignature::BoolType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(TypeSignature::UIntType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::UIntType),
             Box::new(TypeSignature::BoolType),
         ),
-        CheckErrorKind::DefineNFTBadSignature,
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::DefineNFTBadSignature,
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::UIntType),
             Box::new(TypeSignature::IntType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::UIntType),
             Box::new(TypeSignature::IntType),
         ),
-        CheckErrorKind::NoSuchFT("stackoos".to_string()),
-        CheckErrorKind::NoSuchFT("stackoos".to_string()),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::NoSuchFT("stackoos".to_string()),
+        StaticCheckErrorKind::NoSuchFT("stackoos".to_string()),
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::UIntType),
             Box::new(TypeSignature::IntType),
         ),
-        CheckErrorKind::TypeError(
+        StaticCheckErrorKind::TypeError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(TypeSignature::IntType),
         ),

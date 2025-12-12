@@ -521,6 +521,7 @@ impl NakamotoBlockBuilder {
             break;
         }
 
+        let mut receipts_total = 0u64;
         let mut miner_tenure_info =
             builder.shadow_load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
         let burn_chain_height = miner_tenure_info.burn_tip_height;
@@ -537,6 +538,7 @@ impl NakamotoBlockBuilder {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
+                &mut receipts_total,
             ) {
                 TransactionResult::Success(..) => {
                     debug!("Included {}", &tx.txid());

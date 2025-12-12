@@ -28,7 +28,9 @@ use stacks_common::types::StacksEpochId;
 pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
-pub use self::errors::{CheckErrorKind, StaticCheckError};
+pub use self::errors::{
+    CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
+};
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
@@ -55,7 +57,7 @@ pub fn mem_type_check(
 ) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticCheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
-        .map_err(|e| CheckErrorKind::Expects(format!("Failed to build AST: {e}")))?
+        .map_err(|e| StaticCheckErrorKind::Expects(format!("Failed to build AST: {e}")))?
         .expressions;
 
     let mut marf = MemoryBackingStore::new();
@@ -73,16 +75,15 @@ pub fn mem_type_check(
     ) {
         Ok(x) => {
             // return the first type result of the type checker
-            let first_type = x
-                .type_map
-                .as_ref()
-                .ok_or_else(|| CheckErrorKind::Expects("Should be non-empty".into()))?
-                .get_type_expected(
-                    x.expressions
-                        .last()
-                        .ok_or_else(|| CheckErrorKind::Expects("Should be non-empty".into()))?,
-                )
-                .cloned();
+
+            let first_type =
+                x.type_map
+                    .as_ref()
+                    .ok_or_else(|| StaticCheckErrorKind::Expects("Should be non-empty".into()))?
+                    .get_type_expected(x.expressions.last().ok_or_else(|| {
+                        StaticCheckErrorKind::Expects("Should be non-empty".into())
+                    })?)
+                    .cloned();
             Ok((first_type, x))
         }
         Err(e) => Err(e.0),
@@ -151,7 +152,7 @@ pub fn run_analysis(
                 TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db, build_type_map)
             }
             StacksEpochId::Epoch10 => {
-                return Err(CheckErrorKind::Expects(
+                return Err(StaticCheckErrorKind::Expects(
                     "Epoch 1.0 is not a valid epoch for analysis".into(),
                 )
                 .into())
