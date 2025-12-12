@@ -128,8 +128,6 @@ impl RPCCallReadOnlyRequestHandler {
             .take()
             .ok_or(NetError::SendError("Missing `arguments`".into()))?;
 
-        let mut events: Vec<StacksTransactionEvent> = vec![];
-
         // run the read-only call
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
@@ -165,7 +163,6 @@ impl RPCCallReadOnlyRequestHandler {
                             sender,
                             sponsor,
                             cost_track,
-                            &mut events,
                             |env| {
                                 env.global_context.keep_event_batches = true;
 
@@ -189,37 +186,37 @@ impl RPCCallReadOnlyRequestHandler {
                 )
             });
 
-        let events = {
-            let events: Vec<CallReadOnlyEvent> = events
-                .iter()
-                .filter_map(|event| match event {
-                    StacksTransactionEvent::SmartContractEvent(event_data) => {
-                        if let Ok(event_hex) = event_data.value.serialize_to_hex() {
-                            Some(CallReadOnlyEvent {
-                                sender: event_data.key.0.to_string(),
-                                key: event_data.key.1.clone(),
-                                value: event_hex,
-                            })
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                })
-                .collect();
-            if events.is_empty() {
-                None
-            } else {
-                Some(events)
-            }
-        };
-
-        // decode the response
+        // decode the response (and serialize the events)
         let data_resp = match data_resp {
-            Ok(Some(Ok(data))) => {
+            Ok(Some(Ok((data, events)))) => {
                 let hex_result = data
                     .serialize_to_hex()
                     .map_err(|e| NetError::SerializeError(format!("{:?}", &e)))?;
+
+                let events = {
+                    let events: Vec<CallReadOnlyEvent> = events
+                        .iter()
+                        .filter_map(|event| match event {
+                            StacksTransactionEvent::SmartContractEvent(event_data) => {
+                                if let Ok(event_hex) = event_data.value.serialize_to_hex() {
+                                    Some(CallReadOnlyEvent {
+                                        sender: event_data.key.0.to_string(),
+                                        key: event_data.key.1.clone(),
+                                        value: event_hex,
+                                    })
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    if events.is_empty() {
+                        None
+                    } else {
+                        Some(events)
+                    }
+                };
 
                 CallReadOnlyResponse {
                     okay: true,

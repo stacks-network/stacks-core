@@ -213,15 +213,15 @@ pub trait ClarityConnection {
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
-        events: &mut Vec<StacksTransactionEvent>,
         to_do: F,
-    ) -> Result<R, VmExecutionError>
+    ) -> Result<(R, Vec<StacksTransactionEvent>), VmExecutionError>
     where
         F: FnOnce(&mut Environment) -> Result<R, VmExecutionError>,
     {
         let epoch_id = self.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
-        self.with_clarity_db_readonly_owned(|clarity_db| {
+        let mut events = vec![];
+        let result_and_db = self.with_clarity_db_readonly_owned(|clarity_db| {
             let initial_context =
                 ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
             let mut vm_env = OwnedEnvironment::new_cost_limited(
@@ -242,7 +242,9 @@ pub trait ClarityConnection {
                     .expect("Failed to recover database reference after executing transaction")
             };
             (result, db)
-        })
+        })?;
+
+        Ok((result_and_db, events))
     }
 }
 
