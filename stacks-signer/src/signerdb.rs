@@ -336,7 +336,7 @@ impl BlockInfo {
         )
     }
 
-    /// Check if the block is locally accepted or rejected
+    /// Check if the block is pre-commited, locally accepted or locally rejected
     pub fn is_locally_finalized(&self) -> bool {
         matches!(
             self.state,
