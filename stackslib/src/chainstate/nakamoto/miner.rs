@@ -28,7 +28,7 @@ use crate::chainstate::nakamoto::{
     MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
+use crate::chainstate::stacks::db::blocks::{DummyEventDispatcher, MAX_RECEIPT_SIZES};
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
@@ -807,6 +807,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         max_execution_time: Option<std::time::Duration>,
+        total_receipts_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
@@ -866,11 +867,23 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-            let (_fee, receipt) = match StacksChainState::process_transaction(
+            let (_fee, receipt) = match StacksChainState::process_transaction_with_check(
                 clarity_tx,
                 tx,
                 quiet,
                 max_execution_time,
+                |receipt| {
+                    let size = receipt.size().ok_or_else(|| {
+                        Error::InvalidStacksBlock("Could not calculate receipt size".into())
+                    })?;
+                    let next_size = size.saturating_add(*total_receipts_size);
+                    if next_size >= MAX_RECEIPT_SIZES {
+                        Err(Error::BlockCostExceeded)
+                    } else {
+                        *total_receipts_size = next_size;
+                        Ok(())
+                    }
+                },
             ) {
                 Ok(x) => x,
                 Err(e) => {

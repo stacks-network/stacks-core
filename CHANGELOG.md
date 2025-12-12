@@ -9,15 +9,22 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
-- Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
-- Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
-- Added `--epoch <epoch_number>` flag to `clarity-cli` commands to specify the epoch context for evaluation.
 - In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
 - Improved block validation in `stacks-inspect`.
 
 ### Changed
 
 - Removed `validate-naka-block` option in `stacks-inspect`, merging it with `validate-block` so that users do not need to differentiate between the two.
+
+## [3.3.0.0.2]
+
+### Added
+
+- Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
+- Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
+- Added `--epoch <epoch_number>` flag to `clarity-cli` commands to specify the epoch context for evaluation.
+- Added miner support for generating read-count tenure extends
+  - Added `read_count_extend_cost_threshold` config option (in the miner config) which specifies the percentage of the block budget that must be used before attempting a time-based tenure extend. Defaults to 25%.
 
 ### Fixed
 

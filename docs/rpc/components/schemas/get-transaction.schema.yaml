@@ -14,3 +14,9 @@ properties:
   result:
     type: string
     description: Transaction execution result (Clarity value)
+  block_height:
+    type: [integer, "null"]
+    description: Height of the block where the transaction was included
+  is_canonical:
+    type: boolean
+    description: Whether the block where this transaction was included is in the canonical chain tip
