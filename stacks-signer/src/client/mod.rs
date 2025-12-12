@@ -302,6 +302,7 @@ pub(crate) mod tests {
                     network_epoch: 0,
                 },
             ],
+            current_epoch: StacksEpochId::Epoch30,
             reward_cycle_length: thread_rng().next_u64(),
             rejection_votes_left_required: None,
             next_reward_cycle_in: thread_rng().next_u64(),
@@ -440,6 +441,7 @@ pub(crate) mod tests {
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
+            read_count_idle_timeout: config.read_count_idle_timeout,
         }
     }
 

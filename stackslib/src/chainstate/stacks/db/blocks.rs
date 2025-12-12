@@ -157,6 +157,8 @@ pub struct SetupBlockResult<'a, 'b> {
 
 pub struct DummyEventDispatcher;
 
+pub const MAX_RECEIPT_SIZES: u64 = 50 * 1024 * 1024;
+
 impl BlockEventDispatcher for DummyEventDispatcher {
     fn announce_block(
         &self,
@@ -1514,6 +1516,31 @@ impl StacksChainState {
             }
         }
         return Ok(None);
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    /// A helper function for exposing store_staging_block
+    pub fn store_staging_block_test(
+        tx: &mut DBTx<'_>,
+        blocks_path: &str,
+        consensus_hash: &ConsensusHash,
+        block: &StacksBlock,
+        parent_consensus_hash: &ConsensusHash,
+        commit_burn: u64,
+        sortition_burn: u64,
+        download_time: u64,
+    ) -> Result<(), Error> {
+        Self::store_staging_block(
+            tx,
+            blocks_path,
+            consensus_hash,
+            block,
+            parent_consensus_hash,
+            commit_burn,
+            sortition_burn,
+            download_time,
+        )
     }
 
     /// Store a preprocessed block, queuing it up for subsequent processing.
@@ -3102,7 +3129,6 @@ impl StacksChainState {
                 return Err(e.into());
             }
         };
-
         // burn chain tip that selected this commit's block
         let burn_chain_tip = db_handle
             .get_block_snapshot(&block_commit.burn_header_hash)?
@@ -4468,11 +4494,20 @@ impl StacksChainState {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
+        let mut total_size = 0u64;
         for tx in block_txs.iter() {
             let (tx_fee, mut tx_receipt) =
                 StacksChainState::process_transaction(clarity_tx, tx, false, None)?;
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
+            total_size = total_size.saturating_add(tx_receipt.size().ok_or_else(|| {
+                Error::InvalidStacksBlock("Failure calculating tx receipt size".into())
+            })?);
+            if total_size >= MAX_RECEIPT_SIZES {
+                return Err(Error::InvalidStacksBlock(
+                    "Total tx receipt size too large".into(),
+                ));
+            }
             burns = burns
                 .checked_add(tx_receipt.stx_burned)
                 .expect("Burns overflow");

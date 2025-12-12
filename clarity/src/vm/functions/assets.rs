@@ -20,8 +20,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker};
 use crate::vm::database::STXBalance;
 use crate::vm::errors::{
-    check_argument_count, CheckErrorKind, InterpreterResult as Result, RuntimeError,
-    VmExecutionError, VmInternalError,
+    check_argument_count, CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
@@ -91,7 +90,7 @@ pub fn special_stx_balance(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::StxBalance, env, 0)?;
@@ -124,7 +123,7 @@ pub fn stx_transfer_consolidated(
     to: &PrincipalData,
     amount: u128,
     memo: &BuffData,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     if amount == 0 {
         return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
     }
@@ -162,7 +161,7 @@ pub fn special_stx_transfer(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
@@ -189,7 +188,7 @@ pub fn special_stx_transfer_memo(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(4, args)?;
     runtime_cost(ClarityCostFunction::StxTransferMemo, env, 0)?;
 
@@ -216,7 +215,7 @@ pub fn special_stx_account(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::StxGetAccount, env, 0)?;
@@ -272,7 +271,7 @@ pub fn special_stx_burn(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
@@ -317,7 +316,7 @@ pub fn special_mint_token(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::FtMint, env, 0)?;
@@ -382,7 +381,7 @@ pub fn special_mint_asset_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
@@ -457,7 +456,7 @@ pub fn special_mint_asset_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
@@ -529,7 +528,7 @@ pub fn special_transfer_asset_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(4, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
@@ -624,7 +623,7 @@ pub fn special_transfer_asset_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(4, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
@@ -716,7 +715,7 @@ pub fn special_transfer_token(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(4, args)?;
 
     runtime_cost(ClarityCostFunction::FtTransfer, env, 0)?;
@@ -767,6 +766,8 @@ pub fn special_transfer_token(
             Some(ft_info),
         )?;
 
+        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
+        // - the total liquid ustx supply will overflow before such an overflowing transfer is allowed.
         let final_to_bal = to_bal
             .checked_add(amount)
             .ok_or(RuntimeError::ArithmeticOverflow)?;
@@ -817,7 +818,7 @@ pub fn special_get_balance(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::FtBalance, env, 0)?;
@@ -852,7 +853,7 @@ pub fn special_get_owner_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
@@ -900,7 +901,7 @@ pub fn special_get_owner_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
@@ -945,7 +946,7 @@ pub fn special_get_token_supply(
     args: &[SymbolicExpression],
     env: &mut Environment,
     _context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::FtSupply, env, 0)?;
@@ -963,7 +964,7 @@ pub fn special_burn_token(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::FtBurn, env, 0)?;
@@ -1030,7 +1031,7 @@ pub fn special_burn_asset_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;
@@ -1120,7 +1121,7 @@ pub fn special_burn_asset_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;

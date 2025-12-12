@@ -1012,6 +1012,7 @@ impl TestStacksNode {
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
         let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
+        let mut total = 0;
         for tx in txs.into_iter() {
             let tx_len = tx.tx_len();
             match builder.try_mine_tx_with_len(
@@ -1020,6 +1021,7 @@ impl TestStacksNode {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
+                &mut total,
             ) {
                 TransactionResult::Success(..) => {
                     debug!("Included {}", &tx.txid());
@@ -1072,7 +1074,6 @@ impl TestStacksNode {
         stacks_node: &mut TestStacksNode,
         sortdb: &mut SortitionDB,
         miner: &mut TestMiner,
-        tenure_id_consensus_hash: &ConsensusHash,
         coord: &mut ChainsCoordinator<
             'a,
             TestEventObserver,
@@ -1089,10 +1090,56 @@ impl TestStacksNode {
         {
             let ic = sortdb.index_conn();
             let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
-            stacks_node
-                .chainstate
-                .preprocess_stacks_epoch(&ic, &tip, block, microblocks)
+
+            let blocks_path = stacks_node.chainstate.blocks_path.clone();
+
+            let mut block_tx = stacks_node.chainstate.db_tx_begin()?;
+
+            let block_hash = block.block_hash();
+            let sort_handle = SortitionHandleConn::open_reader_consensus(&ic, &tip.consensus_hash)?;
+            let block_commit = SortitionDB::get_block_commit_for_stacks_block(
+                sort_handle.conn(),
+                &tip.consensus_hash,
+                &block_hash,
+            )
+            .unwrap()
+            .unwrap();
+
+            let parent_snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                &ic,
+                &tip.parent_sortition_id,
+                &block.header.parent_block,
+            )
+            .unwrap()
+            .unwrap();
+            // burn chain tip that selected this commit's block
+            let burn_chain_tip = sort_handle
+                .get_block_snapshot(&block_commit.burn_header_hash)
+                .unwrap()
                 .unwrap();
+
+            let sortition_burns = SortitionDB::get_block_burn_amount(&sort_handle, &burn_chain_tip)
+                .expect("FATAL: have block commit but no total burns in its sortition");
+
+            // queue block up for processing
+            StacksChainState::store_staging_block_test(
+                &mut block_tx,
+                &blocks_path,
+                &tip.consensus_hash,
+                block,
+                &parent_snapshot.consensus_hash,
+                block_commit.burn_fee,
+                sortition_burns,
+                5,
+            )?;
+
+            block_tx.commit()?;
+
+            debug!(
+                "Stored {}/{} to staging",
+                &tip.consensus_hash,
+                &block.block_hash()
+            );
         }
 
         let canonical_sortition_tip = coord.canonical_sortition_tip.clone().expect(

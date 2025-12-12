@@ -21,7 +21,7 @@ use super::errors::VmInternalError;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{InterpreterResult as Result, RuntimeError};
+use crate::vm::errors::{RuntimeError, VmExecutionError};
 use crate::vm::types::Value;
 use crate::vm::ClarityVersion;
 
@@ -52,16 +52,20 @@ pub fn lookup_reserved_variable(
     name: &str,
     _context: &LocalContext,
     env: &mut Environment,
-) -> Result<Option<Value>> {
+) -> Result<Option<Value>, VmExecutionError> {
     if let Some(variable) =
         NativeVariables::lookup_by_name_at_version(name, env.contract_context.get_clarity_version())
     {
         match variable {
             NativeVariables::TxSender => {
+                // This `NoSenderInContext` is **unreachable** in standard Clarity VM execution.
+                // - Every function call (public, private, or trait) is executed with a valid caller context.
                 let sender = env.sender.clone().ok_or(RuntimeError::NoSenderInContext)?;
                 Ok(Some(Value::Principal(sender)))
             }
             NativeVariables::ContractCaller => {
+                // This `NoCallerInContext` is **unreachable** in standard Clarity VM execution.
+                // -  Every on-chain transaction and contract-call has a well-defined sender.
                 let caller = env.caller.clone().ok_or(RuntimeError::NoCallerInContext)?;
                 Ok(Some(Value::Principal(caller)))
             }
@@ -142,5 +146,83 @@ pub fn lookup_reserved_variable(
         }
     } else {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use clarity_types::types::QualifiedContractIdentifier;
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+
+    use super::*;
+    use crate::vm::contexts::GlobalContext;
+    use crate::vm::costs::LimitedCostTracker;
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::{CallStack, ClarityVersion, ContractContext};
+
+    #[test]
+    fn trigger_no_caller_in_context() {
+        let mut call_stack = CallStack::new();
+        let contract = QualifiedContractIdentifier::transient();
+        let contract_context = ContractContext::new(contract.clone(), ClarityVersion::Clarity1);
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch2_05,
+        );
+        let mut env = Environment {
+            contract_context: &contract_context,
+            sender: Some(PrincipalData::Standard(contract.issuer.clone())),
+            caller: None, // <- intentionally missing
+            sponsor: None,
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let ctx = LocalContext::default();
+
+        let res = lookup_reserved_variable("contract-caller", &ctx, &mut env);
+        assert!(matches!(
+            res,
+            Err(VmExecutionError::Runtime(
+                RuntimeError::NoCallerInContext,
+                _
+            ))
+        ));
+    }
+
+    #[test]
+    fn trigger_no_sender_in_context() {
+        let mut call_stack = CallStack::new();
+        let contract = QualifiedContractIdentifier::transient();
+        let contract_context = ContractContext::new(contract.clone(), ClarityVersion::Clarity1);
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch2_05,
+        );
+        let mut env = Environment {
+            contract_context: &contract_context,
+            caller: Some(PrincipalData::Standard(contract.issuer.clone())),
+            sender: None, // <- intentionally missing
+            sponsor: None,
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let ctx = LocalContext::default();
+
+        let res = lookup_reserved_variable("tx-sender", &ctx, &mut env);
+        assert!(matches!(
+            res,
+            Err(VmExecutionError::Runtime(
+                RuntimeError::NoSenderInContext,
+                _
+            ))
+        ));
     }
 }

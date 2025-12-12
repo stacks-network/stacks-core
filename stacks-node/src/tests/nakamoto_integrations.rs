@@ -317,13 +317,19 @@ pub fn check_nakamoto_empty_block_heuristics(mainnet: bool) {
             )
         });
         if has_tenure_change {
-            let only_coinbase_and_tenure_change = txs.iter().all(|tx| {
-                matches!(
+            for tx in txs.iter() {
+                if tx.get_origin().address_testnet().is_boot_code_addr() {
+                    // boot code txs are okay
+                    continue;
+                }
+                if !matches!(
                     tx.payload,
                     TransactionPayload::TenureChange(_) | TransactionPayload::Coinbase(..)
-                )
-            });
-            assert!(only_coinbase_and_tenure_change, "Nakamoto blocks with a tenure change in them should only have coinbase or tenure changes");
+                ) {
+                    error!("Nakamoto TenureChange(BlockFound) block should only have coinbase and tenure change txs, but found tx: {tx:?}");
+                    panic!("Nakamoto TenureChange(BlockFound) block should only have coinbase and tenure change txs");
+                }
+            }
         }
     }
 }
@@ -3214,6 +3220,7 @@ fn block_proposal_api_endpoint() {
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             None,
+            &mut 0,
         );
         assert!(
             matches!(res, TransactionResult::Success(..)),
@@ -6768,7 +6775,7 @@ fn signer_chainstate() {
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
             reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-            supports_sip034_tenure_extensions: false,
+            read_count_idle_timeout: Duration::from_secs(12000),
         };
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
@@ -6904,7 +6911,7 @@ fn signer_chainstate() {
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
             reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-            supports_sip034_tenure_extensions: false,
+            read_count_idle_timeout: Duration::from_secs(12000),
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
@@ -6984,7 +6991,7 @@ fn signer_chainstate() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
+        read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     sortitions_view
@@ -14079,15 +14086,25 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
                         .unwrap()
                         .as_array()
                         .unwrap()
-                        .get(1)
-                        .unwrap()
-                        .get("txid")
-                        .unwrap()
-                        .as_str()
-                        .unwrap();
+                        .iter()
+                        .find_map(|tx_json| {
+                            let raw_tx = tx_json.get("raw_tx").unwrap().as_str().unwrap();
+                            let bytes = hex_bytes(&raw_tx[2..]).ok()?;
+                            let tx =
+                                StacksTransaction::consensus_deserialize(&mut bytes.as_slice())
+                                    .ok()?;
+                            if !matches!(tx.payload, TransactionPayload::Coinbase(..)) {
+                                return None;
+                            }
+                            Some(format!("0x{}", tx.txid()))
+                        })
+                        .expect("Failed to find a coinbase tx");
 
                     // check the event txid is mapped to the coinbase
-                    assert_eq!(event.get("txid").unwrap().as_str().unwrap(), coinbase_txid);
+                    assert_eq!(
+                        event.get("txid").unwrap().as_str().unwrap(),
+                        coinbase_txid.as_str()
+                    );
                 }
             }
         }
@@ -18154,8 +18171,8 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
     naka_conf.miner.max_tenure_bytes = 3 * 1024 * 1024; // 3MB
     naka_conf.miner.log_skipped_transactions = true;
     // quickly tenure extend
-    naka_conf.miner.tenure_timeout = Duration::from_secs(1);
-    naka_conf.miner.tenure_extend_cost_threshold = 2;
+    naka_conf.miner.tenure_timeout = Duration::from_secs(0);
+    naka_conf.miner.tenure_extend_cost_threshold = 0;
 
     naka_conf.add_initial_balance(
         PrincipalData::from(signer_addr.clone()).to_string(),
@@ -18251,10 +18268,9 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
 
     let blocks = test_observer::get_blocks();
 
-    assert_eq!(
-        blocks.len(),
-        5,
-        "Should have successfully mined five blocks, but got {}",
+    assert!(
+        blocks.len() >= 5,
+        "Should have successfully mined >= 5 blocks, but got {}",
         blocks.len()
     );
 
@@ -18266,7 +18282,7 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
             _ => false,
         });
 
-        if block_index > 1 {
+        if block_index >= 1 {
             assert!(has_tenure_extend, "Expected tenure extend transaction");
         } else {
             assert!(!has_tenure_extend, "Unexpected tenure extend transaction");

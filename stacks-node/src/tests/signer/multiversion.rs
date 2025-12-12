@@ -16,17 +16,21 @@ use std::sync::mpsc::TryRecvError;
 use std::thread;
 use std::time::Duration;
 
-use libsigner::v0::messages::{SignerMessage, StateMachineUpdate};
+use libsigner::v0::messages::{
+    BlockAccepted, BlockResponse, BlockResponseData, RejectReason, SignerMessage,
+    SignerMessageMetadata,
+};
 use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
+use libsigner_v3_3_0_0_1::v0::messages::SignerMessage as OldSignerMessage;
 use stacks::chainstate::stacks::StacksTransaction;
-use stacks::util::hash::Hash160;
-use stacks::util::secp256k1::Secp256k1PrivateKey;
+use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
-use stacks_common_v3_1_00_13::codec::StacksMessageCodec as OldStacksMessageCodec;
+use stacks_common_v3_3_0_0_1::codec::StacksMessageCodec as OldStacksMessageCodec;
 use stacks_signer::runloop::{RewardCycleInfo, State, StateInfo};
 use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::SpawnedSigner;
-use {libsigner_v3_1_0_0_13, signer_v3_1_0_0_13, stacks_common_v3_1_00_13, stacks_v3_1_00_13};
+use {libsigner_v3_3_0_0_1, signer_v3_3_0_0_1, stacks_common_v3_3_0_0_1, stacks_v3_3_0_0_1};
 
 use super::SpawnedSignerTrait;
 use crate::stacks_common::codec::StacksMessageCodec;
@@ -37,24 +41,24 @@ use crate::tests::{self};
 use crate::Keychain;
 
 pub enum MultiverSpawnedSigner {
-    V310012(signer_v3_1_0_0_13::v0::SpawnedSigner),
+    V33001(signer_v3_3_0_0_1::v0::SpawnedSigner),
     Current(SpawnedSigner),
 }
 
 pub enum ReceiveResult {
-    V310012(Result<signer_v3_1_0_0_13::runloop::SignerResult, ()>),
+    V33001(Result<signer_v3_3_0_0_1::runloop::SignerResult, ()>),
     Current(Result<stacks_signer::runloop::SignerResult, TryRecvError>),
 }
 
-// Helper function to convert libsigner_v3_1_0_0_13 miner state to current miner state
-pub fn miner_state_v3_1_00_13_to_current(
-    miner_state: &libsigner_v3_1_0_0_13::v0::signer_state::MinerState,
+// Helper function to convert libsigner_v3_3_0_0_1 miner state to current miner state
+pub fn miner_state_v3_3_0_0_1_to_current(
+    miner_state: &libsigner_v3_3_0_0_1::v0::signer_state::MinerState,
 ) -> MinerState {
     match miner_state {
-        libsigner_v3_1_0_0_13::v0::signer_state::MinerState::NoValidMiner => {
+        libsigner_v3_3_0_0_1::v0::signer_state::MinerState::NoValidMiner => {
             MinerState::NoValidMiner
         }
-        libsigner_v3_1_0_0_13::v0::signer_state::MinerState::ActiveMiner {
+        libsigner_v3_3_0_0_1::v0::signer_state::MinerState::ActiveMiner {
             current_miner_pkh,
             tenure_id,
             parent_tenure_id,
@@ -71,29 +75,29 @@ pub fn miner_state_v3_1_00_13_to_current(
 }
 
 // Helper function to convert from one to the other
-pub fn stacks_transaction_v3_1_00_13_to_current(
-    tx: &stacks_v3_1_00_13::chainstate::stacks::StacksTransaction,
+pub fn stacks_transaction_v3_3_0_0_1_to_current(
+    tx: &stacks_v3_3_0_0_1::chainstate::stacks::StacksTransaction,
 ) -> StacksTransaction {
     let tx_bytes = tx.serialize_to_vec();
     StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap()
 }
 
 // Helper function to convert libsigner_v3_1_0_0_13 signer state machine to current signer state machine
-pub fn signer_state_update_v3_1_00_13_to_current(
-    update: &signer_v3_1_0_0_13::v0::signer_state::StateMachineUpdate,
+pub fn signer_state_update_v3_3_0_0_1_to_current(
+    update: &signer_v3_3_0_0_1::v0::signer_state::StateMachineUpdate,
 ) -> stacks_signer::v0::signer_state::StateMachineUpdate {
     let serialized = serde_json::to_string(update).unwrap();
     serde_json::from_str(&serialized).unwrap()
 }
 
 // Helper function to convert libsigner_v3_1_0_0_13 signer state machine to current signer state machine
-pub fn signer_state_machine_v3_1_00_13_to_current(
-    machine: &libsigner_v3_1_0_0_13::v0::signer_state::SignerStateMachine,
+pub fn signer_state_machine_v3_3_0_0_1_to_current(
+    machine: &libsigner_v3_3_0_0_1::v0::signer_state::SignerStateMachine,
 ) -> SignerStateMachine {
     SignerStateMachine {
         burn_block: ConsensusHash(machine.burn_block.0),
         burn_block_height: machine.burn_block_height,
-        current_miner: miner_state_v3_1_00_13_to_current(&machine.current_miner),
+        current_miner: miner_state_v3_3_0_0_1_to_current(&machine.current_miner),
         active_signer_protocol_version: machine.active_signer_protocol_version,
         tx_replay_set: ReplayTransactionSet::new(
             machine
@@ -101,28 +105,28 @@ pub fn signer_state_machine_v3_1_00_13_to_current(
                 .clone()
                 .unwrap_or_default()
                 .iter()
-                .map(stacks_transaction_v3_1_00_13_to_current)
+                .map(stacks_transaction_v3_3_0_0_1_to_current)
                 .collect(),
         ),
     }
 }
 
 // Helper function to convert signer_v3_1_0_0_13 local state machines to current local state machines
-pub fn local_state_machine_v3_1_00_13_to_current(
-    state_machine: &signer_v3_1_0_0_13::v0::signer_state::LocalStateMachine,
+pub fn local_state_machine_v3_3_0_0_1_to_current(
+    state_machine: &signer_v3_3_0_0_1::v0::signer_state::LocalStateMachine,
 ) -> LocalStateMachine {
     match state_machine {
-        signer_v3_1_0_0_13::v0::signer_state::LocalStateMachine::Uninitialized => {
+        signer_v3_3_0_0_1::v0::signer_state::LocalStateMachine::Uninitialized => {
             LocalStateMachine::Uninitialized
         }
-        signer_v3_1_0_0_13::v0::signer_state::LocalStateMachine::Pending { prior, update } => {
+        signer_v3_3_0_0_1::v0::signer_state::LocalStateMachine::Pending { prior, update } => {
             LocalStateMachine::Pending {
-                prior: signer_state_machine_v3_1_00_13_to_current(prior),
-                update: signer_state_update_v3_1_00_13_to_current(update),
+                prior: signer_state_machine_v3_3_0_0_1_to_current(prior),
+                update: signer_state_update_v3_3_0_0_1_to_current(update),
             }
         }
-        signer_v3_1_0_0_13::v0::signer_state::LocalStateMachine::Initialized(machine) => {
-            LocalStateMachine::Initialized(signer_state_machine_v3_1_00_13_to_current(machine))
+        signer_v3_3_0_0_1::v0::signer_state::LocalStateMachine::Initialized(machine) => {
+            LocalStateMachine::Initialized(signer_state_machine_v3_3_0_0_1_to_current(machine))
         }
     }
 }
@@ -135,7 +139,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
         if c.endpoint.port() % 2 == 0 {
             Self::Current(SpawnedSigner::new(c))
         } else {
-            let config = signer_v3_1_0_0_13::config::GlobalConfig {
+            let config = signer_v3_3_0_0_1::config::GlobalConfig {
                 node_host: c.node_host,
                 endpoint: c.endpoint,
                 stacks_private_key: serde_json::from_value(
@@ -146,7 +150,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                     serde_json::to_value(&c.stacks_address).unwrap(),
                 )
                 .unwrap(),
-                network: signer_v3_1_0_0_13::config::Network::Testnet,
+                network: signer_v3_3_0_0_1::config::Network::Testnet,
                 event_timeout: c.event_timeout,
                 auth_password: c.auth_password,
                 db_path: c.db_path,
@@ -163,16 +167,20 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                 dry_run: c.dry_run,
                 proposal_wait_for_parent_time: c.proposal_wait_for_parent_time,
                 validate_with_replay_tx: c.validate_with_replay_tx,
+                capitulate_miner_view_timeout: c.capitulate_miner_view_timeout,
+                reset_replay_set_after_fork_blocks: c.reset_replay_set_after_fork_blocks,
+                stackerdb_timeout: c.stackerdb_timeout,
+                supported_signer_protocol_version: c.supported_signer_protocol_version,
             };
-            Self::V310012(signer_v3_1_0_0_13::v0::SpawnedSigner::new(config))
+            Self::V33001(signer_v3_3_0_0_1::v0::SpawnedSigner::new(config))
         }
     }
 
     fn try_recv(&self) -> Self::ReceiveResult {
         match self {
-            MultiverSpawnedSigner::V310012(spawned_signer) => {
+            MultiverSpawnedSigner::V33001(spawned_signer) => {
                 let result = spawned_signer.res_recv.try_recv().map_err(|_| ());
-                ReceiveResult::V310012(result)
+                ReceiveResult::V33001(result)
             }
             MultiverSpawnedSigner::Current(spawned_signer) => {
                 ReceiveResult::Current(spawned_signer.res_recv.try_recv())
@@ -182,7 +190,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
 
     fn stop(self) -> Option<Self::StopResult> {
         match self {
-            MultiverSpawnedSigner::V310012(spawned_signer) => spawned_signer.stop().map(|_| ()),
+            MultiverSpawnedSigner::V33001(spawned_signer) => spawned_signer.stop().map(|_| ()),
             MultiverSpawnedSigner::Current(spawned_signer) => spawned_signer.stop().map(|_| ()),
         }
     }
@@ -191,13 +199,13 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
         result: Self::ReceiveResult,
     ) -> Option<stacks_signer::runloop::StateInfo> {
         match result {
-            ReceiveResult::V310012(signer_result) => {
-                let Ok(signer_v3_1_0_0_13::runloop::SignerResult::StatusCheck(state_info)) =
+            ReceiveResult::V33001(signer_result) => {
+                let Ok(signer_v3_3_0_0_1::runloop::SignerResult::StatusCheck(state_info)) =
                     signer_result
                 else {
                     return None;
                 };
-                let signer_v3_1_0_0_13::runloop::StateInfo {
+                let signer_v3_3_0_0_1::runloop::StateInfo {
                     runloop_state,
                     reward_cycle_info,
                     running_signers,
@@ -207,11 +215,11 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                 } = state_info;
                 Some(StateInfo {
                     runloop_state: match runloop_state {
-                        signer_v3_1_0_0_13::runloop::State::Uninitialized => State::Uninitialized,
-                        signer_v3_1_0_0_13::runloop::State::NoRegisteredSigners => {
+                        signer_v3_3_0_0_1::runloop::State::Uninitialized => State::Uninitialized,
+                        signer_v3_3_0_0_1::runloop::State::NoRegisteredSigners => {
                             State::NoRegisteredSigners
                         }
-                        signer_v3_1_0_0_13::runloop::State::RegisteredSigners => {
+                        signer_v3_3_0_0_1::runloop::State::RegisteredSigners => {
                             State::RegisteredSigners
                         }
                     },
@@ -239,7 +247,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                                 *i,
                                 machine
                                     .as_ref()
-                                    .map(local_state_machine_v3_1_00_13_to_current),
+                                    .map(local_state_machine_v3_3_0_0_1_to_current),
                             )
                         })
                         .collect(),
@@ -263,6 +271,65 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
             }
         }
     }
+}
+
+#[test]
+fn old_version_parses_new_messages() {
+    let new_msg = BlockAccepted {
+        signer_signature_hash: Sha512Trunc256Sum::from_data(&[0, 1, 2, 3]),
+        signature: MessageSignature([0xf3; 65]),
+        metadata: SignerMessageMetadata {
+            server_version: "latest-version_signer".into(),
+        },
+        response_data: BlockResponseData {
+            version: 4,
+            tenure_extend_timestamp: 2049,
+            reject_reason: RejectReason::NotRejected,
+            tenure_extend_read_count_timestamp: 5058,
+            unknown_bytes: vec![],
+        },
+    };
+
+    let serialized_new_msg =
+        SignerMessage::BlockResponse(BlockResponse::Accepted(new_msg.clone())).serialize_to_vec();
+    let old_msg =
+        OldSignerMessage::consensus_deserialize(&mut serialized_new_msg.as_slice()).unwrap();
+    let OldSignerMessage::BlockResponse(ref old_block_response) = old_msg else {
+        panic!("Old version should have parsed response to a block response");
+    };
+    let as_block_accepted = old_block_response.as_block_accepted().unwrap();
+    assert_eq!(
+        as_block_accepted.signer_signature_hash.0,
+        new_msg.signer_signature_hash.0
+    );
+    assert_eq!(as_block_accepted.signature.0, new_msg.signature.0);
+    assert_eq!(
+        as_block_accepted.metadata.server_version,
+        new_msg.metadata.server_version
+    );
+    assert_eq!(
+        as_block_accepted.response_data.version,
+        new_msg.response_data.version
+    );
+    assert_eq!(
+        as_block_accepted.response_data.tenure_extend_timestamp,
+        new_msg.response_data.tenure_extend_timestamp
+    );
+    assert_eq!(
+        as_block_accepted.response_data.reject_reason.to_string(),
+        new_msg.response_data.reject_reason.to_string()
+    );
+    assert_eq!(
+        as_block_accepted.response_data.unknown_bytes,
+        new_msg
+            .response_data
+            .tenure_extend_read_count_timestamp
+            .to_be_bytes()
+            .to_vec()
+    );
+
+    let serialized_old_msg = old_msg.serialize_to_vec();
+    assert_eq!(serialized_new_msg, serialized_old_msg);
 }
 
 #[test]
@@ -351,14 +418,10 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
             else {
                 return false;
             };
-            let SignerMessage::StateMachineUpdate(StateMachineUpdate {
-                local_supported_signer_protocol_version,
-                ..
-            }) = message
-            else {
+            let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message else {
                 return false;
             };
-            local_supported_signer_protocol_version == 1
+            accepted.response_data.version == 3
         })
         .count();
     let new_updates_count = stackerdb_events
@@ -370,19 +433,15 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
             else {
                 return false;
             };
-            let SignerMessage::StateMachineUpdate(StateMachineUpdate {
-                local_supported_signer_protocol_version,
-                ..
-            }) = message
-            else {
+            let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message else {
                 return false;
             };
-            local_supported_signer_protocol_version == supported_signer_protocol_version
+            accepted.response_data.version == 4
         })
         .count();
 
-    info!("--------------- Sent {old_updates_count} Old Updates ---------------");
-    info!("--------------- Sent {new_updates_count} New Updates ---------------");
+    info!("--------------- Sent {old_updates_count} Old Responses ---------------");
+    info!("--------------- Sent {new_updates_count} New Responses ---------------");
     assert_ne!(
         old_updates_count, 0,
         "Expected some signers to be configured to support only the old protocol version"

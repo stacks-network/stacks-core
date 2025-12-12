@@ -19,7 +19,7 @@
 
 use std::convert::TryFrom;
 
-use clarity_types::errors::{EarlyReturnError, InterpreterResult, VmExecutionError};
+use clarity_types::errors::{CheckErrorKind, EarlyReturnError, VmExecutionError};
 use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
@@ -1649,13 +1649,122 @@ fn test_restrict_assets_good_transfer_with_short_return_ok_in_body() {
     assert_eq!(short_return, err);
 }
 
+/// Test that when a too many allowances are passed to restrict-assets? call, the post-condition
+/// check returns an error if it exceeds MAX_ALLOWANCES. Note that this is not reachable during
+/// normal clarity execution. Static checks would trigger first.
+#[test]
+fn restrict_assets_too_many_allowances() {
+    let snippet = format!(
+        "(restrict-assets? tx-sender ({} ) true)",
+        std::iter::repeat_n("(with-stx u1)", MAX_ALLOWANCES + 1)
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    let max_allowances_err = VmExecutionError::Unchecked(CheckErrorKind::TooManyAllowances(
+        MAX_ALLOWANCES,
+        MAX_ALLOWANCES + 1,
+    ));
+    let err = execute(&snippet).expect_err("execution passed unexpectedly");
+    assert_eq!(err, max_allowances_err);
+}
+
+/// Test that passing a non-allowance expression to `restrict-assets?` triggers
+/// the `ExpectedAllowanceExpr` runtime error. Normally, static analysis would prevent
+/// invalid expressions, so this only occurs in artificial or host-level test scenarios.
+#[test]
+fn expected_allowance_expr_error() {
+    // Construct a "fake" allowance expression that is invalid
+    let snippet = "(restrict-assets? tx-sender ((bad-fn u1)) true)";
+
+    let expected_error =
+        VmExecutionError::Unchecked(CheckErrorKind::ExpectedAllowanceExpr("bad-fn".to_string()));
+
+    // Execute and verify that the error is raised
+    let err = execute(snippet).expect_err("execution passed unexpectedly");
+    assert_eq!(err, expected_error);
+}
+
+/// Test that passing an invalid native function to `restrict-assets?` triggers
+/// the `ExpectedAllowanceExpr` runtime error. Normally, static analysis would prevent
+/// invalid expressions, so this only occurs in artificial or host-level test scenarios.
+#[test]
+fn expected_allowance_expr_error_unhandled_native() {
+    // Use a native function that exists but is not handled in eval_allowance
+    // For example: `tx-sender` (or `caller`), which is a native function but not a handled allowance
+    let snippet = "(restrict-assets? tx-sender ((tx-sender u1)) true)";
+
+    let expected_error = VmExecutionError::Unchecked(CheckErrorKind::ExpectedAllowanceExpr(
+        "tx-sender".to_string(),
+    ));
+
+    let err = execute(snippet).expect_err("execution passed unexpectedly");
+    assert_eq!(err, expected_error);
+}
+
+/// Directly call an allowance function outside of restrict-assets? or as-contract?
+/// This forces the VM to route evaluation through special_allowance(),
+/// which always returns AllowanceExprNotAllowed.
+#[test]
+fn allowance_expr_not_allowed() {
+    let snippet = "(with-stx u1)";
+
+    let expected = VmExecutionError::Unchecked(CheckErrorKind::AllowanceExprNotAllowed);
+
+    let err = execute(snippet).expect_err("execution unexpectedly succeeded");
+
+    assert_eq!(err, expected);
+}
+
+/// Test that passing an invalid second argument to `restrict-assets?` triggers
+/// the `ExpectedListOfAllowances` runtime error. Normally, static analysis would prevent
+/// invalid expressions, so this only occurs in artificial or host-level test scenarios.
+#[test]
+fn restrict_assets_expected_list_of_allowances() {
+    let snippet = r#"
+        (restrict-assets? tx-sender
+            42
+            (ok u1)
+        )
+    "#;
+
+    let expected_error = VmExecutionError::Unchecked(CheckErrorKind::ExpectedListOfAllowances(
+        "restrict-assets?".into(),
+        2,
+    ));
+
+    let err = execute(snippet).expect_err("execution passed unexpectedly");
+    assert_eq!(err, expected_error);
+}
+
+/// Test that passing an invalid argument to `as-contract?` triggers
+/// the `ExpectedListOfAllowances` runtime error. Normally, static analysis would prevent
+/// invalid expressions, so this only occurs in artificial or host-level test scenarios.
+#[test]
+fn as_contract_expected_list_of_allowances() {
+    // Construct a as-contract? call where the argument is NOT a list
+    let snippet = r#"
+        (as-contract? u42
+            (ok u1)
+        )
+    "#;
+
+    // The argument is `u42` (not a list), so we expect this error
+    let expected_error = VmExecutionError::Unchecked(CheckErrorKind::ExpectedListOfAllowances(
+        "as-contract?".to_string(),
+        1,
+    ));
+
+    let err = execute(snippet).expect_err("execution passed unexpectedly");
+    assert_eq!(err, expected_error);
+}
+
 // ---------- Property Tests ----------
 
 fn execute_with_assets_for_version(
     program: &str,
     version: ClarityVersion,
     sender: StandardPrincipalData,
-) -> (InterpreterResult<Option<Value>>, Option<AssetMap>) {
+) -> (Result<Option<Value>, VmExecutionError>, Option<AssetMap>) {
     let mut assets: Option<AssetMap> = None;
 
     let result = execute_and_check_versioned(program, version, sender, |g| {

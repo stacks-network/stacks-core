@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::CommonCheckErrorKind;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
@@ -21,7 +22,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrorKind, EarlyReturnError,
-    InterpreterResult as Result, SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError,
+    SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
@@ -35,7 +36,7 @@ macro_rules! switch_on_global_epoch {
             args: &[SymbolicExpression],
             env: &mut Environment,
             context: &LocalContext,
-        ) -> Result<Value> {
+        ) -> std::result::Result<Value, VmExecutionError> {
             match env.epoch() {
                 StacksEpochId::Epoch10 => {
                     panic!("Executing Clarity method during Epoch 1.0, before Clarity")
@@ -598,7 +599,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
     }
 }
 
-fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
+fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value, VmExecutionError> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
@@ -623,7 +624,7 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
     }
 }
 
-fn native_begin(mut args: Vec<Value>) -> Result<Value> {
+fn native_begin(mut args: Vec<Value>) -> Result<Value, VmExecutionError> {
     match args.pop() {
         Some(v) => Ok(v),
         None => Err(CheckErrorKind::RequiresAtLeastArguments(1, 0).into()),
@@ -634,7 +635,7 @@ fn special_print(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     let arg = args.first().ok_or_else(|| {
         VmInternalError::BadSymbolicRepresentation("Print should have an argument".into())
     })?;
@@ -654,7 +655,7 @@ fn special_if(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::If, env, 0)?;
@@ -680,7 +681,7 @@ fn special_asserts(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::Asserts, env, 0)?;
@@ -711,7 +712,7 @@ pub fn handle_binding_list<F, E>(
 ) -> std::result::Result<(), E>
 where
     F: FnMut(&ClarityName, &SymbolicExpression) -> std::result::Result<(), E>,
-    E: for<'a> From<(CheckErrorKind, &'a SymbolicExpression)>,
+    E: for<'a> From<(CommonCheckErrorKind, &'a SymbolicExpression)>,
 {
     for (i, binding) in bindings.iter().enumerate() {
         let binding_expression = binding.match_list().ok_or_else(|| {
@@ -745,7 +746,7 @@ pub fn parse_eval_bindings(
     binding_error_type: SyntaxBindingErrorType,
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Vec<(ClarityName, Value)>> {
+) -> Result<Vec<(ClarityName, Value)>, VmExecutionError> {
     let mut result = Vec::with_capacity(bindings.len());
     handle_binding_list(bindings, binding_error_type, |var_name, var_sexp| {
         eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
@@ -758,7 +759,7 @@ fn special_let(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1..n => body
@@ -811,7 +812,7 @@ fn special_as_contract(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     // (as-contract (..))
     // arg0 => body
     check_argument_count(1, args)?;
@@ -838,7 +839,7 @@ fn special_contract_of(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     // (contract-of (..))
     // arg0 => trait
     check_argument_count(1, args)?;
@@ -866,4 +867,430 @@ fn special_contract_of(
 
     let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
     Ok(contract_principal)
+}
+
+#[cfg(test)]
+mod test {
+    use clarity_types::errors::CheckErrorKind;
+    use clarity_types::VmExecutionError;
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::StacksEpochId;
+
+    use super::ClarityVersion;
+    use crate::vm::costs::LimitedCostTracker;
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::functions::database::{
+        special_contract_call, special_get_burn_block_info, special_get_stacks_block_info,
+        special_get_tenure_info,
+    };
+    use crate::vm::functions::{special_contract_of, special_let};
+    use crate::vm::tests::test_clarity_versions;
+    use crate::vm::types::QualifiedContractIdentifier;
+    use crate::vm::{
+        CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
+        Value,
+    };
+
+    /// Tests that if somehow we bypass static analysis checks, contract_of will return
+    /// a ContractOfExpectsTrait for a poorly defined contract-of? call.
+    #[apply(test_clarity_versions)]
+    fn special_contract_of_expect_trait(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+        // --- Non-atom argument: (list u1) ---
+        let non_atom =
+            SymbolicExpression::list(vec![SymbolicExpression::atom_value(Value::UInt(1))]);
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let err = special_contract_of(&[non_atom], &mut env, &context).unwrap_err();
+        assert_eq!(
+            err,
+            VmExecutionError::Unchecked(CheckErrorKind::ContractOfExpectsTrait)
+        );
+    }
+
+    /// Tests that if the argument is an atom but NOT a callable trait binding,
+    /// contract_of returns ContractOfExpectsTrait at runtime.
+    #[apply(test_clarity_versions)]
+    fn special_contract_of_expect_trait_not_callable(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        // --- Atom argument, but NOT registered as a callable trait ---
+        let atom = SymbolicExpression::atom("not_a_trait".into());
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        //  NO callable contracts added to LocalContext
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let err = special_contract_of(&[atom], &mut env, &context).unwrap_err();
+
+        assert_eq!(
+            err,
+            VmExecutionError::Unchecked(CheckErrorKind::ContractOfExpectsTrait)
+        );
+    }
+
+    #[apply(test_clarity_versions)]
+    fn special_let_bad_syntax(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+        // Arg0 must be a list — we intentionally violate that
+        let bad_bindings = SymbolicExpression::atom_value(Value::UInt(1));
+
+        // Body expression (never reached)
+        let body = SymbolicExpression::atom_value(Value::UInt(2));
+
+        let args = vec![bad_bindings, body];
+
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let err = special_let(&args, &mut env, &context).unwrap_err();
+
+        assert!(matches!(
+            err,
+            VmExecutionError::Unchecked(CheckErrorKind::BadLetSyntax)
+        ));
+    }
+
+    #[apply(test_clarity_versions)]
+    fn special_get_tenure_info_expect_property_name_non_atom(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        use clarity_types::errors::CheckErrorKind;
+        use clarity_types::VmExecutionError;
+
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        // First arg is NOT an atom
+        let bad_property = SymbolicExpression::atom_value(Value::UInt(1));
+        let height = SymbolicExpression::atom_value(Value::UInt(0));
+
+        let args = vec![bad_property, height];
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let err = special_get_tenure_info(&args, &mut env, &context).unwrap_err();
+
+        assert_eq!(
+            err,
+            VmExecutionError::Unchecked(CheckErrorKind::GetTenureInfoExpectPropertyName)
+        );
+    }
+
+    /// If we bypass static analysis and pass a non-atom as the property name to `get-burn-block-info?`,
+    /// the runtime returns `GetBlockInfoExpectPropertyName`.
+    #[apply(test_clarity_versions)]
+    fn special_get_burn_block_info_expected_property_name(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        // Build INVALID property argument (non-atom)
+        let bad_property = SymbolicExpression::atom_value(Value::UInt(1)); // must be an atom
+
+        // Valid height argument
+        let height = SymbolicExpression::atom_value(Value::UInt(0));
+
+        let args = vec![bad_property, height];
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let err = special_get_burn_block_info(&args, &mut env, &context).unwrap_err();
+
+        assert_eq!(
+            err,
+            VmExecutionError::Unchecked(CheckErrorKind::GetBlockInfoExpectPropertyName)
+        );
+    }
+
+    /// If we bypass static analysis and pass a non-atom to `get-stacks-block-info?`,
+    /// the runtime returns `GetStacksBlockInfoExpectPropertyName`.
+    #[apply(test_clarity_versions)]
+    fn special_get_stacks_block_info_expect_property_name_non_atom(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        // First arg is NOT an atom
+        let bad_property = SymbolicExpression::atom_value(Value::UInt(1));
+        let height = SymbolicExpression::atom_value(Value::UInt(0));
+
+        let args = vec![bad_property, height];
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let err = special_get_stacks_block_info(&args, &mut env, &context).unwrap_err();
+
+        assert_eq!(
+            err,
+            VmExecutionError::Unchecked(CheckErrorKind::GetStacksBlockInfoExpectPropertyName)
+        );
+    }
+
+    /// If we bypass static analysis and pass an atom for a non existing property to `get-stacks-block-info?`,
+    /// the runtime returns `NoSuchStacksBlockInfoProperty`.
+    #[apply(test_clarity_versions)]
+    fn special_get_stacks_block_info_no_such_property(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        // Pass an Atom but NOT a valid stacks block info property
+        let bad_property = SymbolicExpression::atom("not-a-valid-stacks-prop".into());
+
+        let height = SymbolicExpression::atom_value(Value::UInt(0));
+
+        let args = vec![bad_property, height];
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let err = special_get_stacks_block_info(&args, &mut env, &context).unwrap_err();
+
+        assert_eq!(
+            err,
+            VmExecutionError::Unchecked(CheckErrorKind::NoSuchStacksBlockInfoProperty(
+                "not-a-valid-stacks-prop".to_string()
+            ))
+        );
+    }
+
+    /// If we bypass static analysis and pass an atom for a non existing property to `get-burn-block-info?`,
+    /// the runtime returns `NoSuchBurnBlockInfoProperty`.
+    #[apply(test_clarity_versions)]
+    fn special_get_burn_block_info_no_such_property(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        // Atom But NOT a valid burn block info property
+        let bad_property = SymbolicExpression::atom("not-a-valid-burn-prop".into());
+
+        // Valid uint height to avoid TypeValueError
+        let height = SymbolicExpression::atom_value(Value::UInt(0));
+
+        let args = vec![bad_property, height];
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let err = special_get_burn_block_info(&args, &mut env, &context).unwrap_err();
+
+        assert_eq!(
+            err,
+            VmExecutionError::Unchecked(CheckErrorKind::NoSuchBurnBlockInfoProperty(
+                "not-a-valid-burn-prop".to_string()
+            ))
+        );
+    }
+
+    #[apply(test_clarity_versions)]
+    fn special_contract_call_expect_name_dynamic_not_callable(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new(); // EMPTY — no callable_contracts
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        // (contract-call? unknown-contract foo)
+        let args = vec![
+            SymbolicExpression::atom("unknown-contract".into()), // Atom, NOT registered
+            SymbolicExpression::atom("foo".into()),              // Valid function name atom
+        ];
+
+        let err = special_contract_call(&args, &mut env, &context).unwrap_err();
+
+        assert_eq!(
+            err,
+            VmExecutionError::Unchecked(CheckErrorKind::ContractCallExpectName)
+        );
+    }
 }

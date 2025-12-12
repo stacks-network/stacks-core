@@ -15,13 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub use clarity_types::errors::{
-    EarlyReturnError, IncomparableError, InterpreterResult, RuntimeError, VmExecutionError,
-    VmInternalError,
+    EarlyReturnError, IncomparableError, RuntimeError, VmExecutionError, VmInternalError,
 };
 
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrorKind,
-    SyntaxBindingError, SyntaxBindingErrorType,
+    CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind, SyntaxBindingError,
+    SyntaxBindingErrorType,
 };
 
 #[cfg(test)]
