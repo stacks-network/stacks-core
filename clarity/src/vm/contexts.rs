@@ -231,8 +231,6 @@ pub struct GlobalContext<'a, 'hooks> {
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
     pub execution_time_tracker: ExecutionTimeTracker,
-    /// avoid events to be cleared too early while in read only mode
-    pub keep_event_batches: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1125,6 +1123,16 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         &self.global_context.epoch_id
     }
 
+    pub fn execute_contract_with_events(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        tx_name: &str,
+        args: &[SymbolicExpression],
+        read_only: bool,
+    ) -> Result<(Value, Vec<StacksTransactionEvent>), VmExecutionError> {
+        self.inner_execute_contract(contract, tx_name, args, read_only, false)
+    }
+
     pub fn execute_contract(
         &mut self,
         contract: &QualifiedContractIdentifier,
@@ -1132,7 +1140,10 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         args: &[SymbolicExpression],
         read_only: bool,
     ) -> Result<Value, VmExecutionError> {
-        self.inner_execute_contract(contract, tx_name, args, read_only, false)
+        match self.inner_execute_contract(contract, tx_name, args, read_only, false) {
+            Ok((value, _events)) => Ok(value),
+            Err(e) => Err(e),
+        }
     }
 
     /// This method is exposed for callers that need to invoke a private method directly.
@@ -1145,7 +1156,10 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         args: &[SymbolicExpression],
         read_only: bool,
     ) -> Result<Value, VmExecutionError> {
-        self.inner_execute_contract(contract, tx_name, args, read_only, true)
+        match self.inner_execute_contract(contract, tx_name, args, read_only, true) {
+            Ok((value, _events)) => Ok(value),
+            Err(e) => Err(e),
+        }
     }
 
     /// This method handles actual execution of contract-calls on a contract.
@@ -1161,7 +1175,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         args: &[SymbolicExpression],
         read_only: bool,
         allow_private: bool,
-    ) -> Result<Value, VmExecutionError> {
+    ) -> Result<(Value, Vec<StacksTransactionEvent>), VmExecutionError> {
         let contract_size = self
             .global_context
             .database
@@ -1209,11 +1223,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 return Err(CheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), allow_private);
+            let res = self.execute_function_as_transaction_and_events(&func, &args, Some(&contract.contract_context), allow_private);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
-                Ok(value) => {
+                Ok((value, events)) => {
                     if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
                         handler(
                             self.global_context,
@@ -1225,7 +1239,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                             &value
                         )?;
                     }
-                    Ok(value)
+                    Ok((value, events))
                 },
                 Err(e) => Err(e)
             }
@@ -1239,6 +1253,23 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         next_contract_context: Option<&ContractContext>,
         allow_private: bool,
     ) -> Result<Value, VmExecutionError> {
+        let (value, _events) = self.execute_function_as_transaction_and_events(
+            function,
+            args,
+            next_contract_context,
+            allow_private,
+        )?;
+
+        Ok(value)
+    }
+
+    pub fn execute_function_as_transaction_and_events(
+        &mut self,
+        function: &DefinedFunction,
+        args: &[Value],
+        next_contract_context: Option<&ContractContext>,
+        allow_private: bool,
+    ) -> Result<(Value, Vec<StacksTransactionEvent>), VmExecutionError> {
         let make_read_only = function.is_read_only();
 
         if make_read_only {
@@ -1262,21 +1293,25 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             function.execute_apply(args, &mut nested_env)
         };
 
-        if make_read_only {
-            let mut event_batches_clone = None;
-            if self.global_context.keep_event_batches {
-                event_batches_clone = Some(self.global_context.event_batches.clone());
-            }
+        // retrieve all the events
+        let mut events = vec![];
+        self.global_context
+            .event_batches
+            .iter()
+            .for_each(|event_batch| {
+                events.extend(event_batch.events.clone());
+            });
 
+        let result = if make_read_only {
             self.global_context.roll_back()?;
-
-            if let Some(event_batches_clone) = event_batches_clone {
-                self.global_context.event_batches = event_batches_clone
-            }
-
             result
         } else {
             self.global_context.handle_tx_result(result, allow_private)
+        };
+
+        match result {
+            Ok(result) => Ok((result, events)),
+            Err(e) => Err(e),
         }
     }
 
@@ -1636,7 +1671,6 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_time_tracker: ExecutionTimeTracker::NoTracking,
-            keep_event_batches: false,
         }
     }
 

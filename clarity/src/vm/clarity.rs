@@ -204,48 +204,6 @@ pub trait ClarityConnection {
             (result, db)
         })
     }
-
-    #[allow(clippy::too_many_arguments)]
-    fn with_readonly_clarity_env_and_fill_events<F, R>(
-        &mut self,
-        mainnet: bool,
-        chain_id: u32,
-        sender: PrincipalData,
-        sponsor: Option<PrincipalData>,
-        cost_track: LimitedCostTracker,
-        to_do: F,
-    ) -> Result<(R, Vec<StacksTransactionEvent>), VmExecutionError>
-    where
-        F: FnOnce(&mut Environment) -> Result<R, VmExecutionError>,
-    {
-        let epoch_id = self.get_epoch();
-        let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
-        let mut events = vec![];
-        let result_and_db = self.with_clarity_db_readonly_owned(|clarity_db| {
-            let initial_context =
-                ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
-            let mut vm_env = OwnedEnvironment::new_cost_limited(
-                mainnet, chain_id, clarity_db, cost_track, epoch_id,
-            );
-            let result = vm_env
-                .execute_in_env(sender, sponsor, Some(initial_context), to_do)
-                .map(|(result, _, transaction_events)| {
-                    events.extend(transaction_events);
-                    result
-                });
-            // this expect is allowed, if the database has escaped this context, then it is no longer sane
-            //  and we must crash
-            #[allow(clippy::expect_used)]
-            let (db, _) = {
-                vm_env
-                    .destruct()
-                    .expect("Failed to recover database reference after executing transaction")
-            };
-            (result, db)
-        })?;
-
-        Ok((result_and_db, events))
-    }
 }
 
 pub trait TransactionConnection: ClarityConnection {

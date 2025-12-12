@@ -157,15 +157,13 @@ impl RPCCallReadOnlyRequestHandler {
                             }
                         })?;
 
-                        clarity_tx.with_readonly_clarity_env_and_fill_events(
+                        clarity_tx.with_readonly_clarity_env(
                             mainnet,
                             chain_id,
                             sender,
                             sponsor,
                             cost_track,
                             |env| {
-                                env.global_context.keep_event_batches = true;
-
                                 to_do(env);
 
                                 // we want to execute any function as long as no actual writes are made as
@@ -174,7 +172,7 @@ impl RPCCallReadOnlyRequestHandler {
                                 // can be called, and also circumvents limitations on `define-read-only`
                                 // functions that can not use `contrac-call?`, even when calling other
                                 // read-only functions
-                                env.execute_contract(
+                                env.execute_contract_with_events(
                                     &contract_identifier,
                                     function.as_str(),
                                     &args,
