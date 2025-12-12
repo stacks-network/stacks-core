@@ -4,7 +4,6 @@ use std::sync::Arc;
 use libsigner::v0::messages::RejectReason;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
-use proptest::prop_oneof;
 use stacks::chainstate::stacks::{TenureChangeCause, TenureChangePayload, TransactionPayload};
 
 use super::context::{SignerTestContext, SignerTestState};
