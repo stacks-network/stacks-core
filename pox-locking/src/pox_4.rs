@@ -19,7 +19,7 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::{Error as ClarityError, InterpreterError, RuntimeErrorType};
+use clarity::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{Environment, Value};
@@ -154,7 +154,7 @@ fn handle_stack_lockup_pox_v4(
     global_context: &mut GlobalContext,
     function_name: &str,
     value: &Value,
-) -> Result<Option<StacksTransactionEvent>, ClarityError> {
+) -> Result<Option<StacksTransactionEvent>, VmExecutionError> {
     debug!(
         "Handle special-case contract-call to {:?} {function_name} (which returned {value:?})",
         boot_code_id(POX_4_NAME, global_context.mainnet)
@@ -195,14 +195,14 @@ fn handle_stack_lockup_pox_v4(
                 }));
             Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
-            RuntimeErrorType::DefunctPoxContract,
+        Err(LockingError::DefunctPoxContract) => Err(VmExecutionError::Runtime(
+            RuntimeError::DefunctPoxContract,
             None,
         )),
         Err(LockingError::PoxAlreadyLocked) => {
             // the caller tried to lock tokens into multiple pox contracts
-            Err(ClarityError::Runtime(
-                RuntimeErrorType::PoxAlreadyLocked,
+            Err(VmExecutionError::Runtime(
+                RuntimeError::PoxAlreadyLocked,
                 None,
             ))
         }
@@ -220,7 +220,7 @@ fn handle_stack_lockup_extension_pox_v4(
     global_context: &mut GlobalContext,
     function_name: &str,
     value: &Value,
-) -> Result<Option<StacksTransactionEvent>, ClarityError> {
+) -> Result<Option<StacksTransactionEvent>, VmExecutionError> {
     // in this branch case, the PoX-4 contract has stored the extension information
     //  and performed the extension checks. Now, the VM needs to update the account locks
     //  (because the locks cannot be applied directly from the Clarity code itself)
@@ -262,8 +262,8 @@ fn handle_stack_lockup_extension_pox_v4(
                 }));
             Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
-            RuntimeErrorType::DefunctPoxContract,
+        Err(LockingError::DefunctPoxContract) => Err(VmExecutionError::Runtime(
+            RuntimeError::DefunctPoxContract,
             None,
         )),
         Err(e) => {
@@ -281,7 +281,7 @@ fn handle_stack_lockup_increase_pox_v4(
     global_context: &mut GlobalContext,
     function_name: &str,
     value: &Value,
-) -> Result<Option<StacksTransactionEvent>, ClarityError> {
+) -> Result<Option<StacksTransactionEvent>, VmExecutionError> {
     // in this branch case, the PoX-4 contract has stored the increase information
     //  and performed the increase checks. Now, the VM needs to update the account locks
     //  (because the locks cannot be applied directly from the Clarity code itself)
@@ -323,8 +323,8 @@ fn handle_stack_lockup_increase_pox_v4(
 
             Ok(Some(event))
         }
-        Err(LockingError::DefunctPoxContract) => Err(ClarityError::Runtime(
-            RuntimeErrorType::DefunctPoxContract,
+        Err(LockingError::DefunctPoxContract) => Err(VmExecutionError::Runtime(
+            RuntimeError::DefunctPoxContract,
             None,
         )),
         Err(e) => {
@@ -344,7 +344,7 @@ pub fn handle_contract_call(
     function_name: &str,
     args: &[Value],
     value: &Value,
-) -> Result<(), ClarityError> {
+) -> Result<(), VmExecutionError> {
     // Generate a synthetic print event for all functions that alter stacking state
     let print_event_opt = if let Value::Response(response) = value {
         if response.committed {
@@ -408,7 +408,7 @@ pub fn handle_contract_call(
                     "sender" => ?sender_opt,
                     "arg0" => ?args.first(),
                 );
-                return Err(ClarityError::Interpreter(InterpreterError::Expect(
+                return Err(VmExecutionError::Internal(VmInternalError::Expect(
                     msg.into(),
                 )));
             }
@@ -416,7 +416,7 @@ pub fn handle_contract_call(
     }
 
     // append the lockup event, so it looks as if the print event happened before the lock-up
-    if let Some(batch) = global_context.event_batches.last_mut() {
+    if let Some((batch, _)) = global_context.event_batches.last_mut() {
         if let Some(print_event) = print_event_opt {
             batch.events.push(print_event);
         }

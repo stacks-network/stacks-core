@@ -19,7 +19,7 @@
 
 use std::convert::TryFrom;
 
-use clarity_types::errors::{Error as ClarityError, InterpreterResult, ShortReturnType};
+use clarity_types::errors::{EarlyReturnError, VmExecutionError};
 use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
@@ -724,7 +724,7 @@ fn test_as_contract_with_error_in_body() {
 )"#;
     let expected_err = Value::error(Value::UInt(200)).unwrap();
     let short_return =
-        ClarityError::ShortReturn(ShortReturnType::ExpectedValue(expected_err.into()));
+        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into()));
     assert_eq!(short_return, execute(snippet).unwrap_err());
 }
 
@@ -769,7 +769,7 @@ fn test_as_contract_good_transfer_with_short_return_in_body() {
     let sender = StandardPrincipalData::transient();
     let expected_err = Value::error(Value::UInt(200)).unwrap();
     let short_return =
-        ClarityError::ShortReturn(ShortReturnType::ExpectedValue(expected_err.into()));
+        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into()));
     let res = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(short_return, res);
 }
@@ -778,7 +778,7 @@ fn test_as_contract_good_transfer_with_short_return_in_body() {
 /// `as-contract?` call, the post-condition check still checks the allowances
 /// and returns an error if violated.
 #[test]
-fn test_as_contract_bad_transfer_with_short_return_ok_in_body() {
+fn test_as_contract_bad_transfer_with_early_return_ok_in_body() {
     let snippet = r#"
 (let ((recipient 'SP000000000000000000002Q6VF78))
   (as-contract? ((with-stx u100))
@@ -804,7 +804,7 @@ fn test_as_contract_bad_transfer_with_short_return_ok_in_body() {
 /// Test that when a short-return of an ok value occurs in the body of an
 /// `as-contract?` call, the ok value is returned.
 #[test]
-fn test_as_contract_good_transfer_with_short_return_ok_in_body() {
+fn test_as_contract_good_transfer_with_early_return_ok_in_body() {
     let snippet = r#"
 (as-contract? ((with-stx u100))
   (try! (stx-transfer? u50 tx-sender 'SP000000000000000000002Q6VF78))
@@ -813,7 +813,7 @@ fn test_as_contract_good_transfer_with_short_return_ok_in_body() {
 )"#;
     let expected_err = Value::okay(Value::Bool(false)).unwrap();
     let short_return =
-        ClarityError::ShortReturn(ShortReturnType::AssertionFailed(expected_err.into()));
+        VmExecutionError::EarlyReturn(EarlyReturnError::AssertionFailed(expected_err.into()));
     let err = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(short_return, err);
 }
@@ -1473,7 +1473,7 @@ fn test_restrict_assets_with_error_in_body() {
 )"#;
     let expected_err = Value::error(Value::UInt(200)).unwrap();
     let short_return =
-        ClarityError::ShortReturn(ShortReturnType::ExpectedValue(expected_err.into()));
+        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into()));
     assert_eq!(short_return, execute(snippet).unwrap_err());
 }
 
@@ -1559,7 +1559,7 @@ fn test_nested_inner_restrict_assets_with_stx_exceeds() {
 )"#;
     let expected_err = Value::error(Value::UInt(0)).unwrap();
     let short_return =
-        ClarityError::ShortReturn(ShortReturnType::ExpectedValue(expected_err.into()));
+        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into()));
     assert_eq!(short_return, execute(snippet).unwrap_err());
 }
 
@@ -1602,7 +1602,7 @@ fn test_restrict_assets_good_transfer_with_short_return_in_body() {
     let sender = StandardPrincipalData::transient();
     let expected_err = Value::error(Value::UInt(200)).unwrap();
     let short_return =
-        ClarityError::ShortReturn(ShortReturnType::ExpectedValue(expected_err.into()));
+        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into()));
     let res = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(short_return, res);
 }
@@ -1644,7 +1644,7 @@ fn test_restrict_assets_good_transfer_with_short_return_ok_in_body() {
 )"#;
     let expected_err = Value::okay(Value::Bool(false)).unwrap();
     let short_return =
-        ClarityError::ShortReturn(ShortReturnType::AssertionFailed(expected_err.into()));
+        VmExecutionError::EarlyReturn(EarlyReturnError::AssertionFailed(expected_err.into()));
     let err = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(short_return, err);
 }
@@ -1655,7 +1655,7 @@ fn execute_with_assets_for_version(
     program: &str,
     version: ClarityVersion,
     sender: StandardPrincipalData,
-) -> (InterpreterResult<Option<Value>>, Option<AssetMap>) {
+) -> (Result<Option<Value>, VmExecutionError>, Option<AssetMap>) {
     let mut assets: Option<AssetMap> = None;
 
     let result = execute_and_check_versioned(program, version, sender, |g| {

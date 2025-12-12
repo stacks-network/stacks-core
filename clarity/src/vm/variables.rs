@@ -17,11 +17,11 @@
 use clarity_types::types::PrincipalData;
 use stacks_common::types::StacksEpochId;
 
-use super::errors::InterpreterError;
+use super::errors::VmInternalError;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
+use crate::vm::errors::{RuntimeError, VmExecutionError};
 use crate::vm::types::Value;
 use crate::vm::ClarityVersion;
 
@@ -52,30 +52,24 @@ pub fn lookup_reserved_variable(
     name: &str,
     _context: &LocalContext,
     env: &mut Environment,
-) -> Result<Option<Value>> {
+) -> Result<Option<Value>, VmExecutionError> {
     if let Some(variable) =
         NativeVariables::lookup_by_name_at_version(name, env.contract_context.get_clarity_version())
     {
         match variable {
             NativeVariables::TxSender => {
-                let sender = env
-                    .sender
-                    .clone()
-                    .ok_or(RuntimeErrorType::NoSenderInContext)?;
+                let sender = env.sender.clone().ok_or(RuntimeError::NoSenderInContext)?;
                 Ok(Some(Value::Principal(sender)))
             }
             NativeVariables::ContractCaller => {
-                let caller = env
-                    .caller
-                    .clone()
-                    .ok_or(RuntimeErrorType::NoCallerInContext)?;
+                let caller = env.caller.clone().ok_or(RuntimeError::NoCallerInContext)?;
                 Ok(Some(Value::Principal(caller)))
             }
             NativeVariables::TxSponsor => {
                 let sponsor = match env.sponsor.clone() {
                     None => Value::none(),
                     Some(p) => Value::some(Value::Principal(p)).map_err(|_| {
-                        InterpreterError::Expect(
+                        VmInternalError::Expect(
                             "ERROR: principal should be a valid Clarity object".into(),
                         )
                     })?,

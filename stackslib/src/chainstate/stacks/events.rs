@@ -52,7 +52,7 @@ pub struct StacksTransactionReceipt {
     pub execution_cost: ExecutionCost,
     pub microblock_header: Option<StacksMicroblockHeader>,
     pub tx_index: u32,
-    /// This is really a string-formatted CheckError (which can't be clone()'ed),
+    /// This is really a string-formatted CheckErrorKind or VmExecutionError (which can't be clone()'ed),
     /// and is not consensus critical.
     pub vm_error: Option<String>,
 }
@@ -63,6 +63,19 @@ pub struct StacksBlockEventData {
     pub parent_block_hash: BlockHeaderHash,
     pub parent_microblock_hash: BlockHeaderHash,
     pub parent_microblock_sequence: u16,
+}
+
+impl StacksTransactionReceipt {
+    pub fn size(&self) -> Option<u64> {
+        let mut out = 0u64;
+        for event in self.events.iter() {
+            if let StacksTransactionEvent::SmartContractEvent(event) = event {
+                out = out.saturating_add(event.value.size().ok()?.into());
+            }
+        }
+        out = out.saturating_add(self.result.size().ok()?.into());
+        Some(out)
+    }
 }
 
 impl From<StacksBlock> for StacksBlockEventData {

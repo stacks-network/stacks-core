@@ -1,0 +1,126 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "30261957397a00a1facce85f43fffe82dbd7cd0d962c822b904bec0ba1c73af3",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: default-types-must-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: expression types passed in \'default-to\' must match (got \'bool\' and \'int\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 28,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4991,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 28,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4991,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3fab0f7cac72ffbd9fc0411401bdd99354e87f293ccfcfbe09bfbc9f2d8595a5",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: default-types-must-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: expression types passed in \'default-to\' must match (got \'bool\' and \'int\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 28,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4991,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 28,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4991,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bdc2a354a99671fecc71486e56ce504660026e6c0b978621499dde9853d21b6b",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: default-types-must-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: expression types passed in \'default-to\' must match (got \'bool\' and \'int\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 28,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4991,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 28,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4991,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7afcd0b4ec3fe54ff6b1f8d32e9c474a8221b0f26b0d9ffb166e9cfeec30c566",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: default-types-must-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: expression types passed in \'default-to\' must match (got \'bool\' and \'int\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 28,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4991,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 28,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4991,
+    ),
+  )),
+]

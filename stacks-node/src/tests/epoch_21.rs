@@ -3,7 +3,7 @@ use std::{env, thread};
 
 use ::core::str;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{ClarityVersion, Value};
+use clarity::vm::{execute_with_parameters as execute, ClarityVersion, Value};
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
 };
@@ -23,10 +23,9 @@ use stacks::chainstate::stacks::miner::{
     set_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
 };
 use stacks::chainstate::stacks::StacksBlockHeader;
-use stacks::clarity_cli::vm_execute as execute;
 use stacks::config::{Config, InitialBalance};
 use stacks::core::test_util::make_contract_call;
-use stacks::core::{self, EpochList, BURNCHAIN_TX_SEARCH_WINDOW};
+use stacks::core::{self, EpochList, BURNCHAIN_TX_SEARCH_WINDOW, STACKS_EPOCH_MAX};
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
@@ -79,6 +78,8 @@ fn advance_to_2_1(
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -580,6 +581,8 @@ fn transition_fixes_bitcoin_rigidity() {
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -1089,6 +1092,8 @@ fn transition_adds_get_pox_addr_recipients() {
                 &(*addr_variant as u8)
             ),
             ClarityVersion::Clarity2,
+            StacksEpochId::latest(),
+            false,
         )
         .unwrap()
         .unwrap();
@@ -1129,6 +1134,8 @@ fn transition_adds_get_pox_addr_recipients() {
         let pox_addr_tuple = execute(
             &format!("{{ hashbytes: 0x{bytes}, version: 0x{version:02x} }}"),
             ClarityVersion::Clarity2,
+            StacksEpochId::latest(),
+            false,
         )
         .unwrap()
         .unwrap();
@@ -1476,6 +1483,8 @@ fn transition_removes_pox_sunset() {
     epochs[StacksEpochId::Epoch2_05].start_height = 1;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_21;
     epochs[StacksEpochId::Epoch21].start_height = epoch_21;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -1565,6 +1574,8 @@ fn transition_removes_pox_sunset() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -1622,6 +1633,8 @@ fn transition_removes_pox_sunset() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity2,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -1731,6 +1744,8 @@ fn transition_empty_blocks() {
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.node.mine_microblocks = false;
     conf.burnchain.max_rbf = 1000000;
@@ -2006,6 +2021,8 @@ fn test_sortition_divergence_pre_21() {
     epochs[StacksEpochId::Epoch2_05].start_height = 101;
     epochs[StacksEpochId::Epoch2_05].end_height = 241;
     epochs[StacksEpochId::Epoch21].start_height = 241;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
     conf_template.burnchain.epochs = Some(epochs);
 
     let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
@@ -2222,6 +2239,8 @@ fn test_sortition_divergence_pre_21() {
                     execute(
                         &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                         ClarityVersion::Clarity1,
+                        StacksEpochId::latest(),
+                        false,
                     )
                     .unwrap()
                     .unwrap(),
@@ -2438,6 +2457,8 @@ fn trait_invocation_cross_epoch() {
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -2703,6 +2724,8 @@ fn test_v1_unlock_height_with_current_stackers() {
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -2766,6 +2789,8 @@ fn test_v1_unlock_height_with_current_stackers() {
     let pox_addr_tuple_1 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();
@@ -2803,6 +2828,8 @@ fn test_v1_unlock_height_with_current_stackers() {
     let pox_addr_tuple_2 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();
@@ -2956,6 +2983,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -3022,6 +3051,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     let pox_addr_tuple_1 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();
@@ -3071,6 +3102,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     let pox_addr_tuple_2 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();

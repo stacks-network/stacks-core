@@ -70,6 +70,7 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::SortitionDBRef;
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::net::Error as NetError;
 use crate::util_lib::db::{query_row, u64_to_sql, Error as DBError};
 
@@ -520,6 +521,7 @@ impl NakamotoBlockBuilder {
             break;
         }
 
+        let mut receipts_total = 0u64;
         let mut miner_tenure_info =
             builder.shadow_load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
         let burn_chain_height = miner_tenure_info.burn_tip_height;
@@ -536,6 +538,7 @@ impl NakamotoBlockBuilder {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
+                &mut receipts_total,
             ) {
                 TransactionResult::Success(..) => {
                     debug!("Included {}", &tx.txid());
@@ -726,6 +729,7 @@ impl NakamotoBlockBuilder {
             None,
             None,
             None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         )?;
 
         let mut block_txs = vec![tenure_change_tx, coinbase_tx];

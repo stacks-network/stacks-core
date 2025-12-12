@@ -28,7 +28,7 @@ use crate::chainstate::nakamoto::{
     MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
+use crate::chainstate::stacks::db::blocks::{DummyEventDispatcher, MAX_RECEIPT_SIZES};
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
@@ -37,7 +37,7 @@ use crate::chainstate::stacks::miner::{
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
 use crate::clarity_vm::clarity::ClarityInstance;
-use crate::config::DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE;
+use crate::config::{DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE, DEFAULT_MAX_TENURE_BYTES};
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::monitoring::{
@@ -96,6 +96,8 @@ pub struct NakamotoBlockBuilder {
     /// Percentage of a block's budget that may be consumed by
     /// contract calls before reverting to stx transfers/boot contract calls only
     contract_limit_percentage: Option<u8>,
+    /// Maximum size of the whole tenure
+    pub max_tenure_bytes: u64,
 }
 
 /// NB: No PartialEq implementation is deliberate in order to ensure that we use the appropriate
@@ -235,6 +237,7 @@ impl NakamotoBlockBuilder {
             header: NakamotoBlockHeader::genesis(),
             soft_limit: None,
             contract_limit_percentage: None,
+            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
         }
     }
 
@@ -266,6 +269,7 @@ impl NakamotoBlockBuilder {
         soft_limit: Option<ExecutionCost>,
         contract_limit_percentage: Option<u8>,
         timestamp: Option<u64>,
+        max_tenure_bytes: u64,
     ) -> Result<NakamotoBlockBuilder, Error> {
         let next_height = parent_stacks_header
             .anchored_header
@@ -308,6 +312,7 @@ impl NakamotoBlockBuilder {
             ),
             soft_limit,
             contract_limit_percentage,
+            max_tenure_bytes,
         })
     }
 
@@ -671,6 +676,7 @@ impl NakamotoBlockBuilder {
             None,
             settings.mempool_settings.contract_cost_limit_percentage,
             None,
+            settings.max_tenure_bytes,
         )?;
 
         let ts_start = get_epoch_time_ms();
@@ -801,9 +807,24 @@ impl BlockBuilder for NakamotoBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         max_execution_time: Option<std::time::Duration>,
+        total_receipts_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
+        }
+
+        if let Some(parent_header) = &self.parent_header {
+            let mut total_tenure_size = self.bytes_so_far + tx_len;
+
+            // if we are in the same tenure of the parent, accumulate the parent total_tenure_size
+            // note that total_tenure_size is reset whenever a new tenure extend happens
+            if parent_header.consensus_hash == self.header.consensus_hash {
+                total_tenure_size += parent_header.total_tenure_size;
+            }
+
+            if total_tenure_size >= self.max_tenure_bytes {
+                return TransactionResult::skipped_due_to_error(tx, Error::TenureTooBigError);
+            }
         }
 
         let non_boot_code_contract_call = match &tx.payload {
@@ -846,11 +867,23 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-            let (_fee, receipt) = match StacksChainState::process_transaction(
+            let (_fee, receipt) = match StacksChainState::process_transaction_with_check(
                 clarity_tx,
                 tx,
                 quiet,
                 max_execution_time,
+                |receipt| {
+                    let size = receipt.size().ok_or_else(|| {
+                        Error::InvalidStacksBlock("Could not calculate receipt size".into())
+                    })?;
+                    let next_size = size.saturating_add(*total_receipts_size);
+                    if next_size >= MAX_RECEIPT_SIZES {
+                        Err(Error::BlockCostExceeded)
+                    } else {
+                        *total_receipts_size = next_size;
+                        Ok(())
+                    }
+                },
             ) {
                 Ok(x) => x,
                 Err(e) => {

@@ -22,9 +22,10 @@ use std::io::Read;
 use std::io::prelude::*;
 use std::{env, fs, io};
 
-use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
+use clarity::vm::errors::{RuntimeError, VmExecutionError};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
+use clarity_cli::vm_execute;
 use stacks_common::address::{AddressHashMode, b58};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
@@ -41,7 +42,6 @@ use stackslib::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
     TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
 };
-use stackslib::clarity_cli::vm_execute;
 use stackslib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stackslib::net::Error as NetError;
 use stackslib::util_lib::strings::StacksString;
@@ -184,8 +184,8 @@ block's sqlite database.";
 
 #[derive(Debug)]
 enum CliError {
-    ClarityRuntimeError(RuntimeErrorType),
-    ClarityGeneralError(ClarityError),
+    ClarityRuntimeError(RuntimeError),
+    ClarityGeneralError(VmExecutionError),
     Message(String),
     Usage,
     InvalidChainId(std::num::ParseIntError),
@@ -219,14 +219,14 @@ impl From<&str> for CliError {
     }
 }
 
-impl From<RuntimeErrorType> for CliError {
-    fn from(value: RuntimeErrorType) -> Self {
+impl From<RuntimeError> for CliError {
+    fn from(value: RuntimeError) -> Self {
         CliError::ClarityRuntimeError(value)
     }
 }
 
-impl From<ClarityError> for CliError {
-    fn from(value: ClarityError) -> Self {
+impl From<VmExecutionError> for CliError {
+    fn from(value: VmExecutionError) -> Self {
         CliError::ClarityGeneralError(value)
     }
 }

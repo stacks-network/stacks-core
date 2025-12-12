@@ -43,6 +43,7 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::database::ClarityBackingStore;
 use crate::clarity_vm::clarity::ClarityMarfStoreTransaction;
 use crate::clarity_vm::database::marf::MarfedKV;
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::net::test::TestEventObserver;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peer_from_invs;
 use crate::net::tests::{NakamotoBootPlan, NakamotoBootStep, NakamotoBootTenure};
@@ -346,6 +347,7 @@ fn replay_block(
         None,
         Some(100),
         Some(original_block.header.timestamp),
+        u64::from(DEFAULT_MAX_TENURE_BYTES),
     )
     .unwrap();
 
@@ -358,16 +360,16 @@ fn replay_block(
         .unwrap();
 
     let mut receipts = vec![];
-
+    let mut total_receipts = 0;
     for (i, tx) in original_block.txs.iter().enumerate() {
         let tx_len = tx.tx_len();
-
         let tx_result = builder.try_mine_tx_with_len(
             &mut tenure_tx,
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             None,
+            &mut total_receipts,
         );
         let err = match &tx_result {
             TransactionResult::Success(_) => Ok(()),

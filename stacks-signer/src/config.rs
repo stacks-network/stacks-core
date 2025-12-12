@@ -43,6 +43,7 @@ const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_DRY_RUN: bool = false;
 const TENURE_IDLE_TIMEOUT_SECS: u64 = 120;
+const READ_COUNT_IDLE_TIMEOUT_SECS: u64 = 20;
 const DEFAULT_REORG_ATTEMPTS_ACTIVITY_TIMEOUT_MS: u64 = 200_000;
 /// Default number of seconds to add to the tenure extend time, after computing the idle timeout,
 /// to allow for clock skew between the signer and the miner
@@ -179,6 +180,8 @@ pub struct SignerConfig {
     pub block_proposal_validation_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
     pub tenure_idle_timeout: Duration,
+    /// How much idle time must pass before allowing a read-count tenure extend
+    pub read_count_idle_timeout: Duration,
     /// Amount of buffer time to add to the tenure extend time sent to miners to allow for
     /// clock skew
     pub tenure_idle_timeout_buffer: Duration,
@@ -242,6 +245,8 @@ pub struct GlobalConfig {
     pub block_proposal_validation_timeout: Duration,
     /// How much idle time must pass before allowing a tenure extend
     pub tenure_idle_timeout: Duration,
+    /// How much idle time must pass before allowing a read-count tenure extend
+    pub read_count_idle_timeout: Duration,
     /// Amount of buffer time to add to the tenure extend time sent to miners to allow for
     /// clock skew
     pub tenure_idle_timeout_buffer: Duration,
@@ -304,6 +309,8 @@ struct RawConfigFile {
     pub block_proposal_validation_timeout_ms: Option<u64>,
     /// How much idle time (in seconds) must pass before a tenure extend is allowed
     pub tenure_idle_timeout_secs: Option<u64>,
+    /// How much idle time (in seconds) must pass before a read-count tenure extend is allowed
+    pub read_count_idle_timeout_secs: Option<u64>,
     /// Number of seconds of buffer to add to the tenure extend time sent to miners to allow for
     /// clock skew
     pub tenure_idle_timeout_buffer_secs: Option<u64>,
@@ -425,6 +432,12 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(TENURE_IDLE_TIMEOUT_SECS),
         );
 
+        let read_count_idle_timeout = Duration::from_secs(
+            raw_data
+                .read_count_idle_timeout_secs
+                .unwrap_or(READ_COUNT_IDLE_TIMEOUT_SECS),
+        );
+
         let block_proposal_max_age_secs = raw_data
             .block_proposal_max_age_secs
             .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS);
@@ -493,6 +506,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             reorg_attempts_activity_timeout,
             dry_run,
             tenure_idle_timeout_buffer,
+            read_count_idle_timeout,
             proposal_wait_for_parent_time,
             validate_with_replay_tx,
             reset_replay_set_after_fork_blocks,
