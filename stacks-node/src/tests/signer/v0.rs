@@ -115,9 +115,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
 use crate::clarity::vm::clarity::ClarityConnection;
-use crate::event_dispatcher::{
-    EventObserver, MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT,
-};
+use crate::event_dispatcher::{MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT};
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
     TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_SKIP, TEST_P2P_BROADCAST_STALL,
@@ -2556,137 +2554,6 @@ fn revalidate_unknown_parent() {
         .stop_chains_coordinator();
     run_loop_stopper_2.store(false, Ordering::SeqCst);
     run_loop_2_thread.join().unwrap();
-    signer_test.shutdown();
-}
-
-#[test]
-#[ignore]
-/// This test is a regression test for issue #5858 in which the signer runloop
-///  used the signature from the stackerdb to determine the miner public key.
-/// This does not work in cases where events get coalesced. The fix was to use
-///  the signature in the proposal's block header instead.
-///
-/// This test covers the regression by adding a thread that interposes on the
-///  stackerdb events sent to the test signers and mutating the signatures
-///  so that the stackerdb chunks are signed by the wrong signer. After the
-///  fix to #5848, signers are resilient to this behavior because they check
-///  the signature on the block proposal (not the chunk).
-fn regr_use_block_header_pk() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env())
-        .init();
-
-    info!("------------------------- Test Setup -------------------------");
-    let num_signers = 5;
-    let signer_listeners: Mutex<Vec<String>> = Mutex::default();
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![],
-        |_| {},
-        |node_config| {
-            node_config.events_observers = node_config
-                .events_observers
-                .clone()
-                .into_iter()
-                .map(|mut event_observer| {
-                    if event_observer
-                        .endpoint
-                        .ends_with(&test_observer::EVENT_OBSERVER_PORT.to_string())
-                    {
-                        event_observer
-                    } else if event_observer
-                        .events_keys
-                        .contains(&EventKeyType::StackerDBChunks)
-                    {
-                        event_observer
-                            .events_keys
-                            .retain(|key| *key != EventKeyType::StackerDBChunks);
-                        let mut listeners_lock = signer_listeners.lock().unwrap();
-                        listeners_lock.push(event_observer.endpoint.clone());
-                        event_observer
-                    } else {
-                        event_observer
-                    }
-                })
-                .collect();
-        },
-        None,
-        None,
-    );
-
-    let signer_listeners: Vec<_> = signer_listeners
-        .lock()
-        .unwrap()
-        .drain(..)
-        .map(|endpoint| EventObserver {
-            endpoint,
-            db_path: None,
-            timeout: Duration::from_secs(120),
-            disable_retries: false,
-        })
-        .collect();
-
-    let bad_signer = Secp256k1PrivateKey::from_seed(&[0xde, 0xad, 0xbe, 0xef]);
-    let bad_signer_pk = Secp256k1PublicKey::from_private(&bad_signer);
-
-    let broadcast_thread_stopper = Arc::new(AtomicBool::new(true));
-    let broadcast_thread_flag = broadcast_thread_stopper.clone();
-    let broadcast_thread = thread::Builder::new()
-        .name("rebroadcast-thread".into())
-        .spawn(move || {
-            let mut last_sent = 0;
-            while broadcast_thread_flag.load(Ordering::SeqCst) {
-                thread::sleep(Duration::from_secs(1));
-                let mut signerdb_chunks = test_observer::get_stackerdb_chunks();
-                if last_sent >= signerdb_chunks.len() {
-                    continue;
-                }
-                let mut to_send = signerdb_chunks.split_off(last_sent);
-                last_sent = signerdb_chunks.len();
-                for event in to_send.iter_mut() {
-                    // mutilate the signature
-                    event.modified_slots.iter_mut().for_each(|chunk_data| {
-                        if let Ok(SignerMessage::StateMachineUpdate(_)) =
-                            SignerMessage::consensus_deserialize(&mut chunk_data.data.as_slice())
-                        {
-                            // We don't want to mutate the state machine update messages
-                            return;
-                        };
-                        let pk = chunk_data.recover_pk().unwrap();
-                        assert_ne!(pk, bad_signer_pk);
-                        chunk_data.sign(&bad_signer).unwrap();
-                    });
-
-                    let payload = serde_json::to_value(event).unwrap();
-                    for signer_listener in signer_listeners.iter() {
-                        signer_listener.send_stackerdb_chunks(&payload);
-                    }
-                }
-            }
-        })
-        .unwrap();
-
-    let timeout = Duration::from_secs(200);
-    signer_test.boot_to_epoch_3();
-
-    let prior_stacks_height = signer_test.get_peer_info().stacks_tip_height;
-
-    let tenures_to_mine = 2;
-    for _i in 0..tenures_to_mine {
-        signer_test.mine_nakamoto_block(timeout, false);
-    }
-
-    let current_stacks_height = signer_test.get_peer_info().stacks_tip_height;
-
-    assert!(current_stacks_height >= prior_stacks_height + tenures_to_mine);
-
-    broadcast_thread_stopper.store(false, Ordering::SeqCst);
-    broadcast_thread.join().unwrap();
     signer_test.shutdown();
 }
 

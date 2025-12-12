@@ -90,17 +90,17 @@ lazy_static! {
 }
 
 #[derive(Debug, Clone)]
-pub struct EventObserver {
+struct EventObserver {
     /// Path to the database where pending payloads are stored. If `None`, then
     /// the database is not used and events are not recoverable across restarts.
-    pub db_path: Option<PathBuf>,
+    db_path: Option<PathBuf>,
     /// URL to which events will be sent
-    pub endpoint: String,
+    endpoint: String,
     /// Timeout for sending events to this observer
-    pub timeout: Duration,
+    timeout: Duration,
     /// If true, the stacks-node will not retry if event delivery fails for any reason.
     /// WARNING: This should not be set on observers that require successful delivery of all events.
-    pub disable_retries: bool,
+    disable_retries: bool,
 }
 
 const STATUS_RESP_TRUE: &str = "success";
@@ -802,7 +802,7 @@ impl EventObserver {
         self.send_payload(payload, PATH_MINED_NAKAMOTO_BLOCK, None);
     }
 
-    pub fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
+    fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_STACKERDB_CHUNKS, None);
     }
 
@@ -1708,7 +1708,11 @@ impl EventDispatcher {
         }
     }
 
-    pub fn register_observer(&mut self, conf: &EventObserverConfig) -> EventObserver {
+    pub fn register_observer(&mut self, conf: &EventObserverConfig) {
+        self.register_observer_private(conf);
+    }
+
+    fn register_observer_private(&mut self, conf: &EventObserverConfig) -> EventObserver {
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver::new(
             self.db_path.clone(),
@@ -2713,7 +2717,7 @@ mod test {
 
         let mut dispatcher = EventDispatcher::new(Some(working_dir.clone()));
 
-        let observer = dispatcher.register_observer(&EventObserverConfig {
+        let observer = dispatcher.register_observer_private(&EventObserverConfig {
             endpoint: format!("127.0.0.1:{port}"),
             timeout_ms: timeout.as_millis() as u64,
             events_keys: vec![EventKeyType::AnyEvent],
