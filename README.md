@@ -109,6 +109,12 @@ You can also read the technical papers:
 - ["PoX: Proof of Transfer Mining with Bitcoin"](https://community.stacks.org/pox), May 2020
 - ["Stacks 2.0: Apps and Smart Contracts for Bitcoin"](https://stacks.org/stacks), Dec 2020
 
+## Contributing
+
+We welcome contributions to the Stacks blockchain! Please see our [Contributing Guide](CONTRIBUTING.md) for detailed information on development workflows, coding standards, and how to submit pull requests.
+
+For questions or discussions, join our [Discord community](https://stacks.chat).
+
 ## Copyright and License
 
 The code and documentation copyright are attributed to stacks.org.
