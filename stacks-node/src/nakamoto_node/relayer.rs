@@ -13,6 +13,34 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+//! # Nakamoto Relayer Module
+//!
+//! This module implements the relayer thread for the Nakamoto consensus protocol in the Stacks blockchain.
+//! The relayer is responsible for coordinating between the network, chainstate, and mining components.
+//!
+//! ## Key Responsibilities
+//!
+//! - Processing network messages and relaying blocks/transactions
+//! - Managing sortition processing and miner coordination
+//! - Handling VRF key registration for mining
+//! - Issuing block commits and tenure management
+//! - Coordinating with the burnchain for consensus operations
+//!
+//! ## Architecture
+//!
+//! The relayer runs as a dedicated thread that communicates with other node components through
+//! channels and shared state. It processes directives from the main node loop and manages
+//! the lifecycle of mining operations in the Nakamoto epoch.
+//!
+//! ## Integration
+//!
+//! This module integrates with:
+//! - `stacks-common` for shared types and utilities
+//! - `stacks-chainstate` for blockchain state management
+//! - `stacks-burnchains` for burnchain operations
+//! - `stacks-node` for node configuration and networking
+//! - Mining and consensus coordination modules
 use core::fmt;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
