@@ -949,23 +949,13 @@ pub fn execute_initialize(
         (header_db, kv, ())
     });
 
-    if mainnet {
-        (
-            0,
-            Some(json!({
-                "message": "Database created.",
-                "network": "mainnet"
-            })),
-        )
-    } else {
-        (
-            0,
-            Some(json!({
-                "message": "Database created.",
-                "network": "testnet"
-            })),
-        )
-    }
+    (
+        0,
+        Some(json!({
+            "message": "Database created.",
+            "network": if mainnet { "mainnet" } else { "testnet" }
+        })),
+    )
 }
 
 /// Generate a random Stacks address for testing purposes
@@ -1481,7 +1471,7 @@ pub fn execute_launch(
         None
     };
 
-    // Run analysis and initialize contract in a new block?
+    // Run analysis and initialize contract in a new block
     let (_, _, analysis_result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
         let analysis_result = run_analysis(
             contract_identifier,
