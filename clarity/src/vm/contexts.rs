@@ -1140,10 +1140,8 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         args: &[SymbolicExpression],
         read_only: bool,
     ) -> Result<Value, VmExecutionError> {
-        match self.inner_execute_contract(contract, tx_name, args, read_only, false) {
-            Ok((value, _events)) => Ok(value),
-            Err(e) => Err(e),
-        }
+        self.inner_execute_contract(contract, tx_name, args, read_only, false)
+            .map(|(value, _)| value)
     }
 
     /// This method is exposed for callers that need to invoke a private method directly.
@@ -1156,10 +1154,8 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         args: &[SymbolicExpression],
         read_only: bool,
     ) -> Result<Value, VmExecutionError> {
-        match self.inner_execute_contract(contract, tx_name, args, read_only, true) {
-            Ok((value, _events)) => Ok(value),
-            Err(e) => Err(e),
-        }
+        self.inner_execute_contract(contract, tx_name, args, read_only, true)
+            .map(|(value, _)| value)
     }
 
     /// This method handles actual execution of contract-calls on a contract.
