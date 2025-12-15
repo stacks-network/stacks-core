@@ -13,29 +13,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::Value;
 use regex::{Captures, Regex};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
-use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::serde_serializers::prefix_hex_codec;
+use stacks_common::util::hash::hex_bytes;
 use url::form_urlencoded;
 
-use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
-use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
-use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
-use crate::config::DEFAULT_MAX_TENURE_BYTES;
-use crate::net::api::blockreplay::{
-    remine_nakamoto_block, BlockReplayProfilerResult, RPCReplayedBlock, RPCReplayedBlockTransaction,
-};
+use crate::chainstate::stacks::{Error as ChainError, StacksTransaction};
+use crate::net::api::blockreplay::{remine_nakamoto_block, RPCReplayedBlock};
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,

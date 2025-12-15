@@ -272,12 +272,15 @@ where
             profiler = Some(BlockReplayProfiler::new());
         }
 
+        let mut total_receipts = 0;
+
         let tx_result = builder.try_mine_tx_with_len(
             &mut tenure_tx,
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             None,
+            &mut total_receipts,
         );
 
         if let Some(profiler) = profiler {
