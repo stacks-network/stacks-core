@@ -49,6 +49,7 @@ use crate::vm::version::ClarityVersion;
 use crate::vm::{ast, eval, is_reserved, stx_transfer_consolidated};
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
+pub const MAX_EVENTS_BATCH: u64 = 50 * 1024 * 1024;
 
 // TODO:
 //    hide the environment's instance variables.
@@ -220,7 +221,7 @@ pub enum ExecutionTimeTracker {
 */
 pub struct GlobalContext<'a, 'hooks> {
     asset_maps: Vec<AssetMap>,
-    pub event_batches: Vec<EventBatch>,
+    pub event_batches: Vec<(EventBatch, u64)>,
     pub database: ClarityDatabase<'a>,
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
@@ -1438,10 +1439,28 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         }
     }
 
-    pub fn push_to_event_batch(&mut self, event: StacksTransactionEvent) {
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
+    fn push_to_event_batch(
+        &mut self,
+        event: StacksTransactionEvent,
+    ) -> Result<(), VmExecutionError> {
+        let size = if let StacksTransactionEvent::SmartContractEvent(ref ev) = event {
+            ev.value.size().map_err(|e| {
+                VmInternalError::Expect(format!("Could not calculate event size: {e}"))
+            })?
+        } else {
+            0
+        };
+        if let Some((batch, total_size)) = self.global_context.event_batches.last_mut() {
             batch.events.push(event);
+            *total_size = total_size.saturating_add(size.into());
+            if *total_size >= MAX_EVENTS_BATCH {
+                return Err(VmInternalError::Expect(
+                    "Event batch grew too large during execution".to_string(),
+                )
+                .into());
+            }
         }
+        Ok(())
     }
 
     pub fn construct_print_transaction_event(
@@ -1462,7 +1481,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             &value,
         );
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1481,7 +1500,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         };
         let event = StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1493,7 +1512,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         let event_data = STXBurnEventData { sender, amount };
         let event = StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1512,7 +1531,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         };
         let event = StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1529,7 +1548,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         };
         let event = StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1546,7 +1565,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         };
         let event = StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1565,7 +1584,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         };
         let event = StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1582,7 +1601,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         };
         let event = StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 
@@ -1599,7 +1618,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         };
         let event = StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data));
 
-        self.push_to_event_batch(event);
+        self.push_to_event_batch(event)?;
         Ok(())
     }
 }
@@ -1764,7 +1783,12 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
 
     pub fn begin(&mut self) {
         self.asset_maps.push(AssetMap::new());
-        self.event_batches.push(EventBatch::new());
+        let total_size = self
+            .event_batches
+            .last()
+            .map(|(_, total_size)| *total_size)
+            .unwrap_or(0);
+        self.event_batches.push((EventBatch::new(), total_size));
         self.database.begin();
         let read_only = self.is_read_only();
         self.read_only.push(read_only);
@@ -1772,7 +1796,12 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
 
     pub fn begin_read_only(&mut self) {
         self.asset_maps.push(AssetMap::new());
-        self.event_batches.push(EventBatch::new());
+        let total_size = self
+            .event_batches
+            .last()
+            .map(|(_, total_size)| *total_size)
+            .unwrap_or(0);
+        self.event_batches.push((EventBatch::new(), total_size));
         self.database.begin();
         self.read_only.push(true);
     }
@@ -1783,7 +1812,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         let asset_map = self.asset_maps.pop().ok_or_else(|| {
             VmInternalError::Expect("ERROR: Committed non-nested context.".into())
         })?;
-        let mut event_batch = self.event_batches.pop().ok_or_else(|| {
+        let (mut event_batch, new_total_size) = self.event_batches.pop().ok_or_else(|| {
             VmInternalError::Expect("ERROR: Committed non-nested context.".into())
         })?;
 
@@ -1799,8 +1828,9 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         };
 
         let out_batch = match self.event_batches.last_mut() {
-            Some(tail_back) => {
+            Some((tail_back, total_size)) => {
                 tail_back.events.append(&mut event_batch.events);
+                *total_size = new_total_size;
                 None
             }
             None => Some(event_batch),

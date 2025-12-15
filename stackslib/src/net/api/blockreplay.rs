@@ -425,6 +425,11 @@ impl RPCReplayedBlockTransaction {
         };
 
         let txid = receipt.transaction.txid();
+        let mut serialized_result = vec![];
+        receipt
+            .result
+            .serialize_write(&mut serialized_result)
+            .expect("failed to serialize transaction result");
 
         Self {
             txid,

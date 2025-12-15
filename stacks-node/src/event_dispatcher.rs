@@ -68,7 +68,7 @@ use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::http::HttpRequestContents;
 use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
-use stacks::util::hash::to_hex;
+use stacks::util::hash::{to_hex, to_hex_prefixed};
 #[cfg(any(test, feature = "testing"))]
 use stacks::util::tests::TestFlag;
 use stacks::util_lib::db::Error as db_error;
@@ -76,7 +76,7 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
+use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::serde_serializers::{
     prefix_hex, prefix_hex_codec, prefix_opt_hex, prefix_string_0x,
@@ -90,17 +90,17 @@ lazy_static! {
 }
 
 #[derive(Debug, Clone)]
-pub struct EventObserver {
+struct EventObserver {
     /// Path to the database where pending payloads are stored. If `None`, then
     /// the database is not used and events are not recoverable across restarts.
-    pub db_path: Option<PathBuf>,
+    db_path: Option<PathBuf>,
     /// URL to which events will be sent
-    pub endpoint: String,
+    endpoint: String,
     /// Timeout for sending events to this observer
-    pub timeout: Duration,
+    timeout: Duration,
     /// If true, the stacks-node will not retry if event delivery fails for any reason.
     /// WARNING: This should not be set on observers that require successful delivery of all events.
-    pub disable_retries: bool,
+    disable_retries: bool,
 }
 
 const STATUS_RESP_TRUE: &str = "success";
@@ -374,17 +374,59 @@ pub struct TransactionEventPayload<'a> {
 static TEST_EVENT_OBSERVER_SKIP_RETRY: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 impl EventObserver {
+    fn get_payload_column_type(conn: &Connection) -> Result<Option<String>, db_error> {
+        let mut stmt = conn.prepare("PRAGMA table_info(pending_payloads)")?;
+        let rows = stmt.query_map([], |row| {
+            let name: String = row.get(1)?;
+            let col_type: String = row.get(2)?;
+            Ok((name, col_type))
+        })?;
+
+        for row in rows {
+            let (name, col_type) = row?;
+            if name == "payload" {
+                return Ok(Some(col_type));
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn migrate_payload_column_to_blob(conn: &mut Connection) -> Result<(), db_error> {
+        let tx = conn.transaction()?;
+        tx.execute(
+            "ALTER TABLE pending_payloads RENAME TO pending_payloads_old",
+            [],
+        )?;
+        tx.execute(
+            "CREATE TABLE pending_payloads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                payload BLOB NOT NULL,
+                timeout INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        tx.execute(
+            "INSERT INTO pending_payloads (id, url, payload, timeout)
+                SELECT id, url, CAST(payload AS BLOB), timeout FROM pending_payloads_old",
+            [],
+        )?;
+        tx.execute("DROP TABLE pending_payloads_old", [])?;
+        tx.commit()?;
+        Ok(())
+    }
+
     fn insert_payload(
         conn: &Connection,
         url: &str,
-        payload: &serde_json::Value,
+        payload_bytes: &[u8],
         timeout: Duration,
     ) -> Result<(), db_error> {
-        let payload_text = payload.to_string();
         let timeout_ms: u64 = timeout.as_millis().try_into().expect("Timeout too large");
         conn.execute(
             "INSERT INTO pending_payloads (url, payload, timeout) VALUES (?1, ?2, ?3)",
-            params![url, payload_text, timeout_ms],
+            params![url, payload_bytes, timeout_ms],
         )?;
         Ok(())
     }
@@ -393,7 +435,7 @@ impl EventObserver {
     fn insert_payload_with_retry(
         conn: &Connection,
         url: &str,
-        payload: &serde_json::Value,
+        payload_bytes: &[u8],
         timeout: Duration,
     ) {
         let mut attempts = 0i64;
@@ -401,7 +443,7 @@ impl EventObserver {
         let max_backoff = Duration::from_secs(5); // Cap the backoff duration
 
         loop {
-            match Self::insert_payload(conn, url, payload, timeout) {
+            match Self::insert_payload(conn, url, payload_bytes, timeout) {
                 Ok(_) => {
                     // Successful insert, break the loop
                     return;
@@ -431,13 +473,13 @@ impl EventObserver {
     }
 
     fn send_payload_directly(
-        payload: &serde_json::Value,
+        payload_bytes: &Arc<[u8]>,
         full_url: &str,
         timeout: Duration,
         disable_retries: bool,
     ) -> bool {
         debug!(
-            "Event dispatcher: Sending payload"; "url" => %full_url, "payload" => ?payload
+            "Event dispatcher: Sending payload"; "url" => %full_url, "bytes" => payload_bytes.len()
         );
 
         let url = Url::parse(full_url)
@@ -459,7 +501,7 @@ impl EventObserver {
                 peerhost.clone(),
                 "POST".into(),
                 url.path().into(),
-                HttpRequestContents::new().payload_json(payload.clone()),
+                HttpRequestContents::new().payload_json_bytes(Arc::clone(payload_bytes)),
             )
             .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
             request.add_header("Connection".into(), "close".into());
@@ -524,6 +566,19 @@ impl EventObserver {
     /// Send the payload to the given URL.
     /// Before sending this payload, any pending payloads in the database will be sent first.
     pub fn send_payload(&self, payload: &serde_json::Value, path: &str, id: Option<i64>) {
+        let payload_bytes = match serde_json::to_vec(payload) {
+            Ok(bytes) => Arc::<[u8]>::from(bytes),
+            Err(err) => {
+                error!(
+                    "Event dispatcher: failed to serialize payload"; "path" => path, "error" => ?err
+                );
+                return;
+            }
+        };
+        self.send_payload_with_bytes(payload_bytes, path, id);
+    }
+
+    fn send_payload_with_bytes(&self, payload_bytes: Arc<[u8]>, path: &str, id: Option<i64>) {
         // Construct the full URL
         let url_str = if path.starts_with('/') {
             format!("{}{path}", &self.endpoint)
@@ -534,7 +589,7 @@ impl EventObserver {
 
         // if the observer is in "disable_retries" mode quickly send the payload without checking for the db
         if self.disable_retries {
-            Self::send_payload_directly(payload, &full_url, self.timeout, true);
+            Self::send_payload_directly(&payload_bytes, &full_url, self.timeout, true);
         } else if let Some(db_path) = &self.db_path {
             let conn =
                 Connection::open(db_path).expect("Failed to open database for event observer");
@@ -542,12 +597,18 @@ impl EventObserver {
             let id = match id {
                 Some(id) => id,
                 None => {
-                    Self::insert_payload_with_retry(&conn, &full_url, payload, self.timeout);
+                    Self::insert_payload_with_retry(
+                        &conn,
+                        &full_url,
+                        payload_bytes.as_ref(),
+                        self.timeout,
+                    );
                     conn.last_insert_rowid()
                 }
             };
 
-            let success = Self::send_payload_directly(payload, &full_url, self.timeout, false);
+            let success =
+                Self::send_payload_directly(&payload_bytes, &full_url, self.timeout, false);
             // This is only `false` when the TestFlag is set to skip retries
             if !success {
                 return;
@@ -561,16 +622,14 @@ impl EventObserver {
             }
         } else {
             // No database, just send the payload
-            Self::send_payload_directly(payload, &full_url, self.timeout, false);
+            Self::send_payload_directly(&payload_bytes, &full_url, self.timeout, false);
         }
     }
 
     fn make_new_mempool_txs_payload(transactions: Vec<StacksTransaction>) -> serde_json::Value {
         let raw_txs = transactions
             .into_iter()
-            .map(|tx| {
-                serde_json::Value::String(format!("0x{}", &bytes_to_hex(&tx.serialize_to_vec())))
-            })
+            .map(|tx| serde_json::Value::String(to_hex_prefixed(&tx.serialize_to_vec(), true)))
             .collect();
 
         serde_json::Value::Array(raw_txs)
@@ -645,7 +704,7 @@ impl EventObserver {
             TransactionOrigin::Burn(op) => (op.txid(), "00".to_string(), Some(op.clone())),
             TransactionOrigin::Stacks(ref tx) => {
                 let txid = tx.txid();
-                let bytes = bytes_to_hex(&tx.serialize_to_vec());
+                let bytes = to_hex(&tx.serialize_to_vec());
                 (txid, bytes, None)
             }
         };
@@ -683,7 +742,7 @@ impl EventObserver {
             "contract_id": format!("{}", attachment.0.contract_id),
             "metadata": format!("0x{}", attachment.0.metadata),
             "tx_id": format!("0x{}", attachment.0.tx_id),
-            "content": format!("0x{}", bytes_to_hex(&attachment.1.content)),
+            "content": to_hex_prefixed(&attachment.1.content, true),
         })
     }
 
@@ -743,7 +802,7 @@ impl EventObserver {
         self.send_payload(payload, PATH_MINED_NAKAMOTO_BLOCK, None);
     }
 
-    pub fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
+    fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_STACKERDB_CHUNKS, None);
     }
 
@@ -1274,8 +1333,7 @@ impl EventDispatcher {
         block_timestamp: Option<u64>,
         coinbase_height: u64,
     ) {
-        let all_receipts = receipts.to_owned();
-        let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
+        let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(receipts);
 
         if !dispatch_matrix.is_empty() {
             let mature_rewards_vec = if let Some(rewards_info) = mature_rewards_info {
@@ -1650,7 +1708,11 @@ impl EventDispatcher {
         }
     }
 
-    pub fn register_observer(&mut self, conf: &EventObserverConfig) -> EventObserver {
+    pub fn register_observer(&mut self, conf: &EventObserverConfig) {
+        self.register_observer_private(conf);
+    }
+
+    fn register_observer_private(&mut self, conf: &EventObserverConfig) -> EventObserver {
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver::new(
             self.db_path.clone(),
@@ -1660,7 +1722,10 @@ impl EventDispatcher {
         );
 
         if conf.disable_retries {
-            warn!("Observer {} is configured in \"disable_retries\" mode: events are not guaranteed to be delivered", conf.endpoint);
+            warn!(
+                "Observer {} is configured in \"disable_retries\" mode: events are not guaranteed to be delivered",
+                conf.endpoint
+            );
         }
 
         let observer_index = self.registered_observers.len() as u16;
@@ -1731,34 +1796,39 @@ impl EventDispatcher {
     }
 
     fn init_db(db_path: &PathBuf) -> Result<Connection, db_error> {
-        let conn = Connection::open(db_path.to_str().unwrap())?;
+        let mut conn = Connection::open(db_path.to_str().unwrap())?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS pending_payloads (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 url TEXT NOT NULL,
-                payload TEXT NOT NULL,
+                payload BLOB NOT NULL,
                 timeout INTEGER NOT NULL
             )",
             [],
         )?;
+        if let Some(col_type) = EventObserver::get_payload_column_type(&conn)? {
+            if col_type.eq_ignore_ascii_case("TEXT") {
+                info!("Event observer: migrating pending_payloads.payload from TEXT to BLOB");
+                EventObserver::migrate_payload_column_to_blob(&mut conn)?;
+            }
+        }
         Ok(conn)
     }
 
     fn get_pending_payloads(
         conn: &Connection,
-    ) -> Result<Vec<(i64, String, serde_json::Value, u64)>, db_error> {
+    ) -> Result<Vec<(i64, String, Arc<[u8]>, u64)>, db_error> {
         let mut stmt =
             conn.prepare("SELECT id, url, payload, timeout FROM pending_payloads ORDER BY id")?;
         let payload_iter = stmt.query_and_then(
             [],
-            |row| -> Result<(i64, String, serde_json::Value, u64), db_error> {
+            |row| -> Result<(i64, String, Arc<[u8]>, u64), db_error> {
                 let id: i64 = row.get(0)?;
                 let url: String = row.get(1)?;
-                let payload_text: String = row.get(2)?;
-                let payload: serde_json::Value =
-                    serde_json::from_str(&payload_text).map_err(db_error::SerializationError)?;
+                let payload_bytes: Vec<u8> = row.get(2)?;
+                let payload_bytes = Arc::<[u8]>::from(payload_bytes);
                 let timeout_ms: u64 = row.get(3)?;
-                Ok((id, url, payload, timeout_ms))
+                Ok((id, url, payload_bytes, timeout_ms))
             },
         )?;
         payload_iter.collect()
@@ -1792,7 +1862,7 @@ impl EventDispatcher {
             pending_payloads.len()
         );
 
-        for (id, url, payload, _timeout_ms) in pending_payloads {
+        for (id, url, payload_bytes, _timeout_ms) in pending_payloads {
             info!("Event dispatcher: processing pending payload: {url}");
             let full_url = Url::parse(url.as_str())
                 .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {url} as a URL"));
@@ -1823,7 +1893,7 @@ impl EventDispatcher {
                 continue;
             };
 
-            observer.send_payload(&payload, full_url.path(), Some(id));
+            observer.send_payload_with_bytes(payload_bytes, full_url.path(), Some(id));
 
             #[cfg(test)]
             if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
@@ -2094,6 +2164,55 @@ mod test {
     }
 
     #[test]
+    fn test_migrate_payload_column_to_blob() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_payload_migration.sqlite");
+
+        // Simulate old schema with TEXT payloads.
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "CREATE TABLE pending_payloads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                timeout INTEGER NOT NULL
+            )",
+            [],
+        )
+        .unwrap();
+        let payload_str = "{\"key\":\"value\"}";
+        conn.execute(
+            "INSERT INTO pending_payloads (url, payload, timeout) VALUES (?1, ?2, ?3)",
+            params!["http://example.com/api", payload_str, 5000i64],
+        )
+        .unwrap();
+        drop(conn);
+
+        let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
+
+        let col_type: String = conn
+            .query_row(
+                "SELECT type FROM pragma_table_info('pending_payloads') WHERE name = 'payload'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            col_type.eq_ignore_ascii_case("BLOB"),
+            "Payload column was not migrated to BLOB"
+        );
+
+        let pending_payloads =
+            EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+        assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
+        assert_eq!(
+            pending_payloads[0].2.as_ref(),
+            payload_str.as_bytes(),
+            "Payload contents did not survive migration"
+        );
+    }
+
+    #[test]
     fn test_insert_and_get_pending_payloads() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("test_payloads.sqlite");
@@ -2103,9 +2222,11 @@ mod test {
         let url = "http://example.com/api";
         let payload = json!({"key": "value"});
         let timeout = Duration::from_secs(5);
+        let payload_bytes = serde_json::to_vec(&payload).expect("Failed to serialize payload");
 
         // Insert payload
-        let insert_result = EventObserver::insert_payload(&conn, url, &payload, timeout);
+        let insert_result =
+            EventObserver::insert_payload(&conn, url, payload_bytes.as_slice(), timeout);
         assert!(insert_result.is_ok(), "Failed to insert payload");
 
         // Get pending payloads
@@ -2113,9 +2234,13 @@ mod test {
             EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
         assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
 
-        let (_id, retrieved_url, retrieved_payload, timeout_ms) = &pending_payloads[0];
+        let (_id, retrieved_url, stored_bytes, timeout_ms) = &pending_payloads[0];
         assert_eq!(retrieved_url, url, "URL does not match");
-        assert_eq!(retrieved_payload, &payload, "Payload does not match");
+        assert_eq!(
+            stored_bytes.as_ref(),
+            payload_bytes.as_slice(),
+            "Serialized payload does not match"
+        );
         assert_eq!(
             *timeout_ms,
             timeout.as_millis() as u64,
@@ -2133,9 +2258,10 @@ mod test {
         let url = "http://example.com/api";
         let payload = json!({"key": "value"});
         let timeout = Duration::from_secs(5);
+        let payload_bytes = serde_json::to_vec(&payload).expect("Failed to serialize payload");
 
         // Insert payload
-        EventObserver::insert_payload(&conn, url, &payload, timeout)
+        EventObserver::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
             .expect("Failed to insert payload");
 
         // Get pending payloads
@@ -2179,6 +2305,7 @@ mod test {
         let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
 
         let payload = json!({"key": "value"});
+        let payload_bytes = serde_json::to_vec(&payload).expect("Failed to serialize payload");
         let timeout = Duration::from_secs(5);
 
         let _m = server
@@ -2193,7 +2320,7 @@ mod test {
         TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Insert payload
-        EventObserver::insert_payload(&conn, url, &payload, timeout)
+        EventObserver::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
             .expect("Failed to insert payload");
 
         // Process pending payloads
@@ -2228,6 +2355,7 @@ mod test {
         let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
 
         let payload = json!({"key": "value"});
+        let payload_bytes = serde_json::to_vec(&payload).expect("Failed to serialize payload");
         let timeout = Duration::from_secs(5);
 
         let mock = server
@@ -2244,7 +2372,7 @@ mod test {
         // Use a different URL than the observer's endpoint
         let url = "http://different-domain.com/api";
 
-        EventObserver::insert_payload(&conn, url, &payload, timeout)
+        EventObserver::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
             .expect("Failed to insert payload");
 
         dispatcher.process_pending_payloads();
@@ -2589,7 +2717,7 @@ mod test {
 
         let mut dispatcher = EventDispatcher::new(Some(working_dir.clone()));
 
-        let observer = dispatcher.register_observer(&EventObserverConfig {
+        let observer = dispatcher.register_observer_private(&EventObserverConfig {
             endpoint: format!("127.0.0.1:{port}"),
             timeout_ms: timeout.as_millis() as u64,
             events_keys: vec![EventKeyType::AnyEvent],
