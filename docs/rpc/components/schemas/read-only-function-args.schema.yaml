@@ -6,9 +6,9 @@ required:
   - arguments
 properties:
   sender:
-    description: The simulated tx-sender (standard principal or contract principal).
+    description: The simulated tx-sender.
     allOf:
-      - $ref: './principal.schema.yaml'
+      - $ref: './standard-principal.schema.yaml'
   sponsor:
     description: The simulated sponsor address.
     allOf:

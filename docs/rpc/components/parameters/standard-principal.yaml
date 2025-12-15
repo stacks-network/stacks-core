@@ -1,10 +1,8 @@
-# Standard principal only (SP... or ST...), used by StackerDB endpoints
 name: principal
 in: path
 required: true
 description: |
   Standard Stacks address (standard principal, not contract principal).
-  Must start with SP (mainnet) or ST (testnet), followed by 26-39 c32check characters.
-  Note: The API validates the cryptographic checksum internally; invalid addresses return appropriate errors.
+  Must be 28-41 characters long using Stacks c32check format.
 schema:
   $ref: '../schemas/standard-principal.schema.yaml'

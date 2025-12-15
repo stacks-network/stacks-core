@@ -1,6 +1,6 @@
-# Standard principal (SP...) or contract principal (SP....contract-name)
+# Standard principal or contract principal (address.contract-name)
 type: string
-pattern: "^S[PT][0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26,39}(\\.[a-zA-Z]([a-zA-Z0-9]|[-_]){0,127})?$"
+pattern: "^S[PTMN][0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26,39}(\\.[a-zA-Z]([a-zA-Z0-9]|[-_]){0,127})?$"
 minLength: 28
 maxLength: 170
 examples:

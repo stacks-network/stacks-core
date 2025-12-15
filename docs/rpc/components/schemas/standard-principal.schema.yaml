@@ -1,6 +1,6 @@
-# Standard principal only (SP... or ST...), no contract suffix
+# Standard principal only, no contract suffix
 type: string
-pattern: "^S[PT][0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26,39}$"
+pattern: "^S[PTMN][0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26,39}$"
 minLength: 28
 maxLength: 41
 examples:

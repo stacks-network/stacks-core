@@ -1,11 +1,9 @@
-# Standard principal (SP...) or contract principal (SP....contract-name)
 name: principal
 in: path
 required: true
 description: |
   Stacks address or a Contract identifier in format `{address}.{contract_name}`
   (e.g. `SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info`).
-  Address must start with SP (mainnet) or ST (testnet) followed by c32check characters.
-  Note: The API validates the cryptographic checksum internally; invalid addresses return appropriate errors.
+  Must be 28-41 characters long using Stacks c32check format.
 schema:
   $ref: '../schemas/principal.schema.yaml'
