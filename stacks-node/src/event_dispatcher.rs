@@ -374,181 +374,6 @@ pub struct TransactionEventPayload<'a> {
 static TEST_EVENT_OBSERVER_SKIP_RETRY: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 impl EventObserver {
-    fn get_payload_column_type(conn: &Connection) -> Result<Option<String>, db_error> {
-        let mut stmt = conn.prepare("PRAGMA table_info(pending_payloads)")?;
-        let rows = stmt.query_map([], |row| {
-            let name: String = row.get(1)?;
-            let col_type: String = row.get(2)?;
-            Ok((name, col_type))
-        })?;
-
-        for row in rows {
-            let (name, col_type) = row?;
-            if name == "payload" {
-                return Ok(Some(col_type));
-            }
-        }
-
-        Ok(None)
-    }
-
-    fn migrate_payload_column_to_blob(conn: &mut Connection) -> Result<(), db_error> {
-        let tx = conn.transaction()?;
-        tx.execute(
-            "ALTER TABLE pending_payloads RENAME TO pending_payloads_old",
-            [],
-        )?;
-        tx.execute(
-            "CREATE TABLE pending_payloads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT NOT NULL,
-                payload BLOB NOT NULL,
-                timeout INTEGER NOT NULL
-            )",
-            [],
-        )?;
-        tx.execute(
-            "INSERT INTO pending_payloads (id, url, payload, timeout)
-                SELECT id, url, CAST(payload AS BLOB), timeout FROM pending_payloads_old",
-            [],
-        )?;
-        tx.execute("DROP TABLE pending_payloads_old", [])?;
-        tx.commit()?;
-        Ok(())
-    }
-
-    fn insert_payload(
-        conn: &Connection,
-        url: &str,
-        payload_bytes: &[u8],
-        timeout: Duration,
-    ) -> Result<(), db_error> {
-        let timeout_ms: u64 = timeout.as_millis().try_into().expect("Timeout too large");
-        conn.execute(
-            "INSERT INTO pending_payloads (url, payload, timeout) VALUES (?1, ?2, ?3)",
-            params![url, payload_bytes, timeout_ms],
-        )?;
-        Ok(())
-    }
-
-    /// Insert a payload into the database, retrying on failure.
-    fn insert_payload_with_retry(
-        conn: &Connection,
-        url: &str,
-        payload_bytes: &[u8],
-        timeout: Duration,
-    ) {
-        let mut attempts = 0i64;
-        let mut backoff = Duration::from_millis(100); // Initial backoff duration
-        let max_backoff = Duration::from_secs(5); // Cap the backoff duration
-
-        loop {
-            match Self::insert_payload(conn, url, payload_bytes, timeout) {
-                Ok(_) => {
-                    // Successful insert, break the loop
-                    return;
-                }
-                Err(err) => {
-                    // Log the error, then retry after a delay
-                    warn!("Failed to insert payload into event observer database: {err:?}";
-                        "backoff" => ?backoff,
-                        "attempts" => attempts
-                    );
-
-                    // Wait for the backoff duration
-                    sleep(backoff);
-
-                    // Increase the backoff duration (with exponential backoff)
-                    backoff = std::cmp::min(backoff.saturating_mul(2), max_backoff);
-
-                    attempts = attempts.saturating_add(1);
-                }
-            }
-        }
-    }
-
-    fn delete_payload(conn: &Connection, id: i64) -> Result<(), db_error> {
-        conn.execute("DELETE FROM pending_payloads WHERE id = ?1", params![id])?;
-        Ok(())
-    }
-
-    fn send_payload_directly(
-        payload_bytes: &Arc<[u8]>,
-        full_url: &str,
-        timeout: Duration,
-        disable_retries: bool,
-    ) -> bool {
-        debug!(
-            "Event dispatcher: Sending payload"; "url" => %full_url, "bytes" => payload_bytes.len()
-        );
-
-        let url = Url::parse(full_url)
-            .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {full_url} as a URL"));
-
-        let host = url.host_str().expect("Invalid URL: missing host");
-        let port = url.port_or_known_default().unwrap_or(80);
-        let peerhost: PeerHost = format!("{host}:{port}")
-            .parse()
-            .unwrap_or(PeerHost::DNS(host.to_string(), port));
-
-        let mut backoff = Duration::from_millis(100);
-        let mut attempts: i32 = 0;
-        // Cap the backoff at 3x the timeout
-        let max_backoff = timeout.saturating_mul(3);
-
-        loop {
-            let mut request = StacksHttpRequest::new_for_peer(
-                peerhost.clone(),
-                "POST".into(),
-                url.path().into(),
-                HttpRequestContents::new().payload_json_bytes(Arc::clone(payload_bytes)),
-            )
-            .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
-            request.add_header("Connection".into(), "close".into());
-            match send_http_request(host, port, request, timeout) {
-                Ok(response) => {
-                    if response.preamble().status_code == 200 {
-                        debug!(
-                            "Event dispatcher: Successful POST"; "url" => %url
-                        );
-                        break;
-                    } else {
-                        error!(
-                            "Event dispatcher: Failed POST"; "url" => %url, "response" => ?response.preamble()
-                        );
-                    }
-                }
-                Err(err) => {
-                    warn!(
-                        "Event dispatcher: connection or request failed to {host}:{port} - {err:?}";
-                        "backoff" => ?backoff,
-                        "attempts" => attempts
-                    );
-                }
-            }
-
-            if disable_retries {
-                warn!("Observer is configured in disable_retries mode: skipping retry of payload");
-                return false;
-            }
-
-            #[cfg(test)]
-            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
-                warn!("Fault injection: skipping retry of payload");
-                return false;
-            }
-
-            sleep(backoff);
-            let jitter: u64 = rand::thread_rng().gen_range(0..100);
-            backoff = std::cmp::min(
-                backoff.saturating_mul(2) + Duration::from_millis(jitter),
-                max_backoff,
-            );
-            attempts = attempts.saturating_add(1);
-        }
-        true
-    }
-
     fn new(
         db_path: Option<PathBuf>,
         endpoint: String,
@@ -561,361 +386,6 @@ impl EventObserver {
             timeout,
             disable_retries,
         }
-    }
-
-    /// Send the payload to the given URL.
-    /// Before sending this payload, any pending payloads in the database will be sent first.
-    pub fn send_payload(&self, payload: &serde_json::Value, path: &str, id: Option<i64>) {
-        let payload_bytes = match serde_json::to_vec(payload) {
-            Ok(bytes) => Arc::<[u8]>::from(bytes),
-            Err(err) => {
-                error!(
-                    "Event dispatcher: failed to serialize payload"; "path" => path, "error" => ?err
-                );
-                return;
-            }
-        };
-        self.send_payload_with_bytes(payload_bytes, path, id);
-    }
-
-    fn send_payload_with_bytes(&self, payload_bytes: Arc<[u8]>, path: &str, id: Option<i64>) {
-        // Construct the full URL
-        let url_str = if path.starts_with('/') {
-            format!("{}{path}", &self.endpoint)
-        } else {
-            format!("{}/{path}", &self.endpoint)
-        };
-        let full_url = format!("http://{url_str}");
-
-        // if the observer is in "disable_retries" mode quickly send the payload without checking for the db
-        if self.disable_retries {
-            Self::send_payload_directly(&payload_bytes, &full_url, self.timeout, true);
-        } else if let Some(db_path) = &self.db_path {
-            let conn =
-                Connection::open(db_path).expect("Failed to open database for event observer");
-
-            let id = match id {
-                Some(id) => id,
-                None => {
-                    Self::insert_payload_with_retry(
-                        &conn,
-                        &full_url,
-                        payload_bytes.as_ref(),
-                        self.timeout,
-                    );
-                    conn.last_insert_rowid()
-                }
-            };
-
-            let success =
-                Self::send_payload_directly(&payload_bytes, &full_url, self.timeout, false);
-            // This is only `false` when the TestFlag is set to skip retries
-            if !success {
-                return;
-            }
-
-            if let Err(e) = Self::delete_payload(&conn, id) {
-                error!(
-                    "Event observer: failed to delete pending payload from database";
-                    "error" => ?e
-                );
-            }
-        } else {
-            // No database, just send the payload
-            Self::send_payload_directly(&payload_bytes, &full_url, self.timeout, false);
-        }
-    }
-
-    fn make_new_mempool_txs_payload(transactions: Vec<StacksTransaction>) -> serde_json::Value {
-        let raw_txs = transactions
-            .into_iter()
-            .map(|tx| serde_json::Value::String(to_hex_prefixed(&tx.serialize_to_vec(), true)))
-            .collect();
-
-        serde_json::Value::Array(raw_txs)
-    }
-
-    fn make_new_burn_block_payload(
-        burn_block: &BurnchainHeaderHash,
-        burn_block_height: u64,
-        rewards: Vec<(PoxAddress, u64)>,
-        burns: u64,
-        slot_holders: Vec<PoxAddress>,
-        consensus_hash: &ConsensusHash,
-        parent_burn_block_hash: &BurnchainHeaderHash,
-    ) -> serde_json::Value {
-        let reward_recipients = rewards
-            .into_iter()
-            .map(|(pox_addr, amt)| {
-                json!({
-                    "recipient": pox_addr.to_b58(),
-                    "amt": amt,
-                })
-            })
-            .collect();
-
-        let reward_slot_holders = slot_holders
-            .into_iter()
-            .map(|pox_addr| json!(pox_addr.to_b58()))
-            .collect();
-
-        json!({
-            "burn_block_hash": format!("0x{burn_block}"),
-            "burn_block_height": burn_block_height,
-            "reward_recipients": serde_json::Value::Array(reward_recipients),
-            "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
-            "burn_amount": burns,
-            "consensus_hash": format!("0x{consensus_hash}"),
-            "parent_burn_block_hash": format!("0x{parent_burn_block_hash}"),
-        })
-    }
-
-    /// Returns transaction event payload to send for new block or microblock event
-    fn make_new_block_txs_payload(
-        receipt: &StacksTransactionReceipt,
-        tx_index: u32,
-    ) -> TransactionEventPayload<'_> {
-        let tx = &receipt.transaction;
-
-        let status = match (receipt.post_condition_aborted, &receipt.result) {
-            (false, Value::Response(response_data)) => {
-                if response_data.committed {
-                    STATUS_RESP_TRUE
-                } else {
-                    STATUS_RESP_NOT_COMMITTED
-                }
-            }
-            (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
-            _ => {
-                if !matches!(
-                    tx,
-                    TransactionOrigin::Stacks(StacksTransaction {
-                        payload: TransactionPayload::PoisonMicroblock(_, _),
-                        ..
-                    })
-                ) {
-                    unreachable!("Unexpected transaction result type");
-                }
-                STATUS_RESP_TRUE
-            }
-        };
-
-        let (txid, raw_tx, burnchain_op) = match tx {
-            TransactionOrigin::Burn(op) => (op.txid(), "00".to_string(), Some(op.clone())),
-            TransactionOrigin::Stacks(ref tx) => {
-                let txid = tx.txid();
-                let bytes = to_hex(&tx.serialize_to_vec());
-                (txid, bytes, None)
-            }
-        };
-
-        TransactionEventPayload {
-            txid,
-            tx_index,
-            status,
-            raw_result: receipt.result.clone(),
-            raw_tx,
-            contract_interface: receipt.contract_analysis.as_ref().map(|analysis| {
-                build_contract_interface(analysis)
-                    .expect("FATAL: failed to serialize contract publish receipt")
-            }),
-            burnchain_op,
-            execution_cost: receipt.execution_cost.clone(),
-            microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),
-            microblock_hash: receipt.microblock_header.as_ref().map(|x| x.block_hash()),
-            microblock_parent_hash: receipt
-                .microblock_header
-                .as_ref()
-                .map(|x| x.prev_block.clone()),
-            vm_error: receipt.vm_error.clone(),
-        }
-    }
-
-    fn make_new_attachment_payload(
-        attachment: &(AttachmentInstance, Attachment),
-    ) -> serde_json::Value {
-        json!({
-            "attachment_index": attachment.0.attachment_index,
-            "index_block_hash": format!("0x{}", attachment.0.index_block_hash),
-            "block_height": attachment.0.stacks_block_height,
-            "content_hash": format!("0x{}", attachment.0.content_hash),
-            "contract_id": format!("{}", attachment.0.contract_id),
-            "metadata": format!("0x{}", attachment.0.metadata),
-            "tx_id": format!("0x{}", attachment.0.tx_id),
-            "content": to_hex_prefixed(&attachment.1.content, true),
-        })
-    }
-
-    fn send_new_attachments(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_ATTACHMENT_PROCESSED, None);
-    }
-
-    fn send_new_mempool_txs(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_MEMPOOL_TX_SUBMIT, None);
-    }
-
-    /// Serializes new microblocks data into a JSON payload and sends it off to the correct path
-    fn send_new_microblocks(
-        &self,
-        parent_index_block_hash: &StacksBlockId,
-        filtered_events: &[(usize, &(bool, Txid, &StacksTransactionEvent))],
-        serialized_txs: &[TransactionEventPayload],
-        burn_block_hash: &BurnchainHeaderHash,
-        burn_block_height: u32,
-        burn_block_timestamp: u64,
-    ) {
-        // Serialize events to JSON
-        let serialized_events: Vec<serde_json::Value> = filtered_events
-            .iter()
-            .map(|(event_index, (committed, txid, event))| {
-                event
-                    .json_serialize(*event_index, txid, *committed)
-                    .unwrap()
-            })
-            .collect();
-
-        let payload = json!({
-            "parent_index_block_hash": format!("0x{parent_index_block_hash}"),
-            "events": serialized_events,
-            "transactions": serialized_txs,
-            "burn_block_hash": format!("0x{burn_block_hash}"),
-            "burn_block_height": burn_block_height,
-            "burn_block_timestamp": burn_block_timestamp,
-        });
-
-        self.send_payload(&payload, PATH_MICROBLOCK_SUBMIT, None);
-    }
-
-    fn send_dropped_mempool_txs(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_MEMPOOL_TX_DROP, None);
-    }
-
-    fn send_mined_block(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_MINED_BLOCK, None);
-    }
-
-    fn send_mined_microblock(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_MINED_MICROBLOCK, None);
-    }
-
-    fn send_mined_nakamoto_block(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_MINED_NAKAMOTO_BLOCK, None);
-    }
-
-    fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_STACKERDB_CHUNKS, None);
-    }
-
-    fn send_new_burn_block(&self, payload: &serde_json::Value) {
-        self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT, None);
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn make_new_block_processed_payload(
-        &self,
-        filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
-        block: &StacksBlockEventData,
-        metadata: &StacksHeaderInfo,
-        receipts: &[StacksTransactionReceipt],
-        parent_index_hash: &StacksBlockId,
-        winner_txid: &Txid,
-        mature_rewards: &serde_json::Value,
-        parent_burn_block_hash: &BurnchainHeaderHash,
-        parent_burn_block_height: u32,
-        parent_burn_block_timestamp: u64,
-        anchored_consumed: &ExecutionCost,
-        mblock_confirmed_consumed: &ExecutionCost,
-        pox_constants: &PoxConstants,
-        reward_set_data: &Option<RewardSetData>,
-        signer_bitvec_opt: &Option<BitVec<4000>>,
-        block_timestamp: Option<u64>,
-        coinbase_height: u64,
-    ) -> serde_json::Value {
-        // Serialize events to JSON
-        let serialized_events: Vec<serde_json::Value> = filtered_events
-            .iter()
-            .map(|(event_index, (committed, txid, event))| {
-                event
-                    .json_serialize(*event_index, txid, *committed)
-                    .unwrap()
-            })
-            .collect();
-
-        let mut serialized_txs = vec![];
-        for (tx_index, receipt) in receipts.iter().enumerate() {
-            let payload = EventObserver::make_new_block_txs_payload(
-                receipt,
-                tx_index
-                    .try_into()
-                    .expect("BUG: more receipts than U32::MAX"),
-            );
-            serialized_txs.push(payload);
-        }
-
-        let signer_bitvec_value = signer_bitvec_opt
-            .as_ref()
-            .map(|bitvec| serde_json::to_value(bitvec).unwrap_or_default())
-            .unwrap_or_default();
-
-        let (reward_set_value, cycle_number_value) = match &reward_set_data {
-            Some(data) => (
-                serde_json::to_value(RewardSetEventPayload::from_reward_set(&data.reward_set))
-                    .unwrap_or_default(),
-                serde_json::to_value(data.cycle_number).unwrap_or_default(),
-            ),
-            None => (serde_json::Value::Null, serde_json::Value::Null),
-        };
-
-        // Wrap events
-        let mut payload = json!({
-            "block_hash": format!("0x{}", block.block_hash),
-            "block_height": metadata.stacks_block_height,
-            "block_time": block_timestamp,
-            "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
-            "burn_block_height": metadata.burn_header_height,
-            "miner_txid": format!("0x{winner_txid}"),
-            "burn_block_time": metadata.burn_header_timestamp,
-            "index_block_hash": format!("0x{}", metadata.index_block_hash()),
-            "parent_block_hash": format!("0x{}", block.parent_block_hash),
-            "parent_index_block_hash": format!("0x{parent_index_hash}"),
-            "parent_microblock": format!("0x{}", block.parent_microblock_hash),
-            "parent_microblock_sequence": block.parent_microblock_sequence,
-            "matured_miner_rewards": mature_rewards.clone(),
-            "events": serialized_events,
-            "transactions": serialized_txs,
-            "parent_burn_block_hash":  format!("0x{parent_burn_block_hash}"),
-            "parent_burn_block_height": parent_burn_block_height,
-            "parent_burn_block_timestamp": parent_burn_block_timestamp,
-            "anchored_cost": anchored_consumed,
-            "confirmed_microblocks_cost": mblock_confirmed_consumed,
-            "pox_v1_unlock_height": pox_constants.v1_unlock_height,
-            "pox_v2_unlock_height": pox_constants.v2_unlock_height,
-            "pox_v3_unlock_height": pox_constants.v3_unlock_height,
-            "signer_bitvec": signer_bitvec_value,
-            "reward_set": reward_set_value,
-            "cycle_number": cycle_number_value,
-            "tenure_height": coinbase_height,
-            "consensus_hash": format!("0x{}", metadata.consensus_hash),
-        });
-
-        let as_object_mut = payload.as_object_mut().unwrap();
-
-        if let StacksBlockHeaderTypes::Nakamoto(ref header) = &metadata.anchored_header {
-            as_object_mut.insert(
-                "signer_signature_hash".into(),
-                format!("0x{}", header.signer_signature_hash()).into(),
-            );
-            as_object_mut.insert(
-                "miner_signature".into(),
-                format!("0x{}", &header.miner_signature).into(),
-            );
-            as_object_mut.insert(
-                "signer_signature".into(),
-                serde_json::to_value(&header.signer_signature).unwrap_or_default(),
-            );
-        }
-
-        payload
     }
 }
 
@@ -978,7 +448,7 @@ impl ProposalCallbackReceiver for ProposalCallbackHandler {
             }
         };
         for observer in self.observers.iter() {
-            observer.send_payload(&response, PATH_PROPOSAL_RESPONSE, None);
+            EventDispatcher::send_payload(observer, &response, PATH_PROPOSAL_RESPONSE, None);
         }
     }
 }
@@ -1197,7 +667,7 @@ impl EventDispatcher {
             return;
         }
 
-        let payload = EventObserver::make_new_burn_block_payload(
+        let payload = EventDispatcher::make_new_burn_block_payload(
             burn_block,
             burn_block_height,
             rewards,
@@ -1208,7 +678,7 @@ impl EventDispatcher {
         );
 
         for observer in interested_observers.iter() {
-            observer.send_new_burn_block(&payload);
+            EventDispatcher::send_new_burn_block(&observer, &payload);
         }
     }
 
@@ -1370,29 +840,29 @@ impl EventDispatcher {
                     .map(|event_id| (*event_id, &events[*event_id]))
                     .collect();
 
-                let payload = self.registered_observers[observer_id]
-                    .make_new_block_processed_payload(
-                        filtered_events,
-                        block,
-                        metadata,
-                        receipts,
-                        parent_index_hash,
-                        &winner_txid,
-                        &mature_rewards,
-                        parent_burn_block_hash,
-                        parent_burn_block_height,
-                        parent_burn_block_timestamp,
-                        anchored_consumed,
-                        mblock_confirmed_consumed,
-                        pox_constants,
-                        reward_set_data,
-                        signer_bitvec,
-                        block_timestamp,
-                        coinbase_height,
-                    );
+                let payload = EventDispatcher::make_new_block_processed_payload(
+                    filtered_events,
+                    block,
+                    metadata,
+                    receipts,
+                    parent_index_hash,
+                    &winner_txid,
+                    &mature_rewards,
+                    parent_burn_block_hash,
+                    parent_burn_block_height,
+                    parent_burn_block_timestamp,
+                    anchored_consumed,
+                    mblock_confirmed_consumed,
+                    pox_constants,
+                    reward_set_data,
+                    signer_bitvec,
+                    block_timestamp,
+                    coinbase_height,
+                );
 
                 // Send payload
-                self.registered_observers[observer_id].send_payload(
+                EventDispatcher::send_payload(
+                    &self.registered_observers[observer_id],
                     &payload,
                     PATH_BLOCK_PROCESSED,
                     None,
@@ -1440,7 +910,7 @@ impl EventDispatcher {
         for (_, _, receipts) in processed_unconfirmed_state.receipts.iter() {
             tx_index = 0;
             for receipt in receipts.iter() {
-                let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
+                let payload = EventDispatcher::make_new_block_txs_payload(receipt, tx_index);
                 serialized_txs.push(payload);
                 tx_index += 1;
             }
@@ -1453,7 +923,8 @@ impl EventDispatcher {
                 .map(|event_id| (*event_id, &events[*event_id]))
                 .collect();
 
-            observer.send_new_microblocks(
+            EventDispatcher::send_new_microblocks(
+                observer,
                 &parent_index_block_hash,
                 &filtered_events,
                 &serialized_txs,
@@ -1489,10 +960,10 @@ impl EventDispatcher {
             return;
         }
 
-        let payload = EventObserver::make_new_mempool_txs_payload(txs);
+        let payload = EventDispatcher::make_new_mempool_txs_payload(txs);
 
         for observer in interested_observers.iter() {
-            observer.send_new_mempool_txs(&payload);
+            EventDispatcher::send_new_mempool_txs(observer, &payload);
         }
     }
 
@@ -1523,7 +994,7 @@ impl EventDispatcher {
         .unwrap();
 
         for observer in interested_observers.iter() {
-            observer.send_mined_block(&payload);
+            EventDispatcher::send_mined_block(observer, &payload);
         }
     }
 
@@ -1550,7 +1021,7 @@ impl EventDispatcher {
         .unwrap();
 
         for observer in interested_observers.iter() {
-            observer.send_mined_microblock(&payload);
+            EventDispatcher::send_mined_microblock(observer, &payload);
         }
     }
 
@@ -1591,7 +1062,7 @@ impl EventDispatcher {
         .unwrap();
 
         for observer in interested_observers.iter() {
-            observer.send_mined_nakamoto_block(&payload);
+            EventDispatcher::send_mined_nakamoto_block(observer, &payload);
         }
     }
 
@@ -1634,7 +1105,7 @@ impl EventDispatcher {
         }
 
         for observer in interested_observers.iter() {
-            observer.send_stackerdb_chunks(&payload);
+            EventDispatcher::send_stackerdb_chunks(observer, &payload);
         }
     }
 
@@ -1674,7 +1145,7 @@ impl EventDispatcher {
         };
 
         for observer in interested_observers.iter() {
-            observer.send_dropped_mempool_txs(&payload);
+            EventDispatcher::send_dropped_mempool_txs(observer, &payload);
         }
     }
 
@@ -1686,12 +1157,12 @@ impl EventDispatcher {
 
         let mut serialized_attachments = vec![];
         for attachment in attachments.iter() {
-            let payload = EventObserver::make_new_attachment_payload(attachment);
+            let payload = EventDispatcher::make_new_attachment_payload(attachment);
             serialized_attachments.push(payload);
         }
 
         for (_, observer) in interested_observers.iter() {
-            observer.send_new_attachments(&json!(serialized_attachments));
+            EventDispatcher::send_new_attachments(observer, &json!(serialized_attachments));
         }
     }
 
@@ -1806,10 +1277,10 @@ impl EventDispatcher {
             )",
             [],
         )?;
-        if let Some(col_type) = EventObserver::get_payload_column_type(&conn)? {
+        if let Some(col_type) = EventDispatcher::get_payload_column_type(&conn)? {
             if col_type.eq_ignore_ascii_case("TEXT") {
                 info!("Event observer: migrating pending_payloads.payload from TEXT to BLOB");
-                EventObserver::migrate_payload_column_to_blob(&mut conn)?;
+                EventDispatcher::migrate_payload_column_to_blob(&mut conn)?;
             }
         }
         Ok(conn)
@@ -1893,7 +1364,12 @@ impl EventDispatcher {
                 continue;
             };
 
-            observer.send_payload_with_bytes(payload_bytes, full_url.path(), Some(id));
+            EventDispatcher::send_payload_with_bytes(
+                observer,
+                payload_bytes,
+                full_url.path(),
+                Some(id),
+            );
 
             #[cfg(test)]
             if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
@@ -1908,6 +1384,544 @@ impl EventDispatcher {
                 );
             }
         }
+    }
+
+    fn get_payload_column_type(conn: &Connection) -> Result<Option<String>, db_error> {
+        let mut stmt = conn.prepare("PRAGMA table_info(pending_payloads)")?;
+        let rows = stmt.query_map([], |row| {
+            let name: String = row.get(1)?;
+            let col_type: String = row.get(2)?;
+            Ok((name, col_type))
+        })?;
+
+        for row in rows {
+            let (name, col_type) = row?;
+            if name == "payload" {
+                return Ok(Some(col_type));
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn migrate_payload_column_to_blob(conn: &mut Connection) -> Result<(), db_error> {
+        let tx = conn.transaction()?;
+        tx.execute(
+            "ALTER TABLE pending_payloads RENAME TO pending_payloads_old",
+            [],
+        )?;
+        tx.execute(
+            "CREATE TABLE pending_payloads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                payload BLOB NOT NULL,
+                timeout INTEGER NOT NULL
+            )",
+            [],
+        )?;
+        tx.execute(
+            "INSERT INTO pending_payloads (id, url, payload, timeout)
+                SELECT id, url, CAST(payload AS BLOB), timeout FROM pending_payloads_old",
+            [],
+        )?;
+        tx.execute("DROP TABLE pending_payloads_old", [])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn insert_payload(
+        conn: &Connection,
+        url: &str,
+        payload_bytes: &[u8],
+        timeout: Duration,
+    ) -> Result<(), db_error> {
+        let timeout_ms: u64 = timeout.as_millis().try_into().expect("Timeout too large");
+        conn.execute(
+            "INSERT INTO pending_payloads (url, payload, timeout) VALUES (?1, ?2, ?3)",
+            params![url, payload_bytes, timeout_ms],
+        )?;
+        Ok(())
+    }
+
+    /// Insert a payload into the database, retrying on failure.
+    fn insert_payload_with_retry(
+        conn: &Connection,
+        url: &str,
+        payload_bytes: &[u8],
+        timeout: Duration,
+    ) {
+        let mut attempts = 0i64;
+        let mut backoff = Duration::from_millis(100); // Initial backoff duration
+        let max_backoff = Duration::from_secs(5); // Cap the backoff duration
+
+        loop {
+            match Self::insert_payload(conn, url, payload_bytes, timeout) {
+                Ok(_) => {
+                    // Successful insert, break the loop
+                    return;
+                }
+                Err(err) => {
+                    // Log the error, then retry after a delay
+                    warn!("Failed to insert payload into event observer database: {err:?}";
+                        "backoff" => ?backoff,
+                        "attempts" => attempts
+                    );
+
+                    // Wait for the backoff duration
+                    sleep(backoff);
+
+                    // Increase the backoff duration (with exponential backoff)
+                    backoff = std::cmp::min(backoff.saturating_mul(2), max_backoff);
+
+                    attempts = attempts.saturating_add(1);
+                }
+            }
+        }
+    }
+
+    fn send_payload_directly(
+        payload_bytes: &Arc<[u8]>,
+        full_url: &str,
+        timeout: Duration,
+        disable_retries: bool,
+    ) -> bool {
+        debug!(
+            "Event dispatcher: Sending payload"; "url" => %full_url, "bytes" => payload_bytes.len()
+        );
+
+        let url = Url::parse(full_url)
+            .unwrap_or_else(|_| panic!("Event dispatcher: unable to parse {full_url} as a URL"));
+
+        let host = url.host_str().expect("Invalid URL: missing host");
+        let port = url.port_or_known_default().unwrap_or(80);
+        let peerhost: PeerHost = format!("{host}:{port}")
+            .parse()
+            .unwrap_or(PeerHost::DNS(host.to_string(), port));
+
+        let mut backoff = Duration::from_millis(100);
+        let mut attempts: i32 = 0;
+        // Cap the backoff at 3x the timeout
+        let max_backoff = timeout.saturating_mul(3);
+
+        loop {
+            let mut request = StacksHttpRequest::new_for_peer(
+                peerhost.clone(),
+                "POST".into(),
+                url.path().into(),
+                HttpRequestContents::new().payload_json_bytes(Arc::clone(payload_bytes)),
+            )
+            .unwrap_or_else(|_| panic!("FATAL: failed to encode infallible data as HTTP request"));
+            request.add_header("Connection".into(), "close".into());
+            match send_http_request(host, port, request, timeout) {
+                Ok(response) => {
+                    if response.preamble().status_code == 200 {
+                        debug!(
+                            "Event dispatcher: Successful POST"; "url" => %url
+                        );
+                        break;
+                    } else {
+                        error!(
+                            "Event dispatcher: Failed POST"; "url" => %url, "response" => ?response.preamble()
+                        );
+                    }
+                }
+                Err(err) => {
+                    warn!(
+                        "Event dispatcher: connection or request failed to {host}:{port} - {err:?}";
+                        "backoff" => ?backoff,
+                        "attempts" => attempts
+                    );
+                }
+            }
+
+            if disable_retries {
+                warn!("Observer is configured in disable_retries mode: skipping retry of payload");
+                return false;
+            }
+
+            #[cfg(test)]
+            if TEST_EVENT_OBSERVER_SKIP_RETRY.get() {
+                warn!("Fault injection: skipping retry of payload");
+                return false;
+            }
+
+            sleep(backoff);
+            let jitter: u64 = rand::thread_rng().gen_range(0..100);
+            backoff = std::cmp::min(
+                backoff.saturating_mul(2) + Duration::from_millis(jitter),
+                max_backoff,
+            );
+            attempts = attempts.saturating_add(1);
+        }
+        true
+    }
+
+    /// Send the payload to the given URL.
+    /// Before sending this payload, any pending payloads in the database will be sent first.
+    fn send_payload(
+        event_observer: &EventObserver,
+        payload: &serde_json::Value,
+        path: &str,
+        id: Option<i64>,
+    ) {
+        let payload_bytes = match serde_json::to_vec(payload) {
+            Ok(bytes) => Arc::<[u8]>::from(bytes),
+            Err(err) => {
+                error!(
+                    "Event dispatcher: failed to serialize payload"; "path" => path, "error" => ?err
+                );
+                return;
+            }
+        };
+        EventDispatcher::send_payload_with_bytes(event_observer, payload_bytes, path, id);
+    }
+
+    fn send_payload_with_bytes(
+        event_observer: &EventObserver,
+        payload_bytes: Arc<[u8]>,
+        path: &str,
+        id: Option<i64>,
+    ) {
+        // Construct the full URL
+        let url_str = if path.starts_with('/') {
+            format!("{}{path}", &event_observer.endpoint)
+        } else {
+            format!("{}/{path}", &event_observer.endpoint)
+        };
+        let full_url = format!("http://{url_str}");
+
+        // if the observer is in "disable_retries" mode quickly send the payload without checking for the db
+        if event_observer.disable_retries {
+            Self::send_payload_directly(&payload_bytes, &full_url, event_observer.timeout, true);
+        } else if let Some(db_path) = &event_observer.db_path {
+            let conn =
+                Connection::open(db_path).expect("Failed to open database for event observer");
+
+            let id = match id {
+                Some(id) => id,
+                None => {
+                    Self::insert_payload_with_retry(
+                        &conn,
+                        &full_url,
+                        payload_bytes.as_ref(),
+                        event_observer.timeout,
+                    );
+                    conn.last_insert_rowid()
+                }
+            };
+
+            let success = Self::send_payload_directly(
+                &payload_bytes,
+                &full_url,
+                event_observer.timeout,
+                false,
+            );
+            // This is only `false` when the TestFlag is set to skip retries
+            if !success {
+                return;
+            }
+
+            if let Err(e) = Self::delete_payload(&conn, id) {
+                error!(
+                    "Event observer: failed to delete pending payload from database";
+                    "error" => ?e
+                );
+            }
+        } else {
+            // No database, just send the payload
+            Self::send_payload_directly(&payload_bytes, &full_url, event_observer.timeout, false);
+        }
+    }
+
+    fn make_new_mempool_txs_payload(transactions: Vec<StacksTransaction>) -> serde_json::Value {
+        let raw_txs = transactions
+            .into_iter()
+            .map(|tx| serde_json::Value::String(to_hex_prefixed(&tx.serialize_to_vec(), true)))
+            .collect();
+
+        serde_json::Value::Array(raw_txs)
+    }
+
+    fn make_new_burn_block_payload(
+        burn_block: &BurnchainHeaderHash,
+        burn_block_height: u64,
+        rewards: Vec<(PoxAddress, u64)>,
+        burns: u64,
+        slot_holders: Vec<PoxAddress>,
+        consensus_hash: &ConsensusHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
+    ) -> serde_json::Value {
+        let reward_recipients = rewards
+            .into_iter()
+            .map(|(pox_addr, amt)| {
+                json!({
+                    "recipient": pox_addr.to_b58(),
+                    "amt": amt,
+                })
+            })
+            .collect();
+
+        let reward_slot_holders = slot_holders
+            .into_iter()
+            .map(|pox_addr| json!(pox_addr.to_b58()))
+            .collect();
+
+        json!({
+            "burn_block_hash": format!("0x{burn_block}"),
+            "burn_block_height": burn_block_height,
+            "reward_recipients": serde_json::Value::Array(reward_recipients),
+            "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
+            "burn_amount": burns,
+            "consensus_hash": format!("0x{consensus_hash}"),
+            "parent_burn_block_hash": format!("0x{parent_burn_block_hash}"),
+        })
+    }
+
+    /// Returns transaction event payload to send for new block or microblock event
+    fn make_new_block_txs_payload(
+        receipt: &StacksTransactionReceipt,
+        tx_index: u32,
+    ) -> TransactionEventPayload<'_> {
+        let tx = &receipt.transaction;
+
+        let status = match (receipt.post_condition_aborted, &receipt.result) {
+            (false, Value::Response(response_data)) => {
+                if response_data.committed {
+                    STATUS_RESP_TRUE
+                } else {
+                    STATUS_RESP_NOT_COMMITTED
+                }
+            }
+            (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
+            _ => {
+                if !matches!(
+                    tx,
+                    TransactionOrigin::Stacks(StacksTransaction {
+                        payload: TransactionPayload::PoisonMicroblock(_, _),
+                        ..
+                    })
+                ) {
+                    unreachable!("Unexpected transaction result type");
+                }
+                STATUS_RESP_TRUE
+            }
+        };
+
+        let (txid, raw_tx, burnchain_op) = match tx {
+            TransactionOrigin::Burn(op) => (op.txid(), "00".to_string(), Some(op.clone())),
+            TransactionOrigin::Stacks(ref tx) => {
+                let txid = tx.txid();
+                let bytes = to_hex(&tx.serialize_to_vec());
+                (txid, bytes, None)
+            }
+        };
+
+        TransactionEventPayload {
+            txid,
+            tx_index,
+            status,
+            raw_result: receipt.result.clone(),
+            raw_tx,
+            contract_interface: receipt.contract_analysis.as_ref().map(|analysis| {
+                build_contract_interface(analysis)
+                    .expect("FATAL: failed to serialize contract publish receipt")
+            }),
+            burnchain_op,
+            execution_cost: receipt.execution_cost.clone(),
+            microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),
+            microblock_hash: receipt.microblock_header.as_ref().map(|x| x.block_hash()),
+            microblock_parent_hash: receipt
+                .microblock_header
+                .as_ref()
+                .map(|x| x.prev_block.clone()),
+            vm_error: receipt.vm_error.clone(),
+        }
+    }
+
+    fn make_new_attachment_payload(
+        attachment: &(AttachmentInstance, Attachment),
+    ) -> serde_json::Value {
+        json!({
+            "attachment_index": attachment.0.attachment_index,
+            "index_block_hash": format!("0x{}", attachment.0.index_block_hash),
+            "block_height": attachment.0.stacks_block_height,
+            "content_hash": format!("0x{}", attachment.0.content_hash),
+            "contract_id": format!("{}", attachment.0.contract_id),
+            "metadata": format!("0x{}", attachment.0.metadata),
+            "tx_id": format!("0x{}", attachment.0.tx_id),
+            "content": to_hex_prefixed(&attachment.1.content, true),
+        })
+    }
+
+    fn send_new_attachments(event_observer: &EventObserver, payload: &serde_json::Value) {
+        Self::send_payload(event_observer, payload, PATH_ATTACHMENT_PROCESSED, None);
+    }
+
+    fn send_new_mempool_txs(event_observer: &EventObserver, payload: &serde_json::Value) {
+        Self::send_payload(event_observer, payload, PATH_MEMPOOL_TX_SUBMIT, None);
+    }
+
+    /// Serializes new microblocks data into a JSON payload and sends it off to the correct path
+    fn send_new_microblocks(
+        event_observer: &EventObserver,
+        parent_index_block_hash: &StacksBlockId,
+        filtered_events: &[(usize, &(bool, Txid, &StacksTransactionEvent))],
+        serialized_txs: &[TransactionEventPayload],
+        burn_block_hash: &BurnchainHeaderHash,
+        burn_block_height: u32,
+        burn_block_timestamp: u64,
+    ) {
+        // Serialize events to JSON
+        let serialized_events: Vec<serde_json::Value> = filtered_events
+            .iter()
+            .map(|(event_index, (committed, txid, event))| {
+                event
+                    .json_serialize(*event_index, txid, *committed)
+                    .unwrap()
+            })
+            .collect();
+
+        let payload = json!({
+            "parent_index_block_hash": format!("0x{parent_index_block_hash}"),
+            "events": serialized_events,
+            "transactions": serialized_txs,
+            "burn_block_hash": format!("0x{burn_block_hash}"),
+            "burn_block_height": burn_block_height,
+            "burn_block_timestamp": burn_block_timestamp,
+        });
+
+        Self::send_payload(event_observer, &payload, PATH_MICROBLOCK_SUBMIT, None);
+    }
+
+    fn send_dropped_mempool_txs(event_observer: &EventObserver, payload: &serde_json::Value) {
+        Self::send_payload(event_observer, payload, PATH_MEMPOOL_TX_DROP, None);
+    }
+
+    fn send_mined_block(event_observer: &EventObserver, payload: &serde_json::Value) {
+        Self::send_payload(event_observer, payload, PATH_MINED_BLOCK, None);
+    }
+
+    fn send_mined_microblock(event_observer: &EventObserver, payload: &serde_json::Value) {
+        Self::send_payload(event_observer, payload, PATH_MINED_MICROBLOCK, None);
+    }
+
+    fn send_mined_nakamoto_block(event_observer: &EventObserver, payload: &serde_json::Value) {
+        Self::send_payload(event_observer, payload, PATH_MINED_NAKAMOTO_BLOCK, None);
+    }
+
+    fn send_stackerdb_chunks(event_observer: &EventObserver, payload: &serde_json::Value) {
+        Self::send_payload(event_observer, payload, PATH_STACKERDB_CHUNKS, None);
+    }
+
+    fn send_new_burn_block(event_observer: &EventObserver, payload: &serde_json::Value) {
+        Self::send_payload(event_observer, payload, PATH_BURN_BLOCK_SUBMIT, None);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_new_block_processed_payload(
+        filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
+        block: &StacksBlockEventData,
+        metadata: &StacksHeaderInfo,
+        receipts: &[StacksTransactionReceipt],
+        parent_index_hash: &StacksBlockId,
+        winner_txid: &Txid,
+        mature_rewards: &serde_json::Value,
+        parent_burn_block_hash: &BurnchainHeaderHash,
+        parent_burn_block_height: u32,
+        parent_burn_block_timestamp: u64,
+        anchored_consumed: &ExecutionCost,
+        mblock_confirmed_consumed: &ExecutionCost,
+        pox_constants: &PoxConstants,
+        reward_set_data: &Option<RewardSetData>,
+        signer_bitvec_opt: &Option<BitVec<4000>>,
+        block_timestamp: Option<u64>,
+        coinbase_height: u64,
+    ) -> serde_json::Value {
+        // Serialize events to JSON
+        let serialized_events: Vec<serde_json::Value> = filtered_events
+            .iter()
+            .map(|(event_index, (committed, txid, event))| {
+                event
+                    .json_serialize(*event_index, txid, *committed)
+                    .unwrap()
+            })
+            .collect();
+
+        let mut serialized_txs = vec![];
+        for (tx_index, receipt) in receipts.iter().enumerate() {
+            let payload = EventDispatcher::make_new_block_txs_payload(
+                receipt,
+                tx_index
+                    .try_into()
+                    .expect("BUG: more receipts than U32::MAX"),
+            );
+            serialized_txs.push(payload);
+        }
+
+        let signer_bitvec_value = signer_bitvec_opt
+            .as_ref()
+            .map(|bitvec| serde_json::to_value(bitvec).unwrap_or_default())
+            .unwrap_or_default();
+
+        let (reward_set_value, cycle_number_value) = match &reward_set_data {
+            Some(data) => (
+                serde_json::to_value(RewardSetEventPayload::from_reward_set(&data.reward_set))
+                    .unwrap_or_default(),
+                serde_json::to_value(data.cycle_number).unwrap_or_default(),
+            ),
+            None => (serde_json::Value::Null, serde_json::Value::Null),
+        };
+
+        // Wrap events
+        let mut payload = json!({
+            "block_hash": format!("0x{}", block.block_hash),
+            "block_height": metadata.stacks_block_height,
+            "block_time": block_timestamp,
+            "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
+            "burn_block_height": metadata.burn_header_height,
+            "miner_txid": format!("0x{winner_txid}"),
+            "burn_block_time": metadata.burn_header_timestamp,
+            "index_block_hash": format!("0x{}", metadata.index_block_hash()),
+            "parent_block_hash": format!("0x{}", block.parent_block_hash),
+            "parent_index_block_hash": format!("0x{parent_index_hash}"),
+            "parent_microblock": format!("0x{}", block.parent_microblock_hash),
+            "parent_microblock_sequence": block.parent_microblock_sequence,
+            "matured_miner_rewards": mature_rewards.clone(),
+            "events": serialized_events,
+            "transactions": serialized_txs,
+            "parent_burn_block_hash":  format!("0x{parent_burn_block_hash}"),
+            "parent_burn_block_height": parent_burn_block_height,
+            "parent_burn_block_timestamp": parent_burn_block_timestamp,
+            "anchored_cost": anchored_consumed,
+            "confirmed_microblocks_cost": mblock_confirmed_consumed,
+            "pox_v1_unlock_height": pox_constants.v1_unlock_height,
+            "pox_v2_unlock_height": pox_constants.v2_unlock_height,
+            "pox_v3_unlock_height": pox_constants.v3_unlock_height,
+            "signer_bitvec": signer_bitvec_value,
+            "reward_set": reward_set_value,
+            "cycle_number": cycle_number_value,
+            "tenure_height": coinbase_height,
+            "consensus_hash": format!("0x{}", metadata.consensus_hash),
+        });
+
+        let as_object_mut = payload.as_object_mut().unwrap();
+
+        if let StacksBlockHeaderTypes::Nakamoto(ref header) = &metadata.anchored_header {
+            as_object_mut.insert(
+                "signer_signature_hash".into(),
+                format!("0x{}", header.signer_signature_hash()).into(),
+            );
+            as_object_mut.insert(
+                "miner_signature".into(),
+                format!("0x{}", &header.miner_signature).into(),
+            );
+            as_object_mut.insert(
+                "signer_signature".into(),
+                serde_json::to_value(&header.signer_signature).unwrap_or_default(),
+            );
+        }
+
+        payload
     }
 }
 
@@ -1960,9 +1974,6 @@ mod test {
 
     #[test]
     fn build_block_processed_event() {
-        let observer =
-            EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3), false);
-
         let filtered_events = vec![];
         let block = StacksBlock::genesis_block();
         let metadata = StacksHeaderInfo::regtest_genesis();
@@ -1980,7 +1991,7 @@ mod test {
         let block_timestamp = Some(123456);
         let coinbase_height = 1234;
 
-        let payload = observer.make_new_block_processed_payload(
+        let payload = EventDispatcher::make_new_block_processed_payload(
             filtered_events,
             &block.into(),
             &metadata,
@@ -2021,9 +2032,6 @@ mod test {
 
     #[test]
     fn test_block_processed_event_nakamoto() {
-        let observer =
-            EventObserver::new(None, "nowhere".to_string(), Duration::from_secs(3), false);
-
         let filtered_events = vec![];
         let mut block_header = NakamotoBlockHeader::empty();
         let signer_signature = vec![
@@ -2051,7 +2059,7 @@ mod test {
         let block_timestamp = Some(123456);
         let coinbase_height = 1234;
 
-        let payload = observer.make_new_block_processed_payload(
+        let payload = EventDispatcher::make_new_block_processed_payload(
             filtered_events,
             &StacksBlockEventData::from((block, BlockHeaderHash([0; 32]))),
             &metadata,
@@ -2226,7 +2234,7 @@ mod test {
 
         // Insert payload
         let insert_result =
-            EventObserver::insert_payload(&conn, url, payload_bytes.as_slice(), timeout);
+            EventDispatcher::insert_payload(&conn, url, payload_bytes.as_slice(), timeout);
         assert!(insert_result.is_ok(), "Failed to insert payload");
 
         // Get pending payloads
@@ -2261,7 +2269,7 @@ mod test {
         let payload_bytes = serde_json::to_vec(&payload).expect("Failed to serialize payload");
 
         // Insert payload
-        EventObserver::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
+        EventDispatcher::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
             .expect("Failed to insert payload");
 
         // Get pending payloads
@@ -2272,7 +2280,7 @@ mod test {
         let (id, _, _, _) = pending_payloads[0];
 
         // Delete payload
-        let delete_result = EventObserver::delete_payload(&conn, id);
+        let delete_result = EventDispatcher::delete_payload(&conn, id);
         assert!(delete_result.is_ok(), "Failed to delete payload");
 
         // Verify that the pending payloads list is empty
@@ -2320,7 +2328,7 @@ mod test {
         TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Insert payload
-        EventObserver::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
+        EventDispatcher::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
             .expect("Failed to insert payload");
 
         // Process pending payloads
@@ -2372,7 +2380,7 @@ mod test {
         // Use a different URL than the observer's endpoint
         let url = "http://different-domain.com/api";
 
-        EventObserver::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
+        EventDispatcher::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
             .expect("Failed to insert payload");
 
         dispatcher.process_pending_payloads();
@@ -2454,7 +2462,7 @@ mod test {
         TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
         // Call send_payload
-        observer.send_payload(&payload, "/test", None);
+        EventDispatcher::send_payload(&observer, &payload, "/test", None);
 
         // Verify that the payload was sent and database is empty
         _m.assert();
@@ -2489,7 +2497,7 @@ mod test {
         let observer = EventObserver::new(None, endpoint, timeout, false);
 
         // Call send_payload
-        observer.send_payload(&payload, "/test", None);
+        EventDispatcher::send_payload(&observer, &payload, "/test", None);
 
         // Verify that the payload was sent
         _m.assert();
@@ -2526,7 +2534,7 @@ mod test {
 
         let payload = json!({"key": "value"});
 
-        observer.send_payload(&payload, "/test", None);
+        EventDispatcher::send_payload(&observer, &payload, "/test", None);
 
         // Wait for the server to process the request
         rx.recv_timeout(Duration::from_secs(5))
@@ -2579,7 +2587,7 @@ mod test {
 
         let payload = json!({"key": "value"});
 
-        observer.send_payload(&payload, "/test", None);
+        EventDispatcher::send_payload(&observer, &payload, "/test", None);
 
         // Wait for the server to process the request
         rx.recv_timeout(Duration::from_secs(5))
@@ -2630,7 +2638,7 @@ mod test {
         let start_time = Instant::now();
 
         // Call the function being tested
-        observer.send_payload(&payload, "/test", None);
+        EventDispatcher::send_payload(&observer, &payload, "/test", None);
 
         // Record the time after the function returns
         let elapsed_time = start_time.elapsed();
@@ -2736,7 +2744,7 @@ mod test {
         info!("Sending payload 1");
 
         // Send the payload
-        observer.send_payload(&payload, "/test", None);
+        EventDispatcher::send_payload(&observer, &payload, "/test", None);
 
         // Re-enable retrying
         TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
@@ -2746,7 +2754,7 @@ mod test {
         info!("Sending payload 2");
 
         // Send another payload
-        observer.send_payload(&payload2, "/test", None);
+        EventDispatcher::send_payload(&observer, &payload2, "/test", None);
 
         // Wait for the server to process the requests
         rx.recv_timeout(Duration::from_secs(5))
@@ -2767,7 +2775,7 @@ mod test {
         let observer = EventObserver::new(None, endpoint, timeout, true);
 
         // in non "disable_retries" mode this will run forever
-        observer.send_payload(&payload, "/test", None);
+        EventDispatcher::send_payload(&observer, &payload, "/test", None);
 
         // Verify that the payload was sent
         _m.assert();
@@ -2783,7 +2791,7 @@ mod test {
         let observer = EventObserver::new(None, endpoint, timeout, true);
 
         // in non "disable_retries" mode this will run forever
-        observer.send_payload(&payload, "/test", None);
+        EventDispatcher::send_payload(&observer, &payload, "/test", None);
     }
 
     #[test]
@@ -2871,12 +2879,12 @@ mod test {
             tx_index: 0,
         };
 
-        let payload_no_error = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        let payload_no_error = EventDispatcher::make_new_block_txs_payload(&receipt, 0);
         assert_eq!(payload_no_error.vm_error, receipt.vm_error);
 
         receipt.vm_error = Some("Inconceivable!".into());
 
-        let payload_with_error = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        let payload_with_error = EventDispatcher::make_new_block_txs_payload(&receipt, 0);
         assert_eq!(payload_with_error.vm_error, receipt.vm_error);
     }
 
@@ -2945,7 +2953,7 @@ mod test {
             tx_index: 1,
             vm_error: None,
         };
-        let payload = EventObserver::make_new_block_txs_payload(&receipt, 0);
+        let payload = EventDispatcher::make_new_block_txs_payload(&receipt, 0);
         let new_serialized_data = serde_json::to_string_pretty(&payload).expect("Failed");
         let old_serialized_data = r#"
         {
