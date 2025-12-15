@@ -15,6 +15,7 @@ required:
   - reward_cycle_length
   - contract_versions
   - epochs
+  - current_epoch
 properties:
   contract_id:
     type: string
