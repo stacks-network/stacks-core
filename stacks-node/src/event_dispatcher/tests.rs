@@ -7,6 +7,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::SmartContractEventData;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::Value;
+use rusqlite::Connection;
 use serial_test::serial;
 use stacks::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks::burnchains::{PoxConstants, Txid};
@@ -210,145 +211,6 @@ fn get_random_port() -> u16 {
 }
 
 #[test]
-fn test_init_db() {
-    let dir = tempdir().unwrap();
-    let db_path = dir.path().join("test_init_db.sqlite");
-
-    // Call init_db
-    let conn_result = EventDispatcher::init_db(&db_path);
-    assert!(conn_result.is_ok(), "Failed to initialize the database");
-
-    // Check that the database file exists
-    assert!(db_path.exists(), "Database file was not created");
-
-    // Check that the table exists
-    let conn = conn_result.unwrap();
-    let mut stmt = conn
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_payloads'")
-        .unwrap();
-    let table_exists = stmt.exists([]).unwrap();
-    assert!(table_exists, "Table 'pending_payloads' does not exist");
-}
-
-#[test]
-fn test_migrate_payload_column_to_blob() {
-    let dir = tempdir().unwrap();
-    let db_path = dir.path().join("test_payload_migration.sqlite");
-
-    // Simulate old schema with TEXT payloads.
-    let conn = Connection::open(&db_path).unwrap();
-    conn.execute(
-        "CREATE TABLE pending_payloads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                timeout INTEGER NOT NULL
-            )",
-        [],
-    )
-    .unwrap();
-    let payload_str = "{\"key\":\"value\"}";
-    conn.execute(
-        "INSERT INTO pending_payloads (url, payload, timeout) VALUES (?1, ?2, ?3)",
-        params!["http://example.com/api", payload_str, 5000i64],
-    )
-    .unwrap();
-    drop(conn);
-
-    let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
-
-    let col_type: String = conn
-        .query_row(
-            "SELECT type FROM pragma_table_info('pending_payloads') WHERE name = 'payload'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert!(
-        col_type.eq_ignore_ascii_case("BLOB"),
-        "Payload column was not migrated to BLOB"
-    );
-
-    let pending_payloads =
-        EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
-    assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
-    assert_eq!(
-        pending_payloads[0].2.as_ref(),
-        payload_str.as_bytes(),
-        "Payload contents did not survive migration"
-    );
-}
-
-#[test]
-fn test_insert_and_get_pending_payloads() {
-    let dir = tempdir().unwrap();
-    let db_path = dir.path().join("test_payloads.sqlite");
-
-    let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
-
-    let url = "http://example.com/api";
-    let payload = json!({"key": "value"});
-    let timeout = Duration::from_secs(5);
-    let payload_bytes = serde_json::to_vec(&payload).expect("Failed to serialize payload");
-
-    // Insert payload
-    let insert_result =
-        EventDispatcher::insert_payload(&conn, url, payload_bytes.as_slice(), timeout);
-    assert!(insert_result.is_ok(), "Failed to insert payload");
-
-    // Get pending payloads
-    let pending_payloads =
-        EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
-    assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
-
-    let (_id, retrieved_url, stored_bytes, timeout_ms) = &pending_payloads[0];
-    assert_eq!(retrieved_url, url, "URL does not match");
-    assert_eq!(
-        stored_bytes.as_ref(),
-        payload_bytes.as_slice(),
-        "Serialized payload does not match"
-    );
-    assert_eq!(
-        *timeout_ms,
-        timeout.as_millis() as u64,
-        "Timeout does not match"
-    );
-}
-
-#[test]
-fn test_delete_payload() {
-    let dir = tempdir().unwrap();
-    let db_path = dir.path().join("test_delete_payload.sqlite");
-
-    let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
-
-    let url = "http://example.com/api";
-    let payload = json!({"key": "value"});
-    let timeout = Duration::from_secs(5);
-    let payload_bytes = serde_json::to_vec(&payload).expect("Failed to serialize payload");
-
-    // Insert payload
-    EventDispatcher::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
-        .expect("Failed to insert payload");
-
-    // Get pending payloads
-    let pending_payloads =
-        EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
-    assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
-
-    let (id, _, _, _) = pending_payloads[0];
-
-    // Delete payload
-    let delete_result = EventDispatcher::delete_payload(&conn, id);
-    assert!(delete_result.is_ok(), "Failed to delete payload");
-
-    // Verify that the pending payloads list is empty
-    let pending_payloads =
-        EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
-    assert_eq!(pending_payloads.len(), 0, "Expected no pending payloads");
-}
-
-#[test]
 #[serial]
 fn test_process_pending_payloads() {
     use mockito::Matcher;
@@ -369,7 +231,8 @@ fn test_process_pending_payloads() {
         disable_retries: false,
     });
 
-    let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
+    let conn =
+        EventDispatcherDbConnection::new(&db_path).expect("Failed to initialize the database");
 
     let payload = json!({"key": "value"});
     let payload_bytes = serde_json::to_vec(&payload).expect("Failed to serialize payload");
@@ -387,15 +250,16 @@ fn test_process_pending_payloads() {
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
     // Insert payload
-    EventDispatcher::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
+    conn.insert_payload(url, payload_bytes.as_slice(), timeout)
         .expect("Failed to insert payload");
 
     // Process pending payloads
     dispatcher.process_pending_payloads();
 
     // Verify that the pending payloads list is empty
-    let pending_payloads =
-        EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+    let pending_payloads = conn
+        .get_pending_payloads()
+        .expect("Failed to get pending payloads");
     assert_eq!(pending_payloads.len(), 0, "Expected no pending payloads");
 
     // Verify that the mock was called
@@ -419,7 +283,8 @@ fn pending_payloads_are_skipped_if_url_does_not_match() {
         disable_retries: false,
     });
 
-    let conn = EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
+    let conn =
+        EventDispatcherDbConnection::new(&db_path).expect("Failed to initialize the database");
 
     let payload = json!({"key": "value"});
     let payload_bytes = serde_json::to_vec(&payload).expect("Failed to serialize payload");
@@ -439,13 +304,14 @@ fn pending_payloads_are_skipped_if_url_does_not_match() {
     // Use a different URL than the observer's endpoint
     let url = "http://different-domain.com/api";
 
-    EventDispatcher::insert_payload(&conn, url, payload_bytes.as_slice(), timeout)
+    conn.insert_payload(url, payload_bytes.as_slice(), timeout)
         .expect("Failed to insert payload");
 
     dispatcher.process_pending_payloads();
 
-    let pending_payloads =
-        EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+    let pending_payloads = conn
+        .get_pending_payloads()
+        .expect("Failed to get pending payloads");
     // Verify that the pending payload is no longer in the database,
     // because this observer is no longer registered.
     assert_eq!(
@@ -472,7 +338,7 @@ fn test_new_event_dispatcher_with_db() {
         "Database file was created too soon"
     );
 
-    EventDispatcher::init_db(&expected_db_path).expect("Failed to initialize the database");
+    EventDispatcherDbConnection::new(&expected_db_path).expect("Failed to initialize the database");
 
     // Verify that the database was initialized
     assert!(expected_db_path.exists(), "Database file was not created");
@@ -502,7 +368,7 @@ fn test_send_payload_with_db() {
 
     let dispatcher = EventDispatcher::new(Some(working_dir.clone()));
     let db_path = dispatcher.clone().db_path.clone().unwrap();
-    EventDispatcher::init_db(&db_path).expect("Failed to initialize the database");
+    EventDispatcherDbConnection::new(&db_path).expect("Failed to initialize the database");
 
     // Create a mock server
     let mut server = mockito::Server::new();
@@ -530,8 +396,9 @@ fn test_send_payload_with_db() {
     let db_path = observer.db_path.unwrap();
     let db_path_str = db_path.to_str().unwrap();
     let conn = Connection::open(db_path_str).expect("Failed to open database");
-    let pending_payloads =
-        EventDispatcher::get_pending_payloads(&conn).expect("Failed to get pending payloads");
+    let pending_payloads = EventDispatcherDbConnection::new_from_exisiting_connection(conn)
+        .get_pending_payloads()
+        .expect("Failed to get pending payloads");
     assert_eq!(pending_payloads.len(), 0, "Expected no pending payloads");
 }
 
@@ -791,7 +658,7 @@ fn test_send_payload_with_db_force_restart() {
         disable_retries: false,
     });
 
-    EventDispatcher::init_db(&dispatcher.clone().db_path.unwrap()).unwrap();
+    EventDispatcherDbConnection::new(&dispatcher.clone().db_path.unwrap()).unwrap();
 
     let payload = json!({"key": "value"});
     let payload2 = json!({"key": "value2"});

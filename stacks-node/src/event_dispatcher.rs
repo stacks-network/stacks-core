@@ -31,7 +31,6 @@ use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier};
 #[cfg(any(test, feature = "testing"))]
 use lazy_static::lazy_static;
 use rand::Rng;
-use rusqlite::{params, Connection};
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::ConsensusHash;
@@ -59,15 +58,16 @@ use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 #[cfg(any(test, feature = "testing"))]
 use stacks::util::tests::TestFlag;
-use stacks::util_lib::db::Error as db_error;
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
 use url::Url;
 
+mod db;
 mod payloads;
 mod stacker_db;
 
+use db::EventDispatcherDbConnection;
 use payloads::*;
 pub use payloads::{
     MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent, NakamotoSignerEntryPayload,
@@ -1007,58 +1007,15 @@ impl EventDispatcher {
         event_observer
     }
 
-    fn init_db(db_path: &PathBuf) -> Result<Connection, db_error> {
-        let mut conn = Connection::open(db_path.to_str().unwrap())?;
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS pending_payloads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT NOT NULL,
-                payload BLOB NOT NULL,
-                timeout INTEGER NOT NULL
-            )",
-            [],
-        )?;
-        if let Some(col_type) = EventDispatcher::get_payload_column_type(&conn)? {
-            if col_type.eq_ignore_ascii_case("TEXT") {
-                info!("Event observer: migrating pending_payloads.payload from TEXT to BLOB");
-                EventDispatcher::migrate_payload_column_to_blob(&mut conn)?;
-            }
-        }
-        Ok(conn)
-    }
-
-    fn get_pending_payloads(
-        conn: &Connection,
-    ) -> Result<Vec<(i64, String, Arc<[u8]>, u64)>, db_error> {
-        let mut stmt =
-            conn.prepare("SELECT id, url, payload, timeout FROM pending_payloads ORDER BY id")?;
-        let payload_iter = stmt.query_and_then(
-            [],
-            |row| -> Result<(i64, String, Arc<[u8]>, u64), db_error> {
-                let id: i64 = row.get(0)?;
-                let url: String = row.get(1)?;
-                let payload_bytes: Vec<u8> = row.get(2)?;
-                let payload_bytes = Arc::<[u8]>::from(payload_bytes);
-                let timeout_ms: u64 = row.get(3)?;
-                Ok((id, url, payload_bytes, timeout_ms))
-            },
-        )?;
-        payload_iter.collect()
-    }
-
-    fn delete_payload(conn: &Connection, id: i64) -> Result<(), db_error> {
-        conn.execute("DELETE FROM pending_payloads WHERE id = ?1", params![id])?;
-        Ok(())
-    }
-
     /// Process any pending payloads in the database.
     /// This is called when the event dispatcher is first instantiated.
     pub fn process_pending_payloads(&self) {
         let Some(db_path) = &self.db_path else {
             return;
         };
-        let conn = EventDispatcher::init_db(db_path).expect("Failed to initialize database");
-        let pending_payloads = match Self::get_pending_payloads(&conn) {
+        let conn =
+            EventDispatcherDbConnection::new(db_path).expect("Failed to initialize database");
+        let pending_payloads = match conn.get_pending_payloads() {
             Ok(payloads) => payloads,
             Err(e) => {
                 error!(
@@ -1096,7 +1053,7 @@ impl EventDispatcher {
                     "Event dispatcher: observer {} no longer registered, skipping",
                     url
                 );
-                if let Err(e) = Self::delete_payload(&conn, id) {
+                if let Err(e) = conn.delete_payload(id) {
                     error!(
                         "Event observer: failed to delete pending payload from database";
                         "error" => ?e
@@ -1118,104 +1075,11 @@ impl EventDispatcher {
                 return;
             }
 
-            if let Err(e) = Self::delete_payload(&conn, id) {
+            if let Err(e) = conn.delete_payload(id) {
                 error!(
                     "Event observer: failed to delete pending payload from database";
                     "error" => ?e
                 );
-            }
-        }
-    }
-
-    fn get_payload_column_type(conn: &Connection) -> Result<Option<String>, db_error> {
-        let mut stmt = conn.prepare("PRAGMA table_info(pending_payloads)")?;
-        let rows = stmt.query_map([], |row| {
-            let name: String = row.get(1)?;
-            let col_type: String = row.get(2)?;
-            Ok((name, col_type))
-        })?;
-
-        for row in rows {
-            let (name, col_type) = row?;
-            if name == "payload" {
-                return Ok(Some(col_type));
-            }
-        }
-
-        Ok(None)
-    }
-
-    fn migrate_payload_column_to_blob(conn: &mut Connection) -> Result<(), db_error> {
-        let tx = conn.transaction()?;
-        tx.execute(
-            "ALTER TABLE pending_payloads RENAME TO pending_payloads_old",
-            [],
-        )?;
-        tx.execute(
-            "CREATE TABLE pending_payloads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT NOT NULL,
-                payload BLOB NOT NULL,
-                timeout INTEGER NOT NULL
-            )",
-            [],
-        )?;
-        tx.execute(
-            "INSERT INTO pending_payloads (id, url, payload, timeout)
-                SELECT id, url, CAST(payload AS BLOB), timeout FROM pending_payloads_old",
-            [],
-        )?;
-        tx.execute("DROP TABLE pending_payloads_old", [])?;
-        tx.commit()?;
-        Ok(())
-    }
-
-    fn insert_payload(
-        conn: &Connection,
-        url: &str,
-        payload_bytes: &[u8],
-        timeout: Duration,
-    ) -> Result<(), db_error> {
-        let timeout_ms: u64 = timeout.as_millis().try_into().expect("Timeout too large");
-        conn.execute(
-            "INSERT INTO pending_payloads (url, payload, timeout) VALUES (?1, ?2, ?3)",
-            params![url, payload_bytes, timeout_ms],
-        )?;
-        Ok(())
-    }
-
-    /// Insert a payload into the database, retrying on failure.
-    fn insert_payload_with_retry(
-        conn: &Connection,
-        url: &str,
-        payload_bytes: &[u8],
-        timeout: Duration,
-    ) {
-        let mut attempts = 0i64;
-        let mut backoff = Duration::from_millis(100); // Initial backoff duration
-        let max_backoff = Duration::from_secs(5); // Cap the backoff duration
-
-        loop {
-            match Self::insert_payload(conn, url, payload_bytes, timeout) {
-                Ok(_) => {
-                    // Successful insert, break the loop
-                    return;
-                }
-                Err(err) => {
-                    // Log the error, then retry after a delay
-                    warn!("Failed to insert payload into event observer database: {err:?}";
-                        "backoff" => ?backoff,
-                        "attempts" => attempts
-                    );
-
-                    // Wait for the backoff duration
-                    sleep(backoff);
-
-                    // Increase the backoff duration (with exponential backoff)
-                    backoff = std::cmp::min(backoff.saturating_mul(2), max_backoff);
-
-                    attempts = attempts.saturating_add(1);
-                }
             }
         }
     }
@@ -1335,14 +1199,17 @@ impl EventDispatcher {
         if event_observer.disable_retries {
             Self::send_payload_directly(&payload_bytes, &full_url, event_observer.timeout, true);
         } else if let Some(db_path) = &event_observer.db_path {
-            let conn =
-                Connection::open(db_path).expect("Failed to open database for event observer");
+            // Because the DB is initialized in the call to process_pending_payloads() during startup,
+            // it is *probably* ok to skip initialization here. That said, at the time of writing this is the
+            // only call to new_without_init(), and we might want to revisit the question whether it's
+            // really worth it.
+            let conn = EventDispatcherDbConnection::new_without_init(db_path)
+                .expect("Failed to open database for event observer");
 
             let id = match id {
                 Some(id) => id,
                 None => {
-                    Self::insert_payload_with_retry(
-                        &conn,
+                    conn.insert_payload_with_retry(
                         &full_url,
                         payload_bytes.as_ref(),
                         event_observer.timeout,
@@ -1362,7 +1229,7 @@ impl EventDispatcher {
                 return;
             }
 
-            if let Err(e) = Self::delete_payload(&conn, id) {
+            if let Err(e) = conn.delete_payload(id) {
                 error!(
                     "Event observer: failed to delete pending payload from database";
                     "error" => ?e
