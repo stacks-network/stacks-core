@@ -2238,3 +2238,48 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+
+  /v3/blocks/simulate/{block_id}:
+    get:
+      summary: Simulate mining of a block with the specified transactions and returns its content
+      tags:
+        - Blocks
+      security:
+        - rpcAuth: []
+      operationId: blockSimulate
+      description: |
+        Simulate the mining of a block (no data is written in the MARF) with specified trnsactions and returns its content.
+      parameters:
+        - name: block_id
+          in: path
+          description: The block ID hash
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+                description: SIP-003-encoded Transaction in hex format
+      responses:
+        "200":
+          description: Content of the simulated block
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockReplay"
+              example:
+                $ref: "./components/examples/block-replay.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
