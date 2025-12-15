@@ -1113,6 +1113,35 @@ impl fmt::Debug for TrieNodePatch {
 }
 
 impl StacksMessageCodec for TrieNodePatch {
+    /// Serializes this [`TrieNodePatch`] to the given writer, with the following format:
+    ///
+    /// 0    1        1+P      2+P              2+P+N
+    /// |----|--------|----------|----------------|
+    ///   id     ptr    diff len     ptr diffs
+    ///   (1)    (P)       (1)          (N)
+    ///
+    /// where:
+    /// - `id` is [`TrieNodeID::Patch`]
+    /// - `ptr` is a compressed [`TriePtr`]
+    /// - `diff len` is the number of diffs, serialized as `len - 1`
+    /// - `ptr diffs` are the patch diffs written in compressed format
+    ///
+    /// # Invariants
+    ///
+    /// The number of diffs must be in the range `1..=256`. A patch is valid only
+    /// if it contains at least one diff (see the factory methods
+    /// [`TrieNodePatch::try_from_nodetype`] and [`TrieNodePatch::try_from_patch`]).
+    ///
+    /// To fit in a `u8`, the diff count is normalized to `len - 1` before
+    /// serialization.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(codec_error::SerializeError)` if:
+    /// * Writing to `fd` fails.
+    /// * `ptr` fails to serialize.
+    /// * Any pointer in `ptr diffs` fails to serialize.
+    /// * The diff count is `0` or greater than `256`.
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(TrieNodeID::Patch as u8))?;
         self.ptr
@@ -1120,13 +1149,14 @@ impl StacksMessageCodec for TrieNodePatch {
             .map_err(|e| codec_error::SerializeError(format!("Failed to serialize .ptr: {e:?}")))?;
 
         let num_ptrs = self.ptr_diff.len();
-        if num_ptrs >= 256 {
-            return Err(codec_error::SerializeError(
-                "Cannot serialize TrieNodePatch with more than 256 ptrs".to_string(),
-            ));
+        if num_ptrs == 0 || num_ptrs > 256 {
+            return Err(codec_error::SerializeError(format!(
+                "Cannot serialize TrieNodePatch with invalid ptrs len {num_ptrs} (expected 1..=256)"
+            )));
         }
-        // SAFETY: checked that num_ptrs < 256
-        let num_ptrs_u8 = u8::try_from(num_ptrs).expect("infallible");
+        // normalize num_ptrs to range [0, 255] to fit in u8
+        let num_ptrs_norm = num_ptrs.checked_sub(1).expect("infallible");
+        let num_ptrs_u8 = u8::try_from(num_ptrs_norm).expect("infallible");
         write_next(fd, &num_ptrs_u8).map_err(|e| {
             codec_error::SerializeError(format!("Failed to serialize .ptr_diff.len(): {e:?}"))
         })?;
@@ -1139,6 +1169,22 @@ impl StacksMessageCodec for TrieNodePatch {
         Ok(())
     }
 
+    /// Deserializes a [`TrieNodePatch`] from the given reader.
+    ///
+    /// This method expects the byte stream to be in the exact format produced by
+    /// [`TrieNodePatch::consensus_serialize`] (see that method for the detailed
+    /// wire format description)
+    ///
+    /// During deserialization, the stored diff length is de-normalized by
+    /// adding `1`, reversing the `len - 1` normalization applied during
+    /// serialization.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(codec_error::DeserializeError)` if:
+    /// * The node identifier does not match [`TrieNodeID::Patch`].
+    /// * Reading from `fd` fails.
+    /// * The pointer or any pointer diff fails to deserialize.
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
         let id: u8 = read_next(fd)?;
         if id != TrieNodeID::Patch as u8 {
@@ -1148,8 +1194,11 @@ impl StacksMessageCodec for TrieNodePatch {
         }
 
         let ptr = TriePtr::read_bytes_compressed(fd)?;
-        let num_ptrs: u8 = read_next(fd)?;
-        let num_ptrs = usize::try_from(num_ptrs).expect("infallible");
+        let num_ptrs_u8: u8 = read_next(fd)?;
+        let num_ptrs_norm = usize::try_from(num_ptrs_u8).expect("infallible");
+        // denormalize num_ptrs to range [1, 256] (reversing the -1 introduced during serialization)
+        let num_ptrs = num_ptrs_norm.checked_add(1).expect("infallible");
+
         let mut ptr_diff: Vec<TriePtr> = Vec::with_capacity(num_ptrs);
         for _ in 0..num_ptrs {
             ptr_diff.push(TriePtr::read_bytes_compressed(fd)?);
@@ -1301,6 +1350,7 @@ impl TrieNodePatch {
         new_node: &TrieNodeType,
     ) -> Option<Self> {
         if clear_ctrl_bits(old_node.id()) != clear_ctrl_bits(new_node.id()) {
+            trace!("Cannot produce TrieNodePatch: old node and new node are not the same type!");
             return None;
         }
 
@@ -1320,9 +1370,11 @@ impl TrieNodePatch {
             (_, _) => None,
         };
         let Some(patch) = patch_opt else {
+            trace!("Cannot produce TrieNodePatch: old node and new node are type leaf!");
             return None;
         };
         if patch.ptr_diff.len() == 0 {
+            trace!("Cannot produce TrieNodePatch: patch has no diffs!");
             return None;
         }
         Some(patch)
@@ -1335,6 +1387,7 @@ impl TrieNodePatch {
         new_node: &TrieNodeType,
     ) -> Option<Self> {
         if clear_ctrl_bits(old_patch.ptr.id) != clear_ctrl_bits(new_node.id()) {
+            trace!("Cannot produce TrieNodePatch: old node and new node are not the same type!");
             return None;
         }
 
@@ -1344,6 +1397,7 @@ impl TrieNodePatch {
             ptr_diff,
         };
         if patch.ptr_diff.len() == 0 {
+            trace!("Cannot produce TrieNodePatch: patch has no diffs!");
             return None;
         }
         return Some(patch);
