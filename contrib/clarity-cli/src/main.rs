@@ -468,8 +468,6 @@ fn main() {
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
             let mainnet = !testnet;
-
-            // Loop
             execute_repl(mainnet, epoch_id, clarity_ver)
         }
 
