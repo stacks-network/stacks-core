@@ -306,8 +306,8 @@ paths:
           application/json:
             schema:
               type: string
-              minLength: 4
-              pattern: "^0x[0-9a-fA-F]+$"
+              minLength: 2
+              pattern: "^(0x)?([0-9a-fA-F]{2})+$"
               description: Hex-encoded Clarity value (e.g. "0x0100000000000000000000000000000001")
               example: "0x0100000000000000000000000000000001"
       responses:
@@ -700,7 +700,7 @@ paths:
           required: true
           description: |
             Stacks address of the trait-defining contract.
-            Must start with SP (mainnet) or ST (testnet).
+            Must start with SP/SM (mainnet) or ST/SN (testnet).
           schema:
             $ref: './components/schemas/standard-principal.schema.yaml'
         - name: trait_contract_name
@@ -875,7 +875,7 @@ paths:
                 block:
                   type: string
                   minLength: 400
-                  pattern: "^[0-9a-fA-F]+$"
+                  pattern: "^([0-9a-fA-F]{2})+$"
                   description: Hex-encoded block data (must be valid SIP-003 serialized block, typically 200+ bytes)
                 chain_id:
                   type: integer

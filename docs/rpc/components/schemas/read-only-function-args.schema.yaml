@@ -18,5 +18,5 @@ properties:
     description: An array of hex serialized Clarity values
     items:
       type: string
-      pattern: "^(0x)?[0-9a-fA-F]*$"
+      pattern: "^(0x)?([0-9a-fA-F]{2})+$"
       description: Hex-encoded Clarity value (optionally prefixed with 0x)
