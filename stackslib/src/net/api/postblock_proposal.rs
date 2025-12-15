@@ -590,7 +590,7 @@ impl NakamotoBlockProposal {
         let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
 
         let block_deadline = Instant::now() + Duration::from_secs(timeout_secs);
-
+        let mut receipts_total = 0u64;
         for (i, tx) in self.block.txs.iter().enumerate() {
             let now = Instant::now();
             if now >= block_deadline {
@@ -609,6 +609,7 @@ impl NakamotoBlockProposal {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 Some(remaining),
+                &mut receipts_total,
             );
             let err = match tx_result {
                 TransactionResult::Success(_) => Ok(()),
@@ -746,6 +747,7 @@ impl NakamotoBlockProposal {
         let mut replay_tenure_tx =
             replay_builder.tenure_begin(&burn_dbconn, &mut replay_miner_tenure_info)?;
 
+        let mut total_receipts = 0;
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
@@ -787,6 +789,7 @@ impl NakamotoBlockProposal {
                     replay_tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
                     None,
+                    &mut total_receipts,
                 );
                 match tx_result {
                     TransactionResult::Skipped(TransactionSkipped { error, .. })
@@ -851,6 +854,7 @@ impl NakamotoBlockProposal {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
+                &mut total_receipts,
             );
         }
 
@@ -865,6 +869,7 @@ impl NakamotoBlockProposal {
                     tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
                     None,
+                    &mut total_receipts,
                 );
                 match tx_result {
                     TransactionResult::Skipped(TransactionSkipped { error, .. })

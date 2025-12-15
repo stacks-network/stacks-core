@@ -57,14 +57,23 @@ fn variant_coverage_report(variant: CheckErrorKind) {
     use VariantCoverage::*;
 
     _ = match variant {
-        CostOverflow => todo!(),
+        CostOverflow => Unreachable_ExpectLike, // Should exceed u64
         CostBalanceExceeded(_, _) => Tested(vec![
             check_error_cost_balance_exceeded_cdeploy,
             check_error_cost_balance_exceeded_ccall
         ]),
-        MemoryBalanceExceeded(_, _)
-        | CostComputationFailed(_)
-        | ExecutionTimeExpired => todo!(),
+        MemoryBalanceExceeded(_, _) => Tested(vec![
+            check_error_memory_balance_exceeded_cdeploy,
+            check_error_memory_balance_exceeded_ccall
+        ]),
+        CostComputationFailed(_) => Unreachable_ExpectLike,
+        ExecutionTimeExpired => Unreachable_Functionally(
+            "All consensus-critical code paths (block validation and transaction processing)
+             pass `None` for max_execution_time to StacksChainState::process_transaction,
+             causing GlobalContext::execution_time_tracker to remain ExecutionTimeTracker::NoTracking.
+             The check_max_execution_time_expired function always returns Ok(()) when tracker
+             is NoTracking. Execution time limits are only enforced in RPC API calls
+             and miner-local transaction filtering."),
         ValueTooLarge => Tested(vec![
             check_error_kind_value_too_large_cdeploy,
             check_error_kind_value_too_large_ccall
@@ -74,63 +83,117 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             check_error_kind_type_signature_too_deep_cdeploy,
             check_error_kind_type_signature_too_deep_ccall
         ]),
-        | ExpectedName
-        | SupertypeTooLarge
-        | Expects(_)
-        | BadMatchOptionSyntax(_)
-        | BadMatchResponseSyntax(_)
-        | BadMatchInput(_) => todo!(),
+        ExpectedName => Unreachable_Functionally(
+            "Every place in the runtime where ExpectedName is raised comes from a direct
+            call to SymbolicExpression::match_atom() on the original AST node and the type
+            checker runs the same structure check during analysis."),
+        SupertypeTooLarge => Unreachable_Functionally(
+            "least_supertype checks already run in analysis, and runtime values are
+             sanitized to their declared signatures, so the VM never sees a pair of
+             values whose unified type wasn't accepted earlier."),
+        Expects(_) => Unreachable_ExpectLike,
+        BadMatchOptionSyntax(_) => Unreachable_Functionally(
+            "Both the analyzer and the runtime examine the exact same match AST slice.
+             The static pass invokes check_special_match_opt, which enforces the 3
+             argument structure and the some binding name before any code is accepted"),
+        BadMatchResponseSyntax(_) => Unreachable_Functionally(
+            "Both the analyzer and the runtime examine the exact same match AST slice.
+             The static pass invokes check_special_match_resp, which enforces the 4
+             argument structure and the ok and err binding names before any code is accepted."),
+        BadMatchInput(_) => Unreachable_Functionally(
+            "Both the analyzer and the runtime examine the exact same match AST slice.
+             The static pass invokes check_special_match, which enforces the 2 argument
+             structure and the input type before any code is accepted."),
         ListTypesMustMatch => Tested(vec![check_error_kind_list_types_must_match_cdeploy]),
-        ConstructedListTooLarge
-        | TypeError(_, _) => todo!(),
+        TypeError(_, _) => Tested(vec![
+            check_error_kind_type_error_cdeploy,
+            check_error_kind_type_error_ccall
+        ]),
         TypeValueError(_, _) => Tested(vec![
             check_error_kind_type_value_error_cdeploy,
             check_error_kind_type_value_error_ccall
         ]),
-        InvalidTypeDescription
-        | UnknownTypeName(_)
-        | UnionTypeError(_, _) => todo!(),
+        InvalidTypeDescription => Unreachable_Functionally(
+            "Every invalid type literal is parsed both by the analyzer and by the runtime.
+             Both paths invoke the same TypeSignature::parse_* helpers, so analysis
+             always fails before initialization can trigger it."),
+        UnknownTypeName(_) => Unreachable_Functionally(
+            "Static analysis catches invalid types via `TypeSignature::parse_atom_type`."),
+        UnionTypeError(_, _) => Unreachable_Functionally(
+            "The analyzer enforces that every call to `bit-shift-left` / `bit-shift-right`
+             supplies an argument whose type is exactly `int` or `uint` (see
+             `NativeFunctions::BitwiseLShift|BitwiseRShift` using
+             `FunctionArgSignature::Union(IntType, UIntType)` and the
+             `TypeSignature::admits_type` checks in `type_checker::check_function_arg_signature`)"),
         UnionTypeValueError(_, _) => Tested(vec![
             check_error_kind_union_type_value_error_cdeploy,
             check_error_kind_union_type_value_error_ccall
         ]),
-        | ExpectedOptionalType(_)
-        | ExpectedResponseType(_)
-        | ExpectedOptionalOrResponseType(_)
-        | ExpectedOptionalValue(_)
-        | ExpectedResponseValue(_)
-        | ExpectedOptionalOrResponseValue(_)
-        | CouldNotDetermineResponseOkType
-        | CouldNotDetermineResponseErrType
-        | CouldNotDetermineSerializationType => todo!(),
+        ExpectedOptionalValue(_) => Unreachable_Functionally(
+            "Every optional primitive (`is-some`, `default-to`, `unwrap!`, etc.)
+             has a dedicated analysis hook (`check_special_is_optional`,
+             `check_special_default_to`, `inner_unwrap`, …) that enforces the optional
+             type before a contract can be published, so the runtime never sees a plain
+             `Value` arrive at `native_default_to` / `is_some`."),
+        ExpectedResponseValue(_) => Unreachable_Functionally(
+            "Response helpers are validated by `check_special_is_response` and `inner_unwrap_err`
+            during static analysis, preventing a non-response from reaching the runtime handlers"),
+        ExpectedOptionalOrResponseValue(_) => Unreachable_Functionally(
+            "The mixed helpers (`match`, `try!`, `unwrap!`, `unwrap-err!`) ultimately
+             delegate to `check_special_match` and `inner_unwrap` in the analyzer, which enforces
+             that the argument is either an optional or a response before the code is accepted.
+             There is no runtime path where a plain value reaches `native_try_ret` or the
+             option/response matchers"),
         ExpectedContractPrincipalValue(_) => Tested(vec![
             check_error_kind_expected_contract_principal_value_cdeploy,
             check_error_kind_expected_contract_principal_value_ccall
         ]),
-        CouldNotDetermineMatchTypes => todo!(),
         CouldNotDetermineType => Tested(vec![check_error_kind_could_not_determine_type_ccall]),
-        TypeAlreadyAnnotatedFailure
-        | CheckerImplementationFailure
-        | BadTokenName
-        | DefineNFTBadSignature
-        | NoSuchNFT(_)
-        | NoSuchFT(_)
-        | BadTransferSTXArguments
-        | BadTransferFTArguments
-        | BadTransferNFTArguments
-        | BadMintFTArguments
-        | BadBurnFTArguments
-        | BadTupleFieldName
-        | ExpectedTuple(_) => todo!(),
-        NoSuchTupleField(_, _) | DefineFunctionBadSignature | BadFunctionName | PublicFunctionMustReturnResponse(_) => Unreachable_Functionally("On contract deploy checked during static analysis."),
-        EmptyTuplesNotAllowed | NoSuchMap(_) => Unreachable_Functionally("On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)"),
-        BadTupleConstruction(_) => todo!(),
-        NoSuchDataVariable(_) => Unreachable_Functionally("On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)"),
-        BadMapName => todo!(),
-        BadMapTypeDefinition => todo!(),
-        DefineVariableBadSignature => todo!(),
+        BadTokenName => Unreachable_Functionally(
+            "Asset natives call `match_atom()` on their token arg during analysis."),
+        NoSuchNFT(_) => Unreachable_Functionally(
+            "Analysis uses contract_context.get_nft_type during every nft-* checker,
+             so a reference to an undefined NFT aborts before initialization"),
+        NoSuchFT(_) => Unreachable_Functionally(
+            "ft-* analyzers call contract_context.ft_exists, preventing undefined
+             fungible tokens from ever reaching the runtime handlers."),
+        BadTransferSTXArguments => Unreachable_Functionally(
+            "The analyzer routes all `stx-transfer?`, `stx-transfer-memo?`, and `stx-burn?`
+             calls through `check_special_stx_transfer` / `check_special_stx_burn`
+             which demand a `(uint, principal, principal)` signature before a contract
+             can be published. Because the runtime caches only sanitized values,
+             `special_stx_transfer` never receives a malformed value at runtime."),
+        BadTransferFTArguments => Unreachable_Functionally(
+            "`check_special_transfer_token` enforces the `(uint, principal, principal)`
+            argument contract for every FT transfer during analysis, so `special_transfer_token`
+            never sees a mismatched set of values at runtime."),
+        BadTransferNFTArguments => Unreachable_Functionally(
+            "`check_special_transfer_asset` ensures that the NFT
+            identifier plus `(principal, principal)` pair have the right types,
+            preventing `special_transfer_asset` from failing at runtime."),
+        BadMintFTArguments => Unreachable_Functionally(
+            "`check_special_mint_token` requires a `(uint, principal)`
+             argument tuple for fungible minting before deployment, so the runtime
+             never raises `BadMintFTArguments`"),
+        BadBurnFTArguments => Unreachable_Functionally(
+            "`check_special_burn_token` enforces `(uint, principal)`
+             during static analysis, making the runtime variant unobservable."),
+        ExpectedTuple(_) => Unreachable_Functionally(
+            "`check_special_get`/`check_special_merge` ensure every
+             `(get …)`/`(merge …)` argument is statically typed as a tuple (or
+             option wrapping a tuple), so `tuple_get` / `tuple_merge` never see
+             a non-tuple at runtime"),
+        NoSuchTupleField(_, _) => Unreachable_Functionally(
+            "`check_special_get` verifies tuple field existence for every `(get …)`
+             during static analysis, so `tuple_get` never receives a missing field"),
+        DefineFunctionBadSignature | BadFunctionName | PublicFunctionMustReturnResponse(_) => Unreachable_Functionally(
+            "On contract deploy checked during static analysis."),
+        EmptyTuplesNotAllowed | NoSuchMap(_) => Unreachable_Functionally(
+            "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)"),
+        NoSuchDataVariable(_) => Unreachable_Functionally(
+            "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)"),
         ReturnTypesMustMatch(_, _) => Tested(vec![check_error_kind_return_types_must_match_ccall]),
-        CircularReference(_) => Tested(vec![check_error_kind_circular_reference_ccall]),
+        CircularReference(_) => Tested(vec![check_error_kind_circular_reference_ccall]), // Possible only during contract call. On contract deploy checked during parsing.
         NoSuchContract(_) => Tested(vec![check_error_kind_no_such_contract_ccall]),
         NoSuchPublicFunction(_, _) => Tested(vec![check_error_kind_no_such_public_function_ccall]),
         PublicFunctionNotReadOnly(_, _) => Unreachable_Functionally("Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped."),
@@ -150,10 +213,6 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "Stacks block info property names are validated during static analysis; \
              unknown properties are rejected at deploy time.",
         ),
-        NoSuchTenureInfoProperty(_) => Unreachable_Functionally(
-            "Tenure info property names are validated during static analysis; \
-             unknown properties are rejected at deploy time.",
-        ),
         GetBlockInfoExpectPropertyName => Unreachable_Functionally(
             "`get-block-info?` requires a literal property name; \
              non-atom arguments are rejected during static analysis.",
@@ -164,10 +223,6 @@ fn variant_coverage_report(variant: CheckErrorKind) {
         ),
         GetTenureInfoExpectPropertyName => Unreachable_Functionally(
             "`get-tenure-info?` requires a literal property name; \
-             non-atom arguments are rejected during static analysis.",
-        ),
-        GetBurnBlockInfoExpectPropertyName => Unreachable_Functionally(
-            "`get-burn-block-info?` requires a literal property name; \
              non-atom arguments are rejected during static analysis.",
         ),
         NameAlreadyUsed(_) => Tested(vec![
@@ -214,10 +269,6 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "Trait function parameter limits are enforced during trait parsing at deploy time; \
              oversized signatures are rejected before execution.",
         ),
-        NoSuchTrait(_, _) => Unreachable_Functionally(
-            "All trait references are fully resolved during static analysis via `use-trait`; \
-            a missing or unknown trait prevents contract deployment and cannot reach runtime.",
-        ),
         TraitReferenceUnknown(_) => Unreachable_Functionally(
             "All `use-trait` references are validated during static analysis; \
              unknown traits cannot appear at runtime.",
@@ -230,7 +281,6 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "Callable trait values always include a trait identifier after analysis; \
              the runtime never receives an untagged trait value.",
         ),
-        TraitReferenceNotAllowed => Unreachable_NotUsed, // Fuzz-only; never emitted by real Clarity execution
         BadTraitImplementation(_, _) => Tested(vec![bad_trait_implementation_mismatched_args]),
         DefineTraitBadSignature | DefineTraitDuplicateMethod(_) => Unreachable_Functionally(
             "Trait definitions are fully validated during deployment; \
@@ -244,23 +294,6 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "`contract-of` only accepts statically-typed trait values; \
              invalid inputs are rejected during analysis.",
         ),
-        UncheckedIntermediaryResponses
-        | ExpectedCallableType(_)
-        | NoSuchBlockInfoProperty(_)
-        | IfArmsMustMatch(_, _)
-        | MatchArmsMustMatch(_, _)
-        | ReservedWord(_)
-        | MaxLengthOverflow
-        | MaxContextDepthReached
-        | DefaultTypesMustMatch(_, _)
-        | IllegalOrUnknownFunctionApplication(_)
-        | UnknownFunction(_)
-        | UnexpectedTraitOrFieldReference
-        | IncompatibleTrait(_, _)
-        | WithAllAllowanceNotAllowed
-        | WithAllAllowanceNotAlone
-        | WithNftExpectedListOfIdentifiers
-        | MaxIdentifierLengthExceeded(_, _) => Unreachable_NotUsed, // Static-only; cannot arise at runtime
         TraitTooManyMethods(_, _) => Unreachable_Functionally(
             "Trait method count limits are enforced during deployment; \
              oversized traits cannot appear at runtime.",
@@ -272,7 +305,7 @@ fn variant_coverage_report(variant: CheckErrorKind) {
         InvalidUTF8Encoding => {
             Ignored("Only reachable via legacy v1 parsing paths")
         }
-        WriteAttemptedInReadOnly | AtBlockClosureMustBeReadOnly => Unreachable_Functionally(
+        WriteAttemptedInReadOnly => Unreachable_Functionally(
             "Write operations inside read-only contexts are rejected during static analysis.",
         ),
         ExpectedListOfAllowances(_, _)
@@ -380,7 +413,7 @@ fn check_error_memory_balance_exceeded_ccall() {
         // we only test epochs 2.4 and later because the call takes ~200 milion runtime cost,
         // if we test all epochs, the tenure limit will be exceeded and the last 2 calls in
         // epoch 3.3 will cause a block rejection.
-        deploy_epochs: &StacksEpochId::ALL[6..], // Epochs 2.4 and later
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
     );
 }
 
@@ -636,6 +669,120 @@ fn check_error_kind_type_signature_too_deep_ccall() {
     );
 }
 
+/// CheckErrorKind: [`CheckErrorKind::TypeError`]
+/// Caused by: `(at-block … (ok (var-get zero)))` returns `none` when evaluated at
+/// a block where the contract state doesn't exist yet. The code immediately feeds
+/// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
+/// runtime `TypeError(UIntType, OptionalType(NoType))`.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_type_error_cdeploy() {
+    let contract_1 = SetupContract::new(
+        "pool-trait",
+        "
+    (define-trait pool-trait
+        ((get-shares-at (uint) (response uint uint))))",
+    );
+
+    let contract_2 = SetupContract::new(
+        "pool",
+        "
+    ;; Pool - uses at-block with map access
+    (impl-trait .pool-trait.pool-trait)
+
+    (define-data-var zero uint u0)
+
+    (define-read-only (get-shares-at (block uint))
+        (let (
+            (hash (unwrap-panic (get-block-info? id-header-hash block)))
+            (total-amt (unwrap-panic (at-block hash (ok (var-get zero)))))
+            (is-zero (is-eq total-amt u0))) ;; this is triggering the TypeError
+        (ok u0)))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity2); // Only works with clarity 1 or 2
+
+    contract_deploy_consensus_test!(
+        contract_name: "value-too-large",
+        contract_code: "
+    ;; Rewards - calls pool via trait
+    (use-trait pool-trait .pool-trait.pool-trait)
+
+    (define-map reward-info { id: uint } { share-block: uint })
+
+    (define-read-only (get-reward-info (id uint))
+        (default-to { share-block: u0 } (map-get? reward-info { id: id })))
+
+    (define-public (get-shares (id uint) (pool <pool-trait>))
+        (let (
+            (info (get-reward-info id))
+            (block (get share-block info))
+            ;; the following line triggers the TypeError
+            (shares (unwrap-panic (contract-call? pool get-shares-at block))))
+        (ok shares)))
+
+    (define-constant result (get-shares u999 .pool))",
+        setup_contracts: &[contract_1, contract_2],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::TypeError`]
+/// Caused by: `(at-block … (ok (var-get zero)))` returns `none` when evaluated at
+/// a block where the contract state doesn't exist yet. The code immediately feeds
+/// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
+/// runtime `TypeError(UIntType, OptionalType(NoType))`.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_type_error_ccall() {
+    let contract_1 = SetupContract::new(
+        "pool-trait",
+        "
+    (define-trait pool-trait
+        ((get-shares-at (uint) (response uint uint))))",
+    );
+
+    let contract_2 = SetupContract::new(
+        "pool",
+        "
+    ;; Pool - uses at-block with map access
+    (impl-trait .pool-trait.pool-trait)
+
+    (define-data-var zero uint u0)
+
+    (define-read-only (get-shares-at (block uint))
+        (let (
+            (hash (unwrap-panic (get-block-info? id-header-hash block)))
+            (total-amt (unwrap-panic (at-block hash (ok (var-get zero)))))
+            (is-zero (is-eq total-amt u0))) ;; this is triggering the TypeError
+        (ok u0)))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1); // Only works with clarity 1 or 2
+
+    contract_call_consensus_test!(
+        contract_name: "value-too-large",
+        contract_code: "
+    (use-trait pool-trait .pool-trait.pool-trait)
+
+    (define-map reward-info { id: uint } { share-block: uint })
+
+    (define-read-only (get-reward-info (id uint))
+        (default-to { share-block: u0 } (map-get? reward-info { id: id })))
+
+    (define-public (get-shares (id uint) (pool <pool-trait>))
+        (let (
+            (info (get-reward-info id))
+            (block (get share-block info))
+            ;; the following line triggers the TypeError
+            (shares (unwrap-panic (contract-call? pool get-shares-at block))))
+        (ok shares)))
+
+    (define-public (trigger-error)
+        (get-shares u999 .pool))",
+        function_name: "trigger-error",
+        function_args: &[],
+        setup_contracts: &[contract_1, contract_2],
+    );
+}
+
 /// CheckErrorKind: [`CheckErrorKind::TypeValueError`]
 /// Caused by: passing a value of the wrong type to a function.
 /// Outcome: block accepted.
@@ -800,7 +947,7 @@ fn check_error_kind_union_type_value_error_ccall() {
                 (foo .contract-1))",
         function_name: "trigger-runtime-error",
         function_args: &[],
-        deploy_epochs: &StacksEpochId::ALL[11..], // Epochs 3.3 and later
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch33),
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
         setup_contracts: &[contract_1],
     );
@@ -937,7 +1084,7 @@ fn check_error_kind_expected_contract_principal_value_ccall() {
                     true))"#,
         function_name: "trigger-error",
         function_args: &[],
-        deploy_epochs: &StacksEpochId::ALL[11..], // Epochs 3.3 and later
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch33),
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
     );
 }
@@ -1037,7 +1184,7 @@ fn check_error_kind_could_not_determine_type_ccall() {
         function_name: "trigger-error",
         function_args: &[],
         deploy_epochs: &[StacksEpochId::Epoch23],
-        call_epochs: &StacksEpochId::ALL[6..], // Epochs 2.4 and later
+        call_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity3, ClarityVersion::Clarity4],
         setup_contracts: &[trait_contract, trait_impl],
     );

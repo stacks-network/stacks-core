@@ -21,7 +21,21 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{fs, io};
 
+use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use clarity::vm::ast::build_ast;
+use clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::coverage::CoverageReporter;
+use clarity::vm::database::{
+    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
+};
+use clarity::vm::errors::{RuntimeError, StaticCheckError, VmExecutionError};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::{
+    ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
+    eval_all,
+};
 use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::{Connection, OpenFlags};
@@ -44,21 +58,6 @@ use stackslib::chainstate::stacks::boot::{
     POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
 use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
-use stackslib::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
-use stackslib::clarity::vm::analysis::errors::StaticCheckError;
-use stackslib::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use stackslib::clarity::vm::ast::build_ast;
-use stackslib::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
-use stackslib::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use stackslib::clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
-};
-use stackslib::clarity::vm::errors::{RuntimeError, VmExecutionError};
-use stackslib::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use stackslib::clarity::vm::{
-    ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
-    eval_all,
-};
 use stackslib::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
 use stackslib::clarity_vm::database::MemoryBackingStore;
 use stackslib::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
@@ -790,13 +789,25 @@ impl HeadersDB for CLIHeadersDB {
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
     if args.len() < 3 || args.len() > 4 {
         eprintln!(
-            "Usage: {invoked_by} {} [--costs] [--epoch E] [--clarity_version N] [contract-identifier] (program.clar) [vm-state.db]",
+            "Usage: {invoked_by} {} [--costs] [--epoch E] [--clarity_version N] contract-identifier [program.clar] vm-state.db",
             args[0]
         );
+        eprintln!();
+        eprintln!("  If a program file name is not provided, the program is read from stdin.");
         panic_test!();
     }
 
     let vm_filename = if args.len() == 3 { &args[2] } else { &args[3] };
+
+    let contract_identifier = friendly_expect(
+        QualifiedContractIdentifier::parse(&args[1]),
+        "Failed to parse contract identifier.",
+    );
+
+    let marf_kv = friendly_expect(
+        MarfedKV::open(vm_filename, None, None),
+        "Failed to open VM database.",
+    );
 
     let content: String = {
         if args.len() == 3 {
@@ -814,16 +825,6 @@ fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
         }
     };
 
-    let contract_identifier = friendly_expect(
-        QualifiedContractIdentifier::parse(&args[1]),
-        "Failed to parse contract identifier.",
-    );
-
-    let marf_kv = friendly_expect(
-        MarfedKV::open(vm_filename, None, None),
-        "Failed to open VM database.",
-    );
-    // return (marf_kv, contract_identifier, vm_filename, content);
     EvalInput {
         marf_kv,
         contract_identifier,

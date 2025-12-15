@@ -19,12 +19,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::analysis::StaticCheckError;
+use crate::vm::analysis::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,
 };
-use crate::vm::{CheckErrorKind, ClarityName, ClarityVersion};
+use crate::vm::{ClarityName, ClarityVersion};
 
 pub fn build_contract_interface(
     contract_analysis: &ContractAnalysis,
@@ -278,7 +278,7 @@ impl ContractInterfaceFunction {
                             FunctionType::Fixed(FixedFunction { returns, .. }) => {
                                 ContractInterfaceAtomType::from_type_signature(returns)
                             }
-                            _ => return Err(CheckErrorKind::Expects(
+                            _ => return Err(StaticCheckErrorKind::Expects(
                                 "Contract functions should only have fixed function return types!"
                                     .into(),
                             )
@@ -290,7 +290,7 @@ impl ContractInterfaceFunction {
                             ContractInterfaceFunctionArg::from_function_args(args)
                         }
                         _ => {
-                            return Err(CheckErrorKind::Expects(
+                            return Err(StaticCheckErrorKind::Expects(
                                 "Contract functions should only have fixed function arguments!"
                                     .into(),
                             )
@@ -402,7 +402,7 @@ impl ContractInterface {
 
     pub fn serialize(&self) -> Result<String, StaticCheckError> {
         serde_json::to_string(self).map_err(|_| {
-            CheckErrorKind::Expects("Failed to serialize contract interface".into()).into()
+            StaticCheckErrorKind::Expects("Failed to serialize contract interface".into()).into()
         })
     }
 }
