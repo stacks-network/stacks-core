@@ -86,9 +86,6 @@ lazy_static! {
 
 #[derive(Debug, Clone)]
 struct EventObserver {
-    /// Path to the database where pending payloads are stored. If `None`, then
-    /// the database is not used and events are not recoverable across restarts.
-    db_path: Option<PathBuf>,
     /// URL to which events will be sent
     endpoint: String,
     /// Timeout for sending events to this observer
@@ -115,14 +112,8 @@ pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
 static TEST_EVENT_OBSERVER_SKIP_RETRY: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 impl EventObserver {
-    fn new(
-        db_path: Option<PathBuf>,
-        endpoint: String,
-        timeout: Duration,
-        disable_retries: bool,
-    ) -> Self {
+    fn new(endpoint: String, timeout: Duration, disable_retries: bool) -> Self {
         EventObserver {
-            db_path,
             endpoint,
             timeout,
             disable_retries,
@@ -166,7 +157,8 @@ pub struct EventDispatcher {
     block_proposal_observers_lookup: HashSet<u16>,
     /// Channel for sending StackerDB events to the miner coordinator
     pub stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
-    /// Database path for pending payloads
+    /// Path to the database where pending payloads are stored. If `None`, then
+    /// the database is not used and events are not recoverable across restarts.
     db_path: Option<PathBuf>,
 }
 
@@ -174,6 +166,7 @@ pub struct EventDispatcher {
 /// It's constructed separately to play nicely with threading.
 struct ProposalCallbackHandler {
     observers: Vec<EventObserver>,
+    db_path: Option<PathBuf>,
 }
 
 impl ProposalCallbackReceiver for ProposalCallbackHandler {
@@ -188,8 +181,15 @@ impl ProposalCallbackReceiver for ProposalCallbackHandler {
                 return;
             }
         };
+
         for observer in self.observers.iter() {
-            EventDispatcher::send_payload(observer, &response, PATH_PROPOSAL_RESPONSE, None);
+            EventDispatcher::send_payload_given_db_path(
+                &self.db_path,
+                observer,
+                &response,
+                PATH_PROPOSAL_RESPONSE,
+                None,
+            );
         }
     }
 }
@@ -280,6 +280,7 @@ impl MemPoolEventDispatcher for EventDispatcher {
         }
         let handler = ProposalCallbackHandler {
             observers: callback_receivers,
+            db_path: self.db_path.clone(),
         };
         Some(Box::new(handler))
     }
@@ -419,7 +420,7 @@ impl EventDispatcher {
         );
 
         for observer in interested_observers.iter() {
-            EventDispatcher::send_new_burn_block(&observer, &payload);
+            self.send_new_burn_block(&observer, &payload);
         }
     }
 
@@ -602,7 +603,7 @@ impl EventDispatcher {
                 );
 
                 // Send payload
-                EventDispatcher::send_payload(
+                self.send_payload(
                     &self.registered_observers[observer_id],
                     &payload,
                     PATH_BLOCK_PROCESSED,
@@ -664,7 +665,7 @@ impl EventDispatcher {
                 .map(|event_id| (*event_id, &events[*event_id]))
                 .collect();
 
-            EventDispatcher::send_new_microblocks(
+            self.send_new_microblocks(
                 observer,
                 &parent_index_block_hash,
                 &filtered_events,
@@ -704,7 +705,7 @@ impl EventDispatcher {
         let payload = make_new_mempool_txs_payload(txs);
 
         for observer in interested_observers.iter() {
-            EventDispatcher::send_new_mempool_txs(observer, &payload);
+            self.send_new_mempool_txs(observer, &payload);
         }
     }
 
@@ -735,7 +736,7 @@ impl EventDispatcher {
         .unwrap();
 
         for observer in interested_observers.iter() {
-            EventDispatcher::send_mined_block(observer, &payload);
+            self.send_mined_block(observer, &payload);
         }
     }
 
@@ -762,7 +763,7 @@ impl EventDispatcher {
         .unwrap();
 
         for observer in interested_observers.iter() {
-            EventDispatcher::send_mined_microblock(observer, &payload);
+            self.send_mined_microblock(observer, &payload);
         }
     }
 
@@ -803,7 +804,7 @@ impl EventDispatcher {
         .unwrap();
 
         for observer in interested_observers.iter() {
-            EventDispatcher::send_mined_nakamoto_block(observer, &payload);
+            self.send_mined_nakamoto_block(observer, &payload);
         }
     }
 
@@ -846,7 +847,7 @@ impl EventDispatcher {
         }
 
         for observer in interested_observers.iter() {
-            EventDispatcher::send_stackerdb_chunks(observer, &payload);
+            self.send_stackerdb_chunks(observer, &payload);
         }
     }
 
@@ -886,7 +887,7 @@ impl EventDispatcher {
         };
 
         for observer in interested_observers.iter() {
-            EventDispatcher::send_dropped_mempool_txs(observer, &payload);
+            self.send_dropped_mempool_txs(observer, &payload);
         }
     }
 
@@ -903,7 +904,7 @@ impl EventDispatcher {
         }
 
         for (_, observer) in interested_observers.iter() {
-            EventDispatcher::send_new_attachments(observer, &json!(serialized_attachments));
+            self.send_new_attachments(observer, &json!(serialized_attachments));
         }
     }
 
@@ -927,7 +928,6 @@ impl EventDispatcher {
     fn register_observer_private(&mut self, conf: &EventObserverConfig) -> EventObserver {
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver::new(
-            self.db_path.clone(),
             conf.endpoint.clone(),
             Duration::from_millis(conf.timeout_ms),
             conf.disable_retries,
@@ -1062,7 +1062,8 @@ impl EventDispatcher {
                 continue;
             };
 
-            EventDispatcher::send_payload_with_bytes(
+            Self::send_payload_with_bytes(
+                &self.db_path,
                 observer,
                 payload_bytes,
                 full_url.path(),
@@ -1161,9 +1162,18 @@ impl EventDispatcher {
         true
     }
 
-    /// Send the payload to the given URL.
-    /// Before sending this payload, any pending payloads in the database will be sent first.
     fn send_payload(
+        &self,
+        event_observer: &EventObserver,
+        payload: &serde_json::Value,
+        path: &str,
+        id: Option<i64>,
+    ) {
+        Self::send_payload_given_db_path(&self.db_path, event_observer, payload, path, id);
+    }
+
+    fn send_payload_given_db_path(
+        db_path: &Option<PathBuf>,
         event_observer: &EventObserver,
         payload: &serde_json::Value,
         path: &str,
@@ -1178,10 +1188,11 @@ impl EventDispatcher {
                 return;
             }
         };
-        EventDispatcher::send_payload_with_bytes(event_observer, payload_bytes, path, id);
+        Self::send_payload_with_bytes(db_path, event_observer, payload_bytes, path, id);
     }
 
     fn send_payload_with_bytes(
+        db_path: &Option<PathBuf>,
         event_observer: &EventObserver,
         payload_bytes: Arc<[u8]>,
         path: &str,
@@ -1198,7 +1209,7 @@ impl EventDispatcher {
         // if the observer is in "disable_retries" mode quickly send the payload without checking for the db
         if event_observer.disable_retries {
             Self::send_payload_directly(&payload_bytes, &full_url, event_observer.timeout, true);
-        } else if let Some(db_path) = &event_observer.db_path {
+        } else if let Some(db_path) = db_path {
             // Because the DB is initialized in the call to process_pending_payloads() during startup,
             // it is *probably* ok to skip initialization here. That said, at the time of writing this is the
             // only call to new_without_init(), and we might want to revisit the question whether it's
@@ -1241,16 +1252,17 @@ impl EventDispatcher {
         }
     }
 
-    fn send_new_attachments(event_observer: &EventObserver, payload: &serde_json::Value) {
-        Self::send_payload(event_observer, payload, PATH_ATTACHMENT_PROCESSED, None);
+    fn send_new_attachments(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
+        self.send_payload(event_observer, payload, PATH_ATTACHMENT_PROCESSED, None);
     }
 
-    fn send_new_mempool_txs(event_observer: &EventObserver, payload: &serde_json::Value) {
-        Self::send_payload(event_observer, payload, PATH_MEMPOOL_TX_SUBMIT, None);
+    fn send_new_mempool_txs(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
+        self.send_payload(event_observer, payload, PATH_MEMPOOL_TX_SUBMIT, None);
     }
 
     /// Serializes new microblocks data into a JSON payload and sends it off to the correct path
     fn send_new_microblocks(
+        &self,
         event_observer: &EventObserver,
         parent_index_block_hash: &StacksBlockId,
         filtered_events: &[(usize, &(bool, Txid, &StacksTransactionEvent))],
@@ -1278,31 +1290,39 @@ impl EventDispatcher {
             "burn_block_timestamp": burn_block_timestamp,
         });
 
-        Self::send_payload(event_observer, &payload, PATH_MICROBLOCK_SUBMIT, None);
+        self.send_payload(event_observer, &payload, PATH_MICROBLOCK_SUBMIT, None);
     }
 
-    fn send_dropped_mempool_txs(event_observer: &EventObserver, payload: &serde_json::Value) {
-        Self::send_payload(event_observer, payload, PATH_MEMPOOL_TX_DROP, None);
+    fn send_dropped_mempool_txs(
+        &self,
+        event_observer: &EventObserver,
+        payload: &serde_json::Value,
+    ) {
+        self.send_payload(event_observer, payload, PATH_MEMPOOL_TX_DROP, None);
     }
 
-    fn send_mined_block(event_observer: &EventObserver, payload: &serde_json::Value) {
-        Self::send_payload(event_observer, payload, PATH_MINED_BLOCK, None);
+    fn send_mined_block(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
+        self.send_payload(event_observer, payload, PATH_MINED_BLOCK, None);
     }
 
-    fn send_mined_microblock(event_observer: &EventObserver, payload: &serde_json::Value) {
-        Self::send_payload(event_observer, payload, PATH_MINED_MICROBLOCK, None);
+    fn send_mined_microblock(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
+        self.send_payload(event_observer, payload, PATH_MINED_MICROBLOCK, None);
     }
 
-    fn send_mined_nakamoto_block(event_observer: &EventObserver, payload: &serde_json::Value) {
-        Self::send_payload(event_observer, payload, PATH_MINED_NAKAMOTO_BLOCK, None);
+    fn send_mined_nakamoto_block(
+        &self,
+        event_observer: &EventObserver,
+        payload: &serde_json::Value,
+    ) {
+        self.send_payload(event_observer, payload, PATH_MINED_NAKAMOTO_BLOCK, None);
     }
 
-    fn send_stackerdb_chunks(event_observer: &EventObserver, payload: &serde_json::Value) {
-        Self::send_payload(event_observer, payload, PATH_STACKERDB_CHUNKS, None);
+    fn send_stackerdb_chunks(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
+        self.send_payload(event_observer, payload, PATH_STACKERDB_CHUNKS, None);
     }
 
-    fn send_new_burn_block(event_observer: &EventObserver, payload: &serde_json::Value) {
-        Self::send_payload(event_observer, payload, PATH_BURN_BLOCK_SUBMIT, None);
+    fn send_new_burn_block(&self, event_observer: &EventObserver, payload: &serde_json::Value) {
+        self.send_payload(event_observer, payload, PATH_BURN_BLOCK_SUBMIT, None);
     }
 }
 

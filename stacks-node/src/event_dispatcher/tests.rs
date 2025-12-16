@@ -40,7 +40,7 @@ use stacks::chainstate::stacks::{
 use stacks::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
-use stacks::util::hash::Hash160;
+use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
@@ -361,16 +361,23 @@ fn test_new_event_dispatcher_with_db() {
 }
 
 #[test]
-fn test_new_event_observer_without_db() {
+fn test_new_event_observer() {
     let endpoint = "http://example.com".to_string();
     let timeout = Duration::from_secs(5);
 
-    let observer = EventObserver::new(None, endpoint.clone(), timeout, false);
+    let observer = EventObserver::new(endpoint.clone(), timeout, false);
 
     // Verify fields
     assert_eq!(observer.endpoint, endpoint);
     assert_eq!(observer.timeout, timeout);
-    assert!(observer.db_path.is_none(), "Expected db_path to be None");
+    assert_eq!(observer.disable_retries, false);
+}
+
+#[test]
+fn test_new_event_dispatcher_without_db() {
+    let dispatcher = EventDispatcher::new(None);
+
+    assert!(dispatcher.db_path.is_none(), "Expected db_path to be None");
 }
 
 #[test]
@@ -398,18 +405,18 @@ fn test_send_payload_with_db() {
     let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
     let timeout = Duration::from_secs(5);
 
-    let observer = EventObserver::new(Some(db_path.clone()), endpoint, timeout, false);
+    let observer = EventObserver::new(endpoint, timeout, false);
 
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
     // Call send_payload
-    EventDispatcher::send_payload(&observer, &payload, "/test", None);
+    dispatcher.send_payload(&observer, &payload, "/test", None);
 
     // Verify that the payload was sent and database is empty
     _m.assert();
 
     // Verify that the database is empty
-    let db_path = observer.db_path.unwrap();
+    let db_path = dispatcher.db_path.unwrap();
     let db_path_str = db_path.to_str().unwrap();
     let conn = Connection::open(db_path_str).expect("Failed to open database");
     let pending_payloads = EventDispatcherDbConnection::new_from_exisiting_connection(conn)
@@ -436,10 +443,12 @@ fn test_send_payload_without_db() {
 
     let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
 
-    let observer = EventObserver::new(None, endpoint, timeout, false);
+    let observer = EventObserver::new(endpoint, timeout, false);
+
+    let dispatcher = EventDispatcher::new(None);
 
     // Call send_payload
-    EventDispatcher::send_payload(&observer, &payload, "/test", None);
+    dispatcher.send_payload(&observer, &payload, "/test", None);
 
     // Verify that the payload was sent
     _m.assert();
@@ -467,16 +476,13 @@ fn test_send_payload_success() {
         tx.send(()).unwrap();
     });
 
-    let observer = EventObserver::new(
-        None,
-        format!("127.0.0.1:{port}"),
-        Duration::from_secs(3),
-        false,
-    );
+    let observer = EventObserver::new(format!("127.0.0.1:{port}"), Duration::from_secs(3), false);
 
     let payload = json!({"key": "value"});
 
-    EventDispatcher::send_payload(&observer, &payload, "/test", None);
+    let dispatcher = EventDispatcher::new(None);
+
+    dispatcher.send_payload(&observer, &payload, "/test", None);
 
     // Wait for the server to process the request
     rx.recv_timeout(Duration::from_secs(5))
@@ -520,16 +526,13 @@ fn test_send_payload_retry() {
         }
     });
 
-    let observer = EventObserver::new(
-        None,
-        format!("127.0.0.1:{port}"),
-        Duration::from_secs(3),
-        false,
-    );
+    let observer = EventObserver::new(format!("127.0.0.1:{port}"), Duration::from_secs(3), false);
 
     let payload = json!({"key": "value"});
 
-    EventDispatcher::send_payload(&observer, &payload, "/test", None);
+    let dispatcher = EventDispatcher::new(None);
+
+    dispatcher.send_payload(&observer, &payload, "/test", None);
 
     // Wait for the server to process the request
     rx.recv_timeout(Duration::from_secs(5))
@@ -572,15 +575,17 @@ fn test_send_payload_timeout() {
         }
     });
 
-    let observer = EventObserver::new(None, format!("127.0.0.1:{port}"), timeout, false);
+    let observer = EventObserver::new(format!("127.0.0.1:{port}"), timeout, false);
 
     let payload = json!({"key": "value"});
 
     // Record the time before sending the payload
     let start_time = Instant::now();
 
+    let dispatcher = EventDispatcher::new(None);
+
     // Call the function being tested
-    EventDispatcher::send_payload(&observer, &payload, "/test", None);
+    dispatcher.send_payload(&observer, &payload, "/test", None);
 
     // Record the time after the function returns
     let elapsed_time = start_time.elapsed();
@@ -686,7 +691,7 @@ fn test_send_payload_with_db_force_restart() {
     info!("Sending payload 1");
 
     // Send the payload
-    EventDispatcher::send_payload(&observer, &payload, "/test", None);
+    dispatcher.send_payload(&observer, &payload, "/test", None);
 
     // Re-enable retrying
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
@@ -696,7 +701,7 @@ fn test_send_payload_with_db_force_restart() {
     info!("Sending payload 2");
 
     // Send another payload
-    EventDispatcher::send_payload(&observer, &payload2, "/test", None);
+    dispatcher.send_payload(&observer, &payload2, "/test", None);
 
     // Wait for the server to process the requests
     rx.recv_timeout(Duration::from_secs(5))
@@ -714,10 +719,12 @@ fn test_event_dispatcher_disable_retries() {
 
     let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
 
-    let observer = EventObserver::new(None, endpoint, timeout, true);
+    let observer = EventObserver::new(endpoint, timeout, true);
+
+    let dispatcher = EventDispatcher::new(None);
 
     // in non "disable_retries" mode this will run forever
-    EventDispatcher::send_payload(&observer, &payload, "/test", None);
+    dispatcher.send_payload(&observer, &payload, "/test", None);
 
     // Verify that the payload was sent
     _m.assert();
@@ -730,10 +737,12 @@ fn test_event_dispatcher_disable_retries_invalid_url() {
 
     let endpoint = String::from("255.255.255.255");
 
-    let observer = EventObserver::new(None, endpoint, timeout, true);
+    let observer = EventObserver::new(endpoint, timeout, true);
+
+    let dispatcher = EventDispatcher::new(None);
 
     // in non "disable_retries" mode this will run forever
-    EventDispatcher::send_payload(&observer, &payload, "/test", None);
+    dispatcher.send_payload(&observer, &payload, "/test", None);
 }
 
 #[test]
@@ -935,4 +944,44 @@ fn backwards_compatibility_transaction_event_payload() {
     let old_value: TransactionEventPayload = serde_json::from_str(&old_serialized_data)
         .expect("Failed to deserialize old data as TransactionEventPayload");
     assert_eq!(new_value, old_value);
+}
+
+#[test]
+fn test_block_proposal_validation_event() {
+    let mut server = mockito::Server::new();
+    let mock = server.mock("POST", "/proposal_response").create();
+
+    let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
+
+    let mut dispatcher = EventDispatcher::new(None);
+    dispatcher.register_observer(&EventObserverConfig {
+        endpoint: endpoint.clone(),
+        events_keys: vec![EventKeyType::BlockProposal],
+        timeout_ms: 3_000,
+        disable_retries: false,
+    });
+
+    // The below matches what the `RPCBlockProposalRequestHandler` does via
+    // `NakamotoBlockProposal::spawn_validation_thread`: It calls
+    // `get_proposal_callback_receiver()` and moves the result to the thread
+    // that performs that validation and when done, sends the validation
+    // result through the event dispatcher.
+
+    let receiver = dispatcher.get_proposal_callback_receiver().unwrap();
+
+    let validation_thread = thread::spawn(move || {
+        let result = BlockValidateOk {
+            signer_signature_hash: Sha512Trunc256Sum::from_data(&[0, 8, 15]),
+            cost: ExecutionCost::ZERO,
+            size: 666,
+            validation_time_ms: 4321,
+            replay_tx_hash: None,
+            replay_tx_exhausted: false,
+        };
+        receiver.notify_proposal_result(Ok(result));
+    });
+
+    validation_thread.join().unwrap();
+
+    mock.assert();
 }
