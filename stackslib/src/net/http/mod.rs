@@ -64,6 +64,8 @@ pub enum Error {
     UnderflowError(String),
     /// Http error response
     Http(u16, String),
+    /// Http 405 error response with the list of allowed methods (for Allow header)
+    HttpMethodNotAllowed(Vec<String>),
     /// Application error
     AppError(String),
 }
@@ -78,6 +80,9 @@ impl fmt::Display for Error {
             Error::ReadError(io_error) => fmt::Display::fmt(&io_error, f),
             Error::UnderflowError(msg) => write!(f, "{}", msg),
             Error::Http(code, msg) => write!(f, "code={}, msg={}", code, msg),
+            Error::HttpMethodNotAllowed(methods) => {
+                write!(f, "code=405, allowed={}", methods.join(", "))
+            }
             Error::AppError(msg) => write!(f, "{}", &msg),
         }
     }
@@ -93,6 +98,7 @@ impl std::error::Error for Error {
             Error::ReadError(io_error) => Some(io_error),
             Error::UnderflowError(_) => None,
             Error::Http(..) => None,
+            Error::HttpMethodNotAllowed(_) => None,
             Error::AppError(_) => None,
         }
     }
@@ -138,6 +144,9 @@ impl Error {
                 &x
             ))),
             Error::Http(code, msg) => http_error_from_code_and_text(code, msg),
+            Error::HttpMethodNotAllowed(methods) => {
+                Box::new(HttpMethodNotAllowed::with_allowed_methods(methods))
+            }
             Error::AppError(x) => Box::new(HttpServerError::new(format!(
                 "Unhandled application error: {:?}",
                 &x

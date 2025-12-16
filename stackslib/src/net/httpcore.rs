@@ -56,9 +56,6 @@ use crate::net::{Error as NetError, MessageSequence, ProtocolFamily, StacksNodeS
 
 const CHUNK_BUF_LEN: usize = 32768;
 
-/// Prefix for 405 error messages - used to extract allowed methods for the Allow header
-const METHOD_NOT_ALLOWED_MSG_PREFIX: &str = "Method Not Allowed. Allowed: ";
-
 /// canonical stacks tip height header
 pub const STACKS_HEADER_HEIGHT: &str = "X-Canonical-Stacks-Tip-Height";
 
@@ -73,6 +70,19 @@ pub const HTTP_REQUEST_ID_RESERVED: u32 = 0;
 
 /// The interval at which to send heartbeat logs
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Finds named path parameters like (?P<block_id>...) in route patterns
+static CAPTURE_GROUP_REGEX: std::sync::LazyLock<Regex> =
+    std::sync::LazyLock::new(|| Regex::new(r"\(\?P<[^>]+>[^)]+\)").unwrap());
+
+/// Loosens a strict route regex so any valid URL characters match the parameters.
+/// This lets us tell apart 400 (bad params), 404 (no such route), and 405 (wrong method).
+/// Complex patterns with nested parens fall back to strict matching (404 instead of 400).
+fn make_permissive_regex(strict_regex: &Regex) -> Regex {
+    let pattern = strict_regex.as_str();
+    let permissive = CAPTURE_GROUP_REGEX.replace_all(pattern, "[a-zA-Z0-9._~:@!$&'()*+,;=-]+");
+    Regex::new(&permissive).unwrap_or_else(|_| strict_regex.clone())
+}
 
 /// All representations of the `tip=` query parameter value
 #[derive(Debug, Clone, PartialEq)]
@@ -1052,15 +1062,26 @@ impl StacksHttp {
         }
     }
 
-    /// Register an API RPC endpoint
+    /// Register an API RPC endpoint.
+    /// Auto-generates a permissive regex for 400/404/405 detection
+    /// unless the handler provides its own via path_regex_permissive().
     pub fn register_rpc_endpoint<Handler: RPCRequestHandler + 'static>(
         &mut self,
         handler: Handler,
     ) {
+        let strict_regex = handler.path_regex();
+        let handler_permissive = handler.path_regex_permissive();
+
+        let permissive_regex = if handler_permissive.as_str() == strict_regex.as_str() {
+            make_permissive_regex(&strict_regex)
+        } else {
+            handler_permissive
+        };
+
         self.request_handlers.push((
             handler.verb().to_string(),
-            handler.path_regex(),
-            handler.path_regex_permissive(),
+            strict_regex,
+            permissive_regex,
             Box::new(handler),
         ));
     }
@@ -1197,16 +1218,11 @@ impl StacksHttp {
         if !any_strict_match && verb_matched_but_params_invalid {
             Err(NetError::Http(HttpError::Http(
                 400,
-                "Invalid path parameters".into(),
+                format!("Invalid path parameters for '{}'", &decoded_path),
             )))
         } else if !allowed_methods.is_empty() {
-            Err(NetError::Http(HttpError::Http(
-                405,
-                format!(
-                    "{}{}",
-                    METHOD_NOT_ALLOWED_MSG_PREFIX,
-                    allowed_methods.join(", ")
-                ),
+            Err(NetError::Http(HttpError::HttpMethodNotAllowed(
+                allowed_methods,
             )))
         } else {
             Err(NetError::Http(HttpError::Http(
@@ -1293,13 +1309,11 @@ impl StacksHttp {
             let allowed_methods = self.find_allowed_methods(&decoded_path);
             if !allowed_methods.is_empty() {
                 // Path exists but method is not allowed (405)
-                let allowed_str = allowed_methods.join(", ");
+                let error = HttpMethodNotAllowed::with_allowed_methods(allowed_methods);
+                let allowed_str = error.get_allowed_methods().join(", ");
                 return StacksHttpResponse::new_error_with_headers(
                     &request.preamble,
-                    &HttpMethodNotAllowed::new(format!(
-                        "{}{}",
-                        METHOD_NOT_ALLOWED_MSG_PREFIX, &allowed_str
-                    )),
+                    &error,
                     vec![("Allow".to_string(), allowed_str)],
                 )
                 .try_into_contents();
@@ -1714,18 +1728,13 @@ impl ProtocolFamily for StacksHttp {
                     Ok(data_request) => Ok((StacksHttpMessage::Request(data_request), len)),
                     Err(NetError::Http(http_error)) => {
                         // convert into a response
-                        // for 405 responses, extract allowed methods and add Allow header
-                        let extra_headers = if let HttpError::Http(405, ref msg) = &http_error {
-                            if let Some(allowed_part) =
-                                msg.strip_prefix(METHOD_NOT_ALLOWED_MSG_PREFIX)
-                            {
-                                vec![("Allow".to_string(), allowed_part.to_string())]
+                        // for 405 responses, use the structured allowed methods
+                        let extra_headers =
+                            if let HttpError::HttpMethodNotAllowed(ref methods) = &http_error {
+                                vec![("Allow".to_string(), methods.join(", "))]
                             } else {
                                 vec![]
-                            }
-                        } else {
-                            vec![]
-                        };
+                            };
                         let resp = StacksHttpResponse::new_error_with_headers(
                             http_request_preamble,
                             &*http_error.into_http_error(),

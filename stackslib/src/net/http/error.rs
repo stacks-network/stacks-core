@@ -297,11 +297,30 @@ impl HttpErrorResponse for HttpNotFound {
 /// HTTP 405
 pub struct HttpMethodNotAllowed {
     error_text: String,
+    allowed_methods: Vec<String>,
 }
 
 impl HttpMethodNotAllowed {
     pub fn new(error_text: String) -> Self {
-        Self { error_text }
+        Self {
+            error_text,
+            allowed_methods: vec![],
+        }
+    }
+
+    pub fn with_allowed_methods(allowed_methods: Vec<String>) -> Self {
+        let error_text = format!(
+            "Method Not Allowed. Allowed: {}",
+            allowed_methods.join(", ")
+        );
+        Self {
+            error_text,
+            allowed_methods,
+        }
+    }
+
+    pub fn get_allowed_methods(&self) -> &[String] {
+        &self.allowed_methods
     }
 }
 
