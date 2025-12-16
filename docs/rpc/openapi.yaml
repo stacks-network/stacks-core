@@ -1303,7 +1303,7 @@ paths:
           description: Hex-encoded consensus hash (40 characters)
           schema:
             type: string
-            pattern: "^(0x)?[0-9a-f]{40}$"
+            pattern: "^[0-9a-f]{40}$"
       responses:
         "200":
           description: Sortition information for the consensus hash
@@ -1337,7 +1337,7 @@ paths:
           description: Hex-encoded burn header hash (64 characters)
           schema:
             type: string
-            pattern: "^(0x)?[0-9a-f]{64}$"
+            pattern: "^[0-9a-f]{64}$"
       responses:
         "200":
           description: Sortition information for the burn header hash
@@ -1457,6 +1457,8 @@ paths:
                 $ref: "#/components/schemas/TransactionInfo"
               example:
                 $ref: "./components/examples/get-transaction.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1607,6 +1609,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
