@@ -28,6 +28,7 @@ use stacks_common::types::StacksEpochId;
 use self::definition_sorter::DefinitionSorter;
 use self::errors::ParseResult;
 use self::expression_identifier::ExpressionIdentifier;
+#[cfg(not(feature = "devtools"))]
 use self::parser::v1::parse as parse_v1;
 use self::parser::v2::parse as parse_v2;
 use self::stack_depth_checker::{StackDepthChecker, VaryStackDepthChecker};
@@ -60,6 +61,10 @@ fn parse_in_epoch(
     source_code: &str,
     epoch_id: StacksEpochId,
 ) -> ParseResult<Vec<PreSymbolicExpression>> {
+    #[cfg(feature = "devtools")]
+    return parse_v2(source_code);
+
+    #[cfg(not(feature = "devtools"))]
     if epoch_id >= StacksEpochId::Epoch21 {
         parse_v2(source_code)
     } else {
@@ -124,9 +129,19 @@ fn inner_build_ast<T: CostTracker>(
         _ => None,
     };
 
+
+    #[cfg(feature = "devtools")]
+    let (pre_expressions, mut diagnostics, mut success) = if error_early {
+        let exprs = parse_v2(source_code)?;
+        (exprs, Vec::new(), true)
+    } else {
+        parser::v2::parse_collect_diagnostics(source_code)
+    };
+
+    #[cfg(not(feature = "devtools"))]
     let (pre_expressions, mut diagnostics, mut success) = if epoch >= StacksEpochId::Epoch21 {
         if error_early {
-            let exprs = parser::v2::parse(source_code)?;
+            let exprs = parse_v2(source_code)?;
             (exprs, Vec::new(), true)
         } else {
             parser::v2::parse_collect_diagnostics(source_code)
