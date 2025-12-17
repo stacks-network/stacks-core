@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::util::hash::bytes_to_hex;
 use regex::{Captures, Regex};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::types::chainstate::StacksBlockId;
@@ -237,12 +238,21 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
 
 impl StacksHttpRequest {
     /// Make a new block_replay request to this endpoint
-    pub fn new_block_simulate(host: PeerHost, block_id: &StacksBlockId) -> StacksHttpRequest {
+    pub fn new_block_simulate(
+        host: PeerHost,
+        block_id: &StacksBlockId,
+        transactions: &Vec<StacksTransaction>,
+    ) -> StacksHttpRequest {
+        let transactions_hex = transactions
+            .iter()
+            .map(|transaction| bytes_to_hex(&transaction.serialize_to_vec()))
+            .collect();
+
         StacksHttpRequest::new_for_peer(
             host,
-            "GET".into(),
+            "POST".into(),
             format!("/v3/blocks/simulate/{block_id}"),
-            HttpRequestContents::new(),
+            HttpRequestContents::new().payload_json(transactions_hex),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }
@@ -251,15 +261,42 @@ impl StacksHttpRequest {
         host: PeerHost,
         block_id: &StacksBlockId,
         profiler: bool,
+        transactions: &Vec<StacksTransaction>,
     ) -> StacksHttpRequest {
+        let transactions_hex = transactions
+            .iter()
+            .map(|transaction| bytes_to_hex(&transaction.serialize_to_vec()))
+            .collect();
         StacksHttpRequest::new_for_peer(
             host,
-            "GET".into(),
+            "POST".into(),
             format!("/v3/blocks/simulate/{block_id}"),
-            HttpRequestContents::new().query_arg(
-                "profiler".into(),
-                if profiler { "1".into() } else { "0".into() },
-            ),
+            HttpRequestContents::new()
+                .query_arg(
+                    "profiler".into(),
+                    if profiler { "1".into() } else { "0".into() },
+                )
+                .payload_json(transactions_hex),
+        )
+        .expect("FATAL: failed to construct request from infallible data")
+    }
+
+    pub fn new_block_simulate_with_no_fees(
+        host: PeerHost,
+        block_id: &StacksBlockId,
+        transactions: &Vec<StacksTransaction>,
+    ) -> StacksHttpRequest {
+        let transactions_hex = transactions
+            .iter()
+            .map(|transaction| bytes_to_hex(&transaction.serialize_to_vec()))
+            .collect();
+        StacksHttpRequest::new_for_peer(
+            host,
+            "POST".into(),
+            format!("/v3/blocks/simulate/{block_id}"),
+            HttpRequestContents::new()
+                .query_arg("disable_fees".into(), "1".into())
+                .payload_json(transactions_hex),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }

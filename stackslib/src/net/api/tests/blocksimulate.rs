@@ -26,7 +26,7 @@ use crate::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
 };
 use crate::core::test_util::{
-    make_contract_publish, make_contract_publish_tx, make_unsigned_tx, to_addr,
+    make_contract_call_tx, make_contract_publish_tx, make_unsigned_tx, to_addr,
 };
 use crate::net::api::blocksimulate;
 use crate::net::api::tests::TestRPC;
@@ -35,7 +35,6 @@ use crate::net::httpcore::{StacksHttp, StacksHttpRequest};
 use crate::net::test::TestEventObserver;
 use crate::net::tests::{NakamotoBootStep, NakamotoBootTenure};
 use crate::net::ProtocolFamily;
-use crate::stacks_common::codec::StacksMessageCodec;
 
 #[test]
 fn test_try_parse_request() {
@@ -43,7 +42,7 @@ fn test_try_parse_request() {
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
     let mut request =
-        StacksHttpRequest::new_block_simulate(addr.into(), &StacksBlockId([0x01; 32]));
+        StacksHttpRequest::new_block_simulate(addr.into(), &StacksBlockId([0x01; 32]), &vec![]);
 
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
@@ -81,10 +80,11 @@ fn test_try_parse_request_with_profiler() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let mut request = StacksHttpRequest::new_block_replay_with_profiler(
+    let mut request = StacksHttpRequest::new_block_simulate_with_profiler(
         addr.into(),
         &StacksBlockId([0x01; 32]),
         true,
+        &vec![],
     );
 
     // add the authorization header
@@ -113,7 +113,7 @@ fn test_try_parse_request_with_profiler() {
 }
 
 #[test]
-fn test_block_reply_errors() {
+fn test_block_simulate_errors() {
     let mut handler =
         blocksimulate::RPCNakamotoBlockSimulateRequestHandler::new(Some("password".into()));
 
@@ -147,26 +147,54 @@ fn test_try_make_response() {
 
     let mut requests = vec![];
 
+    let private_key = StacksPrivateKey::from_seed("blocksimulate".as_bytes());
+
+    let deploy_tx1 = make_contract_publish_tx(
+        &private_key,
+        0,
+        1000,
+        CHAIN_ID_TESTNET,
+        &"print-contract1",
+        &"(print u1)",
+        Some(clarity::vm::ClarityVersion::Clarity1),
+    );
+
+    let deploy_tx2 = make_contract_publish_tx(
+        &private_key,
+        1,
+        1000,
+        CHAIN_ID_TESTNET,
+        &"print-contract2",
+        &"(print u2)",
+        Some(clarity::vm::ClarityVersion::Clarity1),
+    );
+
     // query existing, non-empty Nakamoto block
-    let mut request = StacksHttpRequest::new_block_simulate_with_profiler(
+    let mut request = StacksHttpRequest::new_block_simulate_with_no_fees(
         addr.clone().into(),
         &rpc_test.canonical_tip,
-        true,
+        &vec![deploy_tx1.clone(), deploy_tx2.clone()],
     );
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
     // query non-existent block
-    let mut request =
-        StacksHttpRequest::new_block_replay(addr.clone().into(), &StacksBlockId([0x01; 32]));
+    let mut request = StacksHttpRequest::new_block_simulate(
+        addr.clone().into(),
+        &StacksBlockId([0x01; 32]),
+        &vec![],
+    );
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
     // unauthenticated request
-    let request =
-        StacksHttpRequest::new_block_replay(addr.clone().into(), &StacksBlockId([0x00; 32]));
+    let request = StacksHttpRequest::new_block_simulate(
+        addr.clone().into(),
+        &StacksBlockId([0x00; 32]),
+        &vec![],
+    );
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -174,35 +202,45 @@ fn test_try_make_response() {
     // got the Nakamoto tip
     let response = responses.remove(0);
 
-    debug!(
+    println!(
         "Response:\n{}\n",
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    let resp = response.decode_replayed_block().unwrap();
+    let resp = response.decode_simulated_block().unwrap();
 
     let tip_block = test_observer.get_blocks().last().unwrap().clone();
 
     assert_eq!(resp.consensus_hash, nakamoto_consensus_hash);
     assert_eq!(resp.consensus_hash, tip_block.metadata.consensus_hash);
 
-    assert_eq!(resp.block_hash, tip_block.block.block_hash);
-    assert_eq!(resp.block_id, tip_block.metadata.index_block_hash());
     assert_eq!(resp.parent_block_id, tip_block.parent);
 
     assert_eq!(resp.block_height, tip_block.metadata.stacks_block_height);
 
-    assert!(resp.valid_merkle_root);
+    assert_eq!(resp.transactions.len(), 2);
 
-    assert_eq!(resp.transactions.len(), tip_block.receipts.len());
+    assert_eq!(resp.transactions[0].txid, deploy_tx1.txid());
+    assert_eq!(resp.transactions[0].events.len(), 1);
+    assert_eq!(
+        resp.transactions[0].events[0].as_object().unwrap()["contract_event"]
+            .as_object()
+            .unwrap()["raw_value"]
+            .as_str()
+            .unwrap(),
+        "0x0100000000000000000000000000000001"
+    );
 
-    for (resp_tx, tip_tx) in resp.transactions.iter().zip(tip_block.receipts.iter()) {
-        assert_eq!(resp_tx.txid, tip_tx.transaction.txid());
-        assert_eq!(resp_tx.events.len(), tip_tx.events.len());
-        assert_eq!(resp_tx.result, tip_tx.result);
-        assert_eq!(resp_tx.result_hex, tip_tx.result);
-        assert!(!resp_tx.post_condition_aborted);
-    }
+    assert_eq!(resp.transactions[1].txid, deploy_tx2.txid());
+    assert_eq!(resp.transactions[1].events.len(), 1);
+    assert_eq!(
+        resp.transactions[1].events[0].as_object().unwrap()["contract_event"]
+            .as_object()
+            .unwrap()["raw_value"]
+            .as_str()
+            .unwrap(),
+        "0x0100000000000000000000000000000002"
+    );
 
     // got a failure (404)
     let response = responses.remove(0);
@@ -228,17 +266,20 @@ fn test_try_make_response() {
 /// Test that events properly set the `committed` flag to `false`
 /// when the transaction is aborted by a post-condition.
 #[test]
-fn replay_block_with_pc_failure() {
+fn simulate_block_with_pc_failure() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
 
     let test_observer = TestEventObserver::new();
 
+    let private_key = StacksPrivateKey::from_seed("blocksimulate".as_bytes());
+    let address = to_addr(&private_key);
+
+    let contract_name = ContractName::from("test");
+    let function_name = ClarityName::from("test");
+
     // Set up the RPC test with a contract, so that we can test a post-condition failure
     let rpc_test =
         TestRPC::setup_nakamoto_with_boot_plan(function_name!(), &test_observer, |boot_plan| {
-            let private_key = StacksPrivateKey::from_seed("blockreplay".as_bytes());
-            let addr = to_addr(&private_key);
-
             let code_body =
         "(define-public (test) (stx-transfer? u100 tx-sender 'ST000000000000000000002AMW42H))";
 
@@ -252,33 +293,16 @@ fn replay_block_with_pc_failure() {
                 None,
             );
 
-            let contract_call = {
-                let contract_name = ContractName::from("test");
-                let function_name = ClarityName::from("test");
-
-                let payload = TransactionContractCall {
-                    address: addr.clone(),
-                    contract_name,
-                    function_name,
-                    function_args: vec![],
-                };
-                let mut unsigned_tx = make_unsigned_tx(
-                    TransactionPayload::ContractCall(payload),
-                    &private_key,
-                    None,
-                    1,
-                    None,
-                    1000,
-                    CHAIN_ID_TESTNET,
-                    TransactionAnchorMode::Any,
-                    TransactionVersion::Testnet,
-                );
-                unsigned_tx.post_condition_mode = TransactionPostConditionMode::Deny;
-
-                let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
-                tx_signer.sign_origin(&private_key).unwrap();
-                tx_signer.get_tx().unwrap()
-            };
+            let contract_call = make_contract_call_tx(
+                &private_key,
+                1,
+                1000,
+                CHAIN_ID_TESTNET,
+                &address,
+                &contract_name,
+                &function_name,
+                &vec![],
+            );
 
             let boot_tenures = vec![NakamotoBootTenure::Sortition(vec![
                 NakamotoBootStep::Block(vec![contract_deploy]),
@@ -288,15 +312,43 @@ fn replay_block_with_pc_failure() {
             boot_plan
                 .with_boot_tenures(boot_tenures)
                 .with_ignore_transaction_errors(true)
-                .with_initial_balances(vec![(addr.into(), 1_000_000)])
+                .with_initial_balances(vec![(address.clone().into(), 1_000_000)])
         });
+
+    let contract_call = {
+        let payload = TransactionContractCall {
+            address: address.clone(),
+            contract_name,
+            function_name,
+            function_args: vec![],
+        };
+        let mut unsigned_tx = make_unsigned_tx(
+            TransactionPayload::ContractCall(payload),
+            &private_key,
+            None,
+            1,
+            None,
+            1000,
+            CHAIN_ID_TESTNET,
+            TransactionAnchorMode::Any,
+            TransactionVersion::Testnet,
+        );
+        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Deny;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(&private_key).unwrap();
+        tx_signer.get_tx().unwrap()
+    };
 
     let nakamoto_consensus_hash = rpc_test.consensus_hash.clone();
 
     let mut requests = vec![];
 
-    let mut request =
-        StacksHttpRequest::new_block_replay(addr.clone().into(), &rpc_test.canonical_tip);
+    let mut request = StacksHttpRequest::new_block_simulate(
+        addr.clone().into(),
+        &rpc_test.canonical_tip,
+        &vec![contract_call],
+    );
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
@@ -328,7 +380,7 @@ fn replay_block_with_pc_failure() {
     let result = ClarityValue::try_deserialize_hex_untyped(&result_hex).unwrap();
     result.expect_result_ok().expect("FATAL: result is not ok");
 
-    let resp = response.decode_replayed_block().unwrap();
+    let resp = response.decode_simulated_block().unwrap();
 
     let tip_block = test_observer.get_blocks().last().unwrap().clone();
 
@@ -359,33 +411,46 @@ fn test_try_make_response_with_unsuccessful_transaction() {
 
             let miner_privk = boot_plan.private_key.clone();
 
-            let contract_code = "(broken)";
+            let contract_code = "(ok u1)";
 
-            let deploy_tx_bytes = make_contract_publish(
+            let deploy_tx = make_contract_publish_tx(
                 &miner_privk,
                 100,
                 1000,
                 CHAIN_ID_TESTNET,
-                &"err-contract",
+                &"dummy-contract",
                 &contract_code,
+                Some(clarity::vm::ClarityVersion::Clarity1),
             );
-            let deploy_tx =
-                StacksTransaction::consensus_deserialize(&mut deploy_tx_bytes.as_slice()).unwrap();
 
             tip_transactions.push(deploy_tx);
-            boot_plan
-                .with_tip_transactions(tip_transactions)
-                .with_ignore_transaction_errors(true)
+            boot_plan.with_tip_transactions(tip_transactions)
         });
 
     let tip_block = test_observer.get_blocks().last().unwrap().clone();
 
     let nakamoto_consensus_hash = rpc_test.consensus_hash.clone();
 
+    let private_key = StacksPrivateKey::from_seed("blocksimulate".as_bytes());
+    let contract_code = "(broken)";
+
+    let deploy_tx = make_contract_publish_tx(
+        &private_key,
+        0,
+        1000,
+        CHAIN_ID_TESTNET,
+        &"err-contract",
+        &contract_code,
+        Some(clarity::vm::ClarityVersion::Clarity1),
+    );
+
     let mut requests = vec![];
 
-    let mut request =
-        StacksHttpRequest::new_block_replay(addr.clone().into(), &rpc_test.canonical_tip);
+    let mut request = StacksHttpRequest::new_block_simulate_with_no_fees(
+        addr.clone().into(),
+        &rpc_test.canonical_tip,
+        &vec![deploy_tx.clone()],
+    );
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
@@ -400,28 +465,18 @@ fn test_try_make_response_with_unsuccessful_transaction() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    let resp = response.decode_replayed_block().unwrap();
+    let resp = response.decode_simulated_block().unwrap();
 
     assert_eq!(resp.consensus_hash, nakamoto_consensus_hash);
     assert_eq!(resp.consensus_hash, tip_block.metadata.consensus_hash);
 
-    assert_eq!(resp.block_hash, tip_block.block.block_hash);
-    assert_eq!(resp.block_id, tip_block.metadata.index_block_hash());
     assert_eq!(resp.parent_block_id, tip_block.parent);
 
     assert_eq!(resp.block_height, tip_block.metadata.stacks_block_height);
 
-    assert!(resp.valid_merkle_root);
+    assert_eq!(resp.transactions.len(), 1);
 
-    assert_eq!(resp.transactions.len(), tip_block.receipts.len());
-
-    for (resp_tx, tip_tx) in resp.transactions.iter().zip(tip_block.receipts.iter()) {
-        assert_eq!(resp_tx.txid, tip_tx.transaction.txid());
-        assert_eq!(resp_tx.events.len(), tip_tx.events.len());
-        assert_eq!(resp_tx.result, tip_tx.result);
-        assert_eq!(resp_tx.result_hex, tip_tx.result);
-        assert!(!resp_tx.post_condition_aborted);
-    }
+    assert_eq!(resp.transactions[0].txid, deploy_tx.txid());
 
     assert_eq!(
         resp.transactions.last().unwrap().vm_error.clone().unwrap(),
