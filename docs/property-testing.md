@@ -18,8 +18,7 @@ We recommend perusing the [`proptest-rs`](https://proptest-rs.github.io/proptest
 
 ## Examples
 
-There are a couple examples of proptest in action in our codebase. The first is a set of property tests for new clarity functions in Epoch 3.3 (Clarity4). These tests generate clarity code (as strings) for property tests that assert the new clarity functions behave as expected ([vm::tests::post_conditions](clarity/src/vm/tests/post_conditions.rs#L1761)). The second is a property test for `make_reward_set`, which is used to translate data pulled from the `pox` contracts into the actual reward set ([chainstate::stacks::tests::reward_set](stackslib/src/chainstate/stacks/tests/reward_set.rs)).
-
+There are a couple examples of proptest in action in our codebase. The first is a set of property tests for new clarity functions in Epoch 3.3 (Clarity4). These tests generate clarity code (as strings) for property tests that assert the new clarity functions behave as expected ([vm::tests::post_conditions](https://github.com/stacks-network/stacks-core/blob/9c6a2ff42bfb50da65b2d3a8f9fde33283f2e090/clarity/src/vm/tests/post_conditions.rs#L1870)). The second is a property test for `make_reward_set`, which is used to translate data pulled from the `pox` contracts into the actual reward set ([chainstate::stacks::tests::reward_set](https://github.com/stacks-network/stacks-core/blob/9c6a2ff42bfb50da65b2d3a8f9fde33283f2e090/stackslib/src/chainstate/stacks/tests/reward_set.rs)).
 ### Reward Set Example
 
 The reward set example can be thought of as two major pieces: the test itself and the input generation. Let's first look at the test:
