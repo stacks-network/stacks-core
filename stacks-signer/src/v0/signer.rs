@@ -1036,6 +1036,15 @@ impl Signer {
             return;
         };
 
+        if block_info.state == BlockState::LocallyAccepted
+            || block_info.state == BlockState::LocallyRejected
+        {
+            debug!(
+                "{self}: Received pre-commit for a block that we have already responded to. Ignoring...",
+            );
+            return;
+        }
+
         if self.signer_db.has_committed(block_hash, stacker_address).inspect_err(|e| warn!("Failed to check if pre-commit message already considered for {stacker_address:?} for {block_hash}: {e}")).unwrap_or(false) {
             debug!("{self}: Already considered pre-commit message from {stacker_address:?} for {block_hash}. Ignoring...");
             return;
@@ -1404,7 +1413,7 @@ impl Signer {
             self.handle_block_rejection(&block_rejection, sortition_state);
             self.send_block_response(&block_info.block, block_rejection.into());
         } else {
-            if let Err(e) = block_info.mark_locally_accepted(false) {
+            if let Err(e) = block_info.mark_pre_committed() {
                 if !block_info.has_reached_consensus() {
                     warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
                     return;
