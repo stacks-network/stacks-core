@@ -13440,16 +13440,16 @@ fn reorg_attempts_count_towards_miner_validity() {
 ///
 /// Test Execution:
 /// Test validation endpoint is stalled.
-/// The miner proposes a block N.
+/// The miner A proposes a block N.
 /// Block proposals are stalled.
 /// A new tenure is started.
 /// The test waits for reorg_attempts_activity_timeout + 1 second.
-/// The miner proposes a block N'.
+/// The miner B proposes a block N'.
 /// The test waits for block proposal timeout + 1 second.
 /// The validation endpoint is resumed.
 /// The signers accept block N.
 /// The signers reject block N'.
-/// The miner proposes block N+1.
+/// The miner B proposes block N+1.
 /// The signers reject block N+1.
 ///
 /// Test Assertion:
@@ -13536,42 +13536,68 @@ fn reorg_attempts_activity_timeout_exceeded() {
     )
     .expect("Failed to update to Tenure B");
 
+    // Make sure that no subsequent proposal arrives before the block_proposal_timeout is exceeded
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk.clone()]);
+    info!(
+        "------------------------- Wait for block N {} to arrive late  -------------------------",
+        block_proposal_n.header.signer_signature_hash()
+    );
+    // Allow block N validation to finish, but don't broadcast it yet
+    TEST_VALIDATE_STALL.set(false);
+    TEST_PAUSE_BLOCK_BROADCAST.set(true);
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    wait_for_block_global_acceptance_from_signers(
+        30,
+        &block_proposal_n.header.signer_signature_hash(),
+        &signer_test.get_signer_public_keys(reward_cycle),
+    )
+    .expect("Timed out waiting for block proposal N to be globally accepted");
+
     let wait_time = reorg_attempts_activity_timeout.add(Duration::from_secs(1));
     info!("------------------------- Waiting {} Seconds for Reorg Activity Timeout to be Exceeded-------------------------", wait_time.as_secs());
     // Make sure to wait the reorg_attempts_activity_timeout AFTER the block is globally signed over
     // as this is the point where signers start considering from.
-    // Allow incoming mine to propose block N'
     std::thread::sleep(wait_time);
+    test_observer::clear();
+
+    // Allow incoming miner to propose block N'
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let block_proposal_n_prime =
         wait_for_block_proposal(30, chain_start.stacks_tip_height + 1, &miner_pk)
             .expect("Failed to get block proposal N'");
-    // Make sure that no subsequent proposal arrives before the block_proposal_timeout is exceeded
+    assert_ne!(block_proposal_n, block_proposal_n_prime);
+
+    // Pause proposals again to avoid any additional proposals
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk.clone()]);
-    info!("------------------------- Wait for block N' to arrive late  -------------------------");
-    // Allow block N validation to finish.
-    TEST_VALIDATE_STALL.set(false);
+    // Allow the block broadcast to proceed and then make sure we've advanced to block N
+    TEST_PAUSE_BLOCK_BROADCAST.set(false);
     wait_for(30, || {
         let chain_info = get_chain_info(&signer_test.running_nodes.conf);
         Ok(chain_info.stacks_tip_height > chain_before.stacks_tip_height)
     })
     .expect("Timed out waiting for stacks tip to advance to block N");
     let chain_after = get_chain_info(&signer_test.running_nodes.conf);
-    TEST_VALIDATE_STALL.set(true);
-    // We only need to wait the difference between the two timeouts now since we already slept for a min of reorg_attempts_activity_timeout + 1
-    let wait_time = block_proposal_timeout.saturating_sub(reorg_attempts_activity_timeout);
-    info!("------------------------- Waiting {} Seconds for Miner To be Marked Invalid -------------------------", wait_time.as_secs());
+
+    // We wait the remainder of the block proposal timeout
+    let wait_time = block_proposal_timeout
+        .saturating_sub(reorg_attempts_activity_timeout)
+        .saturating_add(Duration::from_secs(1));
+    info!("------------------------- Waiting {} Seconds for Miner to be Considered Inactive -------------------------", wait_time.as_secs());
     std::thread::sleep(wait_time);
+
+    info!("------------------------- Waiting for Miner To be Marked Invalid -------------------------");
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &chain_start.pox_consensus,
         &signer_test.signer_addresses_versions(),
     )
     .expect("Failed to revert back to prior miner's tenure");
-    assert_ne!(block_proposal_n, block_proposal_n_prime);
     let chain_before = chain_after;
-    TEST_VALIDATE_STALL.set(false);
-    info!("------------------------- Wait for Block N' Rejection -------------------------");
+
+    info!(
+        "------------------------- Wait for Block N' {} Rejection -------------------------",
+        block_proposal_n_prime.header.signer_signature_hash()
+    );
     wait_for_block_global_rejection(
         30,
         &block_proposal_n_prime.header.signer_signature_hash(),
