@@ -133,6 +133,7 @@ enum BlockSelection {
     Prefix(String),
     Last(u64),
     HeightRange { start: u64, end: u64 },
+    IndexRange { start: u64, end: u64 },
 }
 
 impl BlockSelection {
@@ -146,9 +147,12 @@ impl BlockSelection {
                 format!("WHERE orphaned = 0 ORDER BY height DESC LIMIT {count}")
             }
             BlockSelection::HeightRange { start, end } => format!(
-                "WHERE orphaned = 0 AND height BETWEEN {start} AND {} ORDER BY height ASC",
-                end - 1 // exclusive end
+                "WHERE orphaned = 0 AND height BETWEEN {start} AND {end} ORDER BY height ASC"
             ),
+            BlockSelection::IndexRange { start, end } => {
+                let blocks = end.saturating_sub(*start);
+                format!("WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
+            }
         }
     }
 }
@@ -181,10 +185,26 @@ fn parse_block_selection(mode: Option<&str>, argv: &[String]) -> Result<BlockSel
                 .ok_or_else(|| "Missing <end-block>".to_string())?
                 .parse::<u64>()
                 .map_err(|_| "<end-block> must be a u64".to_string())?;
-            if start >= end {
-                return Err("<start-block> must be < <end-block>".into());
+            if start > end {
+                return Err("<start-block> must be <= <end-block>".into());
             }
             Ok(BlockSelection::HeightRange { start, end })
+        }
+        Some("index-range") => {
+            let start = argv
+                .get(3)
+                .ok_or_else(|| "Missing <start-block>".to_string())?
+                .parse::<u64>()
+                .map_err(|_| "<start-block> must be a u64".to_string())?;
+            let end = argv
+                .get(4)
+                .ok_or_else(|| "Missing <end-block>".to_string())?
+                .parse::<u64>()
+                .map_err(|_| "<end-block> must be a u64".to_string())?;
+            if start > end {
+                return Err("<start-block> must be <= <end-block>".into());
+            }
+            Ok(BlockSelection::IndexRange { start, end })
         }
         Some(other) => Err(format!("Unrecognized option: {other}")),
         None => Ok(BlockSelection::All),
