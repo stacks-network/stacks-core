@@ -760,7 +760,7 @@ impl RelayerThread {
         sn: BlockSnapshot,
         mining_pk: &Hash160,
     ) -> Option<MinerDirective> {
-        let (canonical_stacks_tip_ch, _) =
+        let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
                 .expect("FATAL: failed to query sortition DB for stacks tip");
         let canonical_stacks_snapshot =
@@ -797,9 +797,26 @@ impl RelayerThread {
             return None;
         };
 
+        // Check if we wone the last winning snapshot AND it commits to the ongoing tenure.
         let won_last_winning_snapshot =
             last_winning_snapshot.miner_pk_hash.as_ref() == Some(mining_pk);
-        if won_last_winning_snapshot {
+        let canonical_stacks_tip =
+            StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
+        let commits_to_tip_tenure = Self::sortition_commits_to_stacks_tip_tenure(
+            &mut self.chainstate,
+            &canonical_stacks_tip,
+            &canonical_stacks_snapshot,
+            &last_winning_snapshot,
+        ).unwrap_or_else(|e| {
+            warn!(
+                "Relayer: Failed to determine if last winning sortition commits to current tenure: {e:?}";
+                "sortition_ch" => %sn.consensus_hash,
+                "stacks_tip_ch" => %canonical_stacks_tip_ch
+            );
+            false
+        });
+
+        if won_last_winning_snapshot && commits_to_tip_tenure {
             debug!(
                 "Relayer: we won the last winning sortition {}",
                 &last_winning_snapshot.consensus_hash
