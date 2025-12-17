@@ -62,13 +62,17 @@ fn parse_in_epoch(
     epoch_id: StacksEpochId,
 ) -> ParseResult<Vec<PreSymbolicExpression>> {
     #[cfg(feature = "devtools")]
-    return parse_v2(source_code);
+    {
+      parse_v2(source_code)
+    }
 
     #[cfg(not(feature = "devtools"))]
-    if epoch_id >= StacksEpochId::Epoch21 {
-        parse_v2(source_code)
-    } else {
-        parse_v1(source_code)
+    {
+      if epoch_id >= StacksEpochId::Epoch21 {
+          parse_v2(source_code)
+      } else {
+          parse_v1(source_code)
+      }
     }
 }
 
