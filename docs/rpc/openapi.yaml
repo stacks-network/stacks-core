@@ -2248,7 +2248,7 @@ paths:
         - rpcAuth: []
       operationId: blockSimulate
       description: |
-        Simulate the mining of a block (no data is written in the MARF) with specified trnsactions and returns its content.
+        Simulate the mining of a block (no data is written in the MARF) with specified transactions and returns its content.
       parameters:
         - name: block_id
           in: path
