@@ -135,6 +135,8 @@ enum BlockSelection {
     HeightRange { start: u64, end: u64 },
     IndexRange { start: u64, end: u64 },
     NakaIndexRange { start: u64, end: u64 },
+    IndexRangeInfo,
+    NakaIndexRangeInfo,
 }
 
 impl BlockSelection {
@@ -158,6 +160,9 @@ impl BlockSelection {
             BlockSelection::NakaIndexRange { start, end } => {
                 let blocks = end.saturating_sub(*start);
                 format!("WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
+            }
+            BlockSelection::IndexRangeInfo | BlockSelection::NakaIndexRangeInfo => {
+                unreachable!("Info selections should not generate SQL clauses")
             }
         }
     }
@@ -196,38 +201,40 @@ fn parse_block_selection(mode: Option<&str>, argv: &[String]) -> Result<BlockSel
             }
             Ok(BlockSelection::HeightRange { start, end })
         }
-        Some("index-range") => {
-            let start = argv
-                .get(3)
-                .ok_or_else(|| "Missing <start-block>".to_string())?
-                .parse::<u64>()
-                .map_err(|_| "<start-block> must be a u64".to_string())?;
-            let end = argv
-                .get(4)
-                .ok_or_else(|| "Missing <end-block>".to_string())?
-                .parse::<u64>()
-                .map_err(|_| "<end-block> must be a u64".to_string())?;
-            if start >= end {
-                return Err("<start-block> must be < <end-block>".into());
+        Some("index-range") => match argv.get(3) {
+            None => Ok(BlockSelection::IndexRangeInfo),
+            Some(start_arg) => {
+                let start = start_arg
+                    .parse::<u64>()
+                    .map_err(|_| "<start-block> must be a u64".to_string())?;
+                let end = argv
+                    .get(4)
+                    .ok_or_else(|| "Missing <end-block>".to_string())?
+                    .parse::<u64>()
+                    .map_err(|_| "<end-block> must be a u64".to_string())?;
+                if start >= end {
+                    return Err("<start-block> must be < <end-block>".into());
+                }
+                Ok(BlockSelection::IndexRange { start, end })
             }
-            Ok(BlockSelection::IndexRange { start, end })
-        }
-        Some("naka-index-range") => {
-            let start = argv
-                .get(3)
-                .ok_or_else(|| "Missing <start-block>".to_string())?
-                .parse::<u64>()
-                .map_err(|_| "<start-block> must be a u64".to_string())?;
-            let end = argv
-                .get(4)
-                .ok_or_else(|| "Missing <end-block>".to_string())?
-                .parse::<u64>()
-                .map_err(|_| "<end-block> must be a u64".to_string())?;
-            if start >= end {
-                return Err("<start-block> must be < <end-block>".into());
+        },
+        Some("naka-index-range") => match argv.get(3) {
+            None => Ok(BlockSelection::NakaIndexRangeInfo),
+            Some(start_arg) => {
+                let start = start_arg
+                    .parse::<u64>()
+                    .map_err(|_| "<start-block> must be a u64".to_string())?;
+                let end = argv
+                    .get(4)
+                    .ok_or_else(|| "Missing <end-block>".to_string())?
+                    .parse::<u64>()
+                    .map_err(|_| "<end-block> must be a u64".to_string())?;
+                if start >= end {
+                    return Err("<start-block> must be < <end-block>".into());
+                }
+                Ok(BlockSelection::NakaIndexRange { start, end })
             }
-            Ok(BlockSelection::NakaIndexRange { start, end })
-        }
+        },
         Some(other) => Err(format!("Unrecognized option: {other}")),
         None => Ok(BlockSelection::All),
     }
@@ -265,6 +272,35 @@ fn collect_block_entries_for_selection(
 
 fn limit_reached(limit: Option<u64>, current: usize) -> bool {
     limit.is_some_and(|max| current >= max as usize)
+}
+
+fn count_epoch2_index_entries(db_path: &str) -> u64 {
+    let staging_blocks_db_path = format!("{db_path}/chainstate/vm/index.sqlite");
+    let conn =
+        Connection::open_with_flags(&staging_blocks_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap_or_else(|e| {
+                panic!("Failed to open staging blocks DB at {staging_blocks_db_path}: {e}");
+            });
+    let sql = "SELECT COUNT(*) FROM staging_blocks WHERE orphaned = 0";
+    let mut stmt = conn.prepare(sql).unwrap_or_else(|e| {
+        panic!("Failed to prepare query over staging_blocks: {e}");
+    });
+    stmt.query_row(NO_PARAMS, |row| row.get::<_, u64>(0))
+        .unwrap_or_else(|e| {
+            panic!("Failed to count staging blocks: {e}");
+        })
+}
+
+fn count_nakamoto_index_entries(chainstate: &StacksChainState) -> u64 {
+    let sql = "SELECT COUNT(*) FROM nakamoto_staging_blocks WHERE orphaned = 0";
+    let conn = chainstate.nakamoto_blocks_db();
+    let mut stmt = conn.prepare(sql).unwrap_or_else(|e| {
+        panic!("Failed to prepare query over nakamoto_staging_blocks: {e}");
+    });
+    stmt.query_row(NO_PARAMS, |row| row.get::<_, u64>(0))
+        .unwrap_or_else(|e| {
+            panic!("Failed to count nakamoto staging blocks: {e}");
+        })
 }
 
 fn collect_epoch2_entries(
@@ -353,8 +389,8 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
         eprintln!("Usage:");
         eprintln!("  {n} <database-path>");
         eprintln!("  {n} <database-path> prefix <index-block-hash-prefix>");
-        eprintln!("  {n} <database-path> index-range <start-index> <end-index>");
-        eprintln!("  {n} <database-path> naka-index-range <start-index> <end-index>");
+        eprintln!("  {n} <database-path> index-range [<start-index> <end-index>]");
+        eprintln!("  {n} <database-path> naka-index-range [<start-index> <end-index>]");
         eprintln!("  {n} <database-path> range <start-height> <end-height>");
         eprintln!("  {n} <database-path> <last> <block-count>");
         eprintln!("  {n} --early-exit ... # Exit on first error found");
@@ -388,6 +424,20 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
         eprintln!("Failed to open chainstate at {chain_state_path}: {e}");
         process::exit(1);
     });
+
+    match &selection {
+        BlockSelection::IndexRangeInfo => {
+            let total = count_epoch2_index_entries(db_path);
+            println!("Total available index-range entries: {total}");
+            return;
+        }
+        BlockSelection::NakaIndexRangeInfo => {
+            let total = count_nakamoto_index_entries(&chainstate);
+            println!("Total available naka-index-range entries: {total}");
+            return;
+        }
+        _ => {}
+    }
 
     let work_items = collect_block_entries_for_selection(db_path, &selection, &chainstate);
     drop(chainstate);
