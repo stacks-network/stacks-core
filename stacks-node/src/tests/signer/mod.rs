@@ -63,6 +63,7 @@ use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerCon
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
 use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer_state::LocalStateMachine;
+use stacks_signer::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{
@@ -1414,10 +1415,14 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .iter()
             .zip(self.signer_configs.clone())
             .map(|(privk, config)| {
-                (
-                    StacksAddress::p2pkh(false, &StacksPublicKey::from_private(privk)),
-                    config.supported_signer_protocol_version,
-                )
+                let public_key = StacksPublicKey::from_private(privk);
+                let pinned_versions = TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.get();
+                let version = if let Some(pinned_version) = pinned_versions.get(&public_key) {
+                    *pinned_version
+                } else {
+                    config.supported_signer_protocol_version
+                };
+                (StacksAddress::p2pkh(false, &public_key), version)
             })
             .collect()
     }

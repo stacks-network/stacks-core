@@ -52,7 +52,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 
 use crate::stacks_common::types::PublicKey;
-use crate::v0::signer_state::ReplayTransactionSet;
+use crate::v0::signer_state::{ReplayTransactionSet, SignerStateMachine};
 use crate::{
     BlockProposal, MessageSlotID as MessageSlotIDTrait, SignerMessage as SignerMessageTrait,
     VERSION_STRING,
@@ -623,9 +623,18 @@ impl StateMachineUpdate {
         local_supported_signer_protocol_version: u64,
         content: StateMachineUpdateContent,
     ) -> Result<Self, CodecError> {
-        if !content.is_protocol_version_compatible(active_signer_protocol_version) {
-            return Err(CodecError::DeserializeError(format!("StateMachineUpdateContent is incompatible with protocol version: {active_signer_protocol_version}")));
+        let version = content.version();
+        // The content version MUST be exactly the expected one:
+        // If local supports at least the active version, use active version
+        // Otherwise, use local supported version
+        let expected_version =
+            active_signer_protocol_version.min(local_supported_signer_protocol_version);
+        if version != expected_version {
+            return Err(CodecError::DeserializeError(format!(
+                "Content version {version} does not match expected protocol version {expected_version} (active={active_signer_protocol_version}, supported={local_supported_signer_protocol_version})"
+            )));
         }
+
         Ok(Self {
             active_signer_protocol_version,
             local_supported_signer_protocol_version,
@@ -692,12 +701,44 @@ impl StacksMessageCodec for StateMachineUpdateMinerState {
 }
 
 impl StateMachineUpdateContent {
-    // Is the protocol version specified one that uses self's content?
-    fn is_protocol_version_compatible(&self, version: u64) -> bool {
+    /// Attempt to create a new state machine update content with the specified version
+    pub fn new(
+        version: u64,
+        current_miner: StateMachineUpdateMinerState,
+        state_machine: &SignerStateMachine,
+    ) -> Result<Self, CodecError> {
+        let content = match version {
+            0 => StateMachineUpdateContent::V0 {
+                burn_block: state_machine.burn_block.clone(),
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+            },
+            1 => StateMachineUpdateContent::V1 {
+                burn_block: state_machine.burn_block.clone(),
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
+            },
+            2 => StateMachineUpdateContent::V2 {
+                burn_block: state_machine.burn_block.clone(),
+                burn_block_height: state_machine.burn_block_height,
+                current_miner,
+                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
+            },
+            other => {
+                return Err(CodecError::DeserializeError(format!(
+                    "Signer protocol version is unknown: {other}"
+                )))
+            }
+        };
+        Ok(content)
+    }
+
+    fn version(&self) -> u64 {
         match self {
-            Self::V0 { .. } => version == 0,
-            Self::V1 { .. } => version == 1,
-            Self::V2 { .. } => version == 2,
+            Self::V0 { .. } => 0,
+            Self::V1 { .. } => 1,
+            Self::V2 { .. } => 2,
         }
     }
 
@@ -2424,23 +2465,29 @@ mod test {
 
     #[test]
     fn version_check_state_machine_update() {
-        let error = StateMachineUpdate::new(
-            1,
-            3,
-            StateMachineUpdateContent::V0 {
-                burn_block: ConsensusHash([0x55; 20]),
-                burn_block_height: 100,
-                current_miner: StateMachineUpdateMinerState::ActiveMiner {
-                    current_miner_pkh: Hash160([0xab; 20]),
-                    tenure_id: ConsensusHash([0x44; 20]),
-                    parent_tenure_id: ConsensusHash([0x22; 20]),
-                    parent_tenure_last_block: StacksBlockId([0x33; 32]),
-                    parent_tenure_last_block_height: 1,
-                },
+        let content = StateMachineUpdateContent::V1 {
+            burn_block: ConsensusHash([0x55; 20]),
+            burn_block_height: 100,
+            current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                current_miner_pkh: Hash160([0xab; 20]),
+                tenure_id: ConsensusHash([0x44; 20]),
+                parent_tenure_id: ConsensusHash([0x22; 20]),
+                parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                parent_tenure_last_block_height: 1,
             },
-        )
-        .unwrap_err();
+            replay_transactions: vec![],
+        };
+        // We active version does not support the content
+        let error = StateMachineUpdate::new(0, 1, content.clone()).unwrap_err();
         assert!(matches!(error, CodecError::DeserializeError(_)));
+        // The content should be the min of the active/local versions but it is lower
+        let error = StateMachineUpdate::new(2, 3, content.clone()).unwrap_err();
+        assert!(matches!(error, CodecError::DeserializeError(_)));
+        // The content should be the min of the active/local versions but it is greater
+        let error = StateMachineUpdate::new(2, 0, content.clone()).unwrap_err();
+        assert!(matches!(error, CodecError::DeserializeError(_)));
+        // the content version is equal to the min of the active/local versions
+        assert!(StateMachineUpdate::new(1, 2, content.clone()).is_ok())
     }
 
     #[test]
