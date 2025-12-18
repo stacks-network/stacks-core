@@ -868,8 +868,7 @@ fn replay_staging_block(
         &next_staging_block.anchored_block_hash,
         next_staging_block.commit_burn,
         next_staging_block.sortition_burn,
-    );
-    Ok(())
+    )
 }
 
 /// Process a mock mined block and call `replay_block()` to validate
@@ -941,7 +940,8 @@ fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Opt
         // I think the burn is used for miner rewards but not necessary for validation
         0,
         0,
-    );
+    )
+    .expect("Failed to replay mock mined block");
 }
 
 /// Validate a block against chainstate
@@ -960,7 +960,7 @@ fn replay_block(
     block_hash: &BlockHeaderHash,
     block_commit_burn: u64,
     block_sortition_burn: u64,
-) {
+) -> Result<(), String> {
     let parent_block_header = match &parent_header_info.anchored_header {
         StacksBlockHeaderTypes::Epoch2(bh) => bh,
         StacksBlockHeaderTypes::Nakamoto(_) => panic!("Nakamoto blocks not supported yet"),
@@ -970,8 +970,7 @@ fn replay_block(
     let Some(cost) =
         StacksChainState::get_stacks_block_anchored_cost(chainstate_tx.conn(), block_id).unwrap()
     else {
-        println!("No header info found for {block_id}");
-        return;
+        return Err(format!("No header info found for {block_id}"));
     };
 
     let Some(next_microblocks) = StacksChainState::inner_find_parent_microblock_stream(
@@ -983,8 +982,7 @@ fn replay_block(
         parent_microblock_seq,
     )
     .unwrap() else {
-        println!("No microblock stream found for {block_id}");
-        return;
+        return Err(format!("No microblock stream found for {block_id}"));
     };
 
     let (burn_header_hash, burn_header_height, burn_header_timestamp, _winning_block_txid) =
@@ -1009,15 +1007,13 @@ fn replay_block(
     );
 
     if !StacksChainState::check_block_attachment(parent_block_header, &block.header) {
-        let msg = format!(
+        return Err(format!(
             "Invalid stacks block {}/{} -- does not attach to parent {}/{}",
             block_consensus_hash,
             block.block_hash(),
             parent_block_header.block_hash(),
             &parent_header_info.consensus_hash
-        );
-        println!("{msg}");
-        return;
+        ));
     }
 
     // validation check -- validate parent microblocks and find the ones that connect the
@@ -1064,20 +1060,19 @@ fn replay_block(
     ) {
         Ok((receipt, _, _)) => {
             if receipt.anchored_block_cost != cost {
-                println!(
+                return Err(format!(
                     "Failed processing block! block = {block_id}. Unexpected cost. expected = {cost}, evaluated = {}",
                     receipt.anchored_block_cost
-                );
-                process::exit(1);
+                ));
             }
 
             info!("Block processed successfully! block = {block_id}");
+            Ok(())
         }
-        Err(e) => {
-            println!("Failed processing block! block = {block_id}, error = {e:?}");
-            process::exit(1);
-        }
-    };
+        Err(e) => Err(format!(
+            "Failed processing block! block = {block_id}, error = {e:?}"
+        )),
+    }
 }
 
 /// Fetch and process a NakamotoBlock from database and call `replay_block_nakamoto()` to validate
