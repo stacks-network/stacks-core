@@ -134,6 +134,7 @@ enum BlockSelection {
     Last(u64),
     HeightRange { start: u64, end: u64 },
     IndexRange { start: u64, end: u64 },
+    NakaIndexRange { start: u64, end: u64 },
 }
 
 impl BlockSelection {
@@ -151,6 +152,10 @@ impl BlockSelection {
                 end.saturating_sub(1)
             ),
             BlockSelection::IndexRange { start, end } => {
+                let blocks = end.saturating_sub(*start);
+                format!("WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
+            }
+            BlockSelection::NakaIndexRange { start, end } => {
                 let blocks = end.saturating_sub(*start);
                 format!("WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
             }
@@ -207,6 +212,22 @@ fn parse_block_selection(mode: Option<&str>, argv: &[String]) -> Result<BlockSel
             }
             Ok(BlockSelection::IndexRange { start, end })
         }
+        Some("naka-index-range") => {
+            let start = argv
+                .get(3)
+                .ok_or_else(|| "Missing <start-block>".to_string())?
+                .parse::<u64>()
+                .map_err(|_| "<start-block> must be a u64".to_string())?;
+            let end = argv
+                .get(4)
+                .ok_or_else(|| "Missing <end-block>".to_string())?
+                .parse::<u64>()
+                .map_err(|_| "<end-block> must be a u64".to_string())?;
+            if start >= end {
+                return Err("<start-block> must be < <end-block>".into());
+            }
+            Ok(BlockSelection::NakaIndexRange { start, end })
+        }
         Some(other) => Err(format!("Unrecognized option: {other}")),
         None => Ok(BlockSelection::All),
     }
@@ -226,6 +247,12 @@ fn collect_block_entries_for_selection(
                 return entries;
             }
             collect_epoch2_entries(&mut entries, &clause, db_path, Some(*limit));
+        }
+        BlockSelection::IndexRange { .. } => {
+            collect_epoch2_entries(&mut entries, &clause, db_path, None);
+        }
+        BlockSelection::NakaIndexRange { .. } => {
+            collect_nakamoto_entries(&mut entries, &clause, chainstate, None);
         }
         _ => {
             collect_epoch2_entries(&mut entries, &clause, db_path, None);
@@ -326,8 +353,9 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
         eprintln!("Usage:");
         eprintln!("  {n} <database-path>");
         eprintln!("  {n} <database-path> prefix <index-block-hash-prefix>");
-        eprintln!("  {n} <database-path> index-range <start-block> <end-block>");
-        eprintln!("  {n} <database-path> range <start-block> <end-block>");
+        eprintln!("  {n} <database-path> index-range <start-index> <end-index>");
+        eprintln!("  {n} <database-path> naka-index-range <start-index> <end-index>");
+        eprintln!("  {n} <database-path> range <start-height> <end-height>");
         eprintln!("  {n} <database-path> <last> <block-count>");
         eprintln!("  {n} --early-exit ... # Exit on first error found");
         process::exit(1);
