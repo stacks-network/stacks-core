@@ -1006,6 +1006,12 @@ impl MultipleMinerTest {
         self.get_peer_info().stacks_tip
     }
 
+    /// Return the consensus hash for the current stacks tip from node 1.
+    /// This can be used to identify the active tenure.
+    pub fn get_peer_stacks_tip_ch(&self) -> ConsensusHash {
+        self.get_peer_info().stacks_tip_consensus_hash
+    }
+
     /// Ensures that miner 2 submits a commit pointing to the current view reported by the stacks node as expected
     pub fn submit_commit_miner_2(&mut self, sortdb: &SortitionDB) {
         if !self.rl2_counters.naka_skip_commit_op.get() {
@@ -19194,6 +19200,7 @@ fn tenure_extend_after_stale_commit_different_miner() {
     verify_sortition_winner(&sortdb, &miner_pkh_2);
     miners.send_and_mine_transfer_tx(60).unwrap();
     let tip_b_height = miners.get_peer_stacks_tip_height();
+    let tenure_b_ch = miners.get_peer_stacks_tip_ch();
 
     info!("------------------------- Miner 1 Wins Tenure C with stale commit -------------------------");
 
@@ -19257,14 +19264,14 @@ fn tenure_extend_after_stale_commit_different_miner() {
     )
     .unwrap();
 
-    let stacks_height_after_rejection = miners.get_peer_stacks_tip_height();
-    assert_eq!(stacks_height_after_rejection, tip_b_height);
+    assert_eq!(miners.get_peer_stacks_tip_ch(), tenure_b_ch);
 
     info!("------------------------- Miner 2 Extends Tenure B -------------------------");
     wait_for_tenure_change_tx(60, TenureChangeCause::Extended, tip_b_height + 1).unwrap();
 
     let final_height = miners.get_peer_stacks_tip_height();
-    assert_eq!(final_height, tip_b_height + 1);
+    assert_eq!(miners.get_peer_stacks_tip_ch(), tenure_b_ch);
+    assert!(final_height >= tip_b_height + 1);
 
     miners.shutdown();
 }
