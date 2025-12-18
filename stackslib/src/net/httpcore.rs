@@ -1070,12 +1070,12 @@ impl StacksHttp {
         handler: Handler,
     ) {
         let strict_regex = handler.path_regex();
-        let handler_permissive = handler.path_regex_permissive();
+        let permissive_regex = handler.path_regex_permissive();
 
-        let permissive_regex = if handler_permissive.as_str() == strict_regex.as_str() {
+        let permissive_regex = if permissive_regex.as_str() == strict_regex.as_str() {
             make_permissive_regex(&strict_regex)
         } else {
-            handler_permissive
+            permissive_regex
         };
 
         self.request_handlers.push((
