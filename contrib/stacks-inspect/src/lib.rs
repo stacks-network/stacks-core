@@ -428,12 +428,12 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
     match &selection {
         BlockSelection::IndexRangeInfo => {
             let total = count_epoch2_index_entries(db_path);
-            println!("Total available index-range entries: {total}");
+            println!("Total available entries: {total}");
             return;
         }
         BlockSelection::NakaIndexRangeInfo => {
             let total = count_nakamoto_index_entries(&chainstate);
-            println!("Total available naka-index-range entries: {total}");
+            println!("Total available entries: {total}");
             return;
         }
         _ => {}
