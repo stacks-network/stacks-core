@@ -136,6 +136,7 @@ impl CostSynthesis {
 }
 
 /// EvalHook defines an interface for hooks to execute during evaluation.
+/// NOTE: Used in the Clarinet repo.
 pub trait EvalHook {
     // Called before the expression is evaluated
     fn will_begin_eval(
