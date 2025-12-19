@@ -16,7 +16,7 @@
 
 use std::io::{Read, Seek, SeekFrom};
 
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
@@ -113,8 +113,8 @@ impl HttpRequest for RPCNakamotoBlockRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/blocks/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v3/blocks/{block_id}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -126,7 +126,7 @@ impl HttpRequest for RPCNakamotoBlockRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
@@ -140,8 +140,7 @@ impl HttpRequest for RPCNakamotoBlockRequestHandler {
             .name("block_id")
             .ok_or_else(|| {
                 Error::DecodeError("Failed to match path to block ID group".to_string())
-            })?
-            .as_str();
+            })?;
 
         let block_id = StacksBlockId::from_hex(block_id_str).map_err(|_| {
             Error::DecodeError("Invalid path: unparseable consensus hash".to_string())

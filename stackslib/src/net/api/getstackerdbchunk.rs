@@ -14,10 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
-use clarity::vm::types::QualifiedContractIdentifier;
-use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::net::PeerHost;
 
 use crate::net::http::{
@@ -50,11 +47,8 @@ impl HttpRequest for RPCGetStackerDBChunkRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(&format!(
-            r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/(?P<slot_id>[0-9]+)(/(?P<slot_version>[0-9]+)){{0,1}}$"#,
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
-        )).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/stackerdb/{address}/{contract}/{slot_id}[/{slot_version}]")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -66,7 +60,7 @@ impl HttpRequest for RPCGetStackerDBChunkRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
@@ -78,7 +72,7 @@ impl HttpRequest for RPCGetStackerDBChunkRequestHandler {
 
         let contract_identifier = request::get_contract_address(captures, "address", "contract")?;
         let slot_id = request::get_u32(captures, "slot_id")?;
-        let slot_version = if captures.name("slot_version").is_some() {
+        let slot_version = if captures.contains_key("slot_version") {
             Some(request::get_u32(captures, "slot_version")?)
         } else {
             None

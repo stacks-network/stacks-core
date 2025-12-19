@@ -16,7 +16,7 @@
 
 use std::io;
 
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
@@ -92,8 +92,8 @@ impl HttpRequest for RPCMicroblocksUnconfirmedRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/microblocks/unconfirmed/(?P<parent_block_id>[0-9a-f]{64})/(?P<start_sequence>[0-9]{1,6})$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/microblocks/unconfirmed/{parent_block_id}/{start_sequence}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -105,7 +105,7 @@ impl HttpRequest for RPCMicroblocksUnconfirmedRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

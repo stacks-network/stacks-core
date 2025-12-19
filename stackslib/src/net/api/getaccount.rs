@@ -14,11 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::representations::PRINCIPAL_DATA_REGEX_STRING;
-use clarity::vm::types::PrincipalData;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::to_hex;
 
@@ -61,12 +57,8 @@ impl HttpRequest for RPCGetAccountRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(&format!(
-            "^/v2/accounts/(?P<principal>{})$",
-            *PRINCIPAL_DATA_REGEX_STRING
-        ))
-        .unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/accounts/{principal}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -77,17 +69,11 @@ impl HttpRequest for RPCGetAccountRequestHandler {
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
         &mut self,
-        preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        _preamble: &HttpRequestPreamble,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
-        if preamble.get_content_length() != 0 {
-            return Err(Error::DecodeError(
-                "Invalid Http request: expected 0-length body".to_string(),
-            ));
-        }
-
         let account = if let Some(value) = captures.name("principal") {
             PrincipalData::parse(value.into())
                 .map_err(|_e| Error::DecodeError("Failed to parse `principal` field".to_string()))?

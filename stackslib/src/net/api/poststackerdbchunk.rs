@@ -14,10 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
-use clarity::vm::types::QualifiedContractIdentifier;
-use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use serde_json;
 use serde_json::json;
 use stacks_common::codec::MAX_MESSAGE_LEN;
@@ -51,12 +48,8 @@ impl HttpRequest for RPCPostStackerDBChunkRequestHandler {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(&format!(
-            r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/chunks$"#,
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
-        ))
-        .unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/stackerdb/{address}/{contract}/chunks")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -68,7 +61,7 @@ impl HttpRequest for RPCPostStackerDBChunkRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

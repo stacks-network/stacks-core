@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::codec::{read_next, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
@@ -98,8 +98,8 @@ impl HttpRequest for RPCMicroblocksIndexedRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/microblocks/(?P<tail_microblock_id>[0-9a-f]{64})$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/microblocks/{tail_microblock_id}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -110,8 +110,8 @@ impl HttpRequest for RPCMicroblocksIndexedRequestHandler {
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
         &mut self,
-        preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        _preamble: &HttpRequestPreamble,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
