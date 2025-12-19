@@ -20,7 +20,6 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::{char, fmt, str};
 
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -1040,37 +1039,40 @@ impl Value {
     pub fn string_utf8_from_string_utf8_literal(
         tokenized_str: String,
     ) -> Result<Value, VmExecutionError> {
-        let wrapped_codepoints_matcher = Regex::new("^\\\\u\\{(?P<value>[[:xdigit:]]+)\\}")
-            .map_err(|_| VmInternalError::Expect("Bad regex".into()))?;
         let mut window = tokenized_str.as_str();
-        let mut cursor = 0;
         let mut data: Vec<Vec<u8>> = vec![];
         while !window.is_empty() {
-            if let Some(captures) = wrapped_codepoints_matcher.captures(window) {
-                let matched = captures
-                    .name("value")
-                    .ok_or_else(|| VmInternalError::Expect("Expected capture".into()))?;
-                let scalar_value = window[matched.start()..matched.end()].to_string();
-                let unicode_char = {
-                    let u = u32::from_str_radix(&scalar_value, 16)
-                        .map_err(|_| CheckErrorKind::InvalidUTF8Encoding)?;
-                    let c = char::from_u32(u).ok_or_else(|| CheckErrorKind::InvalidUTF8Encoding)?;
-                    let mut encoded_char: Vec<u8> = vec![0; c.len_utf8()];
-                    c.encode_utf8(&mut encoded_char[..]);
-                    encoded_char
-                };
-
-                data.push(unicode_char);
-                cursor += scalar_value.len() + 4;
-            } else {
-                let ascii_char = window[0..1].to_string().into_bytes();
-                data.push(ascii_char);
-                cursor += 1;
+            let mut matched = false;
+            if window.starts_with("\\u{") {
+                if let Some(end_pos) = window.find('}') {
+                    let hex_part = &window[3..end_pos];
+                    if !hex_part.is_empty() && hex_part.chars().all(|c| c.is_ascii_hexdigit()) {
+                        let unicode_char = {
+                            let u = u32::from_str_radix(hex_part, 16)
+                                .map_err(|_| CheckErrorKind::InvalidUTF8Encoding)?;
+                            let c =
+                                char::from_u32(u).ok_or_else(|| CheckErrorKind::InvalidUTF8Encoding)?;
+                            let mut encoded_char: Vec<u8> = vec![0; c.len_utf8()];
+                            c.encode_utf8(&mut encoded_char[..]);
+                            encoded_char
+                        };
+                        data.push(unicode_char);
+                        window = &window[end_pos + 1..];
+                        matched = true;
+                    }
+                }
             }
+
+            if !matched {
+                let c = window.chars().next().unwrap();
+                let mut encoded_char = vec![0; c.len_utf8()];
+                c.encode_utf8(&mut encoded_char);
+                data.push(encoded_char);
+                window = &window[c.len_utf8()..];
+            }
+
             // check the string size
             StringUTF8Length::try_from(data.len())?;
-
-            window = &tokenized_str[cursor..];
         }
         // construct the string
         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(

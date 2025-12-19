@@ -28,7 +28,7 @@ use clarity::vm::database::{
     RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::VmExecutionError;
-use clarity::vm::events::{STXEventType, STXMintEventData};
+use clarity::vm::events::{PostConditionEventData, STXEventType, STXMintEventData};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::{ClarityVersion, ContractName};
@@ -2050,9 +2050,9 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
         &mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
+    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<(String, Option<crate::vm::events::PostConditionEventData>)>), E>
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<(String, Option<crate::vm::events::PostConditionEventData>)>,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<VmExecutionError>,
     {
@@ -2243,7 +2243,7 @@ impl ClarityTransactionConnection<'_, '_> {
                     )
                     .map_err(ClarityError::from)
             },
-            |_, _| Some("read-only".to_string()),
+            |_, _| Some(("read-only".to_string(), None)),
         )?;
         Ok(result)
     }

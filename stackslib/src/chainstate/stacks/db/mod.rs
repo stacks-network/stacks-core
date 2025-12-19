@@ -73,7 +73,7 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::monitoring;
-use crate::net::atlas::BNS_CHARS_REGEX;
+use crate::net::atlas::is_bns_char;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::{
     query_row, DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
@@ -1484,7 +1484,7 @@ impl StacksChainState {
                             let initial_namespaces = get_namespaces();
                             for entry in initial_namespaces {
                                 let namespace = {
-                                    if !BNS_CHARS_REGEX.is_match(&entry.namespace_id) {
+                                    if !is_bns_char(&entry.namespace_id) {
                                         panic!("Invalid namespace characters");
                                     }
                                     let buffer = entry.namespace_id.as_bytes();
@@ -1568,7 +1568,7 @@ impl StacksChainState {
 
                                 let namespace = {
                                     let namespace_str = components.get(1).unwrap();
-                                    if !BNS_CHARS_REGEX.is_match(namespace_str) {
+                                    if !is_bns_char(namespace_str) {
                                         panic!("Invalid namespace characters");
                                     }
                                     let buffer = namespace_str.as_bytes();
@@ -1577,7 +1577,7 @@ impl StacksChainState {
 
                                 let name = {
                                     let name_str = components.get(0).unwrap().to_string();
-                                    if !BNS_CHARS_REGEX.is_match(&name_str) {
+                                    if !is_bns_char(&name_str) {
                                         panic!("Invalid name characters");
                                     }
                                     let buffer = name_str.as_bytes();

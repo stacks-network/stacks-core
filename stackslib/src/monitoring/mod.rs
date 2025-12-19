@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::LazyLock;
 use std::error::Error;
 use std::path::PathBuf;
 use std::{fmt, fs};
@@ -33,9 +34,7 @@ use crate::util_lib::db::{sqlite_open, DBConn, Error as DatabaseError};
 mod prometheus;
 
 #[cfg(feature = "monitoring_prom")]
-lazy_static::lazy_static! {
-    static ref GLOBAL_BURNCHAIN_SIGNER: std::sync::Mutex<Option<BurnchainSigner>> = std::sync::Mutex::new(None);
-}
+static GLOBAL_BURNCHAIN_SIGNER: LazyLock<std::sync::Mutex<Option<BurnchainSigner>>> = LazyLock::new(|| std::sync::Mutex::new(None));
 
 pub fn increment_rpc_calls_counter() {
     #[cfg(feature = "monitoring_prom")]

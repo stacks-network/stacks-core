@@ -18,7 +18,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
@@ -30,8 +30,6 @@ use clarity::vm::analysis::contract_interface_builder::{
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
-#[cfg(any(test, feature = "testing"))]
-use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::{params, Connection};
 use serde_json::json;
@@ -84,10 +82,9 @@ use stacks_common::util::serde_serializers::{
 use url::Url;
 
 #[cfg(any(test, feature = "testing"))]
-lazy_static! {
-    /// Do not announce a signed/mined block to the network when set to true.
-    pub static ref TEST_SKIP_BLOCK_ANNOUNCEMENT: TestFlag<bool> = TestFlag::default();
-}
+/// Do not announce a signed/mined block to the network when set to true.
+pub static TEST_SKIP_BLOCK_ANNOUNCEMENT: LazyLock<TestFlag<bool>> =
+    LazyLock::new(TestFlag::default);
 
 #[derive(Debug, Clone)]
 pub struct EventObserver {
