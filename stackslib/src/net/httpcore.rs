@@ -14,18 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// This module binds the http library to Stacks as a `ProtocolFamily` implementation
-use std::collections::BTreeMap;
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-use std::time::{Duration, Instant};
-use std::{fmt, io, mem};
-
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::{ClarityName, ContractName};
-use percent_encoding::percent_decode_str;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
@@ -177,15 +166,15 @@ impl HttpPreambleExtensions for HttpResponsePreamble {
     }
 }
 
-/// This module contains request helpers for decoding common data found in the request path regex captures.
+/// This module contains request helpers for decoding common data found in the request path matcher captures.
 /// The error types convert to HTTP responses.
 pub mod request {
     use super::*;
 
     /// Get and parse a contract address from a path's captures, given the address and contract
-    /// regex field names.
+    /// path matcher field names.
     pub fn get_contract_address(
-        captures: &Captures,
+        captures: &PathCaptures,
         address_key: &str,
         contract_key: &str,
     ) -> Result<QualifiedContractIdentifier, HttpError> {
@@ -220,8 +209,8 @@ pub mod request {
         Ok(contract_identifier)
     }
 
-    /// Get and parse a StacksBlockId from a path's captures, given the name of the regex field.
-    pub fn get_block_hash(captures: &Captures, key: &str) -> Result<StacksBlockId, HttpError> {
+    /// Get and parse a StacksBlockId from a path's captures, given the name of the capture field.
+    pub fn get_block_hash(captures: &PathCaptures, key: &str) -> Result<StacksBlockId, HttpError> {
         let block_id = if let Some(block_id) = captures.name(key) {
             match StacksBlockId::from_hex(block_id.as_str()) {
                 Ok(bhh) => bhh,
@@ -235,8 +224,8 @@ pub mod request {
         Ok(block_id)
     }
 
-    /// Get and parse a Txid from a path's captures, given the name of the regex field.
-    pub fn get_txid(captures: &Captures, key: &str) -> Result<Txid, HttpError> {
+    /// Get and parse a Txid from a path's captures, given the name of the capture field.
+    pub fn get_txid(captures: &PathCaptures, key: &str) -> Result<Txid, HttpError> {
         let txid = if let Some(txid) = captures.name(key) {
             match Txid::from_hex(txid.as_str()) {
                 Ok(bhh) => bhh,
@@ -250,8 +239,8 @@ pub mod request {
         Ok(txid)
     }
 
-    /// Get and parse a Clarity name from a path's captures, given the name of the regex field.
-    pub fn get_clarity_name(captures: &Captures, key: &str) -> Result<ClarityName, HttpError> {
+    /// Get and parse a Clarity name from a path's captures, given the name of the capture field.
+    pub fn get_clarity_name(captures: &PathCaptures, key: &str) -> Result<ClarityName, HttpError> {
         let clarity_name = if let Some(name_str) = captures.name(key) {
             if let Ok(clarity_name) = ClarityName::try_from(name_str.as_str().to_string()) {
                 clarity_name
@@ -265,8 +254,11 @@ pub mod request {
         Ok(clarity_name)
     }
 
-    /// Get and parse a ConsensusHash from a path's captures, given the name of the regex field.
-    pub fn get_consensus_hash(captures: &Captures, key: &str) -> Result<ConsensusHash, HttpError> {
+    /// Get and parse a ConsensusHash from a path's captures, given the name of the capture field.
+    pub fn get_consensus_hash(
+        captures: &PathCaptures,
+        key: &str,
+    ) -> Result<ConsensusHash, HttpError> {
         let ch = if let Some(ch_str) = captures.name(key) {
             match ConsensusHash::from_hex(ch_str.as_str()) {
                 Ok(ch) => ch,
@@ -280,9 +272,9 @@ pub mod request {
         Ok(ch)
     }
 
-    /// Get and parse a BurnchainHeaderHash from a path's captures, given the name of the regex field.
+    /// Get and parse a BurnchainHeaderHash from a path's captures, given the name of the capture field.
     pub fn get_burnchain_header_hash(
-        captures: &Captures,
+        captures: &PathCaptures,
         key: &str,
     ) -> Result<BurnchainHeaderHash, HttpError> {
         let ch = if let Some(ch_str) = captures.name(key) {
@@ -298,8 +290,8 @@ pub mod request {
         Ok(ch)
     }
 
-    /// Get and parse a u32 from a path's captures, given the name of the regex field.
-    pub fn get_u32(captures: &Captures, key: &str) -> Result<u32, HttpError> {
+    /// Get and parse a u32 from a path's captures, given the name of the capture field.
+    pub fn get_u32(captures: &PathCaptures, key: &str) -> Result<u32, HttpError> {
         let u = if let Some(u32_str) = captures.name(key) {
             match u32_str.as_str().parse::<u32>() {
                 Ok(x) => x,
@@ -313,8 +305,8 @@ pub mod request {
         Ok(u)
     }
 
-    /// Get and parse a u64 from a path's captures, given the name of the regex field.
-    pub fn get_u64(captures: &Captures, key: &str) -> Result<u64, HttpError> {
+    /// Get and parse a u64 from a path's captures, given the name of the capture field.
+    pub fn get_u64(captures: &PathCaptures, key: &str) -> Result<u64, HttpError> {
         let u = if let Some(u64_str) = captures.name(key) {
             match u64_str.as_str().parse::<u64>() {
                 Ok(x) => x,
@@ -473,7 +465,7 @@ pub struct StacksHttpRequest {
     preamble: HttpRequestPreamble,
     contents: HttpRequestContents,
     start_time: u128,
-    /// Cache result of `StacksHttp::find_response_handler` so we don't have to do the regex matching twice
+    /// Cache result of `StacksHttp::find_response_handler` so we don't have to do the path matching twice
     response_handler_index: Option<usize>,
 }
 
@@ -965,8 +957,8 @@ pub struct StacksHttp {
     /// parse a reply.  If instead this state-machine is used by the server to parse a request and
     /// send a reply, it will be unused.
     request_handler_index: Option<usize>,
-    /// HTTP request handlers (verb, regex, request-handler, response-handler)
-    request_handlers: Vec<(String, Regex, Box<dyn RPCRequestHandler>)>,
+    /// HTTP request handlers (verb, path-matcher, request-handler)
+    request_handlers: Vec<(String, PathMatcher, Box<dyn RPCRequestHandler>)>,
     /// Maximum size of call arguments
     pub maximum_call_argument_size: u32,
     /// Maximum execution budget of a read-only call
@@ -1033,7 +1025,7 @@ impl StacksHttp {
     ) {
         self.request_handlers.push((
             handler.verb().to_string(),
-            handler.path_regex(),
+            handler.path_matcher(),
             Box::new(handler),
         ));
     }
@@ -1041,11 +1033,11 @@ impl StacksHttp {
     /// Find the HTTP request handler to use to process the reply, given the request path.
     /// Returns the index into the list of handlers
     fn find_response_handler(&self, request_verb: &str, request_path: &str) -> Option<usize> {
-        for (i, (verb, regex, _)) in self.request_handlers.iter().enumerate() {
+        for (i, (verb, matcher, _)) in self.request_handlers.iter().enumerate() {
             if request_verb != verb {
                 continue;
             }
-            let Some(_captures) = regex.captures(request_path) else {
+            let Some(_captures) = matcher.captures(request_path) else {
                 continue;
             };
 
@@ -1074,7 +1066,7 @@ impl StacksHttp {
         body: &[u8],
     ) -> Result<StacksHttpRequest, NetError> {
         let (decoded_path, query) = decode_request_path(&preamble.path_and_query_str)?;
-        let captures = if let Some(caps) = handler.path_regex().captures(&decoded_path) {
+        let captures = if let Some(caps) = handler.path_matcher().captures(&decoded_path) {
             caps
         } else {
             return Err(NetError::NotFoundError);
@@ -1109,13 +1101,13 @@ impl StacksHttp {
         test_debug!("decoded_path: '{}', query: '{}'", &decoded_path, &query);
 
         // NOTE: This loop starts out like `find_response_handler()`, but `captures`'s lifetime is
-        // bound to `regex` so we can't just return it from `find_response_handler()`.  Thus, it's
-        // duplicated here.
-        for (verb, regex, request) in self.request_handlers.iter_mut() {
+        // bound to the loop iteration so we can't just return it from `find_response_handler()`.
+        // Thus, it's duplicated here.
+        for (verb, matcher, request) in self.request_handlers.iter_mut() {
             if &preamble.verb != verb {
                 continue;
             }
-            let Some(captures) = regex.captures(&decoded_path) else {
+            let Some(captures) = matcher.captures(&decoded_path) else {
                 continue;
             };
 
