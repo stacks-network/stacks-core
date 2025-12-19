@@ -105,6 +105,7 @@ jobs:
           tests::nakamoto_integrations::large_mempool_next_constant_fee
           tests::nakamoto_integrations::large_mempool_next_random_fee
           tests::nakamoto_integrations::larger_mempool
+          tests::nakamoto_integrations::check_block_info_rewards
           tests::signer::v0::larger_mempool
           EOF
 
