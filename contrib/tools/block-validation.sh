@@ -6,9 +6,9 @@ set -o pipefail
 ##
 ## ** Recommend to run this script in screen or tmux **
 ##
-## We'll need ~217GB per slice, plus an extra ~4500GB for the chainstate archive and marf DB
-## as of 09/2025:
-##   for 10 slices, this is about 2.5TB
+## We'll need ~283GB per slice, plus an extra ~560GB for the marf DB and ~450GB for the chainstate (if not using a local chainstate)
+## as of 12/2025:
+##   for 10 slices, this is about 3.5TB
 
 NETWORK="mainnet"                               ## network to validate
 REPO_DIR="$HOME/stacks-core"                    ## where to build the source
@@ -190,8 +190,8 @@ start_validation() {
             range_command="index-range"
             starting_block=0 # for the block counter, start at this block
             ## use these values if `--testing` arg is provided (only validate 1_000 blocks) Note:  2.5 epoch is at 153106
-            ${TESTING} && total_blocks=153000
-            ${TESTING} && starting_block=152000
+            ${TESTING} && total_blocks=162200
+            ${TESTING} && starting_block=161200
             ;;
     esac
 

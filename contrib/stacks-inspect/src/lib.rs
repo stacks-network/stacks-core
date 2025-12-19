@@ -447,33 +447,19 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
     }
     let total_blocks = work_items.len();
     let mut completed = 0;
-    let mut errors = Vec::new();
+    let mut errors: Vec<(StacksBlockId, String)> = Vec::new();
 
     for entry in work_items {
-        match &entry.source {
-            BlockSource::Nakamoto => {
-                if let Err(e) =
-                    replay_naka_staging_block(db_path, &entry.index_block_hash, Some(conf))
-                {
-                    println!(
-                        "Failed to validate Nakamoto block {}: {e:?}",
-                        entry.index_block_hash
-                    );
-                    if early_exit {
-                        process::exit(1);
-                    }
-                    errors.push(entry.index_block_hash.clone());
-                }
+        if let Err(e) = validate_entry(db_path, conf, &entry) {
+            if early_exit {
+                print!("\r");
+                io::stdout().flush().ok();
+                println!("Block {}: {e}", entry.index_block_hash);
+                process::exit(1);
             }
-            BlockSource::Epoch2 => {
-                if let Err(e) = replay_staging_block(db_path, &entry.index_block_hash, Some(conf)) {
-                    println!("Failed to validate block {}: {e:?}", entry.index_block_hash);
-                    if early_exit {
-                        process::exit(1);
-                    }
-                    errors.push(entry.index_block_hash.clone());
-                }
-            }
+            print!("\r");
+            io::stdout().flush().ok();
+            errors.push((entry.index_block_hash.clone(), e));
         }
         completed += 1;
         let pct = ((completed as f32 / total_blocks as f32) * 100.0).floor() as usize;
@@ -489,8 +475,8 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
             errors.len(),
             start.elapsed().as_secs()
         );
-        for hash in errors.iter() {
-            println!("  Block {}", hash);
+        for (hash, message) in errors.iter() {
+            println!("  Block {hash}: {message}");
         }
         process::exit(1);
     }
@@ -499,6 +485,13 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
         total_blocks,
         start.elapsed().as_secs()
     );
+}
+
+fn validate_entry(db_path: &str, conf: &Config, entry: &BlockScanEntry) -> Result<(), String> {
+    match entry.source {
+        BlockSource::Nakamoto => replay_naka_staging_block(db_path, &entry.index_block_hash, conf),
+        BlockSource::Epoch2 => replay_staging_block(db_path, &entry.index_block_hash, conf),
+    }
 }
 
 /// Replay mock mined blocks from JSON files
@@ -798,9 +791,8 @@ pub fn command_contract_hash(argv: &[String], _conf: Option<&Config>) {
 fn replay_staging_block(
     db_path: &str,
     block_id: &StacksBlockId,
-    conf: Option<&Config>,
+    conf: &Config,
 ) -> Result<(), String> {
-    let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
     let chain_state_path = format!("{db_path}/chainstate/");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
 
@@ -1079,9 +1071,8 @@ fn replay_block(
 fn replay_naka_staging_block(
     db_path: &str,
     block_id: &StacksBlockId,
-    conf: Option<&Config>,
+    conf: &Config,
 ) -> Result<(), String> {
-    let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
     let chain_state_path = format!("{db_path}/chainstate/");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
 
