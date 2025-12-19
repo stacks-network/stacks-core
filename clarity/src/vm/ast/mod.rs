@@ -59,20 +59,22 @@ pub fn parse(
 /// Parse a program based on which epoch is active
 fn parse_in_epoch(
     source_code: &str,
+    #[cfg(feature = "devtools")]
+    #[allow(unused_variables)]
     epoch_id: StacksEpochId,
 ) -> ParseResult<Vec<PreSymbolicExpression>> {
     #[cfg(feature = "devtools")]
     {
-      parse_v2(source_code)
+        parse_v2(source_code)
     }
 
     #[cfg(not(feature = "devtools"))]
     {
-      if epoch_id >= StacksEpochId::Epoch21 {
-          parse_v2(source_code)
-      } else {
-          parse_v1(source_code)
-      }
+        if epoch_id >= StacksEpochId::Epoch21 {
+            parse_v2(source_code)
+        } else {
+            parse_v1(source_code)
+        }
     }
 }
 
@@ -120,6 +122,8 @@ fn inner_build_ast<T: CostTracker>(
     source_code: &str,
     cost_track: &mut T,
     clarity_version: ClarityVersion,
+    #[cfg(feature = "devtools")]
+    #[allow(unused_variables)]
     epoch: StacksEpochId,
     error_early: bool,
 ) -> ParseResult<(ContractAST, Vec<Diagnostic>, bool)> {
@@ -132,7 +136,6 @@ fn inner_build_ast<T: CostTracker>(
         Err(e) => Some(e),
         _ => None,
     };
-
 
     #[cfg(feature = "devtools")]
     let (pre_expressions, mut diagnostics, mut success) = if error_early {
