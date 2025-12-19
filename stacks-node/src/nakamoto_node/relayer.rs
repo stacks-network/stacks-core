@@ -797,7 +797,7 @@ impl RelayerThread {
             return None;
         };
 
-        // Check if we wone the last winning snapshot AND it commits to the ongoing tenure.
+        // Check if we won the last winning snapshot AND it commits to the ongoing tenure.
         let won_last_winning_snapshot =
             last_winning_snapshot.miner_pk_hash.as_ref() == Some(mining_pk);
         let canonical_stacks_tip =
