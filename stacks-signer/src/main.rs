@@ -215,8 +215,7 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
 }
 
 fn main() {
-    // If no args were passed, exit 0.
-    // This differs from the default behavior, which exits with code 2.
+    // Exit 0 if no arguments provided (overrides default clap behavior)
     if std::env::args_os().len() == 1 {
         let mut cmd = Cli::command();
         cmd.print_help().ok();
