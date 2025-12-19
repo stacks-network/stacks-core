@@ -975,11 +975,6 @@ check if the associated microblocks can be downloaded
         return;
     }
 
-    if argv[1] == "local" {
-        clarity_cli::invoke_command(&format!("{} {}", argv[0], argv[1]), &argv[2..]);
-        return;
-    }
-
     if argv[1] == "deserialize-db" {
         if argv.len() < 4 {
             eprintln!("Usage: {} clarity_sqlite_db [byte-prefix]", &argv[0]);
