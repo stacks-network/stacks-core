@@ -1416,6 +1416,40 @@ impl MemPoolDB {
         Ok(conn)
     }
 
+    /// Get fee rate estimates (5th, 50th, 95th percentiles) from the current mempool.
+    pub fn get_mempool_fee_rate_estimates(&self) -> Result<cost_estimates::FeeRateEstimate, EstimatorError> {
+        use crate::cost_estimates::fee_medians::{FeeRateAndWeight, fee_rate_estimate_from_sorted_weighted_fees};
+
+        let sql = "SELECT fee_rate, length, tx_fee FROM mempool WHERE fee_rate IS NOT NULL ORDER BY fee_rate ASC";
+        let mut stmt = self.db.prepare(sql).map_err(EstimatorError::SqliteError)?;
+        let mut rows = stmt.query(NO_PARAMS).map_err(EstimatorError::SqliteError)?;
+
+        let mut sorted_fee_rates = Vec::new();
+        while let Ok(Some(row)) = rows.next() {
+            let fee_rate: f64 = row.get(0).map_err(EstimatorError::SqliteError)?;
+            let length: u64 = row.get(1).map_err(EstimatorError::SqliteError)?;
+            let tx_fee: u64 = row.get(2).map_err(EstimatorError::SqliteError)?;
+
+            // Reconstruct the weight (scalar_cost) used when the transaction was admitted.
+            // fee_rate = tx_fee / scalar_cost  =>  scalar_cost = tx_fee / fee_rate
+            let weight = if fee_rate > 0.0 {
+                (tx_fee as f64 / fee_rate).round() as u64
+            } else {
+                // If fee_rate is 0, fall back to the metric based on length
+                self.metric.from_len(length)
+            };
+
+            sorted_fee_rates.push(FeeRateAndWeight { fee_rate, weight });
+        }
+
+        if sorted_fee_rates.is_empty() {
+            return Err(EstimatorError::NoEstimateAvailable);
+        }
+
+        fee_rate_estimate_from_sorted_weighted_fees(&sorted_fee_rates)
+            .ok_or(EstimatorError::NoEstimateAvailable)
+    }
+
     /// Open the mempool db within the chainstate directory.
     /// The chainstate must be instantiated already.
     pub fn open(

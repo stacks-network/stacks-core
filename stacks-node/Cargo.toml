@@ -7,7 +7,6 @@ resolver = "2"
 rust-version = "1.61"
 
 [dependencies]
-lazy_static = "1.4.0"
 pico-args = "0.5.0"
 serde = "1"
 serde_derive = "1"
@@ -21,7 +20,7 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 clarity = { path = "../clarity" }
 stacks-common = { path = "../stacks-common" }
 chrono = "0.4.19"
-regex = "1"
+
 libsigner = { path = "../libsigner" }
 url = "2.1.0"
 rand = { workspace = true }

@@ -14,13 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::database::ClarityDatabase;
-use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
-use clarity::vm::types::{QualifiedContractIdentifier, BOUND_VALUE_SERIALIZATION_HEX};
-use clarity::vm::{ClarityName, ContractName, Value};
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::to_hex;
@@ -67,12 +61,8 @@ impl HttpRequest for RPCGetMapEntryRequestHandler {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(&format!(
-            "^/v2/map_entry/(?P<address>{})/(?P<contract>{})/(?P<map>{})$",
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
-        ))
-        .unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/map_entry/{address}/{contract}/{map}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -85,7 +75,7 @@ impl HttpRequest for RPCGetMapEntryRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

@@ -52,41 +52,17 @@ use std::hash::Hash;
 use blockstack_lib::version_string;
 use clarity::codec::StacksMessageCodec;
 use clarity::vm::types::QualifiedContractIdentifier;
-use lazy_static::lazy_static;
-use stacks_common::versions::STACKS_SIGNER_VERSION;
+use std::sync::LazyLock;
 
-pub use crate::error::{EventError, RPCError};
-pub use crate::events::{
-    BlockProposal, BlockProposalData, BurnBlockEvent, EventReceiver, EventStopSignaler,
-    SignerEvent, SignerEventReceiver, SignerEventTrait, SignerStopSignaler, StacksBlockEvent,
-};
-pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
-pub use crate::session::{SignerSession, StackerDBSession};
-pub use crate::signer_set::{Error as ParseSignerEntriesError, SignerEntries};
-
-/// A trait for message slots used for signer communication
-pub trait MessageSlotID: Sized + Eq + Hash + Debug + Copy {
-    /// The contract identifier for the message slot in stacker db
-    fn stacker_db_contract(&self, mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier;
-    /// All possible Message Slot values
-    fn all() -> &'static [Self];
-}
-
-/// A trait for signer messages used in signer communciation
-pub trait SignerMessage<T: MessageSlotID>: StacksMessageCodec {
-    /// The contract identifier for the message slot in stacker db
-    fn msg_id(&self) -> Option<T>;
-}
-
-lazy_static! {
-    /// The version string for the signer
-    pub static ref VERSION_STRING: String = {
-        let pkg_version = option_env!("STACKS_NODE_VERSION").or(Some(STACKS_SIGNER_VERSION));
-        version_string("stacks-signer", pkg_version)
-    };
-}
+/// The version string for the signer
+pub static VERSION_STRING: LazyLock<String> = LazyLock::new(|| {
+    let pkg_version = option_env!("STACKS_NODE_VERSION").or(Some(STACKS_SIGNER_VERSION));
+    // NOTE: we don't include the package name here because clap (used in the CLI)
+    // already prepends the binary name to the version string.
+    version_string("", pkg_version).trim_start().to_string()
+});
 
 #[test]
 fn test_version_string() {
-    assert!(VERSION_STRING.contains(format!("stacks-signer {STACKS_SIGNER_VERSION}").as_str()));
+    assert!(VERSION_STRING.starts_with(STACKS_SIGNER_VERSION));
 }

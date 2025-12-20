@@ -22,7 +22,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{STXEventType, STXMintEventData, StacksTransactionEvent};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, Value};
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest as Sha2Digest, Sha512_256};
@@ -131,11 +131,12 @@ impl FromSql for HeaderTypeNames {
     }
 }
 
-lazy_static! {
-    pub static ref FIRST_STACKS_BLOCK_ID: StacksBlockId = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+pub static FIRST_STACKS_BLOCK_ID: LazyLock<StacksBlockId> =
+    LazyLock::new(|| StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH));
 
-    pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_1: Vec<String> = vec![
-    r#"
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_1: LazyLock<Vec<String>> = LazyLock::new(|| {
+    vec![
+        r#"
     -- Table for storing calculated reward sets. This must be in the Chainstate DB because calculation occurs
     --   during block processing.
     CREATE TABLE nakamoto_reward_sets (
@@ -143,8 +144,8 @@ lazy_static! {
                      reward_set TEXT NOT NULL,
                      PRIMARY KEY (index_block_hash)
     );"#.into(),
-    NAKAMOTO_TENURES_SCHEMA_1.into(),
-    r#"
+        NAKAMOTO_TENURES_SCHEMA_1.into(),
+        r#"
       -- Table for Nakamoto block headers
       CREATE TABLE nakamoto_block_headers (
           -- The following fields all correspond to entries in the StacksHeaderInfo struct
@@ -214,8 +215,8 @@ lazy_static! {
     r#"
     UPDATE db_config SET version = "4";
     "#.into(),
-    ];
-}
+    ]
+});
 
 pub static NAKAMOTO_CHAINSTATE_SCHEMA_2: &[&str] = &[
     NAKAMOTO_TENURES_SCHEMA_2,

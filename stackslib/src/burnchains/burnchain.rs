@@ -1799,7 +1799,7 @@ impl Burnchain {
 
 #[cfg(test)]
 mod tests {
-    use regex::Regex;
+
 
     use super::*;
     use crate::burnchains::*;
@@ -1924,12 +1924,17 @@ mod tests {
         let first_block_hash = BurnchainHeaderHash([0u8; 32]);
         let burn_chain = Burnchain::default_unittest(first_block_height, &first_block_hash);
 
-        let workdir_re = Regex::new(r"^/tmp/stacks-node-tests/unit-tests-[0-9a-f]{32}$").unwrap();
-
         assert_eq!(PEER_VERSION_MAINNET, burn_chain.peer_version);
         assert_eq!(BITCOIN_NETWORK_ID_MAINNET, burn_chain.network_id);
         assert_eq!(BITCOIN_MAINNET_NAME, burn_chain.network_name);
-        assert!(workdir_re.is_match(&burn_chain.working_dir));
+        assert!(burn_chain.working_dir.starts_with("/tmp/stacks-node-tests/unit-tests-"));
+        assert_eq!(
+            burn_chain.working_dir.len(),
+            "/tmp/stacks-node-tests/unit-tests-".len() + 32
+        );
+        assert!(burn_chain.working_dir["/tmp/stacks-node-tests/unit-tests-".len()..]
+            .chars()
+            .all(|c| c.is_ascii_hexdigit()));
         assert_eq!(24, burn_chain.consensus_hash_lifetime);
         assert_eq!(7, burn_chain.stable_confirmations);
         assert_eq!(first_block_height, burn_chain.first_block_height);

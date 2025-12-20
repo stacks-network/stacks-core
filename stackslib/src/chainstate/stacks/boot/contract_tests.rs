@@ -13,7 +13,7 @@ use clarity::vm::types::{
     TupleData, Value,
 };
 use clarity::vm::version::ClarityVersion;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
@@ -45,35 +45,33 @@ use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
-lazy_static! {
-    pub static ref FIRST_INDEX_BLOCK_HASH: StacksBlockId = StacksBlockHeader::make_index_block_hash(
-        &FIRST_BURNCHAIN_CONSENSUS_HASH,
-        &FIRST_STACKS_BLOCK_HASH
-    );
-    pub static ref POX_CONTRACT_TESTNET: QualifiedContractIdentifier = boot_code_id("pox", false);
-    pub static ref POX_2_CONTRACT_TESTNET: QualifiedContractIdentifier =
-        boot_code_id("pox-2", false);
-    pub static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
-        boot_code_id("cost-voting", false);
-    pub static ref USER_KEYS: Vec<StacksPrivateKey> =
-        (0..50).map(|_| StacksPrivateKey::random()).collect();
-    pub static ref POX_ADDRS: Vec<Value> = (0..50u64)
-        .map(|ix| execute(&format!(
-            "{{ version: 0x00, hashbytes: 0x000000000000000000000000{} }}",
-            &to_hex(&ix.to_le_bytes())
-        )))
-        .collect();
-    pub static ref MINER_KEY: StacksPrivateKey = StacksPrivateKey::random();
-    pub static ref MINER_ADDR: StacksAddress = StacksAddress::from_public_keys(
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(&MINER_KEY.clone())],
-    )
-    .unwrap();
-    static ref LIQUID_SUPPLY: u128 = USTX_PER_HOLDER * (POX_ADDRS.len() as u128);
-    static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25;
-}
+pub static FIRST_INDEX_BLOCK_HASH: LazyLock<StacksBlockId> = LazyLock::new(|| StacksBlockHeader::make_index_block_hash(
+    &FIRST_BURNCHAIN_CONSENSUS_HASH,
+    &FIRST_STACKS_BLOCK_HASH
+));
+pub static POX_CONTRACT_TESTNET: LazyLock<QualifiedContractIdentifier> = LazyLock::new(|| boot_code_id("pox", false));
+pub static POX_2_CONTRACT_TESTNET: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| boot_code_id("pox-2", false));
+pub static COST_VOTING_CONTRACT_TESTNET: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| boot_code_id("cost-voting", false));
+pub static USER_KEYS: LazyLock<Vec<StacksPrivateKey>> =
+    LazyLock::new(|| (0..50).map(|_| StacksPrivateKey::random()).collect());
+pub static POX_ADDRS: LazyLock<Vec<Value>> = LazyLock::new(|| (0..50u64)
+    .map(|ix| execute(&format!(
+        "{{ version: 0x00, hashbytes: 0x000000000000000000000000{} }}",
+        &to_hex(&ix.to_le_bytes())
+    )))
+    .collect());
+pub static MINER_KEY: LazyLock<StacksPrivateKey> = LazyLock::new(|| StacksPrivateKey::random());
+pub static MINER_ADDR: LazyLock<StacksAddress> = LazyLock::new(|| StacksAddress::from_public_keys(
+    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    &AddressHashMode::SerializeP2PKH,
+    1,
+    &vec![StacksPublicKey::from_private(&MINER_KEY.clone())],
+)
+.unwrap());
+static LIQUID_SUPPLY: LazyLock<u128> = LazyLock::new(|| USTX_PER_HOLDER * (POX_ADDRS.len() as u128));
+static MIN_THRESHOLD: LazyLock<u128> = LazyLock::new(|| *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25);
 
 pub struct ClarityTestSim {
     marf: MarfedKV,

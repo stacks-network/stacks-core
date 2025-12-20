@@ -16,13 +16,7 @@
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::database::clarity_db::ContractDataVarName;
 use clarity::vm::database::StoreType;
-use clarity::vm::representations::{
-    CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN, STANDARD_PRINCIPAL_REGEX_STRING,
-};
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::ContractName;
-use lazy_static::lazy_static;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 
@@ -36,16 +30,6 @@ use crate::net::httpcore::{
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
-lazy_static! {
-    static ref CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING: String = format!(
-        "([a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*|[-+=/*]|[<>]=?){{1,{}}}",
-        MAX_STRING_LEN
-    );
-    static ref METADATA_KEY_REGEX_STRING: String = format!(
-        r"vm-metadata::(?P<data_type>(\d{{1,2}}))::(?P<var_name>(contract|contract-size|contract-src|contract-data-size|{}))",
-        *CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING,
-    );
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClarityMetadataResponse {
@@ -72,14 +56,8 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(&format!(
-            r"^/v2/clarity/metadata/(?P<address>{})/(?P<contract>{})/(?P<clarity_metadata_key>(analysis)|({}))$",
-            *STANDARD_PRINCIPAL_REGEX_STRING,
-            *CONTRACT_NAME_REGEX_STRING,
-            *METADATA_KEY_REGEX_STRING
-        ))
-        .unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/clarity/metadata/{address}/{contract}/{clarity_metadata_key}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -88,21 +66,15 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
 
     fn try_parse_request(
         &mut self,
-        preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        _preamble: &HttpRequestPreamble,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
-        if preamble.get_content_length() != 0 {
-            return Err(Error::DecodeError(
-                "Invalid Http request: expected 0-length body".to_string(),
-            ));
-        }
-
         let contract_identifier = request::get_contract_address(captures, "address", "contract")?;
 
         let metadata_key = match captures.name("clarity_metadata_key") {
-            Some(key_str) => key_str.as_str().to_string(),
+            Some(key_str) => key_str.to_string(),
             None => {
                 return Err(Error::DecodeError(
                     "Missing `clarity_metadata_key`".to_string(),
@@ -114,33 +86,33 @@ impl HttpRequest for RPCGetClarityMetadataRequestHandler {
             // Validate that the metadata key is well-formed. It must be of data type:
             //   DataMapMeta (5) | VariableMeta (6) | FungibleTokenMeta (7) | NonFungibleTokenMeta (8)
             //   or Contract (9) followed by a valid contract metadata name
-            match captures
-                .name("data_type")
-                .and_then(|data_type| StoreType::try_from(data_type.as_str()).ok())
-            {
-                Some(data_type) => match data_type {
-                    StoreType::DataMapMeta
-                    | StoreType::VariableMeta
-                    | StoreType::FungibleTokenMeta
-                    | StoreType::NonFungibleTokenMeta => {}
-                    StoreType::Contract => {
-                        if captures
-                            .name("var_name")
-                            .and_then(|var_name| {
-                                ContractDataVarName::try_from(var_name.as_str()).ok()
-                            })
-                            .is_none()
-                        {
-                            return Err(Error::DecodeError(
-                                "Invalid metadata var name".to_string(),
-                            ));
-                        }
+            if !metadata_key.starts_with("vm-metadata::") {
+                return Err(Error::DecodeError("Invalid metadata key prefix".to_string()));
+            }
+            let parts: Vec<&str> = metadata_key.split("::").collect();
+            if parts.len() != 3 {
+                return Err(Error::DecodeError("Invalid metadata key format".to_string()));
+            }
+            let data_type_str = parts[1];
+            let var_name = parts[2];
+
+            let data_type = StoreType::try_from(data_type_str).map_err(|_| {
+                Error::DecodeError("Invalid metadata type".to_string())
+            })?;
+
+            match data_type {
+                StoreType::DataMapMeta
+                | StoreType::VariableMeta
+                | StoreType::FungibleTokenMeta
+                | StoreType::NonFungibleTokenMeta => {}
+                StoreType::Contract => {
+                    if ContractDataVarName::try_from(var_name).is_err() {
+                        return Err(Error::DecodeError(
+                            "Invalid metadata var name".to_string(),
+                        ));
                     }
-                    _ => {
-                        return Err(Error::DecodeError("Invalid metadata type".to_string()));
-                    }
-                },
-                None => {
+                }
+                _ => {
                     return Err(Error::DecodeError("Invalid metadata type".to_string()));
                 }
             }

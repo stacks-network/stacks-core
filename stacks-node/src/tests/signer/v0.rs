@@ -2155,35 +2155,32 @@ fn miner_gather_signatures() {
     {
         let min_num_expected = (num_signers * 2) as u64;
         wait_for(30, || {
-            use regex::Regex;
 
             let metrics_response = signer_test.get_signer_metrics();
-            let re_precommits =
-                Regex::new(r#"stacks_signer_block_pre_commits_sent (\d+)"#).unwrap();
-            let re_proposals =
-                Regex::new(r#"stacks_signer_block_proposals_received (\d+)"#).unwrap();
-            let re_responses = Regex::new(
-                r#"stacks_signer_block_responses_sent\{response_type="accepted"\} (\d+)"#,
-            )
-            .unwrap();
 
-            let precommits = re_precommits
-                .captures(&metrics_response)
-                .and_then(|caps| caps.get(1))
-                .map(|m| m.as_str().parse::<u64>().ok())
-                .flatten();
+            let extract_value = |name: &str, input: &str| -> Option<u64> {
+                let pattern = format!("{} ", name);
+                input
+                    .lines()
+                    .find(|l| l.starts_with(&pattern))
+                    .and_then(|l| l.split_whitespace().nth(1))
+                    .and_then(|v| v.parse::<u64>().ok())
+            };
 
-            let proposals = re_proposals
-                .captures(&metrics_response)
-                .and_then(|caps| caps.get(1))
-                .map(|m| m.as_str().parse::<u64>().ok())
-                .flatten();
+            let precommits =
+                extract_value("stacks_signer_block_pre_commits_sent", &metrics_response);
+            let proposals =
+                extract_value("stacks_signer_block_proposals_received", &metrics_response);
 
-            let responses = re_responses
-                .captures(&metrics_response)
-                .and_then(|caps| caps.get(1))
-                .map(|m| m.as_str().parse::<u64>().ok())
-                .flatten();
+            let responses = metrics_response
+                .lines()
+                .find(|l| {
+                    l.starts_with("stacks_signer_block_responses_sent{response_type=\"accepted\"}")
+                })
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|v| v.parse::<u64>().ok());
+
+
 
             if let (Some(proposals), Some(responses), Some(precommits)) =
                 (proposals, responses, precommits)

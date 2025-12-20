@@ -15,15 +15,7 @@
 
 use std::time::Duration;
 
-use clarity::vm::analysis::CheckErrorKind;
-use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
-use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::errors::VmExecutionError::Unchecked;
-use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
-use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 
@@ -77,12 +69,8 @@ impl HttpRequest for RPCFastCallReadOnlyRequestHandler {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(&format!(
-            "^/v3/contracts/fast-call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
-        ))
-        .unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v3/contracts/fast-call-read/{address}/{contract}/{function}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -93,7 +81,7 @@ impl HttpRequest for RPCFastCallReadOnlyRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

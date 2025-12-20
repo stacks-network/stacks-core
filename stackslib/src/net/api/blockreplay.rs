@@ -15,7 +15,7 @@
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::types::net::PeerHost;
@@ -343,8 +343,8 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/blocks/replay/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v3/blocks/replay/{block_id}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -356,7 +356,7 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
@@ -380,8 +380,7 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
             .name("block_id")
             .ok_or_else(|| {
                 Error::DecodeError("Failed to match path to block ID group".to_string())
-            })?
-            .as_str();
+            })?;
 
         let block_id = StacksBlockId::from_hex(block_id_str)
             .map_err(|_| Error::DecodeError("Invalid path: unparseable block id".to_string()))?;

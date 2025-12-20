@@ -17,7 +17,7 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use regex::Regex;
+
 
 use crate::net::Error as net_error;
 
@@ -47,15 +47,11 @@ impl ASEntry4 {
     fn read_asn4_sequence<R: BufRead>(fd: &mut R) -> Result<Vec<ASEntry4>, net_error> {
         let mut asn4 = vec![];
 
-        let asn4_regex =
-            Regex::new("^[ \t]*([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+)/([0-9]+)[ \t]+([0-9]+)[ \t]*$")
-                .unwrap();
-        let asn4_whitespace_regex = Regex::new("^[ \t]*$|^[ \t]*#.+$").unwrap();
         let mut line_count = 0;
         let mut parsed = true;
 
         loop {
-            let next_asn4_opt_res = ASEntry4::read_asn4(fd, &asn4_regex, &asn4_whitespace_regex);
+            let next_asn4_opt_res = ASEntry4::read_asn4(fd);
 
             match next_asn4_opt_res {
                 Ok(next_asn4_opt) => match next_asn4_opt {
@@ -93,11 +89,7 @@ impl ASEntry4 {
     // read one ASEntry4 record
     // Returns None on whitespace
     // Returns PermanentlyDrained on EOF
-    fn read_asn4<R: BufRead>(
-        fd: &mut R,
-        asn4_regex: &Regex,
-        asn4_whitespace_regex: &Regex,
-    ) -> Result<Option<ASEntry4>, net_error> {
+    fn read_asn4<R: BufRead>(fd: &mut R) -> Result<Option<ASEntry4>, net_error> {
         let mut buf_full = String::new();
         let num_bytes = fd
             .read_line(&mut buf_full)
@@ -108,51 +100,34 @@ impl ASEntry4 {
         }
 
         // trim trailing newline
-        let buf = buf_full.trim().to_string();
+        let buf = buf_full.trim();
 
         // comment and/or whitespace?
-        if asn4_whitespace_regex.is_match(&buf) {
+        if buf.is_empty() || buf.starts_with('#') {
             return Ok(None);
         }
 
-        let caps = asn4_regex
-            .captures(&buf)
-            .ok_or(net_error::DeserializeError(
-                "Line does not match ANS4 regex".to_string(),
-            ))
-            .inspect_err(|_e| {
-                debug!("Failed to read line \"{buf}\"");
-            })?;
+        let parts: Vec<&str> = buf.split_whitespace().collect();
+        if parts.len() != 2 {
+            debug!("Failed to read line \"{buf}\"");
+            return Err(net_error::DeserializeError(
+                "Line does not match ANS4 format".to_string(),
+            ));
+        }
 
-        let prefix_octets_str = caps
-            .get(1)
-            .ok_or(net_error::DeserializeError(
-                "Failed to read ANS4 prefix".to_string(),
-            ))
-            .inspect_err(|_e| {
-                debug!("Failed to get octets of \"{buf}\"");
-            })?
-            .as_str();
+        let prefix_mask = parts[0];
+        let asn_str = parts[1];
 
-        let prefix_mask_str = caps
-            .get(2)
-            .ok_or(net_error::DeserializeError(
-                "Failed to read ASN4 prefix mask".to_string(),
-            ))
-            .inspect_err(|_e| {
-                debug!("Failed to get mask of \"{buf}\"");
-            })?
-            .as_str();
+        let subparts: Vec<&str> = prefix_mask.split('/').collect();
+        if subparts.len() != 2 {
+            debug!("Failed to get mask of \"{buf}\"");
+            return Err(net_error::DeserializeError(
+                "Line does not match ANS4 format".to_string(),
+            ));
+        }
 
-        let asn_str = caps
-            .get(3)
-            .ok_or(net_error::DeserializeError(
-                "Failed to read ASN ID".to_string(),
-            ))
-            .inspect_err(|_e| {
-                debug!("Failed to get ASN of \"{buf}\"");
-            })?
-            .as_str();
+        let prefix_octets_str = subparts[0];
+        let prefix_mask_str = subparts[1];
 
         let prefix_octets_strs: Vec<&str> = prefix_octets_str.split('.').collect();
         if prefix_octets_strs.len() != 4 {

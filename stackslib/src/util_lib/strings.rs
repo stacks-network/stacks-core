@@ -23,18 +23,37 @@ use clarity::vm::errors::RuntimeError;
 use clarity::vm::representations::{
     ClarityName, ContractName, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
 };
-use lazy_static::lazy_static;
-use regex::Regex;
+
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::util::retry::BoundReader;
 use url;
 
-lazy_static! {
-    static ref URL_STRING_REGEX: Regex =
-        Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#).unwrap();
+struct UrlStringRegex;
+impl UrlStringRegex {
+    fn is_match(&self, s: &str) -> bool {
+        s.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || "._~:/?#[]@!$&'()*+,;%=-".contains(c)
+        })
+    }
 }
+
+struct NameRegex;
+impl NameRegex {
+    fn is_match(&self, s: &str) -> bool {
+        let mut chars = s.chars();
+        match chars.next() {
+            Some(c) if c.is_ascii_alphabetic() => (),
+            _ => return false,
+        }
+        chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    }
+}
+
+static URL_STRING_REGEX: UrlStringRegex = UrlStringRegex;
+static NAME_REGEX: NameRegex = NameRegex;
 
 guarded_string!(
     UrlString,

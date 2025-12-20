@@ -82,6 +82,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            post_condition_error: None,
         }
     }
 
@@ -104,6 +105,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error,
+            post_condition_error: None,
         }
     }
 
@@ -114,6 +116,7 @@ impl StacksTransactionReceipt {
         burned: u128,
         cost: ExecutionCost,
         reason: String,
+        error_details: Option<crate::clarity_vm::events::PostConditionEventData>,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -126,6 +129,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(reason),
+            post_condition_error: error_details,
         }
     }
 
@@ -147,6 +151,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            post_condition_error: None,
         }
     }
 
@@ -157,6 +162,7 @@ impl StacksTransactionReceipt {
         analysis: ContractAnalysis,
         cost: ExecutionCost,
         reason: String,
+        error_details: Option<crate::clarity_vm::events::PostConditionEventData>,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -169,6 +175,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(reason),
+            post_condition_error: error_details,
         }
     }
 
@@ -226,6 +233,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error_string),
+            post_condition_error: None,
         }
     }
 
@@ -245,6 +253,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            post_condition_error: None,
         }
     }
 
@@ -265,6 +274,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error.to_string()),
+            post_condition_error: None,
         }
     }
 
@@ -284,6 +294,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error.to_string()),
+            post_condition_error: None,
         }
     }
 
@@ -364,6 +375,8 @@ pub enum ClarityRuntimeTxError {
         tx_events: Vec<StacksTransactionEvent>,
         /// A human-readable explanation for aborting the transaction
         reason: String,
+        /// Structured details about the failure (if it was a post-condition failure)
+        error_details: Option<crate::clarity_vm::events::PostConditionEventData>,
     },
     CostError(ExecutionCost, ExecutionCost),
     AnalysisError(CheckErrorKind),
@@ -399,11 +412,13 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
             assets_modified,
             tx_events,
             reason,
+            error_details,
         } => ClarityRuntimeTxError::AbortedByCallback {
             output: output.map(|v| *v),
             assets_modified: *assets_modified,
             tx_events,
             reason,
+            error_details,
         },
         ClarityError::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
@@ -630,7 +645,7 @@ impl StacksChainState {
         origin_account: &StacksAccount,
         asset_map: &AssetMap,
         txid: Txid,
-    ) -> Result<Option<String>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<crate::clarity_vm::events::PostConditionEventData>)>, VmExecutionError> {
         let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
             HashMap::new();
         let mut checked_nonfungible_assets: HashMap<
@@ -660,7 +675,16 @@ impl StacksChainState {
                             "Post-condition check failure on STX owned by {account_principal}: {amount_sent_condition:?} {condition_code:?} {amount_sent}",
                         );
                         info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
+                        let event = crate::clarity_vm::events::PostConditionEventData {
+                            principal: account_principal.clone(),
+                            asset_id: Some(AssetIdentifier::STX()),
+                            condition_code: *condition_code as u8,
+                            amount: Some(u128::from(*amount_sent_condition)),
+                            value: None,
+                            expected: format!("{:?} {}", condition_code, amount_sent_condition),
+                            actual: format!("{}", amount_sent),
+                        };
+                        return Ok(Some((reason, Some(event))));
                     }
 
                     if let Some(ref mut asset_ids) =
@@ -704,7 +728,16 @@ impl StacksChainState {
                     if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
                         let reason = format!("Post-condition check failure on fungible asset {asset_id} owned by {account_principal}: {amount_sent_condition} {condition_code:?} {amount_sent}");
                         info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
+                        let event = crate::clarity_vm::events::PostConditionEventData {
+                            principal: account_principal.clone(),
+                            asset_id: Some(asset_id),
+                            condition_code: *condition_code as u8,
+                            amount: Some(u128::from(*amount_sent_condition)),
+                            value: None,
+                            expected: format!("{:?} {}", condition_code, amount_sent_condition),
+                            actual: format!("{}", amount_sent),
+                        };
+                        return Ok(Some((reason, Some(event))));
                     }
 
                     if let Some(ref mut asset_ids) =
@@ -741,7 +774,16 @@ impl StacksChainState {
                             "Post-condition check failure on non-fungible asset {asset_id} owned by {account_principal}: {asset_value:?} {condition_code:?} {assets_sent:?}"
                         );
                         info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
+                        let event = crate::clarity_vm::events::PostConditionEventData {
+                            principal: account_principal.clone(),
+                            asset_id: Some(asset_id),
+                            condition_code: *condition_code as u8,
+                            amount: None,
+                            value: Some(asset_value.clone()),
+                            expected: format!("{:?} {:?}", condition_code, asset_value),
+                            actual: format!("{:?}", assets_sent),
+                        };
+                        return Ok(Some((reason, Some(event))));
                     }
 
                     if let Some(ref mut asset_id_map) =
@@ -1156,6 +1198,7 @@ impl StacksChainState {
                             assets_modified,
                             tx_events,
                             reason,
+                            error_details,
                         } => {
                             info!("Contract-call aborted by post-condition";
                                       "txid" => %tx.txid(),
@@ -1171,6 +1214,7 @@ impl StacksChainState {
                                     assets_modified.get_stx_burned_total()?,
                                     total_cost,
                                     reason,
+                                    error_details,
                                 );
                             return Ok(receipt);
                         }
@@ -1382,6 +1426,7 @@ impl StacksChainState {
                                 microblock_header: None,
                                 tx_index: 0,
                                 vm_error: Some(error.to_string()),
+                                post_condition_error: None,
                             };
                             return Ok(receipt);
                         }
@@ -1389,6 +1434,7 @@ impl StacksChainState {
                             assets_modified,
                             tx_events,
                             reason,
+                            error_details,
                             ..
                         } => {
                             let receipt =
@@ -1399,6 +1445,7 @@ impl StacksChainState {
                                     contract_analysis,
                                     total_cost,
                                     reason,
+                                    error_details,
                                 );
                             return Ok(receipt);
                         }

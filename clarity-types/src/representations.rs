@@ -18,8 +18,7 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
 
-use lazy_static::lazy_static;
-use regex::Regex;
+use std::sync::LazyLock;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec, read_next, write_next};
 
 use crate::Value;
@@ -30,41 +29,87 @@ pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
 pub const MAX_STRING_LEN: u8 = 128;
 
-lazy_static! {
-    pub static ref STANDARD_PRINCIPAL_REGEX_STRING: String =
-        "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into();
-    pub static ref CONTRACT_NAME_REGEX_STRING: String = format!(
-        r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
-        CONTRACT_MIN_NAME_LENGTH - 1,
-        // NOTE: this is deliberate.  Earlier versions of the node will accept contract principals whose names are up to
-        // 128 bytes.  This behavior must be preserved for backwards-compatibility.
-        MAX_STRING_LEN - 1
-    );
-    pub static ref CONTRACT_PRINCIPAL_REGEX_STRING: String = format!(
-        r#"{}(\.){}"#,
-        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
-    );
-    pub static ref PRINCIPAL_DATA_REGEX_STRING: String = format!(
-        "({})|({})",
-        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_PRINCIPAL_REGEX_STRING
-    );
-    pub static ref CLARITY_NAME_REGEX_STRING: String =
-        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
-    pub static ref CLARITY_NAME_REGEX: Regex =
-    {
-        Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap()
-    };
-    pub static ref CONTRACT_NAME_REGEX: Regex =
-    {
-        Regex::new(format!("^{}$|^__transient$", CONTRACT_NAME_REGEX_STRING.as_str()).as_str())
-            .unwrap()
-    };
+pub static STANDARD_PRINCIPAL_REGEX_STRING: LazyLock<String> =
+    LazyLock::new(|| "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into());
+pub static CONTRACT_NAME_REGEX_STRING: LazyLock<String> = LazyLock::new(|| format!(
+    r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
+    CONTRACT_MIN_NAME_LENGTH - 1,
+    // NOTE: this is deliberate.  Earlier versions of the node will accept contract principals whose names are up to
+    // 128 bytes.  This behavior must be preserved for backwards-compatibility.
+    MAX_STRING_LEN - 1
+));
+pub static CONTRACT_PRINCIPAL_REGEX_STRING: LazyLock<String> = LazyLock::new(|| format!(
+    r#"{}(\.){}"#,
+    *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
+));
+pub static PRINCIPAL_DATA_REGEX_STRING: LazyLock<String> = LazyLock::new(|| format!(
+    "({})|({})",
+    *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_PRINCIPAL_REGEX_STRING
+));
+pub static CLARITY_NAME_REGEX_STRING: LazyLock<String> =
+    LazyLock::new(|| "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into());
+pub struct ClarityNameMatcher;
+impl ClarityNameMatcher {
+    pub fn is_match(&self, s: &str) -> bool {
+        if s.is_empty() {
+            return false;
+        }
+        // Case 1: ^[-+=/*]$
+        if s.len() == 1 {
+            let c = s.chars().next().unwrap();
+            if "-+=/*".contains(c) {
+                return true;
+            }
+        }
+        // Case 2: ^[<>]=?$
+        if s == "<" || s == ">" || s == "<=" || s == ">=" {
+            return true;
+        }
+        // Case 3: ^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$
+        let mut chars = s.chars();
+        let first = chars.next().unwrap();
+        if !first.is_ascii_alphabetic() {
+            return false;
+        }
+        for c in chars {
+            if !c.is_ascii_alphanumeric() && !"-_!?+<>=/*".contains(c) {
+                return false;
+            }
+        }
+        true
+    }
 }
+
+pub struct ContractNameMatcher;
+impl ContractNameMatcher {
+    pub fn is_match(&self, s: &str) -> bool {
+        if s == "__transient" {
+            return true;
+        }
+        if s.len() < CONTRACT_MIN_NAME_LENGTH || s.len() > MAX_STRING_LEN as usize {
+            return false;
+        }
+        let mut chars = s.chars();
+        let first = chars.next().unwrap();
+        if !first.is_ascii_alphabetic() {
+            return false;
+        }
+        for c in chars {
+            if !c.is_ascii_alphanumeric() && !"-_".contains(c) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+pub static CLARITY_NAME_MATCHER: ClarityNameMatcher = ClarityNameMatcher;
+pub static CONTRACT_NAME_MATCHER: ContractNameMatcher = ContractNameMatcher;
 
 guarded_string!(
     ClarityName,
     "ClarityName",
-    CLARITY_NAME_REGEX,
+    CLARITY_NAME_MATCHER,
     MAX_STRING_LEN,
     RuntimeError,
     RuntimeError::BadNameValue
@@ -73,7 +118,7 @@ guarded_string!(
 guarded_string!(
     ContractName,
     "ContractName",
-    CONTRACT_NAME_REGEX,
+    CONTRACT_NAME_MATCHER,
     MAX_STRING_LEN,
     RuntimeError,
     RuntimeError::BadNameValue

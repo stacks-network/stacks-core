@@ -20,6 +20,8 @@ use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::str::FromStr;
 use std::sync::LazyLock;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 #[cfg(feature = "rusqlite")]
 pub mod sqlite;
 
@@ -104,7 +106,7 @@ pub const MINING_COMMITMENT_FREQUENCY_NAKAMOTO: u8 = 3;
 macro_rules! define_stacks_epochs {
     ($($variant:ident = $value:expr),* $(,)?) => {
         #[repr(u32)]
-        #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash)]
         pub enum StacksEpochId {
             $($variant = $value),*
         }
@@ -897,6 +899,41 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch32 => write!(f, "3.2"),
             StacksEpochId::Epoch33 => write!(f, "3.3"),
         }
+    }
+}
+
+impl Serialize for StacksEpochId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for StacksEpochId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct StacksEpochIdVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for StacksEpochIdVisitor {
+            type Value = StacksEpochId;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a Stacks epoch version string (e.g., '2.1')")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<StacksEpochId, E>
+            where
+                E: serde::de::Error,
+            {
+                StacksEpochId::from_str(value).map_err(serde::de::Error::custom)
+            }
+        }
+
+        deserializer.deserialize_str(StacksEpochIdVisitor)
     }
 }
 

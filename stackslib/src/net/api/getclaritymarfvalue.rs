@@ -13,8 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::clarity::ClarityConnection;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::to_hex;
@@ -55,8 +54,8 @@ impl HttpRequest for RPCGetClarityMarfRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/clarity/marf/(?P<marf_key_hash>[0-9a-f]{64})$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/clarity/marf/{marf_key_hash}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -68,7 +67,7 @@ impl HttpRequest for RPCGetClarityMarfRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
@@ -78,8 +77,8 @@ impl HttpRequest for RPCGetClarityMarfRequestHandler {
             ));
         }
 
-        let marf_key = if let Some(key_str) = captures.name("marf_key_hash") {
-            TrieHash::from_hex(key_str.as_str())
+        let marf_key = if let Some(key_str) = captures.get("marf_key_hash") {
+            TrieHash::from_hex(key_str)
                 .map_err(|e| Error::Http(400, format!("Invalid hash string: {e:?}")))?
         } else {
             return Err(Error::Http(404, "Missing `marf_key_hash`".to_string()));

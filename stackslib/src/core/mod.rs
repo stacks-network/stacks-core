@@ -20,7 +20,7 @@ use std::collections::HashSet;
 
 use clarity::consts::PEER_VERSION_EPOCH_3_3;
 use clarity::vm::costs::ExecutionCost;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 pub use stacks_common::consts::MICROSTACKS_PER_STACKS;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 pub use stacks_common::types::StacksEpochId;
@@ -136,10 +136,9 @@ pub const BITCOIN_REGTEST_FIRST_BLOCK_HASH: &str =
 pub const FIRST_STACKS_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 pub const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 
-lazy_static! {
-    pub static ref FIRST_STACKS_BLOCK_ID: StacksBlockId =
-        StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-}
+pub static FIRST_STACKS_BLOCK_ID: LazyLock<StacksBlockId> = LazyLock::new(|| {
+    StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+});
 
 pub const BOOT_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0xff; 32]);
 pub const BURNCHAIN_BOOT_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0xff; 20]);
@@ -243,8 +242,8 @@ pub fn check_fault_injection(fault_name: &str) -> bool {
     env::var(fault_name) == Ok("1".to_string())
 }
 
-lazy_static! {
-    pub static ref STACKS_EPOCHS_MAINNET: EpochList = EpochList::new(&[
+pub static STACKS_EPOCHS_MAINNET: LazyLock<EpochList> = LazyLock::new(|| {
+    EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -329,11 +328,11 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_3
         },
-    ]);
-}
+    ])
+});
 
-lazy_static! {
-    pub static ref STACKS_EPOCHS_TESTNET: EpochList = EpochList::new(&[
+pub static STACKS_EPOCHS_TESTNET: LazyLock<EpochList> = LazyLock::new(|| {
+    EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -418,11 +417,11 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_3
         },
-    ]);
-}
+    ])
+});
 
-lazy_static! {
-    pub static ref STACKS_EPOCHS_REGTEST: EpochList = EpochList::new(&[
+pub static STACKS_EPOCHS_REGTEST: LazyLock<EpochList> = LazyLock::new(|| {
+    EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -507,8 +506,8 @@ lazy_static! {
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_3
         },
-    ]);
-}
+    ])
+});
 
 /// Stacks 2.05 epoch marker.  All block-commits in 2.05 must have a memo bitfield with this value
 /// *or greater*.

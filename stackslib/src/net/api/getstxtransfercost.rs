@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::costs::ExecutionCost;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
@@ -44,8 +44,8 @@ impl HttpRequest for RPCGetStxTransferCostRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/fees/transfer$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/fees/transfer")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -57,7 +57,7 @@ impl HttpRequest for RPCGetStxTransferCostRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        _captures: &Captures,
+        _captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
@@ -85,7 +85,7 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
         // we do need an absolute length to use the estimator (so supply a common one).
         let estimated_len = SINGLESIG_TX_TRANSFER_LEN;
 
-        let fee_resp = node.with_node_state(|_network, sortdb, _chainstate, _mempool, rpc_args| {
+        let fee_resp = node.with_node_state(|_network, sortdb, _chainstate, mempool, rpc_args| {
             let tip = self.get_canonical_burn_chain_tip(&preamble, sortdb)?;
             let stacks_epoch = self.get_stacks_epoch(&preamble, sortdb, tip.block_height)?;
 
@@ -96,6 +96,7 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
                     RPCPostFeeRateRequestHandler::estimate_tx_fee_from_cost_and_length(
                         &preamble,
                         fee_estimator,
+                        Some(mempool),
                         metric,
                         estimated_cost,
                         estimated_len,
