@@ -71,6 +71,10 @@ pub mod posttransaction;
 #[cfg(test)]
 mod tests;
 
+/// A regex segment matching a valid Clarity name
+pub const CLARITY_NAME_SEGMENT: &'static str =
+    r"(?:[a-zA-Z](?:[a-zA-Z0-9]|[-_!?+<>=/*])*)|(?:[-+=/*])|(?:[<>]=?)";
+
 impl StacksHttp {
     /// Register all RPC methods.
     /// Put your new RPC method handlers here.

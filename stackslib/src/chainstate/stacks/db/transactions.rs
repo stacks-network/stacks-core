@@ -2383,10 +2383,6 @@ pub mod test {
         } else {
             ":0:0: invalid variable definition"
         };
-        let expected_errors = [
-            "Tried to close list which isn't open.",
-            expected_line_num_error,
-        ];
         let expected_errors_2_1 = ["unexpected ')'", expected_line_num_error];
 
         let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
@@ -2439,13 +2435,10 @@ pub mod test {
                         .unwrap();
 
                 // Verify that the syntax error is recorded in the receipt
-                let expected_error =
-                    if burn_db.get_stacks_epoch(0).unwrap().epoch_id >= StacksEpochId::Epoch21 {
-                        expected_errors_2_1[i].to_string()
-                    } else {
-                        expected_errors[i].to_string()
-                    };
-                assert_eq!(receipt.vm_error.unwrap(), expected_error);
+                assert_eq!(
+                    receipt.vm_error.unwrap(),
+                    expected_errors_2_1[i].to_string()
+                );
 
                 next_nonce += 1;
             }

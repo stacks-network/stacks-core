@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::tests::test_epochs;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
 use rand::{thread_rng, Rng};
@@ -2668,31 +2669,8 @@ fn setup_deep_txs() -> DeepTransactions {
     }
 }
 
-#[rstest]
-#[case::epoch20(StacksEpochId::Epoch20)]
-#[case::epoch2_05(StacksEpochId::Epoch2_05)]
-fn static_problematic_txs_pre_epoch21(#[case] epoch_id: StacksEpochId) {
-    let DeepTransactions {
-        tx_high,
-        tx_edge,
-        tx_exceeds,
-    } = setup_deep_txs();
-    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_edge).is_ok());
-    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_exceeds).is_err());
-    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_high).is_err());
-}
-
-#[rstest]
-#[case::epoch_21(StacksEpochId::Epoch21)]
-#[case::epoch_22(StacksEpochId::Epoch22)]
-#[case::epoch_23(StacksEpochId::Epoch23)]
-#[case::epoch_24(StacksEpochId::Epoch24)]
-#[case::epoch_25(StacksEpochId::Epoch25)]
-#[case::epoch_30(StacksEpochId::Epoch30)]
-#[case::epoch_31(StacksEpochId::Epoch31)]
-#[case::epoch_32(StacksEpochId::Epoch32)]
-#[case::epoch_33(StacksEpochId::Epoch33)]
-fn static_problematic_txs_post_epoch21(#[case] epoch_id: StacksEpochId) {
+#[apply(test_epochs)]
+fn static_problematic_txs(#[case] epoch_id: StacksEpochId) {
     let DeepTransactions {
         tx_high,
         tx_edge,

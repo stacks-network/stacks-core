@@ -1036,10 +1036,8 @@ fn test_ast_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        RuntimeError::ASTError(Box::new(
-            ParseErrorKind::VaryExpressionStackDepthTooDeep.into(),
-        ))
-        .into()
+        RuntimeError::ASTError(Box::new(ParseErrorKind::ExpressionStackDepthTooDeep.into(),))
+            .into()
     );
 }
 
