@@ -47,7 +47,7 @@ rstest_reuse = { version = "0.5.0" }
 serde_stacker = "0.1"
 
 [features]
-default = ["devtools"]
+default = ["rusqlite"]
 developer-mode = ["stacks_common/developer-mode", "clarity-types/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
 rusqlite = ["stacks_common/rusqlite", "clarity-types/rusqlite", "dep:rusqlite"]
