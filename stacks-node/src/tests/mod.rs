@@ -51,6 +51,7 @@ mod epoch_22;
 mod epoch_23;
 mod epoch_24;
 mod integrations;
+mod marf;
 mod mempool;
 pub mod nakamoto_integrations;
 pub mod neon_integrations;
