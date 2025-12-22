@@ -415,6 +415,15 @@ impl TriePtr {
         }
     }
 
+    pub fn new_backptr(id: u8, chr: u8, ptr: u32, back_block: u32) -> TriePtr {
+        TriePtr {
+            id: set_backptr(id),
+            chr,
+            ptr,
+            back_block,
+        }
+    }
+
     #[inline]
     pub fn id(&self) -> u8 {
         self.id
@@ -1239,7 +1248,7 @@ impl TrieNodePatch {
     /// normalize it (i.e. convert it into a non-backpointer) in order to compare it against the
     /// corresponding pointer in `old_ptrs` (which might have that very same pointer, but not yet
     /// made into a backptr by a COW)
-    fn make_ptr_diff(
+    pub fn make_ptr_diff(
         old_node_ptr: &TriePtr,
         old_ptrs: &[TriePtr],
         new_ptrs: &[TriePtr],
@@ -1269,6 +1278,8 @@ impl TrieNodePatch {
                     && is_backptr(new_ptr.id())
                     && new_ptr.back_block == old_node_ptr.back_block
                 {
+                    println!("_FDF_: {old_ptr:?} / {new_ptr:?}");
+
                     // new_ptr may be the backptr-ified version of old_ptr
                     let mut normalized_new_ptr =
                         TriePtr::new(clear_ctrl_bits(new_ptr.id()), new_ptr.chr(), new_ptr.ptr());
@@ -1280,13 +1291,19 @@ impl TrieNodePatch {
                             old_ptr
                         );
                         ret.push(*new_ptr);
+                    } else {
+                        println!("FDF: Discarded1: {old_ptr:?} / {new_ptr:?}");
                     }
                 } else {
                     if old_ptr != new_ptr {
                         trace!("new overritten ptr: {:?} != {:?}", &new_ptr, old_ptr);
                         ret.push(*new_ptr);
-                    } else if !is_backptr(new_ptr.id()) {
-                        ret.push(*new_ptr);
+                    } else {
+                        if !is_backptr(new_ptr.id()) {
+                            println!("FDF A: {new_ptr:?}");
+                            ret.push(*new_ptr);
+                        }
+                        println!("FDF: Discarded2: {old_ptr:?} / {new_ptr:?}");
                     }
                 }
             } else {

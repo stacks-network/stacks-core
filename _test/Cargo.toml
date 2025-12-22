@@ -1,0 +1,11 @@
+[package]
+name = "_test"
+version = "0.0.1"
+edition = "2021"
+resolver = "2"
+
+[dependencies]
+regex = "1.12.2"
+stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
+stacks_lib = { package = "stackslib", path = "../stackslib", features = ["testing"] }
+
