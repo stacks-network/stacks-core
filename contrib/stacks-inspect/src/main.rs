@@ -402,13 +402,10 @@ fn main() {
         }
 
         let tx_arg = &argv[2];
-        // Support reading from file or stdin:
-        // - "-" reads from stdin
-        // - If the path exists as a file, read from it
-        // - Else, treat as hex string directly
         let tx_str = if tx_arg == "-" || std::path::Path::new(tx_arg).exists() {
             read_file_or_stdin(tx_arg).trim().to_string()
         } else {
+            // Treat as hex string directly
             tx_arg.clone()
         };
         let tx_bytes = hex_bytes(&tx_str)
@@ -470,13 +467,10 @@ fn main() {
         }
 
         let block_arg = &argv[2];
-        // Support reading from file or stdin:
-        // - "-" reads from stdin
-        // - If the path exists as a file, read from it
-        // - Else, treat as hex string directly
         let block_hex = if block_arg == "-" || std::path::Path::new(block_arg).exists() {
             read_file_or_stdin(block_arg).trim().to_string()
         } else {
+            // Treat as hex string directly
             block_arg.clone()
         };
         let block_data = hex_bytes(&block_hex).unwrap_or_else(|_| panic!("Failed to decode hex"));
@@ -493,13 +487,10 @@ fn main() {
 
     if argv[1] == "decode-net-message" {
         let data: String = argv[2].clone();
-        // Support reading from file or stdin:
-        // - "-" reads from stdin
-        // - If the path exists as a file, read binary from it
-        // - Otherwise, parse as JSON array of bytes (backward compatibility)
         let buf = if data == "-" || std::path::Path::new(&data).exists() {
             read_file_or_stdin_bytes(&data)
         } else {
+            // Parse as JSON array of bytes
             let data: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
             let data_array = data.as_array().unwrap();
             let mut buf = vec![];
@@ -1062,13 +1053,10 @@ check if the associated microblocks can be downloaded
         let privkey: String = argv[4].clone();
         let data: String = argv[5].clone();
 
-        // Support reading from file or stdin:
-        // - "-" reads from stdin
-        // - If the path exists as a file, read binary from it
-        // - Else, use the argument directly as data
         let buf = if data == "-" || std::path::Path::new(&data).exists() {
             read_file_or_stdin_bytes(&data)
         } else {
+            // Use the argument directly as data
             data.as_bytes().to_vec()
         };
 
