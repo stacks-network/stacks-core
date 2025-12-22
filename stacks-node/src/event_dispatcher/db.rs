@@ -59,17 +59,22 @@ impl EventDispatcherDbConnection {
         EventDispatcherDbConnection { connection }
     }
 
-    /// Insert a payload into the database, retrying on failure.
-    pub fn insert_payload_with_retry(&self, url: &str, payload_bytes: &[u8], timeout: Duration) {
+    /// Insert a payload into the database, retrying on failure. Returns the id of of the inserted record.
+    pub fn insert_payload_with_retry(
+        &self,
+        url: &str,
+        payload_bytes: &[u8],
+        timeout: Duration,
+    ) -> i64 {
         let mut attempts = 0i64;
         let mut backoff = Duration::from_millis(100); // Initial backoff duration
         let max_backoff = Duration::from_secs(5); // Cap the backoff duration
 
         loop {
             match self.insert_payload(url, payload_bytes, timeout) {
-                Ok(_) => {
+                Ok(id) => {
                     // Successful insert, break the loop
-                    return;
+                    return id;
                 }
                 Err(err) => {
                     // Log the error, then retry after a delay
@@ -95,18 +100,14 @@ impl EventDispatcherDbConnection {
         url: &str,
         payload_bytes: &[u8],
         timeout: Duration,
-    ) -> Result<(), db_error> {
+    ) -> Result<i64, db_error> {
         let timeout_ms: u64 = timeout.as_millis().try_into().expect("Timeout too large");
-        self.connection.execute(
-            "INSERT INTO pending_payloads (url, payload, timeout) VALUES (?1, ?2, ?3)",
+        let id: i64 = self.connection.query_row(
+            "INSERT INTO pending_payloads (url, payload, timeout) VALUES (?1, ?2, ?3) RETURNING id",
             params![url, payload_bytes, timeout_ms],
+            |row| row.get(0),
         )?;
-        Ok(())
-    }
-
-    // TODO: change this to get the id from the insertion directly, because that's more reliable
-    pub fn last_insert_rowid(&self) -> i64 {
-        self.connection.last_insert_rowid()
+        Ok(id)
     }
 
     pub fn get_pending_payloads(&self) -> Result<Vec<(i64, String, Arc<[u8]>, u64)>, db_error> {

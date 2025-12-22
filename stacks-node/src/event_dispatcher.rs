@@ -1226,8 +1226,7 @@ impl EventDispatcher {
         let conn = EventDispatcherDbConnection::new_without_init(&self.db_path)
             .expect("Failed to open database for event observer");
 
-        conn.insert_payload_with_retry(&url, payload_bytes.as_ref(), timeout);
-        conn.last_insert_rowid()
+        conn.insert_payload_with_retry(&url, payload_bytes.as_ref(), timeout)
     }
 
     fn make_http_request_and_delete_from_db(
