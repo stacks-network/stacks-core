@@ -442,10 +442,7 @@ fn main() {
 
     if argv[1] == "decode-block" {
         if argv.len() < 3 {
-            eprintln!(
-                "Usage: {} decode-block <BLOCK_PATH | - (stdin)>",
-                argv[0]
-            );
+            eprintln!("Usage: {} decode-block <BLOCK_PATH | - (stdin)>", argv[0]);
             process::exit(1);
         }
 
