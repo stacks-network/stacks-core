@@ -1356,7 +1356,6 @@ pub fn execute_eval_at_block(
 #[allow(clippy::too_many_arguments)]
 pub fn execute_launch(
     contract_identifier: &QualifiedContractIdentifier,
-    _contract_src_file: &str,
     contract_content: &str,
     costs: bool,
     assets: bool,
@@ -1599,7 +1598,6 @@ mod test {
 
         let (exit, _result) = execute_launch(
             &contract_id,
-            &clar_name,
             contract_code,
             false,
             false,
@@ -1708,7 +1706,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let (exit, result) = execute_launch(
             &contract_id,
-            &file_path,
             &content,
             false,
             false,
@@ -1812,7 +1809,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let (exit, result) = execute_launch(
             &contract_id,
-            &file_path,
             &content,
             true,
             true,
@@ -2023,7 +2019,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let (exit, result) = execute_launch(
             &contract_id,
-            &file_path,
             &content,
             false,
             true,
@@ -2264,7 +2259,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let (exit_code, result_json) = execute_launch(
             &contract_id,
-            &clar_path,
             &content,
             false,
             false,
@@ -2316,7 +2310,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let (exit_code, result_json) = execute_launch(
             &contract_id,
-            &clar_path,
             &content,
             false,
             false,
@@ -2354,7 +2347,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let _ = execute_launch(
             &launch_contract_id,
-            &launch_src,
             &launch_content,
             false,
             false,
@@ -2413,7 +2405,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let _ = execute_launch(
             &launch_contract_id,
-            &launch_src,
             &launch_content,
             false,
             false,

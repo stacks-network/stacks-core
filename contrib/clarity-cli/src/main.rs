@@ -571,7 +571,6 @@ fn main() {
 
             execute_launch(
                 &cid,
-                contract_src_file,
                 &contract_content,
                 *costs,
                 *assets,
