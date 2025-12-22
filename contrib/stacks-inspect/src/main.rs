@@ -19,7 +19,7 @@ extern crate stacks_common;
 use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
-use clarity_cli::DEFAULT_CLI_EPOCH;
+use clarity_cli::{DEFAULT_CLI_EPOCH, read_file_or_stdin, read_file_or_stdin_bytes};
 use stacks_inspect::{
     command_contract_hash, command_replay_mock_mining, command_try_mine, command_validate_block,
     command_validate_block_nakamoto, drain_common_opts,
@@ -96,32 +96,6 @@ use stackslib::net::relay::Relayer;
 use stackslib::net::{GetNakamotoInvData, HandshakeData, StacksMessage, StacksMessageType};
 use stackslib::util_lib::db::sqlite_open;
 use stackslib::util_lib::strings::UrlString;
-
-/// Read text content from a file path or stdin if path is "-"
-fn read_file_or_stdin(path: &str) -> String {
-    if path == "-" {
-        let mut buffer = String::new();
-        io::stdin()
-            .read_to_string(&mut buffer)
-            .expect("Error reading from stdin");
-        buffer
-    } else {
-        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
-    }
-}
-
-/// Read binary content from a file path or stdin if path is "-"
-fn read_file_or_stdin_bytes(path: &str) -> Vec<u8> {
-    if path == "-" {
-        let mut buffer = vec![];
-        io::stdin()
-            .read_to_end(&mut buffer)
-            .expect("Error reading from stdin");
-        buffer
-    } else {
-        fs::read(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
-    }
-}
 
 struct P2PSession {
     pub local_peer: LocalPeer,
