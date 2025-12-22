@@ -97,6 +97,32 @@ use stackslib::net::{GetNakamotoInvData, HandshakeData, StacksMessage, StacksMes
 use stackslib::util_lib::db::sqlite_open;
 use stackslib::util_lib::strings::UrlString;
 
+/// Read text content from a file path or stdin if path is "-"
+fn read_file_or_stdin(path: &str) -> String {
+    if path == "-" {
+        let mut buffer = String::new();
+        io::stdin()
+            .read_to_string(&mut buffer)
+            .expect("Error reading from stdin");
+        buffer
+    } else {
+        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
+    }
+}
+
+/// Read binary content from a file path or stdin if path is "-"
+fn read_file_or_stdin_bytes(path: &str) -> Vec<u8> {
+    if path == "-" {
+        let mut buffer = vec![];
+        io::stdin()
+            .read_to_end(&mut buffer)
+            .expect("Error reading from stdin");
+        buffer
+    } else {
+        fs::read(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
+    }
+}
+
 struct P2PSession {
     pub local_peer: LocalPeer,
     peer_info: RPCPeerInfoData,
@@ -394,12 +420,24 @@ fn main() {
 
     if argv[1] == "decode-tx" {
         if argv.len() < 3 {
-            eprintln!("Usage: {} decode-tx TRANSACTION", argv[0]);
+            eprintln!(
+                "Usage: {} decode-tx <TX_HEX | TX_FILE | - (stdin)>",
+                argv[0]
+            );
             process::exit(1);
         }
 
-        let tx_str = &argv[2];
-        let tx_bytes = hex_bytes(tx_str)
+        let tx_arg = &argv[2];
+        // Support reading from file or stdin:
+        // - "-" reads from stdin
+        // - If the path exists as a file, read from it
+        // - Else, treat as hex string directly
+        let tx_str = if tx_arg == "-" || std::path::Path::new(tx_arg).exists() {
+            read_file_or_stdin(tx_arg).trim().to_string()
+        } else {
+            tx_arg.clone()
+        };
+        let tx_bytes = hex_bytes(&tx_str)
             .map_err(|_e| {
                 eprintln!("Failed to decode transaction: must be a hex string");
                 process::exit(1);
@@ -430,13 +468,15 @@ fn main() {
 
     if argv[1] == "decode-block" {
         if argv.len() < 3 {
-            eprintln!("Usage: {} decode-block BLOCK_PATH", argv[0]);
+            eprintln!(
+                "Usage: {} decode-block <BLOCK_PATH | - (stdin)>",
+                argv[0]
+            );
             process::exit(1);
         }
 
         let block_path = &argv[2];
-        let block_data =
-            fs::read(block_path).unwrap_or_else(|_| panic!("Failed to open {block_path}"));
+        let block_data = read_file_or_stdin_bytes(block_path);
 
         let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
             .map_err(|_e| {
@@ -451,12 +491,24 @@ fn main() {
 
     if argv[1] == "decode-nakamoto-block" {
         if argv.len() < 3 {
-            eprintln!("Usage: {} decode-nakamoto-block BLOCK_HEX", argv[0]);
+            eprintln!(
+                "Usage: {} decode-nakamoto-block <BLOCK_HEX | HEX_FILE | - (stdin)>",
+                argv[0]
+            );
             process::exit(1);
         }
 
-        let block_hex = &argv[2];
-        let block_data = hex_bytes(block_hex).unwrap_or_else(|_| panic!("Failed to decode hex"));
+        let block_arg = &argv[2];
+        // Support reading from file or stdin:
+        // - "-" reads from stdin
+        // - If the path exists as a file, read from it
+        // - Else, treat as hex string directly
+        let block_hex = if block_arg == "-" || std::path::Path::new(block_arg).exists() {
+            read_file_or_stdin(block_arg).trim().to_string()
+        } else {
+            block_arg.clone()
+        };
+        let block_data = hex_bytes(&block_hex).unwrap_or_else(|_| panic!("Failed to decode hex"));
         let block = NakamotoBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
             .map_err(|_e| {
                 eprintln!("Failed to decode block");
@@ -470,10 +522,12 @@ fn main() {
 
     if argv[1] == "decode-net-message" {
         let data: String = argv[2].clone();
-        let buf = if data == "-" {
-            let mut buffer = vec![];
-            io::stdin().read_to_end(&mut buffer).unwrap();
-            buffer
+        // Support reading from file or stdin:
+        // - "-" reads from stdin
+        // - If the path exists as a file, read binary from it
+        // - Otherwise, parse as JSON array of bytes (backward compatibility)
+        let buf = if data == "-" || std::path::Path::new(&data).exists() {
+            read_file_or_stdin_bytes(&data)
         } else {
             let data: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
             let data_array = data.as_array().unwrap();
@@ -804,15 +858,14 @@ check if the associated microblocks can be downloaded
     if argv[1] == "decode-microblocks" {
         if argv.len() < 3 {
             eprintln!(
-                "Usage: {} decode-microblocks MICROBLOCK_STREAM_PATH",
+                "Usage: {} decode-microblocks <MICROBLOCK_STREAM_PATH | - (stdin)>",
                 argv[0]
             );
             process::exit(1);
         }
 
         let mblock_path = &argv[2];
-        let mblock_data =
-            fs::read(mblock_path).unwrap_or_else(|_| panic!("Failed to open {mblock_path}"));
+        let mblock_data = read_file_or_stdin_bytes(mblock_path);
 
         let mut cursor = io::Cursor::new(&mblock_data);
         let mut debug_cursor = LogReader::from_reader(&mut cursor);
@@ -1028,7 +1081,7 @@ check if the associated microblocks can be downloaded
     if argv[1] == "post-stackerdb" {
         if argv.len() < 4 {
             eprintln!(
-                "Usage: {} post-stackerdb slot_id slot_version privkey data",
+                "Usage: {} post-stackerdb slot_id slot_version privkey <DATA | DATA_FILE | - (stdin)>",
                 &argv[0]
             );
             process::exit(1);
@@ -1038,10 +1091,12 @@ check if the associated microblocks can be downloaded
         let privkey: String = argv[4].clone();
         let data: String = argv[5].clone();
 
-        let buf = if data == "-" {
-            let mut buffer = vec![];
-            io::stdin().read_to_end(&mut buffer).unwrap();
-            buffer
+        // Support reading from file or stdin:
+        // - "-" reads from stdin
+        // - If the path exists as a file, read binary from it
+        // - Else, use the argument directly as data
+        let buf = if data == "-" || std::path::Path::new(&data).exists() {
+            read_file_or_stdin_bytes(&data)
         } else {
             data.as_bytes().to_vec()
         };
@@ -1221,7 +1276,7 @@ check if the associated microblocks can be downloaded
     if argv[1] == "shadow-chainstate-patch" {
         if argv.len() < 5 {
             eprintln!(
-                "Usage: {} shadow-chainstate-patch CHAINSTATE_DIR NETWORK SHADOW_BLOCKS_PATH.JSON",
+                "Usage: {} shadow-chainstate-patch CHAINSTATE_DIR NETWORK <SHADOW_BLOCKS.JSON | - (stdin)>",
                 &argv[0]
             );
             process::exit(1);
@@ -1232,10 +1287,7 @@ check if the associated microblocks can be downloaded
         let shadow_blocks_json_path = argv[4].as_str();
 
         let shadow_blocks_hex = {
-            let mut blocks_json_file =
-                File::open(shadow_blocks_json_path).expect("Unable to open file");
-            let mut buffer = vec![];
-            blocks_json_file.read_to_end(&mut buffer).unwrap();
+            let buffer = read_file_or_stdin_bytes(shadow_blocks_json_path);
             let shadow_blocks_hex: Vec<String> = serde_json::from_slice(&buffer).unwrap();
             shadow_blocks_hex
         };

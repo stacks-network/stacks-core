@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::io::{self, Read as _};
 use std::path::PathBuf;
 use std::time::Instant;
 use std::{fs, process};
@@ -49,6 +50,19 @@ use stackslib::core::*;
 use stackslib::cost_estimates::UnitEstimator;
 use stackslib::cost_estimates::metrics::UnitMetric;
 use stackslib::util_lib::db::IndexDBTx;
+
+/// Read text content from a file path or stdin if path is "-"
+fn read_file_or_stdin(path: &str) -> String {
+    if path == "-" {
+        let mut buffer = String::new();
+        io::stdin()
+            .read_to_string(&mut buffer)
+            .expect("Error reading from stdin");
+        buffer
+    } else {
+        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
+    }
+}
 
 /// Options common to many `stacks-inspect` subcommands
 /// Returned by `process_common_opts()`
@@ -568,18 +582,22 @@ pub fn command_contract_hash(argv: &[String], _conf: Option<&Config>) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
-        eprintln!("  {n} <path-to-contract>");
+        eprintln!("  {n} <CONTRACT_PATH | - (stdin)>");
         process::exit(1);
     };
 
     // Process CLI args
     let contract_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
-    let contract_source = fs::read_to_string(contract_path)
-        .unwrap_or_else(|e| panic!("Failed to read contract file {contract_path:?}: {e}"));
+    let contract_source = read_file_or_stdin(contract_path);
 
     let hash = Sha512Trunc256Sum::from_data(contract_source.as_bytes());
     let hex_string = to_hex(hash.as_bytes());
-    println!("Contract hash for {contract_path}:\n{hex_string}");
+    let source_name = if contract_path == "-" {
+        "stdin"
+    } else {
+        contract_path
+    };
+    println!("Contract hash for {source_name}:\n{hex_string}");
 }
 
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
