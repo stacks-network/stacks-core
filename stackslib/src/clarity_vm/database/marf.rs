@@ -54,7 +54,7 @@ use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
 /// regardless of the test’s local configuration.
 ///
 /// When set to `None`, test's own MARF configuration is used.
-const TEST_MARF_COMPRESSION_DEFAULT: Option<bool> = None;
+const TEST_MARF_COMPRESSION_DEFAULT: Option<bool> = Some(true);
 
 #[cfg(any(test, feature = "testing"))]
 /// Test flag used to override MARF compression during test execution.

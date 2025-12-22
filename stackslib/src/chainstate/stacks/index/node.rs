@@ -1285,6 +1285,8 @@ impl TrieNodePatch {
                     if old_ptr != new_ptr {
                         trace!("new overritten ptr: {:?} != {:?}", &new_ptr, old_ptr);
                         ret.push(*new_ptr);
+                    } else if !is_backptr(new_ptr.id()) {
+                        ret.push(*new_ptr);
                     }
                 }
             } else {
