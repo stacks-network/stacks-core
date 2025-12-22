@@ -14,9 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::Read;
 use std::path::PathBuf;
-use std::{fs, io, process};
+use std::process;
 
 use clap::{Parser, Subcommand};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
@@ -24,36 +23,10 @@ use clarity::vm::{ClarityVersion, SymbolicExpression};
 use clarity_cli::{
     DEFAULT_CLI_EPOCH, execute_check, execute_eval, execute_eval_at_block,
     execute_eval_at_chaintip, execute_eval_raw, execute_execute, execute_generate_address,
-    execute_initialize, execute_launch, execute_repl, vm_execute_in_epoch,
+    execute_initialize, execute_launch, execute_repl, read_file_or_stdin,
+    read_optional_file_or_stdin, vm_execute_in_epoch,
 };
 use stacks_common::types::StacksEpochId;
-
-/// Read content from a file path or stdin if path is "-"
-fn read_file_or_stdin(path: &str) -> String {
-    if path == "-" {
-        let mut buffer = String::new();
-        io::stdin()
-            .read_to_string(&mut buffer)
-            .expect("Error reading from stdin");
-        buffer
-    } else {
-        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
-    }
-}
-
-/// Read content from an optional file path, defaulting to stdin if None or "-"
-fn read_optional_file_or_stdin(path: Option<&PathBuf>) -> String {
-    match path {
-        Some(p) => read_file_or_stdin(p.to_str().expect("Invalid UTF-8 in path")),
-        None => {
-            let mut buffer = String::new();
-            io::stdin()
-                .read_to_string(&mut buffer)
-                .expect("Error reading from stdin");
-            buffer
-        }
-    }
-}
 
 /// Parse epoch string to StacksEpochId
 fn parse_epoch(epoch_str: Option<&String>) -> StacksEpochId {
