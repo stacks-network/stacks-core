@@ -13,15 +13,19 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use clarity_types::types::ClarityTypeError;
+#[cfg(test)]
+use clarity_types::VmExecutionError;
+
 use crate::vm::types::{TupleData, Value};
 #[cfg(test)]
 use crate::vm::{
     errors::{CheckErrorKind, EarlyReturnError, SyntaxBindingError},
     types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
 };
-use crate::vm::{execute, ClarityName, VmExecutionError};
+use crate::vm::{execute, ClarityName};
 
-fn assert_executes(expected: Result<Value, VmExecutionError>, input: &str) {
+fn assert_executes(expected: Result<Value, ClarityTypeError>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
 }
 

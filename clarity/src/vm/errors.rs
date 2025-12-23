@@ -17,6 +17,7 @@
 pub use clarity_types::errors::{
     EarlyReturnError, IncomparableError, RuntimeError, VmExecutionError, VmInternalError,
 };
+pub use clarity_types::ClarityTypeError;
 
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrorKind,

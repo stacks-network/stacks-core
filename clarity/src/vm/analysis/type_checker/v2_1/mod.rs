@@ -186,7 +186,7 @@ impl FunctionType {
                 let cost = Some(compute_typecheck_cost(accounting, expected_type, arg_type));
                 let admitted = match expected_type.admits_type(&StacksEpochId::Epoch21, arg_type) {
                     Ok(admitted) => admitted,
-                    Err(e) => return (cost, Err(e.into())),
+                    Err(e) => return (cost, Err(StaticCheckError::from(e))),
                 };
                 if !admitted {
                     return (
@@ -219,7 +219,7 @@ impl FunctionType {
                     (cost, return_type)
                 } else {
                     let return_type = accumulated_type
-                        .ok_or_else(|| StaticCheckErrorKind::Expects("Failed to set accumulated type for arg indices >= 1 in variadic arithmetic".into()).into());
+                        .ok_or_else(|| StaticCheckErrorKind::ExpectsRejectable("Failed to set accumulated type for arg indices >= 1 in variadic arithmetic".into()).into());
                     let check_result = return_type.and_then(|return_type| {
                         if arg_type != return_type {
                             Err(StaticCheckErrorKind::TypeError(
@@ -568,7 +568,10 @@ impl FunctionType {
         let (expected_args, returns) = match self {
             FunctionType::Fixed(FixedFunction { args, returns }) => (args, returns),
             _ => {
-                return Err(StaticCheckErrorKind::Expects("Unexpected function type".into()).into())
+                return Err(StaticCheckErrorKind::ExpectsRejectable(
+                    "Unexpected function type".into(),
+                )
+                .into())
             }
         };
         check_argument_count(expected_args.len(), func_args)?;
@@ -592,7 +595,9 @@ impl FunctionType {
                                 &StacksEpochId::Epoch21,
                             )
                             .map_err(|_| {
-                                StaticCheckErrorKind::Expects("Failed to get trait".into())
+                                StaticCheckErrorKind::ExpectsRejectable(
+                                    "Failed to get trait".into(),
+                                )
                             })?
                             .ok_or(StaticCheckErrorKind::NoSuchContract(
                                 trait_id.contract_identifier.to_string(),
@@ -1021,14 +1026,14 @@ fn type_reserved_variable(
         let var_type = match variable {
             TxSender => TypeSignature::PrincipalType,
             TxSponsor => TypeSignature::new_option(TypeSignature::PrincipalType)
-                .map_err(|_| StaticCheckErrorKind::Expects("Bad construction".into()))?,
+                .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad construction".into()))?,
             ContractCaller => TypeSignature::PrincipalType,
             BlockHeight => TypeSignature::UIntType,
             StacksBlockHeight => TypeSignature::UIntType,
             TenureHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,
             NativeNone => TypeSignature::new_option(no_type())
-                .map_err(|_| StaticCheckErrorKind::Expects("Bad construction".into()))?,
+                .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad construction".into()))?,
             NativeTrue => TypeSignature::BoolType,
             NativeFalse => TypeSignature::BoolType,
             TotalLiquidMicroSTX => TypeSignature::UIntType,
@@ -1128,7 +1133,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 }
                 Err(e) => Err(e),
             })?
-            .ok_or_else(|| StaticCheckErrorKind::Expects("Expected a depth result".into()))?;
+            .ok_or_else(|| {
+                StaticCheckErrorKind::ExpectsRejectable("Expected a depth result".into())
+            })?;
         }
 
         runtime_cost(ClarityCostFunction::AnalysisStorage, self, size)?;
@@ -1334,7 +1341,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         )?;
 
         if self.function_return_tracker.is_some() {
-            return Err(StaticCheckErrorKind::Expects(
+            return Err(StaticCheckErrorKind::ExpectsRejectable(
                 "Interpreter error: Previous function define left dirty typecheck state.".into(),
             )
             .into());

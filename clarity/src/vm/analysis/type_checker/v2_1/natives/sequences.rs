@@ -446,21 +446,23 @@ pub fn check_special_element_at(
     match collection_type {
         TypeSignature::SequenceType(ListType(list)) => {
             let (entry_type, _) = list.destruct();
-            TypeSignature::new_option(entry_type).map_err(|e| e.into())
+            Ok(TypeSignature::new_option(entry_type)?)
         }
         TypeSignature::SequenceType(BufferType(_)) => Ok(TypeSignature::OptionalType(Box::new(
             TypeSignature::BUFFER_1,
         ))),
         TypeSignature::SequenceType(StringType(ASCII(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(ASCII(
-                BufferLength::try_from(1u32)
-                    .map_err(|_| StaticCheckErrorKind::Expects("Bad constructor".into()))?,
+                BufferLength::try_from(1u32).map_err(|_| {
+                    StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into())
+                })?,
             )))),
         )),
         TypeSignature::SequenceType(StringType(UTF8(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(UTF8(
-                StringUTF8Length::try_from(1u32)
-                    .map_err(|_| StaticCheckErrorKind::Expects("Bad constructor".into()))?,
+                StringUTF8Length::try_from(1u32).map_err(|_| {
+                    StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into())
+                })?,
             )))),
         )),
         _ => Err(StaticCheckErrorKind::ExpectedSequence(Box::new(collection_type)).into()),
@@ -484,7 +486,7 @@ pub fn check_special_index_of(
 
     checker.type_check_expects(&args[1], context, &expected_input_type)?;
 
-    TypeSignature::new_option(TypeSignature::UIntType).map_err(|e| e.into())
+    Ok(TypeSignature::new_option(TypeSignature::UIntType)?)
 }
 
 /// This function type checks the Clarity2 function `slice?`.

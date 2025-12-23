@@ -16,12 +16,13 @@
 
 use std::cmp;
 
+use clarity_types::errors::VmInternalError;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, RuntimeError, VmExecutionError,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, VmExecutionError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::ListTypeData;
@@ -45,7 +46,8 @@ pub fn list_cons(
 
     runtime_cost(ClarityCostFunction::ListCons, env, arg_size)?;
 
-    Value::cons_list(args, env.epoch())
+    let value = Value::cons_list(args, env.epoch())?;
+    Ok(value)
 }
 
 pub fn special_filter(
@@ -178,7 +180,8 @@ pub fn special_map(
         mapped_results.push(res);
     }
 
-    Value::cons_list(mapped_results, env.epoch())
+    let value = Value::cons_list(mapped_results, env.epoch())?;
+    Ok(value)
 }
 
 pub fn special_append(
@@ -205,7 +208,7 @@ pub fn special_append(
             )?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
-                return Value::cons_list(vec![element], env.epoch());
+                return Ok(Value::cons_list(vec![element], env.epoch())?);
             }
             if let Ok(next_entry_type) =
                 TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)
@@ -247,10 +250,17 @@ pub fn special_concat_v200(
 
     match (&mut wrapped_seq, other_wrapped_seq) {
         (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
-            seq.concat(env.epoch(), other_seq)
+            seq.concat(env.epoch(), other_seq)?
         }
-        _ => Err(RuntimeError::BadTypeConstruction.into()),
-    }?;
+        (Value::Sequence(ref mut seq_data), other_value) => {
+            return Err(CheckErrorKind::TypeValueError(
+                Box::new(seq_data.type_signature()?),
+                Box::new(other_value),
+            )
+            .into())
+        }
+        _ => return Err(CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::NoType)).into()),
+    };
 
     Ok(wrapped_seq)
 }
@@ -273,13 +283,21 @@ pub fn special_concat_v205(
                 (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
             )?;
 
-            seq.concat(env.epoch(), other_seq)
+            seq.concat(env.epoch(), other_seq)?
+        }
+        (Value::Sequence(ref mut seq_data), other_value) => {
+            runtime_cost(ClarityCostFunction::Concat, env, 1)?;
+            return Err(CheckErrorKind::TypeValueError(
+                Box::new(seq_data.type_signature()?),
+                Box::new(other_value),
+            )
+            .into());
         }
         _ => {
             runtime_cost(ClarityCostFunction::Concat, env, 1)?;
-            Err(RuntimeError::BadTypeConstruction.into())
+            return Err(CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::NoType)).into());
         }
-    }?;
+    };
 
     Ok(wrapped_seq)
 }
@@ -335,7 +353,7 @@ pub fn native_len(sequence: Value) -> Result<Value, VmExecutionError> {
 pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value, VmExecutionError> {
     if let Value::Sequence(sequence_data) = sequence {
         match sequence_data.contains(to_find)? {
-            Some(index) => Value::some(Value::UInt(index as u128)),
+            Some(index) => Ok(Value::some(Value::UInt(index as u128))?),
             None => Ok(Value::none()),
         }
     } else {
@@ -366,8 +384,10 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value, VmExecu
         .into());
     };
 
-    if let Some(result) = sequence_data.element_at(index)? {
-        Value::some(result)
+    if let Some(result) = sequence_data.element_at(index).map_err(|_| {
+        VmInternalError::Expect("Sequence data constructed with invalid data.".into())
+    })? {
+        Ok(Value::some(result)?)
     } else {
         Ok(Value::none())
     }
@@ -409,9 +429,38 @@ pub fn special_slice(
                 )?;
                 let seq_value =
                     seq.slice(env.epoch(), left_position as usize, right_position as usize)?;
-                Value::some(seq_value)
+                Ok(Value::some(seq_value)?)
             }
-            _ => Err(RuntimeError::BadTypeConstruction.into()),
+            (seq, left_position, right_position) => {
+                // TODO: REMOVE THIS COMMENT: Is it better to keep RuntimeError::BadTypeConstruction? It just seems weird
+                // to have this error. if we are going to have an error for htings that shouldn't really hit, I feel like
+                // it should be more explicit like an ExpectAcceptable(String) error here instead. But handling explicitly
+                // for now until I get feedback.
+
+                // These errors should not really ever occur at runtime. These should have already been caught
+                // during static analysis. However, handle them just in case.
+
+                // seq must be a sequence
+                if !matches!(seq, Value::Sequence(_)) {
+                    return Err(CheckErrorKind::ExpectedSequence(Box::new(
+                        TypeSignature::NoType,
+                    )));
+                }
+
+                // left must be uint
+                if !matches!(left_position, Value::UInt(_)) {
+                    return Err(CheckErrorKind::TypeValueError(
+                        Box::new(TypeSignature::UIntType),
+                        Box::new(left_position),
+                    ));
+                }
+
+                // right must be uint
+                Err(CheckErrorKind::TypeValueError(
+                    Box::new(TypeSignature::UIntType),
+                    Box::new(right_position),
+                ))
+            }
         }
     })();
 
@@ -419,7 +468,7 @@ pub fn special_slice(
         Ok(sliced_seq) => Ok(sliced_seq),
         Err(e) => {
             runtime_cost(ClarityCostFunction::Slice, env, 0)?;
-            Err(e)
+            Err(e.into())
         }
     }
 }
@@ -469,13 +518,12 @@ pub fn special_replace_at(
         .into());
     };
 
-    if let Value::Sequence(data) = seq {
-        let seq_len = data.len();
-        if index >= seq_len {
-            return Ok(Value::none());
-        }
-        data.replace_at(env.epoch(), index, new_element)
-    } else {
-        Err(CheckErrorKind::ExpectedSequence(Box::new(seq_type)).into())
+    let Value::Sequence(data) = seq else {
+        return Err(CheckErrorKind::ExpectedSequence(Box::new(seq_type)).into());
+    };
+    let seq_len = data.len();
+    if index >= seq_len {
+        return Ok(Value::none());
     }
+    Ok(data.replace_at(env.epoch(), index, new_element)?)
 }

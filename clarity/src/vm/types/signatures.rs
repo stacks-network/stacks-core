@@ -236,7 +236,7 @@ impl TypeSignatureExt for TypeSignature {
             let entry_type = TypeSignature::parse_type_repr(epoch, atomic_type_arg, accounting)?;
             let max_len =
                 u32::try_from(*max_len).map_err(|_| CommonCheckErrorKind::ValueTooLarge)?;
-            ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
+            Ok(ListTypeData::new_list(entry_type, max_len)?.into())
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -268,8 +268,9 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CommonCheckErrorKind::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
-            BufferLength::try_from(*buff_len)
-                .map(|buff_len| SequenceType(SequenceSubtype::BufferType(buff_len)))
+            Ok(SequenceType(SequenceSubtype::BufferType(
+                BufferLength::try_from(*buff_len)?,
+            )))
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -284,9 +285,9 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CommonCheckErrorKind::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(utf8_len)) = &type_args[0].expr {
-            StringUTF8Length::try_from(*utf8_len).map(|utf8_len| {
-                SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(utf8_len)))
-            })
+            Ok(SequenceType(SequenceSubtype::StringType(
+                StringSubtype::UTF8(StringUTF8Length::try_from(*utf8_len)?),
+            )))
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -301,9 +302,9 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CommonCheckErrorKind::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
-            BufferLength::try_from(*buff_len).map(|buff_len| {
-                SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_len)))
-            })
+            Ok(SequenceType(SequenceSubtype::StringType(
+                StringSubtype::ASCII(BufferLength::try_from(*buff_len)?),
+            )))
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -319,7 +320,7 @@ impl TypeSignatureExt for TypeSignature {
         }
         let inner_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
 
-        TypeSignature::new_option(inner_type)
+        Ok(TypeSignature::new_option(inner_type)?)
     }
 
     fn parse_response_type_repr<A: CostTracker>(
@@ -648,6 +649,7 @@ impl fmt::Display for FunctionArg {
 mod test {
     use clarity_types::errors::CheckErrorKind;
     use clarity_types::errors::CheckErrorKind::*;
+    use clarity_types::types::ClarityTypeError;
     #[cfg(test)]
     use rstest::rstest;
     #[cfg(test)]
@@ -698,7 +700,7 @@ mod test {
 
         assert_eq!(
             TupleTypeSignature::try_from(keys).unwrap_err(),
-            CommonCheckErrorKind::ValueTooLarge
+            ClarityTypeError::ValueTooLarge
         );
     }
 

@@ -558,9 +558,13 @@ impl<'a> ClarityDatabase<'a> {
             if did_sanitize {
                 pre_sanitized_size = Some(value_size);
             }
-            sanitized_value.serialize_to_vec()?
+            sanitized_value
+                .serialize_to_vec()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?
         } else {
-            value.serialize_to_vec()?
+            value
+                .serialize_to_vec()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?
         };
 
         let size = serialized.len() as u64;
@@ -915,7 +919,11 @@ impl<'a> ClarityDatabase<'a> {
                     "FATAL: failed to load ustx_liquid_supply Clarity key".into(),
                 )
             })?
-            .map(|v| v.value.expect_u128())
+            .map(|v| {
+                v.value
+                    .expect_u128()
+                    .map_err(|_| VmInternalError::Expect("Expected u128".into()))
+            })
             .transpose()?
             .unwrap_or(0))
     }
@@ -1452,7 +1460,9 @@ impl ClarityDatabase<'_> {
                             "BUG: failed to decode serialized poison-microblock reporter".into(),
                         )
                     })?;
-                let tuple_data = reporter_value.expect_tuple()?;
+                let tuple_data = reporter_value
+                    .expect_tuple()
+                    .map_err(|_| VmInternalError::Expect("Expected tuple".into()))?;
                 let reporter_value = tuple_data
                     .get("reporter")
                     .map_err(|_| {
@@ -1470,8 +1480,12 @@ impl ClarityDatabase<'_> {
                     })?
                     .to_owned();
 
-                let reporter_principal = reporter_value.expect_principal()?;
-                let seq_u128 = seq_value.expect_u128()?;
+                let reporter_principal = reporter_value
+                    .expect_principal()
+                    .map_err(|_| VmInternalError::Expect("Expected principal".into()))?;
+                let seq_u128 = seq_value
+                    .expect_u128()
+                    .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
 
                 let seq: u16 = seq_u128
                     .try_into()
@@ -1676,7 +1690,9 @@ impl ClarityDatabase<'_> {
         Ok(ClarityDatabase::make_key_for_data_map_entry_serialized(
             contract_identifier,
             map_name,
-            &key_value.serialize_to_hex()?,
+            &key_value
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         ))
     }
 
@@ -1755,7 +1771,9 @@ impl ClarityDatabase<'_> {
             .into());
         }
 
-        let key_serialized = key_value.serialize_to_hex()?;
+        let key_serialized = key_value
+            .serialize_to_hex()
+            .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?;
         let key = ClarityDatabase::make_key_for_data_map_entry_serialized(
             contract_identifier,
             map_name,
@@ -1908,7 +1926,9 @@ impl ClarityDatabase<'_> {
             .into());
         }
 
-        let key_serialized = key_value.serialize_to_hex()?;
+        let key_serialized = key_value
+            .serialize_to_hex()
+            .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?;
         let key_serialized_byte_len = byte_len_of_serialization(&key_serialized);
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
@@ -1957,7 +1977,9 @@ impl ClarityDatabase<'_> {
             .into());
         }
 
-        let key_serialized = key_value.serialize_to_hex()?;
+        let key_serialized = key_value
+            .serialize_to_hex()
+            .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?;
         let key_serialized_byte_len = byte_len_of_serialization(&key_serialized);
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
@@ -2183,7 +2205,9 @@ impl ClarityDatabase<'_> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize_to_hex()?,
+            &asset
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         );
 
         let epoch = self.get_clarity_epoch_version()?;
@@ -2194,12 +2218,17 @@ impl ClarityDatabase<'_> {
             &epoch,
         )?;
         let owner = match value {
-            Some(owner) => owner.value.expect_optional()?,
+            Some(owner) => owner
+                .value
+                .expect_optional()
+                .map_err(|_| VmInternalError::Expect("Expected an optional".into()))?,
             None => return Err(RuntimeError::NoSuchToken.into()),
         };
 
         let principal = match owner {
-            Some(value) => value.expect_principal()?,
+            Some(value) => value
+                .expect_principal()
+                .map_err(|_| VmInternalError::Expect("Expected principal.".into()))?,
             None => return Err(RuntimeError::NoSuchToken.into()),
         };
 
@@ -2236,7 +2265,9 @@ impl ClarityDatabase<'_> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize_to_hex()?,
+            &asset
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         );
 
         let value = Value::some(Value::Principal(principal.clone()))?;
@@ -2265,7 +2296,9 @@ impl ClarityDatabase<'_> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize_to_hex()?,
+            &asset
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         );
 
         self.put_value(&key, Value::none(), epoch)?;

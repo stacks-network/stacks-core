@@ -111,9 +111,9 @@ pub enum DefineResult {
 fn check_legal_define(
     name: &str,
     contract_context: &ContractContext,
-) -> Result<(), VmExecutionError> {
+) -> Result<(), CheckErrorKind> {
     if contract_context.is_name_used(name) {
-        Err(CheckErrorKind::NameAlreadyUsed(name.to_string()).into())
+        Err(CheckErrorKind::NameAlreadyUsed(name.to_string()))
     } else {
         Ok(())
     }

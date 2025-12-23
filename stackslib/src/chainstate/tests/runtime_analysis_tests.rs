@@ -91,7 +91,8 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "least_supertype checks already run in analysis, and runtime values are
              sanitized to their declared signatures, so the VM never sees a pair of
              values whose unified type wasn't accepted earlier."),
-        Expects(_) => Unreachable_ExpectLike,
+        ExpectsAcceptable(_) => Unreachable_ExpectLike,
+        ExpectsRejectable(_) => Unreachable_ExpectLike,
         BadMatchOptionSyntax(_) => Unreachable_Functionally(
             "Both the analyzer and the runtime examine the exact same match AST slice.
              The static pass invokes check_special_match_opt, which enforces the 3

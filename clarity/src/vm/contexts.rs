@@ -1403,7 +1403,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         self.global_context.begin();
         let result = stx_transfer_consolidated(self, from, to, amount, memo);
         match result {
-            Ok(value) => match value.clone().expect_result()? {
+            Ok(value) => match value
+                .clone()
+                .expect_result()
+                .map_err(|_| VmInternalError::Expect("Expected result".into()))?
+            {
                 Ok(_) => {
                     self.global_context.commit()?;
                     Ok(value)

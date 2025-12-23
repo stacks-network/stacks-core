@@ -421,9 +421,9 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(value_type.type_size()
-                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
-                    global_context.add_memory(value.size()? as u64)?;
+                    global_context.add_memory(value.size()?.into())?;
 
                     let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type)?;
                     global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &global_context.epoch_id)?;
@@ -437,9 +437,9 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(key_type.type_size()
-                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
                     global_context.add_memory(value_type.type_size()
-                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type)?;
 
@@ -450,7 +450,7 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(TypeSignature::UIntType.type_size()
-                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply)?;
 
@@ -461,7 +461,7 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(asset_type.type_size()
-                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type)?;
 

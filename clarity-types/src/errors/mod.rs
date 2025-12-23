@@ -28,6 +28,7 @@ pub use lexer::LexerError;
 use rusqlite::Error as SqliteError;
 use stacks_common::types::chainstate::BlockHeaderHash;
 
+use crate::ClarityTypeError;
 use crate::representations::SymbolicExpression;
 use crate::types::{FunctionIdentifier, Value};
 
@@ -160,8 +161,6 @@ pub enum RuntimeError {
     MaxStackDepthReached,
     /// The execution context depth exceeded the virtual machine's limit.
     MaxContextDepthReached,
-    /// Attempt to construct an invalid or unsupported type at runtime (e.g., malformed data structure).
-    BadTypeConstruction,
     /// Reference to an invalid or out-of-bounds block height.
     /// The `String` represents the string representation of the queried block height that was invalid.
     BadBlockHeight(String),
@@ -173,9 +172,6 @@ pub enum RuntimeError {
     NoCallerInContext,
     /// No sender principal available in the current execution context.
     NoSenderInContext,
-    /// Invalid name-value pair in contract data (e.g., map keys).
-    /// The `&'static str` represents the name of the invalid pair, and the `String` represents the offending value.
-    BadNameValue(&'static str, String),
     /// Reference to a non-existent block header hash.
     /// The `BlockHeaderHash` represents the unknown block header hash.
     UnknownBlockHeaderHash(BlockHeaderHash),
@@ -258,6 +254,12 @@ impl error::Error for VmExecutionError {
 impl error::Error for RuntimeError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
+    }
+}
+
+impl From<ClarityTypeError> for VmExecutionError {
+    fn from(err: ClarityTypeError) -> Self {
+        Self::from(CheckErrorKind::from(err))
     }
 }
 

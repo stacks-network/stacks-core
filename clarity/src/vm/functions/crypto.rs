@@ -46,7 +46,8 @@ macro_rules! native_hash_func {
                 )),
             }?;
             let hash = <$module>::from_data(&bytes);
-            Value::buff_from(hash.as_bytes().to_vec())
+            let value = Value::buff_from(hash.as_bytes().to_vec())?;
+            Ok(value)
         }
     };
 }

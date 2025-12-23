@@ -137,8 +137,8 @@ pub fn stx_transfer_consolidated(
     }
 
     // loading from/to principals and balances
-    env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-    env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
+    env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+    env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
     // loading from's locked amount and height
     // TODO: this does not count the inner stacks block header load, but arguably,
     // this could be optimized away, so it shouldn't penalize the caller.
@@ -240,7 +240,7 @@ pub fn special_stx_account(
     let v2_unlock_ht = env.global_context.database.get_v2_unlock_height()?;
     let v3_unlock_ht = env.global_context.database.get_v3_unlock_height()?;
 
-    TupleData::from_data(vec![
+    Ok(TupleData::from_data(vec![
         (
             "unlocked"
                 .try_into()
@@ -264,7 +264,7 @@ pub fn special_stx_account(
             ))),
         ),
     ])
-    .map(Value::Tuple)
+    .map(Value::Tuple)?)
 }
 
 pub fn special_stx_burn(
@@ -288,8 +288,12 @@ pub fn special_stx_burn(
             return clarity_ecode!(StxErrorCodes::SENDER_IS_NOT_TX_SENDER);
         }
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        env.add_memory(STXBalance::unlocked_and_v1_size.try_into().map_err(|_| {
+            CheckErrorKind::ExpectsRejectable(
+                "BUG: STXBalance::unlocked_and_v1_size does not fit into a u64".into(),
+            )
+        })?)?;
 
         let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(from)?;
         if !burner_snapshot.can_transfer(amount)? {
@@ -355,8 +359,8 @@ pub fn special_mint_token(
             .checked_add(amount)
             .ok_or_else(|| VmInternalError::Expect("STX overflow".into()))?;
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(TypeSignature::UIntType.size()? as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        env.add_memory(TypeSignature::UIntType.size()?.into())?;
 
         env.global_context.database.set_ft_balance(
             &env.contract_context.contract_identifier,
@@ -422,8 +426,8 @@ pub fn special_mint_asset_v200(
             Err(e) => Err(e),
         }?;
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(expected_asset_type.size()? as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        env.add_memory(expected_asset_type.size()?.into())?;
 
         let epoch = *env.epoch();
         env.global_context.database.set_nft_owner(
@@ -496,7 +500,7 @@ pub fn special_mint_asset_v205(
             Err(e) => Err(e),
         }?;
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
         env.add_memory(asset_size)?;
 
         let epoch = *env.epoch();
@@ -580,8 +584,8 @@ pub fn special_transfer_asset_v200(
             return clarity_ecode!(TransferAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(expected_asset_type.size()? as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        env.add_memory(expected_asset_type.size()?.into())?;
 
         let epoch = *env.epoch();
         env.global_context.database.set_nft_owner(
@@ -674,7 +678,7 @@ pub fn special_transfer_asset_v205(
             return clarity_ecode!(TransferAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
         env.add_memory(asset_size)?;
 
         let epoch = *env.epoch();
@@ -772,10 +776,10 @@ pub fn special_transfer_token(
             .checked_add(amount)
             .ok_or(RuntimeError::ArithmeticOverflow)?;
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(TypeSignature::UIntType.size()? as u64)?;
-        env.add_memory(TypeSignature::UIntType.size()? as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        env.add_memory(TypeSignature::UIntType.size()?.into())?;
+        env.add_memory(TypeSignature::UIntType.size()?.into())?;
 
         env.global_context.database.set_ft_balance(
             &env.contract_context.contract_identifier,
@@ -1011,8 +1015,8 @@ pub fn special_burn_token(
         };
         env.register_ft_burn_event(burner.clone(), amount, asset_identifier)?;
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(TypeSignature::UIntType.size()? as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        env.add_memory(TypeSignature::UIntType.size()?.into())?;
 
         env.global_context.log_token_transfer(
             burner,
@@ -1080,8 +1084,8 @@ pub fn special_burn_asset_v200(
             return clarity_ecode!(BurnAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
-        env.add_memory(expected_asset_type.size()? as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
+        env.add_memory(expected_asset_type.size()?.into())?;
 
         let epoch = *env.epoch();
         env.global_context.database.burn_nft(
@@ -1169,7 +1173,7 @@ pub fn special_burn_asset_v205(
             return clarity_ecode!(BurnAssetErrorCodes::NOT_OWNED_BY);
         }
 
-        env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
+        env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
         env.add_memory(asset_size)?;
 
         let epoch = *env.epoch();

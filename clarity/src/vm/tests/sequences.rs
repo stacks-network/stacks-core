@@ -22,14 +22,14 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
-    errors::{CheckErrorKind, RuntimeError, VmExecutionError},
+    errors::{CheckErrorKind, VmExecutionError},
     execute, execute_v2,
     types::{
         signatures::{
             SequenceSubtype::{self, BufferType, StringType},
             StringSubtype::ASCII,
         },
-        BufferLength, StringSubtype, StringUTF8Length,
+        BufferLength, ListTypeData, StringSubtype, StringUTF8Length,
         TypeSignature::{self, BoolType, IntType, SequenceType, UIntType},
         Value,
     },
@@ -553,6 +553,24 @@ fn test_slice_utf8() {
 }
 
 #[test]
+fn test_slice_type_errors() {
+    assert_eq!(
+        execute_v2("(slice? 3 u0 u1)").unwrap_err(),
+        CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::NoType)).into()
+    );
+
+    assert_eq!(
+        execute_v2("(slice? (list 1 2 3) 0 u1)").unwrap_err(),
+        CheckErrorKind::TypeValueError(Box::new(UIntType), Box::new(Value::Int(0))).into()
+    );
+
+    assert_eq!(
+        execute_v2("(slice? (list 1 2 3) u0 1)").unwrap_err(),
+        CheckErrorKind::TypeValueError(Box::new(UIntType), Box::new(Value::Int(1))).into()
+    );
+}
+
+#[test]
 fn test_simple_list_concat() {
     let tests = [
         "(concat (list 1 2) (list 4 8))",
@@ -587,17 +605,33 @@ fn test_simple_list_concat() {
 
     assert_eq!(
         execute("(concat (list 1) (list u4 u8))").unwrap_err(),
-        CheckErrorKind::TypeError(Box::new(IntType), Box::new(UIntType)).into()
+        CheckErrorKind::TypeError(
+            Box::new(TypeSignature::IntType),
+            Box::new(TypeSignature::UIntType)
+        )
+        .into()
     );
 
     assert_eq!(
         execute("(concat (list 1) 3)").unwrap_err(),
-        RuntimeError::BadTypeConstruction.into()
+        CheckErrorKind::TypeValueError(
+            Box::new(SequenceType(SequenceSubtype::ListType(
+                ListTypeData::new_list(TypeSignature::IntType, 1).unwrap()
+            ))),
+            Box::new(Value::Int(3))
+        )
+        .into()
     );
 
     assert_eq!(
         execute("(concat (list 1) \"1\")").unwrap_err(),
-        RuntimeError::BadTypeConstruction.into()
+        CheckErrorKind::TypeError(
+            Box::new(SequenceType(SequenceSubtype::ListType(
+                ListTypeData::new_list(TypeSignature::IntType, 1).unwrap()
+            ))),
+            Box::new(TypeSignature::STRING_ASCII_MIN)
+        )
+        .into()
     );
 }
 
@@ -623,12 +657,22 @@ fn test_simple_buff_concat() {
 
     assert_eq!(
         execute("(concat 0x31 3)").unwrap_err(),
-        RuntimeError::BadTypeConstruction.into()
+        CheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::BUFFER_MIN),
+            Box::new(Value::Int(3))
+        )
+        .into()
     );
 
     assert_eq!(
         execute("(concat 0x31 (list 1))").unwrap_err(),
-        RuntimeError::BadTypeConstruction.into()
+        CheckErrorKind::TypeError(
+            Box::new(TypeSignature::BUFFER_MIN),
+            Box::new(TypeSignature::SequenceType(SequenceSubtype::ListType(
+                ListTypeData::new_list(TypeSignature::IntType, 1).unwrap()
+            )))
+        )
+        .into()
     );
 }
 

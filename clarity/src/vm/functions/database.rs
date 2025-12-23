@@ -76,7 +76,7 @@ pub fn special_contract_call(
     let mut rest_args_sizes = Vec::with_capacity(rest_args_len);
     for arg in rest_args_slice.iter() {
         let evaluated_arg = eval(arg, env, context)?;
-        rest_args_sizes.push(evaluated_arg.size()? as u64);
+        rest_args_sizes.push(evaluated_arg.size()?.into());
         rest_args.push(SymbolicExpression::atom_value(evaluated_arg));
     }
 
@@ -282,7 +282,7 @@ pub fn special_fetch_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size()? as u64,
+        Err(_e) => data_types.value_type.size()?.into(),
     };
 
     runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
@@ -361,7 +361,7 @@ pub fn special_set_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size()? as u64,
+        Err(_e) => data_types.value_type.size()?.into(),
     };
 
     runtime_cost(ClarityCostFunction::SetVar, env, result_size)?;
@@ -431,7 +431,7 @@ pub fn special_fetch_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
     runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
@@ -548,7 +548,7 @@ pub fn special_set_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -635,7 +635,7 @@ pub fn special_insert_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -716,7 +716,7 @@ pub fn special_delete_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.key_type.size()? as u64,
+        Err(_e) => data_types.key_type.size()?.into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -882,7 +882,7 @@ pub fn special_get_block_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
 /// Handles the `get-burn-block-info?` special function.
@@ -941,11 +941,11 @@ pub fn special_get_burn_block_info(
                 .get_burnchain_block_header_hash_for_burnchain_height(height_value)?;
 
             match burnchain_header_hash_opt {
-                Some(burnchain_header_hash) => {
-                    Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
+                Some(burnchain_header_hash) => Ok(Value::some(Value::Sequence(
+                    SequenceData::Buffer(BuffData {
                         data: burnchain_header_hash.as_bytes().to_vec(),
-                    })))
-                }
+                    }),
+                ))?),
                 None => Ok(Value::none()),
             }
         }
@@ -1060,7 +1060,7 @@ pub fn special_get_stacks_block_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
 /// Handles the function `get-tenure-info?` special function.
@@ -1173,7 +1173,7 @@ pub fn special_get_tenure_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
 /// Handles the function `contract-hash?`
@@ -1212,5 +1212,7 @@ pub fn special_contract_hash(
         return Ok(Value::err_uint(2));
     };
 
-    Value::okay(Value::buff_from(contract_hash.as_bytes().to_vec())?)
+    Ok(Value::okay(Value::buff_from(
+        contract_hash.as_bytes().to_vec(),
+    )?)?)
 }

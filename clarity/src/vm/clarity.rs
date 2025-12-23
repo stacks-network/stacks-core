@@ -297,15 +297,15 @@ pub trait TransactionConnection: ClarityConnection {
             let result = db.insert_contract(identifier, contract_analysis);
             match result {
                 Ok(_) => {
-                    let result = db
-                        .commit()
-                        .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into());
+                    let result = db.commit().map_err(|e| {
+                        StaticCheckErrorKind::ExpectsRejectable(format!("{e:?}")).into()
+                    });
                     (cost_tracker, result)
                 }
                 Err(e) => {
-                    let result = db
-                        .roll_back()
-                        .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into());
+                    let result = db.roll_back().map_err(|e| {
+                        StaticCheckErrorKind::ExpectsRejectable(format!("{e:?}")).into()
+                    });
                     if result.is_err() {
                         (cost_tracker, result)
                     } else {

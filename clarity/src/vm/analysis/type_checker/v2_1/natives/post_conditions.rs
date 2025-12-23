@@ -86,6 +86,7 @@ pub fn check_restrict_assets(
     }
 
     let ok_type = last_return.ok_or_else(|| StaticCheckErrorKind::CheckerImplementationFailure)?;
+
     Ok(TypeSignature::new_response(
         ok_type,
         TypeSignature::UIntType,

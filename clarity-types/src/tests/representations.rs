@@ -15,11 +15,11 @@
 
 use rstest::rstest;
 
-use crate::errors::RuntimeError;
 use crate::representations::{
     CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, ClarityName, ContractName, MAX_STRING_LEN,
 };
 use crate::stacks_common::codec::StacksMessageCodec;
+use crate::types::ClarityTypeError;
 
 #[rstest]
 #[case::valid_name("hello")]
@@ -73,7 +73,7 @@ fn test_clarity_name_invalid(#[case] name: &str) {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        RuntimeError::BadNameValue(_, _)
+        ClarityTypeError::InvalidClarityName(_)
     ));
 }
 
@@ -99,7 +99,7 @@ fn test_clarity_name_serialization(#[case] name: &str) {
 // the first byte is the length of the buffer.
 #[rstest]
 #[case::invalid_utf8(vec![4, 0xFF, 0xFE, 0xFD, 0xFC], "Failed to parse Clarity name: could not contruct from utf8")]
-#[case::invalid_name(vec![2, b'2', b'i'], "Failed to parse Clarity name: BadNameValue(\"ClarityName\", \"2i\")")] // starts with number
+#[case::invalid_name(vec![2, b'2', b'i'], "Failed to parse Clarity name: InvalidClarityName(\"2i\")")] // starts with number
 #[case::too_long(vec![MAX_STRING_LEN + 1], "Failed to deserialize clarity name: too long")]
 #[case::wrong_length(vec![3, b'a'], "failed to fill whole buffer")]
 fn test_clarity_name_deserialization_errors(#[case] buffer: Vec<u8>, #[case] error_message: &str) {
@@ -157,7 +157,7 @@ fn test_contract_name_invalid(#[case] name: &str) {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        RuntimeError::BadNameValue(_, _)
+        ClarityTypeError::InvalidContractName(_)
     ));
 }
 
@@ -201,7 +201,7 @@ fn test_contract_name_serialization_too_long() {
 // the first byte is the length of the buffer.
 #[rstest]
 #[case::invalid_utf8(vec![4, 0xFF, 0xFE, 0xFD, 0xFC], "Failed to parse Contract name: could not construct from utf8")]
-#[case::invalid_name(vec![2, b'2', b'i'], "Failed to parse Contract name: BadNameValue(\"ContractName\", \"2i\")")] // starts with number
+#[case::invalid_name(vec![2, b'2', b'i'], "Failed to parse Contract name: InvalidContractName(\"2i\")")] // starts with number
 #[case::too_long(vec![MAX_STRING_LEN + 1], &format!("Failed to deserialize contract name: too short or too long: {}", MAX_STRING_LEN + 1))]
 #[case::wrong_length(vec![3, b'a'], "failed to fill whole buffer")]
 fn test_contract_name_deserialization_errors(#[case] buffer: Vec<u8>, #[case] error_message: &str) {
