@@ -160,6 +160,21 @@ const TEST_CONTRACT: &str = "
             max-neighbors: u32,
             hint-replicas: (list )
         }))
+
+    (define-public (quux)
+        (begin (print \"quux\") (ok u1)))
+    (define-public (xyzzw)
+        (begin (print \"xyzzw\") (quux)))
+    (define-public (xyzzy)
+        (begin (print \"xyzzy\") (xyzzw)))
+
+    (define-read-only (printer)
+        (begin
+        (print 100)
+        (print u1000)
+        (print \"test\")
+        (print true)
+        (xyzzy)))
 ";
 
 const TEST_CONTRACT_UNCONFIRMED: &str = "
