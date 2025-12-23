@@ -7,6 +7,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Fixed
+
+- Updated the documentation for `secp256r1-verify` to match the implementation. The message hash passed to `secp256r1-verify` is SHA256 hashed again before verifying the signature.
+
+## [3.3.0.0.3]
+
 ### Added
 
 - In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
