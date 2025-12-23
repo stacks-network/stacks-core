@@ -128,7 +128,6 @@ clarity-cli launch [OPTIONS] <CONTRACT_ID> <CONTRACT_FILE> <DB_PATH>
 - `--costs` - Include execution costs in output
 - `--assets` - Include asset changes in output
 - `--output-analysis` - Include contract interface analysis
-- `-c, --coverage <PATH>` - Output coverage data to directory
 - `--clarity-version <VERSION>` - Clarity version
 - `--epoch <EPOCH>` - Stacks epoch
 
@@ -163,7 +162,6 @@ clarity-cli execute [OPTIONS] <CONTRACT_ID> <FUNCTION_NAME> <SENDER> <DB_PATH> [
 **Options:**
 - `--costs` - Include execution costs
 - `--assets` - Include asset changes
-- `-c, --coverage <PATH>` - Output coverage data
 - `--clarity-version <VERSION>` - Clarity version
 - `--epoch <EPOCH>` - Stacks epoch
 
@@ -221,8 +219,7 @@ Like `eval`, but does **not** advance to a new block. Useful for repeated read-o
 clarity-cli eval-at-chaintip [OPTIONS] <CONTRACT_ID> <DB_PATH> [PROGRAM_FILE]
 ```
 
-**Options:** Same as `eval`, plus:
-- `-c, --coverage <PATH>` - Output coverage data
+**Options:** Same as `eval`.
 
 ---
 
