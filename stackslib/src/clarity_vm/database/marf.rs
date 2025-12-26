@@ -17,8 +17,12 @@
 use std::ops::DerefMut;
 use std::path::PathBuf;
 use std::str::FromStr;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 
 use clarity::util::hash::Sha512Trunc256Sum;
+#[cfg(any(test, feature = "testing"))]
+use clarity::util::tests::TestFlag;
 use clarity::vm::database::sqlite::{
     sqlite_get_contract_hash, sqlite_get_metadata, sqlite_get_metadata_manual,
     sqlite_insert_metadata,
@@ -41,6 +45,59 @@ use crate::clarity_vm::database::ephemeral::EphemeralMarfStore;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
+
+#[cfg(any(test, feature = "testing"))]
+/// Global default override for MARF compression used in tests.
+///
+/// This constant allows forcing *all* MARF instances created in tests
+/// to use compression (`Some(true)`) or to disable it (`Some(false)`),
+/// regardless of the test’s local configuration.
+///
+/// When set to `None`, test's own MARF configuration is used.
+const TEST_MARF_COMPRESSION_DEFAULT: Option<bool> = None;
+
+#[cfg(any(test, feature = "testing"))]
+/// Test flag used to override MARF compression during test execution.
+///
+/// This flag enables tests to dynamically enable or disable MARF compression
+/// *after* process startup, allowing scenarios where compression is switched
+/// on and off within the same test.
+static TEST_MARF_COMPRESSION_FLAG: LazyLock<TestFlag<Option<bool>>> =
+    LazyLock::new(TestFlag::default);
+
+#[cfg(any(test, feature = "testing"))]
+/// Inject a runtime override for MARF compression in tests.
+pub fn fault_injection_marf_compression(enabled: bool) {
+    TEST_MARF_COMPRESSION_FLAG.set(Some(enabled));
+}
+
+#[cfg(any(test, feature = "testing"))]
+/// Apply test-specific overrides to the MARF compression configuration.
+///
+/// This function mutates the provided [`MARFOpenOpts`] in [`MarfedKV::setup_db`],
+/// according to the following precedence order:
+///
+/// 1. Runtime test override via [`TEST_MARF_COMPRESSION_FLAG`]
+/// 2. Global test default via [`TEST_MARF_COMPRESSION_DEFAULT`]
+/// 3. The original value in [`MARFOpenOpts`] (no override)
+///
+/// In non-test builds, this function is compiled to a no-op.
+fn test_override_marf_compression(marf_opts: &mut MARFOpenOpts) {
+    if let Some(enabled) = TEST_MARF_COMPRESSION_FLAG.get() {
+        marf_opts.compress = enabled;
+        info!("Test flag used. MARF Compression overridden to {enabled}");
+        return;
+    }
+
+    if let Some(enabled) = TEST_MARF_COMPRESSION_DEFAULT {
+        marf_opts.compress = enabled;
+        info!("Test default used. MARF Compression overridden to {enabled}");
+    }
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+/// No-op stub for non-test builds.
+fn test_override_marf_compression(_marf_opts: &mut MARFOpenOpts) {}
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -78,6 +135,8 @@ impl MarfedKV {
 
         let mut marf_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         marf_opts.external_blobs = true;
+
+        test_override_marf_compression(&mut marf_opts);
 
         let mut marf: MARF<StacksBlockId> = if unconfirmed {
             MARF::from_path_unconfirmed(&marf_path, marf_opts)

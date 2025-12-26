@@ -21,8 +21,6 @@ use std::io::Write;
 
 use rusqlite::blob::Blob;
 use rusqlite::{params, Connection, DatabaseName, OptionalExtension, Transaction};
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::sqlite::NO_PARAMS;
 
 #[cfg(test)]
 use crate::chainstate::stacks::index::bits::read_hash_bytes;
@@ -33,6 +31,8 @@ use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
+use crate::types::chainstate::TrieHash;
+use crate::types::sqlite::NO_PARAMS;
 use crate::util_lib::db::{query_count, query_row, tx_begin_immediate, u64_to_sql};
 
 static SQL_MARF_DATA_TABLE: &str = "
@@ -498,7 +498,7 @@ pub fn get_external_trie_offset_length(
 ) -> Result<(u64, u64), Error> {
     let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_id = ?1";
     let args = params![block_id];
-    let (offset, length) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
+    let (offset, length): (u64, u64) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
 }
 
@@ -509,7 +509,7 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
 ) -> Result<(u64, u64), Error> {
     let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_hash = ?1";
     let args = params![bhh];
-    let (offset, length) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
+    let (offset, length): (u64, u64) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
 }
 
@@ -517,7 +517,7 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
 /// which the next trie will be appended.
 pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
     let qry = "SELECT (external_offset + external_length) AS blobs_length FROM marf_data ORDER BY external_offset DESC LIMIT 1";
-    let max_len = query_row(conn, qry, NO_PARAMS)?.unwrap_or(0);
+    let max_len: u64 = query_row(conn, qry, NO_PARAMS)?.unwrap_or(0);
     Ok(max_len)
 }
 

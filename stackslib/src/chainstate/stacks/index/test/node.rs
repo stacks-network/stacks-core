@@ -21,6 +21,7 @@ use std::io::Cursor;
 
 use super::*;
 use crate::chainstate::stacks::index::*;
+use crate::codec::{Error as codec_error, StacksMessageCodec};
 
 #[test]
 fn trieptr_to_bytes() {
@@ -5042,4 +5043,123 @@ fn trie_cursor_walk_32() {
     assert!(c.eonp(&c.node().unwrap()));
 
     dump_trie(&mut trie_io);
+}
+
+#[test]
+fn trie_node_patch_try_from_nodetype_returns_none_when_no_diffs() {
+    let node = TrieNodeType::Node4(TrieNode4::new(&[1]));
+
+    let old_node_ptr = TriePtr::default();
+    let old_node = &node;
+    let new_node = &node;
+    let result = TrieNodePatch::try_from_nodetype(old_node_ptr, old_node, new_node);
+
+    assert!(
+        result.is_none(),
+        "None because the computed patch has no diffs"
+    );
+}
+
+#[test]
+fn trie_node_patch_try_from_patch_returns_none_when_no_diffs() {
+    let old_patch_ptr = TriePtr::new(TrieNodeID::Node4 as u8, 0, 0);
+    let old_patch = TrieNodePatch {
+        ptr: old_patch_ptr.clone(),
+        ptr_diff: vec![],
+    };
+    let new_node = TrieNodeType::Node4(TrieNode4::new(&[1]));
+    let result = TrieNodePatch::try_from_patch(old_patch_ptr, &old_patch, &new_node);
+
+    assert!(
+        result.is_none(),
+        "None because the computed patch has no diffs"
+    );
+}
+
+#[test]
+fn trie_node_patch_serialize_ok() {
+    let patch_node = TrieNodePatch {
+        ptr: TriePtr::new(1, 10, 0),
+        ptr_diff: vec![TriePtr::new(1, 20, 0).clone(); 1],
+    };
+
+    let mut buffer = Cursor::new(Vec::new());
+    patch_node
+        .consensus_serialize(&mut buffer)
+        .expect("serialization should be ok");
+
+    // To fit in 1 byte, diff count is serialized 0-based (where 0 => 1 and 255 => 256)
+    let diff_count = 0u8;
+    assert_eq!(
+        vec![6, 65, 10, 0, 0, 0, 0, diff_count, 65, 20, 0, 0, 0, 0],
+        buffer.into_inner(),
+    );
+}
+
+#[test]
+fn trie_node_patch_serialize_fails_with_ptr_diffs_len_0() {
+    let patch_node = TrieNodePatch {
+        ptr: TriePtr::default(),
+        ptr_diff: vec![],
+    };
+
+    let mut buffer = Cursor::new(Vec::new());
+    let error = patch_node
+        .consensus_serialize(&mut buffer)
+        .expect_err("serialization should fail");
+
+    assert!(
+        matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 0")),
+        "instead got: {error}"
+    );
+}
+
+#[test]
+fn trie_node_patch_serialize_ok_with_ptr_diffs_len_256() {
+    let patch_node = TrieNodePatch {
+        ptr: TriePtr::default(),
+        ptr_diff: vec![TriePtr::default(); 256],
+    };
+
+    let mut buffer = Cursor::new(Vec::new());
+    let result = patch_node.consensus_serialize(&mut buffer);
+    assert!(
+        result.is_ok(),
+        "Got Error: {}",
+        result.unwrap_err().to_string()
+    );
+}
+
+#[test]
+fn trie_node_patch_serialize_fails_with_ptr_diffs_len_257() {
+    let patch_node = TrieNodePatch {
+        ptr: TriePtr::default(),
+        ptr_diff: vec![TriePtr::default(); 257],
+    };
+
+    let mut buffer = Cursor::new(Vec::new());
+    let error = patch_node
+        .consensus_serialize(&mut buffer)
+        .expect_err("serialization should fail");
+
+    assert!(
+        matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 257")),
+        "instead got: {error}"
+    );
+}
+
+#[test]
+fn trie_node_patch_deserialize_ok_with_ptr_diffs_len_1() {
+    // To fit in 1 byte, diff count is serialized 0-based (where 0 => 1 and 255 => 256)
+    let diff_count = 0u8;
+    let mut buffer = Cursor::new(vec![6, 65, 10, 0, 0, 0, 0, diff_count, 65, 20, 0, 0, 0, 0]);
+
+    let patch_node =
+        TrieNodePatch::consensus_deserialize(&mut buffer).expect("deserialization should be ok");
+
+    let expected = TrieNodePatch {
+        ptr: TriePtr::new(1, 10, 0),
+        ptr_diff: vec![TriePtr::new(1, 20, 0); 1],
+    };
+    assert_eq!(expected, patch_node);
 }
