@@ -1,5 +1,8 @@
 {
-  "response": "error",
-  "err_type": "not_available_try_again",
-  "err_msg": "Could not read reward set. Prepare phase may not have started for this cycle yet. Cycle = 22, Err = PoXAnchorBlockRequired"
+    "summary": "Stacker set error response",
+    "value": {
+        "response": "error",
+        "err_type": "not_available_try_again",
+        "err_msg": "Could not read reward set. Prepare phase may not have started for this cycle yet. Cycle = 22, Err = PoXAnchorBlockRequired"
+    }
 }

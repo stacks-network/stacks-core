@@ -1,3 +1,6 @@
 {
-  "data": "'{\"contract_identifier\":{...}, \"private_function_types\":{...}'"
+    "summary": "Clarity contract metadata",
+    "value": {
+        "data": "'{\"contract_identifier\":{...}, \"private_function_types\":{...}'"
+    }
 }

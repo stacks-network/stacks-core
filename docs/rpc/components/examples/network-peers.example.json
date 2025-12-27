@@ -1,54 +1,57 @@
 {
-    "bootstrap": [
-        {
-            "network_id": 1,
-            "peer_version": 24000000,
-            "ip": "172.20.0.3",
-            "port": 20444,
-            "public_key_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
-            "authenticated": true,
-            "stackerdbs": [
-                "SP000000000000000000002Q6VF78.my-stacker-db-1"
-            ],
-            "age": null
-        }
-    ],
-    "sample": [
-        {
-            "network_id": 1,
-            "peer_version": 24000000,
-            "ip": "88.99.100.123",
-            "port": 20444,
-            "public_key_hash": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3",
-            "authenticated": true,
-            "stackerdbs": [],
-            "age": null
-        }
-    ],
-    "inbound": [
-        {
-            "network_id": 1,
-            "peer_version": 24000000,
-            "ip": "192.168.1.10",
-            "port": 54321,
-            "public_key_hash": "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
-            "authenticated": true,
-            "stackerdbs": [],
-            "age": 3600
-        }
-    ],
-    "outbound": [
-        {
-            "network_id": 1,
-            "peer_version": 24000000,
-            "ip": "10.0.0.5",
-            "port": 20444,
-            "public_key_hash": "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
-            "authenticated": true,
-            "stackerdbs": [
-                "SP000000000000000000002Q6VF78.my-stacker-db-2"
-            ],
-            "age": 120
-        }
-    ]
+    "summary": "Network peer list",
+    "value": {
+        "bootstrap": [
+            {
+                "network_id": 1,
+                "peer_version": 24000000,
+                "ip": "172.20.0.3",
+                "port": 20444,
+                "public_key_hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+                "authenticated": true,
+                "stackerdbs": [
+                    "SP000000000000000000002Q6VF78.my-stacker-db-1"
+                ],
+                "age": null
+            }
+        ],
+        "sample": [
+            {
+                "network_id": 1,
+                "peer_version": 24000000,
+                "ip": "88.99.100.123",
+                "port": 20444,
+                "public_key_hash": "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3",
+                "authenticated": true,
+                "stackerdbs": [],
+                "age": null
+            }
+        ],
+        "inbound": [
+            {
+                "network_id": 1,
+                "peer_version": 24000000,
+                "ip": "192.168.1.10",
+                "port": 54321,
+                "public_key_hash": "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+                "authenticated": true,
+                "stackerdbs": [],
+                "age": 3600
+            }
+        ],
+        "outbound": [
+            {
+                "network_id": 1,
+                "peer_version": 24000000,
+                "ip": "10.0.0.5",
+                "port": 20444,
+                "public_key_hash": "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5",
+                "authenticated": true,
+                "stackerdbs": [
+                    "SP000000000000000000002Q6VF78.my-stacker-db-2"
+                ],
+                "age": 120
+            }
+        ]
+    }
 }
