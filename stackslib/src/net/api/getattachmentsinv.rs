@@ -16,7 +16,7 @@
 
 use std::collections::HashSet;
 
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
 use url::form_urlencoded;
@@ -53,8 +53,8 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new("^/v2/attachments/inv$").unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/attachments/inv")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -66,7 +66,7 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        _captures: &Captures,
+        _captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

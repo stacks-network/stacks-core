@@ -14,8 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::types::QualifiedContractIdentifier;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
@@ -216,8 +215,8 @@ impl HttpRequest for RPCNeighborsRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/neighbors$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/neighbors")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -229,7 +228,7 @@ impl HttpRequest for RPCNeighborsRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        _captures: &Captures,
+        _captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

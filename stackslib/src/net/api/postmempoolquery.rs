@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use rand::{thread_rng, Rng};
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::net::PeerHost;
 use url::form_urlencoded;
@@ -221,8 +221,8 @@ impl HttpRequest for RPCMempoolQueryRequestHandler {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/mempool/query$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/mempool/query")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -234,7 +234,7 @@ impl HttpRequest for RPCMempoolQueryRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        _captures: &Captures,
+        _captures: &PathCaptures,
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

@@ -10,8 +10,6 @@ keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized"
 readme = "README.md"
 
 [dependencies]
-lazy_static = { workspace = true }
-regex = { version = "1", default-features = false }
 rusqlite = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { version = "1.0", default-features = false, optional = true }

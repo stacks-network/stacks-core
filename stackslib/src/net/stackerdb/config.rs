@@ -44,7 +44,7 @@ use clarity::vm::types::{
     SequenceSubtype, TupleTypeSignature, TypeSignature, Value as ClarityValue,
 };
 use clarity::vm::ClarityName;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
@@ -61,8 +61,8 @@ use crate::net::{Error as NetError, NeighborAddress};
 
 const MAX_HINT_REPLICAS: u32 = 128;
 
-lazy_static! {
-    pub static ref REQUIRED_FUNCTIONS: [(ClarityName, Vec<TypeSignature>, TypeSignature); 2] = [
+pub static REQUIRED_FUNCTIONS: LazyLock<[(ClarityName, Vec<TypeSignature>, TypeSignature); 2]> =
+    LazyLock::new(|| [
         (
             STACKERDB_SLOTS_FUNCTION.into(),
             vec![],
@@ -70,16 +70,17 @@ lazy_static! {
                 ListTypeData::new_list(
                     TupleTypeSignature::try_from(vec![
                         ("signer".into(), TypeSignature::PrincipalType),
-                        ("num-slots".into(), TypeSignature::UIntType)
+                        ("num-slots".into(), TypeSignature::UIntType),
                     ])
                     .expect("FATAL: failed to construct signer list type")
                     .into(),
-                    STACKERDB_PAGE_LIST_MAX
+                    STACKERDB_PAGE_LIST_MAX,
                 )
                 .expect("FATAL: could not construct signer list type")
                 .into(),
-                TypeSignature::UIntType
-            ).expect("FATAL: failed to construct response with signer slots"),
+                TypeSignature::UIntType,
+            )
+            .expect("FATAL: failed to construct response with signer slots"),
         ),
         (
             STACKERDB_CONFIG_FUNCTION.into(),
@@ -91,29 +92,45 @@ lazy_static! {
                         ("write-freq".into(), TypeSignature::UIntType),
                         ("max-writes".into(), TypeSignature::UIntType),
                         ("max-neighbors".into(), TypeSignature::UIntType),
-                        ("hint-replicas".into(), ListTypeData::new_list(
-                            TypeSignature::TupleType(
-                                TupleTypeSignature::try_from(vec![
-                                    ("addr".into(), ListTypeData::new_list(TypeSignature::UIntType, 16)
-                                        .expect("FATAL: invalid IP address list")
-                                        .into()),
-                                    ("port".into(), TypeSignature::UIntType),
-                                    ("public-key-hash".into(),
-                                        // can't use BUFF_20 here because it's also in a
-                                        // lazy_static! block
-                                        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength::try_from(20u32).expect("FATAL: could not create (buff 20)"))))
-                                ])
-                                .expect("FATAL: unable to construct hint-replicas type")
+                        (
+                            "hint-replicas".into(),
+                            ListTypeData::new_list(
+                                TypeSignature::TupleType(
+                                    TupleTypeSignature::try_from(vec![
+                                        (
+                                            "addr".into(),
+                                            ListTypeData::new_list(TypeSignature::UIntType, 16)
+                                                .expect("FATAL: invalid IP address list")
+                                                .into(),
+                                        ),
+                                        ("port".into(), TypeSignature::UIntType),
+                                        (
+                                            "public-key-hash".into(),
+                                            // can't use BUFF_20 here because it's also in a
+                                            // LazyLock block
+                                            TypeSignature::SequenceType(
+                                                SequenceSubtype::BufferType(
+                                                    BufferLength::try_from(20u32)
+                                                        .expect("FATAL: could not create (buff 20)"),
+                                                ),
+                                            ),
+                                        ),
+                                    ])
+                                    .expect("FATAL: unable to construct hint-replicas type"),
                                 ),
-                            MAX_HINT_REPLICAS)
+                                MAX_HINT_REPLICAS,
+                            )
                             .expect("FATAL: failed to construct hint-replicas list type")
-                            .into())
-                    ]).expect("FATAL: unable to construct config type")),
-                TypeSignature::UIntType
-            ).expect("FATAL: unable to construct config response type")
-        )
-    ];
-}
+                            .into(),
+                        ),
+                    ])
+                    .expect("FATAL: unable to construct config type"),
+                ),
+                TypeSignature::UIntType,
+            )
+            .expect("FATAL: unable to construct config response type"),
+        ),
+    ]);
 
 impl StackerDBConfig {
     /// Check that a smart contract is consistent with being a StackerDB controller.

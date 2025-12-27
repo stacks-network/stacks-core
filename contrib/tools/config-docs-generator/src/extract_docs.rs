@@ -19,12 +19,10 @@ use std::process::Command as StdCommand;
 
 use anyhow::{Context, Result};
 use clap::{Arg, Command as ClapCommand};
-use once_cell::sync::Lazy;
+
 use serde::{Deserialize, Serialize};
 
-// Static regex for finding constant references in documentation
-static CONSTANT_REFERENCE_REGEX: Lazy<regex::Regex> =
-    Lazy::new(|| regex::Regex::new(r"\[`([A-Z_][A-Z0-9_]*)`\]").unwrap());
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FieldDoc {
@@ -919,13 +917,31 @@ fn strip_type_suffix(value: &str) -> String {
 
 fn find_constant_references(text: &str) -> std::collections::HashSet<String> {
     let mut constants = std::collections::HashSet::new();
-
-    for captures in CONSTANT_REFERENCE_REGEX.captures_iter(text) {
-        if let Some(constant_name) = captures.get(1) {
-            constants.insert(constant_name.as_str().to_string());
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '[' && i + 1 < chars.len() && chars[i + 1] == '`' {
+            let mut j = i + 2;
+            let mut constant = String::new();
+            while j < chars.len() {
+                if chars[j] == '`' && j + 1 < chars.len() && chars[j + 1] == ']' {
+                    if !constant.is_empty()
+                        && constant.chars().next().unwrap().is_ascii_uppercase()
+                        && constant
+                            .chars()
+                            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+                    {
+                        constants.insert(constant);
+                    }
+                    i = j + 1;
+                    break;
+                }
+                constant.push(chars[j]);
+                j += 1;
+            }
         }
+        i += 1;
     }
-
     constants
 }
 

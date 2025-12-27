@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity::util::secp256k1::Secp256k1PublicKey;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::nakamoto::NakamotoChainState;
@@ -52,11 +52,8 @@ impl HttpRequest for GetSignerRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(
-            r#"^/v3/signer/(?P<signer_pubkey>0[23][0-9a-f]{64})/(?P<cycle_num>[0-9]{1,10})$"#,
-        )
-        .unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v3/signer/{signer_pubkey}/{cycle_num}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -67,8 +64,8 @@ impl HttpRequest for GetSignerRequestHandler {
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
         &mut self,
-        preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        _preamble: &HttpRequestPreamble,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

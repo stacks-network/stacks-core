@@ -20,9 +20,9 @@ path = "tests/integration.rs"
 serde = { version = "1.0.219", default-features=false, features = ["derive"] }
 serde_json = { version = "1.0.142", default-features = false, features = ["std"] }
 clap = { version = "4.5.44", features = ["derive"] }
-regex = { version = "1.11.1", default-features = false }
+
 anyhow = { version = "1.0.99", default-features = false, features = ["std"] }
-once_cell = { version = "1.21.3", default-features = false, features = ["std"] }
+
 
 # Add test dependencies
 [dev-dependencies]

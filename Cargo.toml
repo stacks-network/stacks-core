@@ -22,7 +22,6 @@ exclude = ["contrib/tools/config-docs-generator"]
 [workspace.dependencies]
 ed25519-dalek = { version = "2.1.1", default-features = false }
 hashbrown = { version = "0.15.2", features = ["serde"] }
-lazy_static = "1.4.0"
 rand_core = "0.6.4"
 rand = "0.8"
 rand_chacha = "0.3.1"

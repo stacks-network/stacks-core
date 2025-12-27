@@ -14,120 +14,34 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use lazy_static::lazy_static;
-use regex::{Captures, Regex};
-use stacks_common::util::hash::hex_bytes;
+use std::sync::LazyLock;
 
-use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
-use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use crate::vm::representations::{
-    ClarityName, ContractName, PreSymbolicExpression, MAX_STRING_LEN,
-};
-use crate::vm::types::{PrincipalData, TraitIdentifier, Value};
-use crate::vm::MAX_CALL_STACK_DEPTH;
-
-pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
-pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
-
-pub enum LexItem {
-    LeftParen,
-    RightParen,
-    LeftCurly,
-    RightCurly,
-    LiteralValue(usize, Value),
-    SugaredContractIdentifier(usize, ContractName),
-    SugaredFieldIdentifier(usize, ContractName, ClarityName),
-    FieldIdentifier(usize, TraitIdentifier),
-    TraitReference(usize, ClarityName),
-    Variable(String),
-    CommaSeparator,
-    ColonSeparator,
-    Whitespace,
-}
-
-#[derive(Debug)]
-enum TokenType {
-    Whitespace,
-    Comma,
-    Colon,
-    LParens,
-    RParens,
-    LCurly,
-    RCurly,
-    StringASCIILiteral,
-    StringUTF8Literal,
-    HexStringLiteral,
-    UIntLiteral,
-    IntLiteral,
-    Variable,
-    TraitReferenceLiteral,
-    PrincipalLiteral,
-    SugaredContractIdentifierLiteral,
-    FullyQualifiedContractIdentifierLiteral,
-    SugaredFieldIdentifierLiteral,
-    FullyQualifiedFieldIdentifierLiteral,
-}
-
-struct LexMatcher {
-    matcher: Regex,
-    handler: TokenType,
-}
-
-#[allow(clippy::enum_variant_names)]
-enum LexContext {
-    ExpectNothing,
-    ExpectClosing,
-    ExpectClosingColon,
-}
-
-enum ParseContext {
-    CollectList,
-    CollectTuple,
-}
-
-impl LexMatcher {
-    fn new(regex_str: &str, handles: TokenType) -> LexMatcher {
-        #[allow(clippy::unwrap_used)]
-        LexMatcher {
-            matcher: Regex::new(&format!("^{regex_str}")).unwrap(),
-            handler: handles,
-        }
-    }
-}
-
-fn get_value_or_err(input: &str, captures: Captures) -> ParseResult<String> {
-    let matched = captures
-        .name("value")
-        .ok_or(ParseError::new(ParseErrorKind::FailedCapturingInput))?;
-    Ok(input[matched.start()..matched.end()].to_string())
-}
-
-fn get_lines_at(input: &str) -> Vec<usize> {
-    let mut out: Vec<_> = input.match_indices('\n').map(|(ix, _)| ix).collect();
-    out.reverse();
-    out
-}
-
-lazy_static! {
-    pub static ref STANDARD_PRINCIPAL_REGEX: String =
-        "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into();
-    pub static ref CONTRACT_NAME_REGEX: String = format!(
+pub static STANDARD_PRINCIPAL_REGEX: LazyLock<String> =
+    LazyLock::new(|| "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into());
+pub static CONTRACT_NAME_REGEX: LazyLock<String> = LazyLock::new(|| {
+    format!(
         r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
         CONTRACT_MIN_NAME_LENGTH - 1,
         CONTRACT_MAX_NAME_LENGTH - 1
-    );
-    pub static ref CONTRACT_PRINCIPAL_REGEX: String = format!(
+    )
+});
+pub static CONTRACT_PRINCIPAL_REGEX: LazyLock<String> = LazyLock::new(|| {
+    format!(
         r#"{}(\.){}"#,
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX
-    );
-    pub static ref PRINCIPAL_DATA_REGEX: String = format!(
+    )
+});
+pub static PRINCIPAL_DATA_REGEX: LazyLock<String> = LazyLock::new(|| {
+    format!(
         "({})|({})",
         *STANDARD_PRINCIPAL_REGEX, *CONTRACT_PRINCIPAL_REGEX
-    );
-    pub static ref CLARITY_NAME_REGEX: String =
-        format!(r#"([[:word:]]|[-!?+<>=/*]){{1,{MAX_STRING_LEN}}}"#);
+    )
+});
+pub static CLARITY_NAME_REGEX: LazyLock<String> =
+    LazyLock::new(|| format!(r#"([[:word:]]|[-!?+<>=/*]){{1,{MAX_STRING_LEN}}}"#));
 
-    static ref lex_matchers: Vec<LexMatcher> = vec![
+static LEX_MATCHERS: LazyLock<Vec<LexMatcher>> = LazyLock::new(|| {
+    vec![
         LexMatcher::new(
             r#"u"(?P<value>((\\")|([[ -~]&&[^"]]))*)""#,
             TokenType::StringUTF8Literal,
@@ -182,8 +96,8 @@ lazy_static! {
             &format!("(?P<value>{})", *CLARITY_NAME_REGEX),
             TokenType::Variable,
         ),
-    ];
-}
+    ]
+});
 
 /// Lex the contract, permitting nesting of lists and tuples up to `max_nesting`.
 fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u32)>> {

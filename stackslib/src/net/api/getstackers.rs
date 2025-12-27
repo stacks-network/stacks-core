@@ -12,7 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use serde_json::json;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
@@ -109,8 +109,8 @@ impl HttpRequest for GetStackersRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/stacker_set/(?P<cycle_num>[0-9]{1,10})$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v3/stacker_set/{cycle_num}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -122,7 +122,7 @@ impl HttpRequest for GetStackersRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
@@ -132,12 +132,12 @@ impl HttpRequest for GetStackersRequestHandler {
             ));
         }
 
-        let Some(cycle_num_str) = captures.name("cycle_num") else {
+        let Some(cycle_num_str) = captures.get("cycle_num") else {
             return Err(Error::DecodeError(
                 "Missing in request path: `cycle_num`".into(),
             ));
         };
-        let cycle_num = u64::from_str_radix(cycle_num_str.into(), 10)
+        let cycle_num = u64::from_str_radix(cycle_num_str, 10)
             .map_err(|e| Error::DecodeError(format!("Failed to parse cycle number: {e}")))?;
 
         self.cycle_number = Some(cycle_num);

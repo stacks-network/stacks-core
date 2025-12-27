@@ -14,8 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::costs::ExecutionCost;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use serde_json::json;
 use stacks_common::codec::{StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::types::net::PeerHost;
@@ -23,7 +22,8 @@ use stacks_common::util::hash::hex_bytes;
 
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::TransactionPayload;
-use crate::core::StacksEpoch;
+use crate::core::mempool::MemPoolDB;
+use crate::core::{ExecutionCost, StacksEpoch};
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::{FeeEstimator, FeeRateEstimate};
 use crate::net::http::{
@@ -89,13 +89,11 @@ impl RPCPostFeeRateRequestHandler {
         }
     }
 
-    /// Estimate a transaction fee, given its execution cost estimation and length estimation
-    /// and cost estimators.
-    /// Returns Ok(fee structure) on success
-    /// Returns Err(HTTP response) on error
+    /// Estimate transaction fee based on execution cost, length, and current mempool pressure.
     pub fn estimate_tx_fee_from_cost_and_length(
         preamble: &HttpRequestPreamble,
         fee_estimator: &dyn FeeEstimator,
+        mempool: Option<&MemPoolDB>,
         metric: &dyn CostMetric,
         estimated_cost: ExecutionCost,
         estimated_len: u64,
@@ -103,9 +101,17 @@ impl RPCPostFeeRateRequestHandler {
     ) -> Result<RPCFeeEstimateResponse, StacksHttpResponse> {
         let scalar_cost =
             metric.from_cost_and_len(&estimated_cost, &stacks_epoch.block_limit, estimated_len);
-        let fee_rates = fee_estimator.get_rate_estimates().map_err(|e| {
+        let mut fee_rates = fee_estimator.get_rate_estimates().map_err(|e| {
             StacksHttpResponse::new_error(preamble, &HttpBadRequest::new_json(e.into_json()))
         })?;
+
+        if let Some(mempool) = mempool {
+            if let Ok(mempool_rates) = mempool.get_mempool_fee_rate_estimates() {
+                fee_rates.low = fee_rates.low.max(mempool_rates.low);
+                fee_rates.middle = fee_rates.middle.max(mempool_rates.middle);
+                fee_rates.high = fee_rates.high.max(mempool_rates.high);
+            }
+        }
 
         let mut estimations = RPCFeeEstimate::estimate_fees(scalar_cost, fee_rates).to_vec();
 
@@ -132,8 +138,8 @@ impl HttpRequest for RPCPostFeeRateRequestHandler {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/fees/transaction$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/fees/transaction")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -145,7 +151,7 @@ impl HttpRequest for RPCPostFeeRateRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        _captures: &Captures,
+        _captures: &PathCaptures,
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
@@ -194,8 +200,6 @@ impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
     }
 
     /// Make the response
-    /// TODO: accurately estimate the cost/length fee for token transfers, based on mempool
-    /// pressure.
     fn try_handle_request(
         &mut self,
         preamble: HttpRequestPreamble,
@@ -230,6 +234,7 @@ impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
                     Self::estimate_tx_fee_from_cost_and_length(
                         &preamble,
                         fee_estimator,
+                        Some(_mempool),
                         metric,
                         estimated_cost,
                         estimated_len,

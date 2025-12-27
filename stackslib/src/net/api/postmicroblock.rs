@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::net::PeerHost;
@@ -65,8 +65,8 @@ impl HttpRequest for RPCPostMicroblockRequestHandler {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/microblocks$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/microblocks")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -78,7 +78,7 @@ impl HttpRequest for RPCPostMicroblockRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        _captures: &Captures,
+        _captures: &PathCaptures,
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

@@ -29,7 +29,6 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
-use lazy_static::lazy_static;
 use libsigner::v0::messages::{
     MessageSlotID, RejectReason, SignerMessage as SignerMessageV0, StateMachineUpdate,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
@@ -145,95 +144,96 @@ use stacks::clarity_vm::clarity::SIP_031_INITIAL_MINT;
 use stacks::config::DEFAULT_MAX_TENURE_BYTES;
 
 use crate::clarity::vm::clarity::ClarityConnection;
+use std::sync::LazyLock;
 
-lazy_static! {
-    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 12] = [
+pub static NAKAMOTO_INTEGRATION_EPOCHS: LazyLock<[StacksEpoch; 12]> = LazyLock::new(|| {
+    [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
             end_height: 0,
             block_limit: BLOCK_LIMIT_MAINNET_10,
-            network_epoch: PEER_VERSION_EPOCH_1_0
+            network_epoch: PEER_VERSION_EPOCH_1_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_0
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_05
+            network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 3,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_1
+            network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3,
             end_height: 4,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_2
+            network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4,
             end_height: 5,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_3
+            network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
             end_height: 201,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_4
+            network_epoch: PEER_VERSION_EPOCH_2_4,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 201,
             end_height: 231,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_5
+            network_epoch: PEER_VERSION_EPOCH_2_5,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
             start_height: 231,
             end_height: 241,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_3_0
+            network_epoch: PEER_VERSION_EPOCH_3_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
             start_height: 241,
             end_height: 251,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_3_1
+            network_epoch: PEER_VERSION_EPOCH_3_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
             start_height: 251,
             end_height: 252,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_3_2
+            network_epoch: PEER_VERSION_EPOCH_3_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
             start_height: 252,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_3_2
+            network_epoch: PEER_VERSION_EPOCH_3_2,
         },
-    ];
-}
+    ]
+});
 
 pub static TEST_SIGNING: Mutex<Option<TestSigningChannel>> = Mutex::new(None);
 

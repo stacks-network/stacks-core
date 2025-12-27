@@ -17,7 +17,7 @@
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksEpochId;
@@ -445,8 +445,8 @@ impl HttpRequest for RPCPoxInfoRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/pox$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/pox")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -458,7 +458,7 @@ impl HttpRequest for RPCPoxInfoRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        _captures: &Captures,
+        _captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

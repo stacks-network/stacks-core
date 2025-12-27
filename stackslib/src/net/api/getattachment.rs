@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Hash160;
 
@@ -45,8 +45,8 @@ impl HttpRequest for RPCGetAttachmentRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/attachments/(?P<attachment_hash>[0-9a-f]{40})$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/attachments/{attachment_hash}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -58,7 +58,7 @@ impl HttpRequest for RPCGetAttachmentRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
@@ -69,11 +69,10 @@ impl HttpRequest for RPCGetAttachmentRequestHandler {
         }
 
         let attachment_hash_str = captures
-            .name("attachment_hash")
+            .get("attachment_hash")
             .ok_or(Error::DecodeError(
                 "Failed to match path to attachment_hash group".to_string(),
-            ))?
-            .as_str();
+            ))?;
 
         self.attachment_hash = Some(
             Hash160::from_hex(attachment_hash_str)

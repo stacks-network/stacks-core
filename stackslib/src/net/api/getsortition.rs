@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::types::chainstate::VRFSeed;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use serde::Serialize;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId,
@@ -50,7 +50,7 @@ pub enum QuerySpecifier {
 }
 
 pub static RPC_SORTITION_INFO_PATH: &str = "/v3/sortitions";
-static PATH_REGEX: &str = "^/v3/sortitions(/(?P<key>[a-z_]{1,15})(/(?P<value>[0-9a-f]{1,64}))?)?$";
+const PATH_MATCHER: PathMatcher = PathMatcher::new_const("/v3/sortitions/[{key}]/[{value}]");
 
 /// Struct for sortition information returned via the GetSortition API call
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -256,16 +256,16 @@ impl HttpRequest for GetSortitionHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(PATH_REGEX).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PATH_MATCHER
     }
 
     /// Try to decode this request.
     /// There's nothing to load here, so just make sure the request is well-formed.
     fn try_parse_request(
         &mut self,
-        preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        _preamble: &HttpRequestPreamble,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

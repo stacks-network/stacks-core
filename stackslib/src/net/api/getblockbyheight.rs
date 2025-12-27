@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::types::net::PeerHost;
 
@@ -48,8 +48,8 @@ impl HttpRequest for RPCNakamotoBlockByHeightRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/blocks/height/(?P<block_height>[0-9]{1,20})$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v3/blocks/height/{block_height}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -61,7 +61,7 @@ impl HttpRequest for RPCNakamotoBlockByHeightRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
@@ -75,8 +75,7 @@ impl HttpRequest for RPCNakamotoBlockByHeightRequestHandler {
             .name("block_height")
             .ok_or_else(|| {
                 Error::DecodeError("Failed to match path to block height group".to_string())
-            })?
-            .as_str();
+            })?;
 
         let block_height = block_height_str.parse::<u64>().map_err(|_| {
             Error::DecodeError("Invalid path: unparseable block height".to_string())

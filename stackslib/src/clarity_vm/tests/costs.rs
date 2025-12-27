@@ -35,7 +35,7 @@ use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::{ClarityVersion, ContractName};
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
@@ -45,12 +45,10 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::boot::boot_code_id;
 
-lazy_static! {
-    static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =
-        boot_code_id("cost-voting", true);
-    static ref COST_VOTING_TESTNET_CONTRACT: QualifiedContractIdentifier =
-        boot_code_id("cost-voting", false);
-}
+static COST_VOTING_MAINNET_CONTRACT: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| boot_code_id("cost-voting", true));
+static COST_VOTING_TESTNET_CONTRACT: LazyLock<QualifiedContractIdentifier> =
+    LazyLock::new(|| boot_code_id("cost-voting", false));
 
 pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
     use clarity::vm::functions::NativeFunctions::*;

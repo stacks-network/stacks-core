@@ -28,6 +28,7 @@ pub enum StacksTransactionEvent {
     STXEvent(STXEventType),
     NFTEvent(NFTEventType),
     FTEvent(FTEventType),
+    PostConditionEvent(PostConditionEventData),
 }
 
 impl StacksTransactionEvent {
@@ -114,6 +115,13 @@ impl StacksTransactionEvent {
                 "committed": committed,
                 "type": "ft_burn_event",
                 "ft_burn_event": event_data.json_serialize()
+            }),
+            StacksTransactionEvent::PostConditionEvent(event_data) => json!({
+                "txid": format!("0x{txid:?}"),
+                "event_index": event_index,
+                "committed": committed,
+                "type": "post_condition_event",
+                "post_condition_event": event_data.json_serialize()?
             }),
         };
         Ok(out)
@@ -344,6 +352,40 @@ impl SmartContractEventData {
             "topic": self.key.1,
             "value": self.value,
             "raw_value": raw_value,
+        }))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PostConditionEventData {
+    pub principal: PrincipalData,
+    pub asset_id: Option<AssetIdentifier>,
+    pub condition_code: u8,
+    pub amount: Option<u128>,
+    pub value: Option<Value>,
+    pub expected: String, // Human readable expectation
+    pub actual: String,   // Human readable actual value
+}
+
+impl PostConditionEventData {
+    pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
+        let raw_value = if let Some(ref value) = self.value {
+            let mut byte_serialization = Vec::new();
+            value.serialize_write(&mut byte_serialization).map_err(|_| SerializationError::Other("failed to serialize value".to_string()))?;
+            Some(to_hex_prefixed(byte_serialization.as_slice(), true))
+        } else {
+            None
+        };
+
+        Ok(json!({
+            "principal": format!("{}", self.principal),
+            "asset_id": self.asset_id.as_ref().map(|id| format!("{}", id)),
+            "condition_code": self.condition_code,
+            "amount": self.amount.map(|a| format!("{}", a)),
+            "value": self.value,
+            "raw_value": raw_value,
+            "expected": self.expected,
+            "actual": self.actual,
         }))
     }
 }

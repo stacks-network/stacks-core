@@ -1194,6 +1194,11 @@ fn bitcoind_integration_test() {
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
+    // Explicitly create wallet for Bitcoind >= 0.21 compatibility
+    btc_regtest_controller
+        .create_wallet_if_dne()
+        .expect("Failed to create wallet");
+
     btc_regtest_controller.bootstrap_chain(201);
 
     eprintln!("Chain bootstrapped...");
@@ -1302,6 +1307,11 @@ fn confirm_unparsed_ongoing_ops() {
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
+    // Explicitly create wallet for Bitcoind >= 0.21 compatibility
+    btc_regtest_controller
+        .create_wallet_if_dne()
+        .expect("Failed to create wallet");
+
     btc_regtest_controller.bootstrap_chain(201);
 
     eprintln!("Chain bootstrapped...");
@@ -1382,6 +1392,11 @@ fn most_recent_utxo_integration_test() {
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    // Explicitly create wallet for Bitcoind >= 0.21 compatibility
+    btc_regtest_controller
+        .create_wallet_if_dne()
+        .expect("Failed to create wallet");
 
     btc_regtest_controller.bootstrap_chain(201);
 

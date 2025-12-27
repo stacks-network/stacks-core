@@ -18,8 +18,7 @@ use std::collections::HashSet;
 use std::hash::Hash;
 
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, Value};
-use lazy_static::lazy_static;
-use regex::Regex;
+use std::sync::LazyLock;
 use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Serialize;
 use stacks_common::codec::StacksMessageCodec;
@@ -45,8 +44,9 @@ pub const MAX_RETRY_DELAY: u64 = 600; // seconds
 ///  waiting for attachments to be processed.
 pub const ATTACHMENTS_CHANNEL_SIZE: usize = 5;
 
-lazy_static! {
-    pub static ref BNS_CHARS_REGEX: Regex = Regex::new("^([a-z0-9]|[-_])*$").unwrap();
+pub fn is_bns_char(s: &str) -> bool {
+    s.chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
 }
 
 const ATTACHMENTS_MAX_SIZE_MIN: u32 = 1_048_576;

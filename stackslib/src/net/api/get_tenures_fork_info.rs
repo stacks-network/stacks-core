@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId,
 };
@@ -83,11 +83,8 @@ impl HttpRequest for GetTenuresForkInfo {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(&format!(
-            r#"^{RPC_TENURE_FORKING_INFO_PATH}/(?P<start>[0-9a-f]{{40}})/(?P<stop>[0-9a-f]{{40}})$"#
-        ))
-        .unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v3/tenures/fork_info/{start}/{stop}")
     }
 
     /// Try to decode this request.
@@ -95,7 +92,7 @@ impl HttpRequest for GetTenuresForkInfo {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
@@ -111,14 +108,12 @@ impl HttpRequest for GetTenuresForkInfo {
             .name("start")
             .ok_or_else(|| {
                 Error::DecodeError("Failed to match path to start_sortition group".to_string())
-            })?
-            .as_str();
+            })?;
         let stop_str = captures
             .name("stop")
             .ok_or_else(|| {
                 Error::DecodeError("Failed to match path to stop_sortition group".to_string())
-            })?
-            .as_str();
+            })?;
         let start_sortition = ConsensusHash::from_hex(start_str).map_err(|_| {
             Error::DecodeError("Invalid path: unparseable consensus hash".to_string())
         })?;

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use serde_json;
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::net::PeerHost;
@@ -46,8 +46,8 @@ impl HttpRequest for RPCNakamotoTenureTipRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/tenures/tip/(?P<consensus_hash>[0-9a-f]{40})$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v3/tenures/tip/{consensus_hash}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -59,7 +59,7 @@ impl HttpRequest for RPCNakamotoTenureTipRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

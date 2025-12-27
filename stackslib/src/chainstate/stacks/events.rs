@@ -55,6 +55,7 @@ pub struct StacksTransactionReceipt {
     /// This is really a string-formatted CheckErrorKind or VmExecutionError (which can't be clone()'ed),
     /// and is not consensus critical.
     pub vm_error: Option<String>,
+    pub post_condition_error: Option<crate::clarity_vm::events::PostConditionEventData>,
 }
 
 #[derive(Clone)]

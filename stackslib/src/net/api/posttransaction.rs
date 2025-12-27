@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::{hex_bytes, to_hex};
@@ -99,8 +99,8 @@ impl HttpRequest for RPCPostTransactionRequestHandler {
         "POST"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/transactions$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/transactions")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -112,7 +112,7 @@ impl HttpRequest for RPCPostTransactionRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        _captures: &Captures,
+        _captures: &PathCaptures,
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

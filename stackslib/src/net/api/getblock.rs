@@ -17,7 +17,7 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::{fs, io};
 
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
@@ -78,8 +78,8 @@ impl HttpRequest for RPCBlocksRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v2/blocks/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/blocks/{block_id}")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -91,7 +91,7 @@ impl HttpRequest for RPCBlocksRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

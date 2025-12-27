@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Added
+
+- Mempool-aware fee estimation to provide more accurate fee estimates during network congestion.
+- Added `current_epoch` to `RPCPoxInfoData` in `/v2/pox` for improved stacking state tracking (#6658).
+
+### Changed
+
+- Refactored RPC routing to eliminate the `regex` runtime dependency, improving routing performance and reducing binary footprint.
+- Modernized the codebase by replacing `lazy_static` with `std::sync::LazyLock` across the workspace.
+- Standardized Nakamoto v3 endpoint parameter naming for improved consistency across tenure-related handlers.
+
+### Fixed
+
+- Corrected `stacks-signer` exit code to return 0 when run without arguments (#6558).
+- Resolved duplicate binary name output in `stacks-signer` version command (#5874).
+
 ## [3.3.0.0.2]
 
 ### Added

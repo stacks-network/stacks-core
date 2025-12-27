@@ -14,9 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
-use clarity::vm::types::QualifiedContractIdentifier;
-use regex::{Captures, Regex};
+use crate::net::http::request::{PathCaptures, PathMatcher};
 use serde_json;
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::get_epoch_time_secs;
@@ -51,12 +49,8 @@ impl HttpRequest for RPCListStackerDBReplicasRequestHandler {
         "GET"
     }
 
-    fn path_regex(&self) -> Regex {
-        Regex::new(&format!(
-            r#"^/v2/stackerdb/(?P<address>{})/(?P<contract>{})/replicas$"#,
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
-        ))
-        .unwrap()
+    fn path_matcher(&self) -> PathMatcher {
+        PathMatcher::new("/v2/stackerdb/{address}/{contract}/replicas")
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -68,7 +62,7 @@ impl HttpRequest for RPCListStackerDBReplicasRequestHandler {
     fn try_parse_request(
         &mut self,
         preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {

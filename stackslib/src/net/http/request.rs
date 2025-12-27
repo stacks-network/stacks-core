@@ -17,8 +17,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Read, Write};
 use std::sync::Arc;
-
-use regex::{Captures, Regex};
 use serde_json;
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::deps_common::httparse;
@@ -30,6 +28,97 @@ use crate::net::http::common::{
     HttpReservedHeader, HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS,
 };
 use crate::net::http::{default_accept_header, write_headers, Error, HttpContentType, HttpVersion};
+
+pub struct PathCaptures {
+    matches: HashMap<String, String>,
+}
+
+impl PathCaptures {
+    pub fn new() -> Self {
+        Self {
+            matches: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, name: String, value: String) {
+        self.matches.insert(name, value);
+    }
+
+    pub fn name(&self, name: &str) -> Option<&str> {
+        self.matches.get(name).map(|s| s.as_str())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PathMatcher {
+    pattern: &'static str,
+}
+
+impl PathMatcher {
+    pub const fn new(pattern: &'static str) -> Self {
+        Self { pattern }
+    }
+
+    pub fn captures(&self, path: &str) -> Option<PathCaptures> {
+        // Simple path matching:
+        // {name}: exact segment capture
+        // [segment]: optional segment
+
+        let pattern_segments: Vec<_> = self.pattern.split('/').collect();
+        // Path might have leading/trailing slashes. Stacks nodes are generally consistent but let's be safe.
+        let path = path.trim_start_matches('/');
+        let path_segments: Vec<_> = path.split('/').collect();
+
+        // Pattern segments also trim leading empty from split if starts with /
+        let pattern_segments: Vec<_> = if pattern_segments.len() > 0 && pattern_segments[0].is_empty()
+        {
+            &pattern_segments[1..]
+        } else {
+            &pattern_segments[..]
+        };
+
+        let mut captures = PathCaptures::new();
+        let mut path_idx = 0;
+
+        for p_seg in pattern_segments {
+            if p_seg.starts_with('{') && p_seg.ends_with('}') {
+                if path_idx >= path_segments.len() {
+                    return None;
+                }
+                let name = &p_seg[1..p_seg.len() - 1];
+                captures.insert(name.to_string(), path_segments[path_idx].to_string());
+                path_idx += 1;
+            } else if p_seg.starts_with('[') && p_seg.ends_with(']') {
+                // Optional part. For now we only support simple optional segments at the end or
+                // simple literals like (/). Stacks specific: some routes end in (/)?
+                if path_idx >= path_segments.len() {
+                    continue;
+                }
+                let inner = &p_seg[1..p_seg.len() - 1];
+                if inner.starts_with('{') && inner.ends_with('}') {
+                    let name = &inner[1..inner.len() - 1];
+                    captures.insert(name.to_string(), path_segments[path_idx].to_string());
+                    path_idx += 1;
+                } else if path_segments[path_idx] == inner {
+                    path_idx += 1;
+                }
+                // If it doesn't match, we just skip it because it's optional.
+            } else {
+                if path_idx >= path_segments.len() || path_segments[path_idx] != *p_seg {
+                    return None;
+                }
+                path_idx += 1;
+            }
+        }
+
+        if path_idx < path_segments.len() && !path_segments[path_idx].is_empty() {
+            // Extra segments in path
+            return None;
+        }
+
+        Some(captures)
+    }
+}
 
 /// HTTP request preamble.  This captures "control plane" data for an HTTP request, and contains
 /// everything of use to us from the HTTP requests's headers.
@@ -692,13 +781,13 @@ impl Clone for Box<dyn HttpRequest> {
 pub trait HttpRequest: Send + HttpRequestClone {
     /// What is the HTTP verb that this request honors?
     fn verb(&self) -> &'static str;
-    /// What is the path regex that this request honors?
-    fn path_regex(&self) -> Regex;
+    /// What is the path matcher that this request honors?
+    fn path_matcher(&self) -> PathMatcher;
     /// Decode a request into the contents that this request handler cares about.
     fn try_parse_request(
         &mut self,
         request_preamble: &HttpRequestPreamble,
-        captures: &Captures,
+        captures: &PathCaptures,
         query_str: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error>;

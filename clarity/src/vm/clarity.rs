@@ -43,6 +43,8 @@ pub enum ClarityError {
         tx_events: Vec<StacksTransactionEvent>,
         /// A human-readable explanation for aborting the transaction
         reason: String,
+        /// Structured details about the failure (if it was a post-condition failure)
+        error_details: Option<crate::vm::events::PostConditionEventData>,
     },
 }
 
@@ -223,9 +225,9 @@ pub trait TransactionConnection: ClarityConnection {
         &mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
+    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<(String, Option<crate::vm::events::PostConditionEventData>)>), E>
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<(String, Option<crate::vm::events::PostConditionEventData>)>,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<VmExecutionError>;
 
@@ -351,7 +353,7 @@ pub trait TransactionConnection: ClarityConnection {
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<(String, Option<crate::vm::events::PostConditionEventData>)>,
     {
         let expr_args: Vec<_> = args
             .iter()
@@ -377,13 +379,54 @@ pub trait TransactionConnection: ClarityConnection {
             },
             abort_call_back,
         )
-        .and_then(|(value, assets_modified, tx_events, reason)| {
-            if let Some(reason) = reason {
+        .and_then(|(value, assets_modified, tx_events, error)| {
+            if let Some((reason, error_details)) = error {
                 Err(ClarityError::AbortedByCallback {
                     output: Some(Box::new(value)),
                     assets_modified: Box::new(assets_modified),
                     tx_events,
                     reason,
+                    error_details,
+                })
+            } else {
+                Ok((value, assets_modified, tx_events))
+            }
+        })
+    }
+
+    /// Execute a contract call in the current block.
+    /// If an error occurs while processing the transaction, its modifications will be rolled back.
+    /// `abort_call_back` is called with an `AssetMap` and a `ClarityDatabase` reference,
+    /// If `abort_call_back` returns `Some(reason)`, all modifications from this transaction will be rolled back.
+    /// Otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
+    fn execute_transaction<F>(
+        &mut self,
+        sender: PrincipalData,
+        sponsor: Option<PrincipalData>,
+        contract_identifier: QualifiedContractIdentifier,
+        method: &str,
+        args: &[SymbolicExpression],
+        abort_call_back: F,
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
+    where
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<(String, Option<crate::vm::events::PostConditionEventData>)>,
+    {
+        self.with_abort_callback(
+            |vm_env| {
+                vm_env
+                    .execute_transaction(sender, sponsor, contract_identifier, method, args)
+                    .map_err(ClarityError::from)
+            },
+            abort_call_back,
+        )
+        .and_then(|(value, assets_modified, tx_events, error)| {
+            if let Some((reason, error_details)) = error {
+                Err(ClarityError::AbortedByCallback {
+                    output: Some(Box::new(value)),
+                    assets_modified: Box::new(assets_modified),
+                    tx_events,
+                    reason,
+                    error_details,
                 })
             } else {
                 Ok((value, assets_modified, tx_events))
@@ -408,9 +451,9 @@ pub trait TransactionConnection: ClarityConnection {
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<(String, Option<crate::vm::events::PostConditionEventData>)>,
     {
-        let (_, assets_modified, tx_events, reason) = self.with_abort_callback(
+        let (_, assets_modified, tx_events, error) = self.with_abort_callback(
             |vm_env| {
                 if let Some(max_execution_time_duration) = max_execution_time {
                     vm_env
@@ -429,12 +472,13 @@ pub trait TransactionConnection: ClarityConnection {
             },
             abort_call_back,
         )?;
-        if let Some(reason) = reason {
+        if let Some((reason, error_details)) = error {
             Err(ClarityError::AbortedByCallback {
                 output: None,
                 assets_modified: Box::new(assets_modified),
                 tx_events,
                 reason,
+                error_details,
             })
         } else {
             Ok((assets_modified, tx_events))

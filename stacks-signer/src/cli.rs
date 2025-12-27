@@ -43,7 +43,7 @@ extern crate alloc;
 
 /// The CLI arguments for the stacks signer
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_version = VERSION_STRING.as_str())]
+#[command(author, version = VERSION_STRING.as_str(), about, long_version = VERSION_STRING.as_str())]
 pub struct Cli {
     /// Subcommand action to take
     #[command(subcommand)]

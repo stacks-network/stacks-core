@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use regex;
+
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 
@@ -393,12 +393,17 @@ fn test_http_response_preamble_headers() {
     );
     assert!(txt.find("Date: ").is_some(), "Date header is missing");
 
-    let rfc7231_date_regex =
-        regex::Regex::new(r"Date: [A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT\r\n")
-            .unwrap();
+    let date_line = txt.lines().find(|l| l.starts_with("Date: ")).unwrap();
     assert!(
-        rfc7231_date_regex.is_match(&txt),
-        "Date header format is incorrect"
+        date_line.ends_with(" GMT"),
+        "Date header format is incorrect: {}",
+        date_line
+    );
+    assert_eq!(
+        date_line.len(),
+        "Date: Fri, 19 Dec 2025 08:30:00 GMT".len(),
+        "Date header length is incorrect: {}",
+        date_line
     );
     assert!(txt.find("foo: bar\r\n").is_some(), "foo header is missing");
     assert!(

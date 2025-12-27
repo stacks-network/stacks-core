@@ -18,7 +18,7 @@ use std::fs;
 
 use anyhow::{Context, Result};
 use clap::{Arg, Command};
-use once_cell::sync::Lazy;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -58,9 +58,7 @@ struct GlobalContext {
     custom_mappings: HashMap<String, String>,
 }
 
-// Static regex for finding intra-documentation links - compiled once at startup
-static LINK_REGEX_BACKTICKS: Lazy<regex::Regex> =
-    Lazy::new(|| regex::Regex::new(r"\[`([A-Za-z0-9_:]+)`\]").unwrap());
+
 
 fn main() -> Result<()> {
     let matches = Command::new("generate-markdown")
@@ -463,13 +461,43 @@ fn process_intralinks_with_context(
     global_context: &GlobalContext,
     current_struct_name: &str,
 ) -> String {
-    // Process cross-references in both formats:
-    // 1. [`StructName::field`] or [`CONSTANT_NAME`] (with backticks)
-    LINK_REGEX_BACKTICKS
-        .replace_all(text, |caps: &regex::Captures| {
-            process_reference(&caps[1], global_context, current_struct_name)
-        })
-        .to_string()
+    let mut result = String::new();
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '[' && i + 1 < chars.len() && chars[i + 1] == '`' {
+            let mut j = i + 2;
+            let mut reference = String::new();
+            let mut found = false;
+            while j < chars.len() {
+                if chars[j] == '`' && j + 1 < chars.len() && chars[j + 1] == ']' {
+                    if !reference.is_empty()
+                        && reference
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':')
+                    {
+                        result.push_str(&process_reference(
+                            &reference,
+                            global_context,
+                            current_struct_name,
+                        ));
+                        i = j + 1;
+                        found = true;
+                    }
+                    break;
+                }
+                reference.push(chars[j]);
+                j += 1;
+            }
+            if found {
+                i += 1;
+                continue;
+            }
+        }
+        result.push(chars[i]);
+        i += 1;
+    }
+    result
 }
 
 fn process_reference(

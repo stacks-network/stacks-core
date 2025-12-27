@@ -19,7 +19,7 @@ use std::{fs, process};
 
 use clarity::types::chainstate::SortitionId;
 use clarity::util::hash::{Sha512Trunc256Sum, to_hex};
-use regex::Regex;
+
 use rusqlite::{Connection, OpenFlags};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::sqlite::NO_PARAMS;
@@ -335,25 +335,13 @@ pub fn command_replay_mock_mining(argv: &[String], conf: Option<&Config>) {
     //
     // NOTE: Trusting the filename is not ideal. We could sort on data read from the file,
     // but that requires reading all files
-    let re = Regex::new(r"^([0-9]+)\.json$").unwrap();
     let mut indexed_files = filenames
         .filter_map(|filename| {
-            // Use regex to extract block number from filename
-            let Some(cap) = re.captures(&filename) else {
-                debug!("Regex capture failed on {filename}");
+            if !filename.ends_with(".json") {
                 return None;
-            };
-            // cap.get(0) return entire filename
-            // cap.get(1) return block number
-            let i = 1;
-            let Some(m) = cap.get(i) else {
-                debug!("cap.get({i}) failed on {filename} match");
-                return None;
-            };
-            let Ok(bh) = m.as_str().parse::<u64>() else {
-                debug!("parse::<u64>() failed on '{}'", m.as_str());
-                return None;
-            };
+            }
+            let block_num_str = &filename[..filename.len() - 5];
+            let bh = block_num_str.parse::<u64>().ok()?;
             Some((bh, filename))
         })
         .collect::<Vec<_>>();
