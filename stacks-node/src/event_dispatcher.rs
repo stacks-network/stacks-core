@@ -24,7 +24,7 @@ use std::sync::mpsc::channel;
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
@@ -75,6 +75,8 @@ pub use payloads::{
     RewardSetEventPayload, TransactionEventPayload,
 };
 pub use stacker_db::StackerDBChannel;
+
+use crate::event_dispatcher::db::PendingPayload;
 
 #[cfg(test)]
 mod tests;
@@ -1065,10 +1067,21 @@ impl EventDispatcher {
             pending_payloads.len()
         );
 
-        for (id, mut data) in pending_payloads {
-            info!("Event dispatcher: processing pending payload: {}", data.url);
-            let full_url = Url::parse(data.url.as_str()).unwrap_or_else(|_| {
-                panic!("Event dispatcher: unable to parse {} as a URL", data.url)
+        for PendingPayload {
+            id,
+            mut request_data,
+            ..
+        } in pending_payloads
+        {
+            info!(
+                "Event dispatcher: processing pending payload: {}",
+                request_data.url
+            );
+            let full_url = Url::parse(request_data.url.as_str()).unwrap_or_else(|_| {
+                panic!(
+                    "Event dispatcher: unable to parse {} as a URL",
+                    request_data.url
+                )
             });
             // find the right observer
             let observer = self.registered_observers.iter().find(|observer| {
@@ -1086,7 +1099,7 @@ impl EventDispatcher {
                 // This observer is no longer registered, skip and delete
                 info!(
                     "Event dispatcher: observer {} no longer registered, skipping",
-                    data.url
+                    request_data.url
                 );
                 if let Err(e) = conn.delete_payload(id) {
                     error!(
@@ -1099,9 +1112,9 @@ impl EventDispatcher {
 
             // If the timeout configuration for this observer is different from what it was
             // originally, the updated config wins.
-            data.timeout = observer.timeout;
+            request_data.timeout = observer.timeout;
 
-            self.make_http_request_and_delete_from_db(&data, observer.disable_retries, id);
+            self.make_http_request_and_delete_from_db(&request_data, observer.disable_retries, id);
         }
     }
 
@@ -1229,7 +1242,7 @@ impl EventDispatcher {
         let conn = EventDispatcherDbConnection::new_without_init(&self.db_path)
             .expect("Failed to open database for event observer");
 
-        conn.insert_payload_with_retry(data)
+        conn.insert_payload_with_retry(data, SystemTime::now())
     }
 
     fn make_http_request_and_delete_from_db(

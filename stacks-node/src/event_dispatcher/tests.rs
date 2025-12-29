@@ -16,7 +16,7 @@
 
 use std::net::TcpListener;
 use std::thread;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::costs::ExecutionCost;
@@ -272,7 +272,7 @@ fn test_process_pending_payloads() {
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
     // Insert payload
-    conn.insert_payload(&data)
+    conn.insert_payload(&data, SystemTime::now())
         .expect("Failed to insert payload");
 
     // Process pending payloads
@@ -332,7 +332,7 @@ fn pending_payloads_are_skipped_if_url_does_not_match() {
         timeout,
     };
 
-    conn.insert_payload(&data)
+    conn.insert_payload(&data, SystemTime::now())
         .expect("Failed to insert payload");
 
     dispatcher.process_pending_payloads();
