@@ -11,6 +11,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
 
+### Fixed
+
+- When mining, do not try to extend (or initiate) a tenure that did not commit to the ongoing chain tip (see #6744)
+
 ## [3.3.0.0.2]
 
 ### Added
