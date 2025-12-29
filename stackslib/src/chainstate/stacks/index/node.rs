@@ -1235,7 +1235,7 @@ fn node_normalize_ptrs(ptrs: &mut [TriePtr], cur_block_id: u32) {
 
 impl TrieNodePatch {
     /// Compute the difference between `old_ptrs` and `new_ptrs`. In particular, if a pointer in
-    /// `new_ptrs` is in the same block as indicatd by `old_node_ptr`, this code will first need to
+    /// `new_ptrs` is in the same block as indicated by `old_node_ptr`, this code will first need to
     /// normalize it (i.e. convert it into a non-backpointer) in order to compare it against the
     /// corresponding pointer in `old_ptrs` (which might have that very same pointer, but not yet
     /// made into a backptr by a COW)
@@ -1275,7 +1275,7 @@ impl TrieNodePatch {
                     normalized_new_ptr.back_block = 0;
                     if *old_ptr != normalized_new_ptr {
                         trace!(
-                            "new overritten ptr: {:?} != {:?}",
+                            "new overwritten ptr: {:?} != {:?}",
                             &normalized_new_ptr,
                             old_ptr
                         );
@@ -1283,7 +1283,7 @@ impl TrieNodePatch {
                     }
                 } else {
                     if old_ptr != new_ptr {
-                        trace!("new overritten ptr: {:?} != {:?}", &new_ptr, old_ptr);
+                        trace!("new overwritten ptr: {:?} != {:?}", &new_ptr, old_ptr);
                         ret.push(*new_ptr);
                     }
                 }
@@ -1342,7 +1342,7 @@ impl TrieNodePatch {
         }
     }
 
-    /// Create a patch from one nodetype to a another.  If they're not the same nodetype, then this
+    /// Create a patch from one nodetype to another.  If they're not the same nodetype, then this
     /// function returns None.
     pub fn try_from_nodetype(
         old_node_ptr: TriePtr,
@@ -1380,7 +1380,7 @@ impl TrieNodePatch {
         Some(patch)
     }
 
-    /// Create a patch from one patch ao a node
+    /// Create a patch from one patch to a node
     pub fn try_from_patch(
         old_patch_ptr: TriePtr,
         old_patch: &TrieNodePatch,
