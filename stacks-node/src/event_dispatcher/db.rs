@@ -22,6 +22,8 @@ use std::time::Duration;
 use rusqlite::{params, Connection};
 use stacks::util_lib::db::Error as db_error;
 
+use crate::event_dispatcher::EventRequestData;
+
 /// Wraps a SQlite connection to the database in which pending event payloads are stored
 pub struct EventDispatcherDbConnection {
     connection: Connection,
@@ -60,18 +62,13 @@ impl EventDispatcherDbConnection {
     }
 
     /// Insert a payload into the database, retrying on failure. Returns the id of of the inserted record.
-    pub fn insert_payload_with_retry(
-        &self,
-        url: &str,
-        payload_bytes: &[u8],
-        timeout: Duration,
-    ) -> i64 {
+    pub fn insert_payload_with_retry(&self, data: &EventRequestData) -> i64 {
         let mut attempts = 0i64;
         let mut backoff = Duration::from_millis(100); // Initial backoff duration
         let max_backoff = Duration::from_secs(5); // Cap the backoff duration
 
         loop {
-            match self.insert_payload(url, payload_bytes, timeout) {
+            match self.insert_payload(data) {
                 Ok(id) => {
                     // Successful insert, break the loop
                     return id;
@@ -95,36 +92,38 @@ impl EventDispatcherDbConnection {
         }
     }
 
-    pub fn insert_payload(
-        &self,
-        url: &str,
-        payload_bytes: &[u8],
-        timeout: Duration,
-    ) -> Result<i64, db_error> {
-        let timeout_ms: u64 = timeout.as_millis().try_into().expect("Timeout too large");
+    pub fn insert_payload(&self, data: &EventRequestData) -> Result<i64, db_error> {
+        let timeout_ms: u64 = data
+            .timeout
+            .as_millis()
+            .try_into()
+            .expect("Timeout too large");
         let id: i64 = self.connection.query_row(
             "INSERT INTO pending_payloads (url, payload, timeout) VALUES (?1, ?2, ?3) RETURNING id",
-            params![url, payload_bytes, timeout_ms],
+            params![data.url, data.payload_bytes, timeout_ms],
             |row| row.get(0),
         )?;
         Ok(id)
     }
 
-    pub fn get_pending_payloads(&self) -> Result<Vec<(i64, String, Arc<[u8]>, u64)>, db_error> {
+    pub fn get_pending_payloads(&self) -> Result<Vec<(i64, EventRequestData)>, db_error> {
         let mut stmt = self
             .connection
             .prepare("SELECT id, url, payload, timeout FROM pending_payloads ORDER BY id")?;
-        let payload_iter = stmt.query_and_then(
-            [],
-            |row| -> Result<(i64, String, Arc<[u8]>, u64), db_error> {
+        let payload_iter =
+            stmt.query_and_then([], |row| -> Result<(i64, EventRequestData), db_error> {
                 let id: i64 = row.get(0)?;
                 let url: String = row.get(1)?;
                 let payload_bytes: Vec<u8> = row.get(2)?;
                 let payload_bytes = Arc::<[u8]>::from(payload_bytes);
                 let timeout_ms: u64 = row.get(3)?;
-                Ok((id, url, payload_bytes, timeout_ms))
-            },
-        )?;
+                let data = EventRequestData {
+                    url,
+                    payload_bytes,
+                    timeout: Duration::from_millis(timeout_ms),
+                };
+                Ok((id, data))
+            })?;
         payload_iter.collect()
     }
 
@@ -258,7 +257,7 @@ mod test {
             .expect("Failed to get pending payloads");
         assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
         assert_eq!(
-            pending_payloads[0].2.as_ref(),
+            pending_payloads[0].1.payload_bytes.as_ref(),
             payload_str.as_bytes(),
             "Payload contents did not survive migration"
         );
@@ -272,13 +271,19 @@ mod test {
         let conn =
             EventDispatcherDbConnection::new(&db_path).expect("Failed to initialize the database");
 
-        let url = "http://example.com/api";
+        let url = "http://example.com/api".to_string();
         let payload = json!({"key": "value"});
         let timeout = Duration::from_secs(5);
         let payload_bytes = serde_json::to_vec(&payload).expect("Failed to serialize payload");
 
+        let data = EventRequestData {
+            url,
+            payload_bytes: payload_bytes.into(),
+            timeout,
+        };
+
         // Insert payload
-        let insert_result = conn.insert_payload(url, payload_bytes.as_slice(), timeout);
+        let insert_result = conn.insert_payload(&data);
         assert!(insert_result.is_ok(), "Failed to insert payload");
 
         // Get pending payloads
@@ -287,18 +292,14 @@ mod test {
             .expect("Failed to get pending payloads");
         assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
 
-        let (_id, retrieved_url, stored_bytes, timeout_ms) = &pending_payloads[0];
-        assert_eq!(retrieved_url, url, "URL does not match");
+        let (_id, retrieved_data) = &pending_payloads[0];
+        assert_eq!(retrieved_data.url, data.url, "URL does not match");
         assert_eq!(
-            stored_bytes.as_ref(),
-            payload_bytes.as_slice(),
+            retrieved_data.payload_bytes.as_ref(),
+            data.payload_bytes.as_ref(),
             "Serialized payload does not match"
         );
-        assert_eq!(
-            *timeout_ms,
-            timeout.as_millis() as u64,
-            "Timeout does not match"
-        );
+        assert_eq!(retrieved_data.timeout, timeout, "Timeout does not match");
     }
 
     #[test]
@@ -309,13 +310,19 @@ mod test {
         let conn =
             EventDispatcherDbConnection::new(&db_path).expect("Failed to initialize the database");
 
-        let url = "http://example.com/api";
+        let url = "http://example.com/api".to_string();
         let payload = json!({"key": "value"});
         let timeout = Duration::from_secs(5);
         let payload_bytes = serde_json::to_vec(&payload).expect("Failed to serialize payload");
 
+        let data = EventRequestData {
+            url,
+            payload_bytes: payload_bytes.into(),
+            timeout,
+        };
+
         // Insert payload
-        conn.insert_payload(url, payload_bytes.as_slice(), timeout)
+        conn.insert_payload(&data)
             .expect("Failed to insert payload");
 
         // Get pending payloads
@@ -324,7 +331,7 @@ mod test {
             .expect("Failed to get pending payloads");
         assert_eq!(pending_payloads.len(), 1, "Expected one pending payload");
 
-        let (id, _, _, _) = pending_payloads[0];
+        let (id, _) = pending_payloads[0];
 
         // Delete payload
         let delete_result = conn.delete_payload(id);

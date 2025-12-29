@@ -261,12 +261,18 @@ fn test_process_pending_payloads() {
         .with_status(200)
         .create();
 
-    let url = &format!("{}/api", &server.url());
+    let url = format!("{}/api", &server.url());
+
+    let data = EventRequestData {
+        url,
+        payload_bytes: payload_bytes.into(),
+        timeout,
+    };
 
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
     // Insert payload
-    conn.insert_payload(url, payload_bytes.as_slice(), timeout)
+    conn.insert_payload(&data)
         .expect("Failed to insert payload");
 
     // Process pending payloads
@@ -318,9 +324,15 @@ fn pending_payloads_are_skipped_if_url_does_not_match() {
         .create();
 
     // Use a different URL than the observer's endpoint
-    let url = "http://different-domain.com/api";
+    let url = "http://different-domain.com/api".to_string();
 
-    conn.insert_payload(url, payload_bytes.as_slice(), timeout)
+    let data = EventRequestData {
+        url,
+        payload_bytes: payload_bytes.into(),
+        timeout,
+    };
+
+    conn.insert_payload(&data)
         .expect("Failed to insert payload");
 
     dispatcher.process_pending_payloads();
