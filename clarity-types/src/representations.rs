@@ -108,7 +108,7 @@ impl StacksMessageCodec for ClarityName {
         // must encode a valid string
         let s = String::from_utf8(bytes).map_err(|_e| {
             codec_error::DeserializeError(
-                "Failed to parse Clarity name: could not contruct from utf8".to_string(),
+                "Failed to parse Clarity name: could not construct from utf8".to_string(),
             )
         })?;
 

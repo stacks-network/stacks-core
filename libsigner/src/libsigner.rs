@@ -82,7 +82,7 @@ lazy_static! {
     /// The version string for the signer
     pub static ref VERSION_STRING: String = {
         let pkg_version = option_env!("STACKS_NODE_VERSION").or(Some(STACKS_SIGNER_VERSION));
-        version_string("stacks-signer", pkg_version)
+        version_string("", pkg_version).trim().to_string()
     };
 }
 
