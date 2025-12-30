@@ -1710,6 +1710,20 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .txid;
         Some(Txid::from_bitcoin_tx_hash(parent_txid))
     }
+    /// Restart the signer at `idx` with a new supported protocol version.
+    pub fn restart_signer_with_supported_version(&mut self, idx: usize, version: u64) {
+        let mut cfg = self.stop_signer(idx);
+        cfg.supported_signer_protocol_version = version;
+        self.restart_signer(idx, cfg);
+    }
+
+    /// Restart the first `n` signers with a new supported protocol version.
+    /// Restarts in reverse index order so removals/insertions don't shift upcoming indices.
+    pub fn restart_first_n_signers_with_supported_version(&mut self, n: usize, version: u64) {
+        for idx in (0..n).rev() {
+            self.restart_signer_with_supported_version(idx, version);
+        }
+    }
 }
 
 fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(

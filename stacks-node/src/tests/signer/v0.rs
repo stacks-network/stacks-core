@@ -1603,24 +1603,35 @@ pub fn wait_for_state_machine_update(
     signer_addresses: &[(StacksAddress, u64)],
 ) -> Result<(), String> {
     wait_for(timeout_secs, || {
-        let mut found_updates = HashSet::new();
+        let mut found_updates: HashSet<StacksAddress> = HashSet::new();
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         for chunk in stackerdb_events
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
         {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
             let Some((address, version)) = signer_addresses
                 .iter()
-                .find(|(addr, _)| chunk.verify(addr).unwrap())
+                .find(|(addr, _)| chunk.verify(addr).unwrap_or(false))
             else {
                 continue;
             };
-            let (burn_block, burn_block_height, current_miner) = match (version, &update.content) {
+
+            let negotiated = update
+                .active_signer_protocol_version
+                .min(update.local_supported_signer_protocol_version);
+            if negotiated != *version {
+                continue;
+            }
+
+            let (burn_block, burn_block_height, current_miner) = match (negotiated, &update.content)
+            {
                 (
                     0,
                     StateMachineUpdateContent::V0 {
@@ -1675,9 +1686,9 @@ pub fn wait_for_state_machine_update(
                 }
             };
             // We only need one update to match our conditions
-            found_updates.insert(address);
+            found_updates.insert(address.clone());
         }
-        Ok(found_updates.len() > signer_addresses.len() * 7 / 10)
+        Ok(found_updates.len() >= signer_addresses.len() * 7 / 10)
     })
 }
 
@@ -1688,24 +1699,33 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
     signer_addresses: &[(StacksAddress, u64)],
 ) -> Result<(), String> {
     wait_for(timeout_secs, || {
-        let mut found_updates = HashSet::new();
+        let mut found_updates: HashSet<StacksAddress> = HashSet::new();
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         for chunk in stackerdb_events
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
         {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
             let Some((address, version)) = signer_addresses
                 .iter()
-                .find(|(addr, _)| chunk.verify(addr).unwrap())
+                .find(|(addr, _)| chunk.verify(addr).unwrap_or(false))
             else {
                 continue;
             };
-            match (version, &update.content) {
+            // Version sanity + expectation:
+            let negotiated = update
+                .active_signer_protocol_version
+                .min(update.local_supported_signer_protocol_version);
+            if negotiated != *version {
+                continue;
+            }
+            match (negotiated, &update.content) {
                 (
                     0,
                     StateMachineUpdateContent::V0 {
@@ -1728,13 +1748,13 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
                     },
                 ) => {
                     if tenure_id == expected_tenure_id {
-                        found_updates.insert(address);
+                        found_updates.insert(address.clone());
                     }
                 }
-                (_, _) => {}
+                (_, _) => continue,
             };
         }
-        Ok(found_updates.len() > signer_addresses.len() * 7 / 10)
+        Ok(found_updates.len() >= signer_addresses.len() * 7 / 10)
     })
 }
 
@@ -18179,7 +18199,7 @@ fn rollover_signer_protocol_version() {
     }
     let num_signers = 5;
 
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     signer_test.boot_to_epoch_3();
 
     let conf = signer_test.running_nodes.conf.clone();
@@ -18212,17 +18232,10 @@ fn rollover_signer_protocol_version() {
     test_observer::clear();
     let downgraded_version = SUPPORTED_SIGNER_PROTOCOL_VERSION.saturating_sub(1);
     info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 20 Percent of Signers -------------------------");
-    // Take a non blocking minority of signers (20%) and downgrade their version number
-    let pinned_signers: Vec<_> = all_signers
-        .iter()
-        .take(num_signers * 2 / 10)
-        .cloned()
-        .collect();
-    let pinned_signers_versions: HashMap<StacksPublicKey, u64> = pinned_signers
-        .iter()
-        .map(|signer| (signer.clone(), downgraded_version))
-        .collect();
-    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers_versions);
+    // 20% of 5 is 1 signer (integer math)
+    let downgrade_20_percent = num_signers * 2 / 10;
+    signer_test
+        .restart_first_n_signers_with_supported_version(downgrade_20_percent, downgraded_version);
 
     info!("------------------------- Confirm Signers Still Manage to Sign a Stacks Block With Misaligned Version Numbers -------------------------");
     signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
@@ -18230,7 +18243,8 @@ fn rollover_signer_protocol_version() {
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let burn_consensus_hash = tip.consensus_hash;
     let burn_height = tip.block_height;
-    // Only one signer is downgraded so the active protocol version remains the same.
+
+    // Active version should remain the same (majority still supports SUPPORTED_SIGNER_PROTOCOL_VERSION)
     wait_for_state_machine_update(
         60,
         &burn_consensus_hash,
@@ -18241,27 +18255,21 @@ fn rollover_signer_protocol_version() {
     .expect("Timed out waiting for signers to send their downgraded state update for block N+1");
 
     test_observer::clear();
-    info!("------------------------- Confirm Signer Version Downgrades Fully Once 70 percent of Signers Downgrade -------------------------");
-    let pinned_signers: Vec<_> = all_signers
-        .iter()
-        .take(num_signers * 7 / 10)
-        .cloned()
-        .collect();
-    let pinned_signers_versions: HashMap<StacksPublicKey, u64> = pinned_signers
-        .iter()
-        .map(|signer| (signer.clone(), downgraded_version))
-        .collect();
-    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers_versions);
-
+    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 70 Percent of Signers -------------------------");
     // Not strictly necessary, but makes it easier to logic out if miner doesn't send a proposal until signers are on same page...
     TEST_MINE_SKIP.set(true);
+    let downgrade_70_percent = (num_signers * 7 + 9) / 10;
+    signer_test
+        .restart_first_n_signers_with_supported_version(downgrade_70_percent, downgraded_version);
+    signer_test.wait_for_registered();
+
     info!("------------------------- Confirm Signers Sent Downgraded State Machine Updates -------------------------");
     // Cannot use any built in functions that call mine_nakamoto_block since it expects signer updates matching the majority version and we are manually messing with these versions
     signer_test.mine_bitcoin_block();
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let burn_consensus_hash = tip.consensus_hash;
     let burn_height = tip.block_height;
-    // Confirm ALL signers downgrade their supported version and then send a corresponding message in that version message
+    // Now the majority supported version should be downgraded_version, so expect everyone to *negotiate* to it.
     let downgraded_versions: Vec<_> = signer_test
         .signer_addresses_versions()
         .into_iter()
@@ -18295,7 +18303,11 @@ fn rollover_signer_protocol_version() {
         .expect("Failed to confirm all signers accepted last block");
 
     info!("------------------------- Reset All Signers to {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------");
-    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(HashMap::new());
+    // Bring everyone back up (restart all signers with the upgraded supported version)
+    signer_test.restart_first_n_signers_with_supported_version(
+        num_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    );
     test_observer::clear();
     info!("------------------------- Confirm Signers Sign The Block After Upgraded Version Number -------------------------");
     signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);

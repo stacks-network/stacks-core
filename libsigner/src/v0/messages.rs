@@ -614,24 +614,55 @@ pub enum StateMachineUpdateMinerState {
     /// The signer doesn't believe there's any valid miner
     NoValidMiner,
 }
-
 impl StateMachineUpdate {
-    /// Construct a StateMachineUpdate message, checking to ensure that the
-    /// supplied content is supported by the supplied protocol versions.
+    /// Create a `StateMachineUpdate` for **outbound** messages.
+    ///
+    /// The content version **must exactly match** the negotiated protocol version:
+    /// `min(active_signer_protocol_version, local_supported_signer_protocol_version)`.
+    ///
+    /// This ensures the message we send conforms strictly to what both sides have agreed upon.
     pub fn new(
         active_signer_protocol_version: u64,
         local_supported_signer_protocol_version: u64,
         content: StateMachineUpdateContent,
     ) -> Result<Self, CodecError> {
-        let version = content.version();
-        // The content version MUST be exactly the expected one:
-        // If local supports at least the active version, use active version
-        // Otherwise, use local supported version
-        let expected_version =
+        let negotiated =
             active_signer_protocol_version.min(local_supported_signer_protocol_version);
-        if version != expected_version {
+        let version = content.version();
+
+        if version != negotiated {
             return Err(CodecError::DeserializeError(format!(
-                "Content version {version} does not match expected protocol version {expected_version} (active={active_signer_protocol_version}, supported={local_supported_signer_protocol_version})"
+                "Outbound content version {version} does not match negotiated protocol version {negotiated} \
+                 (active={active_signer_protocol_version}, local_supported={local_supported_signer_protocol_version})"
+            )));
+        }
+
+        Ok(Self {
+            active_signer_protocol_version,
+            local_supported_signer_protocol_version,
+            content,
+            no_manual_construct: PhantomData,
+        })
+    }
+
+    /// Create a `StateMachineUpdate` for **inbound** messages.
+    ///
+    /// The content version must be **less than or equal to** the negotiated protocol version
+    /// (`min(active_signer_protocol_version, local_supported_signer_protocol_version)`).
+    /// Older versions are explicitly allowed for backward compatibility.
+    fn new_inbound(
+        active_signer_protocol_version: u64,
+        local_supported_signer_protocol_version: u64,
+        content: StateMachineUpdateContent,
+    ) -> Result<Self, CodecError> {
+        let negotiated =
+            active_signer_protocol_version.min(local_supported_signer_protocol_version);
+        let version = content.version();
+
+        if content.version() > negotiated {
+            return Err(CodecError::DeserializeError(format!(
+                "Inbound content version {version} exceeds negotiated protocol version {negotiated} \
+                 (active={active_signer_protocol_version}, local_supported={local_supported_signer_protocol_version})"
             )));
         }
 
@@ -734,7 +765,8 @@ impl StateMachineUpdateContent {
         Ok(content)
     }
 
-    fn version(&self) -> u64 {
+    /// Get the underlying version of the state machine update content
+    pub fn version(&self) -> u64 {
         match self {
             Self::V0 { .. } => 0,
             Self::V1 { .. } => 1,
@@ -873,8 +905,8 @@ impl StacksMessageCodec for StateMachineUpdate {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let active_signer_protocol_version = read_next(fd)?;
-        let local_supported_signer_protocol_version = read_next(fd)?;
+        let active_signer_protocol_version: u64 = read_next(fd)?;
+        let local_supported_signer_protocol_version: u64 = read_next(fd)?;
         let content_len: u32 = read_next(fd)?;
         if content_len > STATE_MACHINE_UPDATE_MAX_SIZE {
             return Err(CodecError::DeserializeError(format!(
@@ -885,12 +917,12 @@ impl StacksMessageCodec for StateMachineUpdate {
             .expect("FATAL: cannot process signer messages when usize < u32");
         let mut buffer = vec![0u8; buffer_len];
         fd.read_exact(&mut buffer).map_err(CodecError::ReadError)?;
-        let content = StateMachineUpdateContent::deserialize(
-            &mut buffer.as_slice(),
-            active_signer_protocol_version,
-        )?;
+        let negotiated =
+            active_signer_protocol_version.min(local_supported_signer_protocol_version);
+        let content = StateMachineUpdateContent::deserialize(&mut buffer.as_slice(), negotiated)?;
 
-        Self::new(
+        // We use the inbound constructor here as we need to allow for older versions
+        Self::new_inbound(
             active_signer_protocol_version,
             local_supported_signer_protocol_version,
             content,
@@ -2488,6 +2520,42 @@ mod test {
         assert!(matches!(error, CodecError::DeserializeError(_)));
         // the content version is equal to the min of the active/local versions
         assert!(StateMachineUpdate::new(1, 2, content.clone()).is_ok())
+    }
+
+    #[test]
+    fn version_check_state_machine_update_inbound() {
+        let content_v1 = StateMachineUpdateContent::V1 {
+            burn_block: ConsensusHash([0x55; 20]),
+            burn_block_height: 100,
+            current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                current_miner_pkh: Hash160([0xab; 20]),
+                tenure_id: ConsensusHash([0x44; 20]),
+                parent_tenure_id: ConsensusHash([0x22; 20]),
+                parent_tenure_last_block: StacksBlockId([0x33; 32]),
+                parent_tenure_last_block_height: 1,
+            },
+            replay_transactions: vec![],
+        };
+
+        // Inbound: content version exceeds negotiated version → should reject
+
+        // Case 1: Content version (1) > negotiated (0) → reject
+        let error = StateMachineUpdate::new_inbound(0, 1, content_v1.clone()).unwrap_err();
+        assert!(matches!(error, CodecError::DeserializeError(_)));
+
+        // Case 2: Content version (1) > negotiated (0) → reject (swapped active/local)
+        let error = StateMachineUpdate::new_inbound(1, 0, content_v1.clone()).unwrap_err();
+        assert!(matches!(error, CodecError::DeserializeError(_)));
+
+        // Case 3: Content version (1) == negotiated (1) → accept
+        assert!(StateMachineUpdate::new_inbound(1, 1, content_v1.clone()).is_ok());
+        assert!(StateMachineUpdate::new_inbound(1, 2, content_v1.clone()).is_ok());
+        assert!(StateMachineUpdate::new_inbound(3, 1, content_v1.clone()).is_ok());
+
+        // Case 4: Content version (1) < negotiated (2) → accept (backward compatibility)
+        assert!(StateMachineUpdate::new_inbound(2, 2, content_v1.clone()).is_ok());
+        assert!(StateMachineUpdate::new_inbound(2, 5, content_v1.clone()).is_ok());
+        assert!(StateMachineUpdate::new_inbound(10, 10, content_v1.clone()).is_ok());
     }
 
     #[test]
