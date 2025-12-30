@@ -566,7 +566,7 @@ fn test_value_expect_result_returns_clarity_type_error() {
 
 #[rstest]
 #[case::not_a_response(Value::none(), ClarityTypeError::TypeMismatchValue(Box::new(TypeSignature::ResponseType(Box::new((TypeSignature::NoType, TypeSignature::NoType)))), Box::new(Value::none())))]
-#[case::not_an_ok_response(Value::error(Value::Int(1)).unwrap(), ClarityTypeError::ResponseTypeMismatch { expected_ok: true, data_committed: false })]
+#[case::not_an_ok_response(Value::error(Value::Int(1)).unwrap(), ClarityTypeError::ResponseTypeMismatch { expected_ok: true})]
 fn test_value_expect_result_ok_returns_clarity_type_error(
     #[case] value: Value,
     #[case] expected_err: ClarityTypeError,
@@ -577,7 +577,7 @@ fn test_value_expect_result_ok_returns_clarity_type_error(
 
 #[rstest]
 #[case::not_a_response(Value::none(), ClarityTypeError::TypeMismatchValue(Box::new(TypeSignature::ResponseType(Box::new((TypeSignature::NoType, TypeSignature::NoType)))), Box::new(Value::none())))]
-#[case::not_an_err_response(Value::okay_true(), ClarityTypeError::ResponseTypeMismatch { expected_ok: false, data_committed: true })]
+#[case::not_an_err_response(Value::okay_true(), ClarityTypeError::ResponseTypeMismatch { expected_ok: false })]
 fn test_value_expect_result_err_returns_clarity_type_error(
     #[case] value: Value,
     #[case] expected_err: ClarityTypeError,

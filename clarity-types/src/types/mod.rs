@@ -91,12 +91,10 @@ pub enum ClarityTypeError {
     /// Expected type does not match the actual type during analysis.
     /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
     TypeMismatch(Box<TypeSignature>, Box<TypeSignature>),
-    /// Expected an different response type
+    /// Expected a different response type
     ResponseTypeMismatch {
         /// Whether the response type should be an `Ok` response
         expected_ok: bool,
-        /// Whether the response data was committed or not
-        data_committed: bool,
     },
     /// Invalid contract name.
     /// The `String` represents the offending value.
@@ -110,7 +108,6 @@ pub enum ClarityTypeError {
     /// Empty tuple is not allowed in Clarity.
     EmptyTuplesNotAllowed,
     /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
-    /// This error indicates a transaction would invalidate a block if included.
     SupertypeTooLarge,
     /// Type description is invalid or malformed, preventing proper type-checking.
     InvalidTypeDescription,
@@ -174,12 +171,9 @@ impl DiagnosableError for ClarityTypeError {
             Self::TypeMismatch(expected_type, found_type) => {
                 format!("expecting expression of type '{expected_type}', found '{found_type}'")
             }
-            Self::ResponseTypeMismatch {
-                expected_ok,
-                data_committed,
-            } => format!(
-                "expected ok response `{expected_ok}`, found data committed `{data_committed}`"
-            ),
+            Self::ResponseTypeMismatch { expected_ok } => {
+                format!("expected ok response `{expected_ok}`")
+            }
             Self::InvalidClarityName(value) => format!("invalid clarity name `{value}`"),
             Self::InvalidContractName(value) => format!("invalid contract name `{value}`"),
             Self::InvalidUrlString(value) => format!("invalid URL string `{value}`"),
@@ -1285,7 +1279,8 @@ impl Value {
         }
     }
 
-    /// TODO: from this comment. For code reviewers. This is only called in tests and immediately unwrwapped.
+    /// TODO: from this comment. For code reviewers. This is only called in tests and/or immediately unwrapped
+    /// (see calls in pox-locking/src/pox_*).
     /// Therefore, its returned value is not currently important.
     pub fn expect_i128(self) -> Result<i128, ClarityTypeError> {
         if let Value::Int(inner) = self {
@@ -1343,7 +1338,8 @@ impl Value {
         Ok(data)
     }
 
-    /// TODO: remove this comment. For code reviwers: this is only ever called in tests and immediately unwrapped
+    /// TODO: remove this comment. For code reviwers: this is only ever called in tests and/or immediately unwrapped
+    /// (only non test call is its use in is_pox_active)
     pub fn expect_bool(self) -> Result<bool, ClarityTypeError> {
         if let Value::Bool(b) = self {
             Ok(b)
@@ -1397,7 +1393,7 @@ impl Value {
         }
     }
 
-    /// TODO: remove this comment. For reviwers: this is only called in tests and immediately unwrapped
+    #[cfg(any(test, feature = "testing"))]
     pub fn expect_callable(self) -> Result<CallableData, ClarityTypeError> {
         if let Value::CallableContract(t) = self {
             Ok(t)
@@ -1437,10 +1433,7 @@ impl Value {
                 Ok(*res_data.data)
             } else {
                 error!("Value is not a (ok ..)");
-                Err(ClarityTypeError::ResponseTypeMismatch {
-                    expected_ok: true,
-                    data_committed: false,
-                })
+                Err(ClarityTypeError::ResponseTypeMismatch { expected_ok: true })
             }
         } else {
             error!("Value '{self:?}' is not a response");
@@ -1454,17 +1447,14 @@ impl Value {
         }
     }
 
-    /// TODO: remove this comment. For reviewers: only ever called in tests and immediately unwrapped
+    #[cfg(any(test, feature = "testing"))]
     pub fn expect_result_err(self) -> Result<Value, ClarityTypeError> {
         if let Value::Response(res_data) = self.clone() {
             if !res_data.committed {
                 Ok(*res_data.data)
             } else {
                 error!("Value is not a (err ..)");
-                Err(ClarityTypeError::ResponseTypeMismatch {
-                    expected_ok: false,
-                    data_committed: true,
-                })
+                Err(ClarityTypeError::ResponseTypeMismatch { expected_ok: false })
             }
         } else {
             error!("Value '{self:?}' is not a response");
@@ -1524,7 +1514,7 @@ impl ListData {
         self.data.is_empty()
     }
 
-    pub fn append(
+    fn append(
         &mut self,
         epoch: &StacksEpochId,
         other_seq: ListData,

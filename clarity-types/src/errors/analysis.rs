@@ -194,12 +194,10 @@ pub enum CommonCheckErrorKind {
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
     ExpectedName,
     /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
-    /// This error indicates a transaction would invalidate a block if included.
     SupertypeTooLarge,
 
     // Unexpected interpreter behavior
     /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    /// This error indicates a transaction would invalidate a block if included.
     ExpectsRejectable(String),
     // Unexpected interpreter behavior
     /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
@@ -291,12 +289,10 @@ pub enum StaticCheckErrorKind {
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
     ExpectedName,
     /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
-    /// This error indicates a transaction would invalidate a block if included.
     SupertypeTooLarge,
 
     // Unexpected interpreter behavior
     /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    /// This error indicates a transaction would invalidate a block if included.
     ExpectsRejectable(String),
     // Unexpected interpreter behavior
     /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
@@ -608,16 +604,12 @@ pub enum CheckErrorKind {
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
     ExpectedName,
     /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
-    /// This error indicates a transaction would invalidate a block if included.
     SupertypeTooLarge,
 
     // Unexpected interpreter behavior
-    /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    /// This error indicates a transaction would invalidate a block if included.
+    /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
     ExpectsRejectable(String),
-    // Unexpected interpreter behavior
-    /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    /// This error does NOT indicate a transaction would invalidate a block if included.
+    /// Unexpected condition or failure in the type-checker, indicating a noncatastrophic bug or invalid state.
     ExpectsAcceptable(String),
 
     // Match expression errors
@@ -771,8 +763,10 @@ pub enum CheckErrorKind {
     NonFunctionApplication,
     /// Expected a list application but found a different expression.
     ExpectedListApplication,
-    /// Expected a sequence type (e.g., list, buffer) but found a different type.
-    /// The `Box<TypeSignature>` wraps the actual type provided if we know it.
+    /// Expected a sequence type (e.g., list, buffer) but encountered a non-sequence value.
+    ///
+    /// The boxed [`TypeSignature`] represents the **actual type provided**, if known.
+    /// If the type could not be determined, this will be [`TypeSignature::NoType`].
     ExpectedSequence(Box<TypeSignature>),
 
     // Let syntax
