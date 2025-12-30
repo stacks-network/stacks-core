@@ -415,6 +415,17 @@ impl TriePtr {
         }
     }
 
+    /// Create a back-pointer version of a [`TriePtr`]
+    #[cfg(test)]
+    pub fn new_backptr(id: u8, chr: u8, ptr: u32, back_block: u32) -> TriePtr {
+        TriePtr {
+            id: set_backptr(id),
+            chr,
+            ptr,
+            back_block,
+        }
+    }
+
     #[inline]
     pub fn id(&self) -> u8 {
         self.id
@@ -563,7 +574,15 @@ impl TriePtr {
     /// Size of this TriePtr on disk, if compression is to be used.
     #[inline]
     pub fn compressed_size(&self) -> usize {
-        if !is_backptr(self.id) {
+        Self::compressed_size_for_id(self.id)
+    }
+
+    /// Returns the size, in bytes, that a node occupies on disk, taking compression into account.
+    /// In this case, non-backpointer nodes use a smaller size (`TRIEPTR_SIZE_COMPRESSED`),
+    /// while backpointer nodes use the full size (`TRIEPTR_SIZE`).
+    #[inline]
+    pub fn compressed_size_for_id(node_id: u8) -> usize {
+        if !is_backptr(node_id) {
             TRIEPTR_SIZE_COMPRESSED
         } else {
             TRIEPTR_SIZE

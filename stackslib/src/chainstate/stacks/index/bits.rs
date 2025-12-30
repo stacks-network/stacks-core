@@ -360,11 +360,19 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
                 } else {
                     trace!(
                         "read sparse ptr {} at {}",
-                        &to_hex(
-                            &ptr_bytes
-                                .get(cursor..(cursor + TRIEPTR_SIZE).min(ptr_bytes.len()))
-                                .unwrap_or(&[])
-                        ),
+                        {
+                            // Compute the `end` offset of the sparse ptr data slice.
+                            // Fallbacks to `cursor` or clamp to `buffer len` so trace logging never panics.
+                            let cursor_end = ptr_bytes
+                                .get(cursor)
+                                .copied()
+                                .map(|ptr_id| cursor + TriePtr::compressed_size_for_id(ptr_id))
+                                .unwrap_or(cursor)
+                                .min(ptr_bytes.len());
+                            ptr_bytes
+                                .get(cursor..cursor_end)
+                                .map_or_else(String::new, to_hex)
+                        },
                         cursor
                     );
                     *next_ptrs_buf =

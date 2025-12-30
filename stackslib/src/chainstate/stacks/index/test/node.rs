@@ -5163,3 +5163,27 @@ fn trie_node_patch_deserialize_ok_with_ptr_diffs_len_1() {
     };
     assert_eq!(expected, patch_node);
 }
+
+#[test]
+fn trie_ptr_compressed_size_for_id() {
+    let normal_node_id = TrieNodeID::Node4 as u8;
+    assert_eq!(
+        TRIEPTR_SIZE_COMPRESSED,
+        TriePtr::compressed_size_for_id(normal_node_id)
+    );
+
+    let backptr_node_id = set_backptr(normal_node_id);
+    assert_eq!(
+        TRIEPTR_SIZE,
+        TriePtr::compressed_size_for_id(backptr_node_id)
+    );
+}
+
+#[test]
+fn trie_ptr_compressed_size() {
+    let normal_node = TriePtr::new(TrieNodeID::Node4 as u8, 0x00, 0);
+    assert_eq!(TRIEPTR_SIZE_COMPRESSED, normal_node.compressed_size());
+
+    let backptr_node = TriePtr::new_backptr(TrieNodeID::Node4 as u8, 0x00, 0, 1);
+    assert_eq!(TRIEPTR_SIZE, backptr_node.compressed_size());
+}
