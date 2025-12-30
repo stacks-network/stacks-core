@@ -183,9 +183,11 @@ fn write_ptrs_to_bytes_compressed<W: Write>(
         // write out non-empty ptrs
         for ptr in ptrs.iter() {
             if ptr.id() != TrieNodeID::Empty as u8 {
-                let mut byte_buffer = vec![];
-                ptr.write_bytes_compressed(&mut byte_buffer)?;
-                trace!("write sparse ptr {}", &to_hex(&byte_buffer));
+                trace!("write sparse ptr {}", {
+                    let mut byte_buffer = vec![];
+                    _ = ptr.write_bytes_compressed(&mut byte_buffer);
+                    to_hex(&byte_buffer)
+                });
                 ptr.write_bytes_compressed(w)?;
             }
         }
