@@ -59,123 +59,123 @@ fn variant_coverage_report(variant: StaticAnalysisError) {
 
     _ = match variant {
         CostOverflow => Unreachable_ExpectLike, // Should exceed u64
-        CostBalanceExceeded(execution_cost, execution_cost1) => Tested(vec![static_check_error_cost_balance_exceeded]),
-        MemoryBalanceExceeded(_, _) => Tested(vec![static_check_error_memory_balance_exceeded]),
+        CostBalanceExceeded(execution_cost, execution_cost1) => Tested(vec![static_analysis_error_cost_balance_exceeded]),
+        MemoryBalanceExceeded(_, _) => Tested(vec![static_analysis_error_memory_balance_exceeded]),
         CostComputationFailed(_) => Unreachable_ExpectLike,
         ExecutionTimeExpired => Unreachable_Functionally("Can only be triggered at runtime."),
-        ValueTooLarge => Tested(vec![static_check_error_value_too_large]),
-        ValueOutOfBounds => Tested(vec![static_check_error_value_out_of_bounds]),
-        TypeSignatureTooDeep => Tested(vec![static_check_error_type_signature_too_deep]),
-        ExpectedName => Tested(vec![static_check_error_expected_name]),
-        SupertypeTooLarge => Tested(vec![static_check_error_supertype_too_large]),
+        ValueTooLarge => Tested(vec![static_analysis_error_value_too_large]),
+        ValueOutOfBounds => Tested(vec![static_analysis_error_value_out_of_bounds]),
+        TypeSignatureTooDeep => Tested(vec![static_analysis_error_type_signature_too_deep]),
+        ExpectedName => Tested(vec![static_analysis_error_expected_name]),
+        SupertypeTooLarge => Tested(vec![static_analysis_error_supertype_too_large]),
         Expects(_) => Unreachable_ExpectLike,
-        BadMatchOptionSyntax(static_check_error_kind) => {
-            Tested(vec![static_check_error_bad_match_option_syntax])
+        BadMatchOptionSyntax(static_analysis_error_kind) => {
+            Tested(vec![static_analysis_error_bad_match_option_syntax])
         }
-        BadMatchResponseSyntax(static_check_error_kind) => {
-            Tested(vec![static_check_error_bad_match_response_syntax])
+        BadMatchResponseSyntax(static_analysis_error_kind) => {
+            Tested(vec![static_analysis_error_bad_match_response_syntax])
         }
-        BadMatchInput(type_signature) => Tested(vec![static_check_error_bad_match_input]),
-        ConstructedListTooLarge => Tested(vec![static_check_error_constructed_list_too_large]),
-        TypeError(type_signature, type_signature1) => Tested(vec![static_check_error_type_error]),
-        InvalidTypeDescription => Tested(vec![static_check_error_invalid_type_description]),
-        UnknownTypeName(_) => Tested(vec![static_check_error_unknown_type_name]),
+        BadMatchInput(type_signature) => Tested(vec![static_analysis_error_bad_match_input]),
+        ConstructedListTooLarge => Tested(vec![static_analysis_error_constructed_list_too_large]),
+        TypeError(type_signature, type_signature1) => Tested(vec![static_analysis_error_type_error]),
+        InvalidTypeDescription => Tested(vec![static_analysis_error_invalid_type_description]),
+        UnknownTypeName(_) => Tested(vec![static_analysis_error_unknown_type_name]),
         UnionTypeError(type_signatures, type_signature) => {
-            Tested(vec![static_check_error_union_type_error])
+            Tested(vec![static_analysis_error_union_type_error])
         }
         ExpectedOptionalType(type_signature) => {
-            Tested(vec![static_check_error_expected_optional_type])
+            Tested(vec![static_analysis_error_expected_optional_type])
         }
         ExpectedResponseType(type_signature) => {
-            Tested(vec![static_check_error_expected_response_type])
+            Tested(vec![static_analysis_error_expected_response_type])
         }
         ExpectedOptionalOrResponseType(type_signature) => {
-            Tested(vec![static_check_error_expected_optional_or_response_type])
+            Tested(vec![static_analysis_error_expected_optional_or_response_type])
         }
         CouldNotDetermineResponseOkType => Tested(vec![
-            static_check_error_could_not_determine_response_ok_type,
+            static_analysis_error_could_not_determine_response_ok_type,
         ]),
         CouldNotDetermineResponseErrType => Tested(vec![
-            static_check_error_could_not_determine_response_err_type,
+            static_analysis_error_could_not_determine_response_err_type,
         ]),
         CouldNotDetermineSerializationType => Tested(vec![
-            static_check_error_could_not_determine_serialization_type,
+            static_analysis_error_could_not_determine_serialization_type,
         ]),
-        UncheckedIntermediaryResponses => Tested(vec![static_check_error_unchecked_intermediary_responses]),
-        CouldNotDetermineMatchTypes => Tested(vec![static_check_error_could_not_determine_match_types]),
-        CouldNotDetermineType => Tested(vec![static_check_error_could_not_determine_type]),
+        UncheckedIntermediaryResponses => Tested(vec![static_analysis_error_unchecked_intermediary_responses]),
+        CouldNotDetermineMatchTypes => Tested(vec![static_analysis_error_could_not_determine_match_types]),
+        CouldNotDetermineType => Tested(vec![static_analysis_error_could_not_determine_type]),
         TypeAlreadyAnnotatedFailure => Unreachable_Functionally("The AST assigner gives each node a unique `id`, and the type checker visits each node exactly once, so duplicate annotations cannot occur."),
         CheckerImplementationFailure => Unreachable_ExpectLike,
-        BadTokenName => Tested(vec![static_check_error_bad_token_name]),
-        DefineNFTBadSignature => Tested(vec![static_check_error_define_nft_bad_signature]),
-        NoSuchNFT(_) => Tested(vec![static_check_error_no_such_nft]),
-        NoSuchFT(_) => Tested(vec![static_check_error_no_such_ft]),
-        BadTupleFieldName => Tested(vec![static_check_error_bad_tuple_field_name]),
-        ExpectedTuple(type_signature) => Tested(vec![static_check_error_expected_tuple]),
-        NoSuchTupleField(_, tuple_type_signature) => Tested(vec![static_check_error_no_such_tuple_field]),
-        EmptyTuplesNotAllowed => Tested(vec![static_check_error_empty_tuples_not_allowed]),
-        BadTupleConstruction(_) => Tested(vec![static_check_error_bad_tuple_construction]),
-        NoSuchDataVariable(_) => Tested(vec![static_check_error_no_such_data_variable]),
-        BadMapName => Tested(vec![static_check_error_bad_map_name]),
-        NoSuchMap(_) => Tested(vec![static_check_error_no_such_map]),
-        DefineFunctionBadSignature => Tested(vec![static_check_error_define_function_bad_signature]),
-        BadFunctionName => Tested(vec![static_check_error_bad_function_name]),
-        BadMapTypeDefinition => Tested(vec![static_check_error_bad_map_type_definition]),
-        PublicFunctionMustReturnResponse(type_signature) => Tested(vec![static_check_error_public_function_must_return_response]),
-        DefineVariableBadSignature => Tested(vec![static_check_error_define_variable_bad_signature]),
-        ReturnTypesMustMatch(type_signature, type_signature1) => Tested(vec![static_check_error_return_types_must_match]),
-        NoSuchContract(_) => Tested(vec![static_check_error_no_such_contract]),
-        NoSuchPublicFunction(_, _) => Tested(vec![static_check_error_no_such_public_function]),
+        BadTokenName => Tested(vec![static_analysis_error_bad_token_name]),
+        DefineNFTBadSignature => Tested(vec![static_analysis_error_define_nft_bad_signature]),
+        NoSuchNFT(_) => Tested(vec![static_analysis_error_no_such_nft]),
+        NoSuchFT(_) => Tested(vec![static_analysis_error_no_such_ft]),
+        BadTupleFieldName => Tested(vec![static_analysis_error_bad_tuple_field_name]),
+        ExpectedTuple(type_signature) => Tested(vec![static_analysis_error_expected_tuple]),
+        NoSuchTupleField(_, tuple_type_signature) => Tested(vec![static_analysis_error_no_such_tuple_field]),
+        EmptyTuplesNotAllowed => Tested(vec![static_analysis_error_empty_tuples_not_allowed]),
+        BadTupleConstruction(_) => Tested(vec![static_analysis_error_bad_tuple_construction]),
+        NoSuchDataVariable(_) => Tested(vec![static_analysis_error_no_such_data_variable]),
+        BadMapName => Tested(vec![static_analysis_error_bad_map_name]),
+        NoSuchMap(_) => Tested(vec![static_analysis_error_no_such_map]),
+        DefineFunctionBadSignature => Tested(vec![static_analysis_error_define_function_bad_signature]),
+        BadFunctionName => Tested(vec![static_analysis_error_bad_function_name]),
+        BadMapTypeDefinition => Tested(vec![static_analysis_error_bad_map_type_definition]),
+        PublicFunctionMustReturnResponse(type_signature) => Tested(vec![static_analysis_error_public_function_must_return_response]),
+        DefineVariableBadSignature => Tested(vec![static_analysis_error_define_variable_bad_signature]),
+        ReturnTypesMustMatch(type_signature, type_signature1) => Tested(vec![static_analysis_error_return_types_must_match]),
+        NoSuchContract(_) => Tested(vec![static_analysis_error_no_such_contract]),
+        NoSuchPublicFunction(_, _) => Tested(vec![static_analysis_error_no_such_public_function]),
         ContractAlreadyExists(_) => Unreachable_Functionally("During normal operations, `StacksChainState::process_transaction_payload` will check if the contract exists already, invalidating the block before executing analysis. see `error_invalid_stacks_transaction_duplicate_contract`"),
-        ContractCallExpectName => Tested(vec![static_check_error_contract_call_expect_name]),
-        ExpectedCallableType(type_signature) => Tested(vec![static_check_error_expected_callable_type]),
-        NoSuchBlockInfoProperty(_) => Tested(vec![static_check_error_no_such_block_info_property]),
-        NoSuchStacksBlockInfoProperty(_) => Tested(vec![static_check_error_no_such_stacks_block_info_property]),
-        NoSuchTenureInfoProperty(_) => Tested(vec![static_check_error_no_such_tenure_info_property]),
-        GetBlockInfoExpectPropertyName => Tested(vec![static_check_error_get_block_info_expect_property_name]),
-        GetBurnBlockInfoExpectPropertyName => Tested(vec![static_check_error_get_burn_block_info_expect_property_name]),
-        GetStacksBlockInfoExpectPropertyName => Tested(vec![static_check_error_get_stacks_block_info_expect_property_name]),
-        GetTenureInfoExpectPropertyName => Tested(vec![static_check_error_get_tenure_info_expect_property_name]),
-        NameAlreadyUsed(_) => Tested(vec![static_check_error_name_already_used]),
-        ReservedWord(_) => Tested(vec![static_check_error_reserved_word]),
-        NonFunctionApplication => Tested(vec![static_check_error_non_function_application]),
-        ExpectedListApplication => Tested(vec![static_check_error_expected_list_application]),
-        ExpectedSequence(type_signature) => Tested(vec![static_check_error_expected_sequence]),
+        ContractCallExpectName => Tested(vec![static_analysis_error_contract_call_expect_name]),
+        ExpectedCallableType(type_signature) => Tested(vec![static_analysis_error_expected_callable_type]),
+        NoSuchBlockInfoProperty(_) => Tested(vec![static_analysis_error_no_such_block_info_property]),
+        NoSuchStacksBlockInfoProperty(_) => Tested(vec![static_analysis_error_no_such_stacks_block_info_property]),
+        NoSuchTenureInfoProperty(_) => Tested(vec![static_analysis_error_no_such_tenure_info_property]),
+        GetBlockInfoExpectPropertyName => Tested(vec![static_analysis_error_get_block_info_expect_property_name]),
+        GetBurnBlockInfoExpectPropertyName => Tested(vec![static_analysis_error_get_burn_block_info_expect_property_name]),
+        GetStacksBlockInfoExpectPropertyName => Tested(vec![static_analysis_error_get_stacks_block_info_expect_property_name]),
+        GetTenureInfoExpectPropertyName => Tested(vec![static_analysis_error_get_tenure_info_expect_property_name]),
+        NameAlreadyUsed(_) => Tested(vec![static_analysis_error_name_already_used]),
+        ReservedWord(_) => Tested(vec![static_analysis_error_reserved_word]),
+        NonFunctionApplication => Tested(vec![static_analysis_error_non_function_application]),
+        ExpectedListApplication => Tested(vec![static_analysis_error_expected_list_application]),
+        ExpectedSequence(type_signature) => Tested(vec![static_analysis_error_expected_sequence]),
         MaxLengthOverflow => Unreachable_ExpectLike,  // Should exceed u32 elements in memory.
-        BadLetSyntax => Tested(vec![static_check_error_bad_let_syntax]),
-        BadSyntaxBinding(syntax_binding_error) => Tested(vec![static_check_error_bad_syntax_binding]),
+        BadLetSyntax => Tested(vec![static_analysis_error_bad_let_syntax]),
+        BadSyntaxBinding(syntax_binding_error) => Tested(vec![static_analysis_error_bad_syntax_binding]),
         MaxContextDepthReached => Unreachable_Functionally("Before type checking runs, the parser enforces an AST nesting limit of (5 + 64). Any contract exceeding depth 69 fails with `ParseErrorKind::ExpressionStackDepthTooDeep`"),
-        UndefinedVariable(_) => Tested(vec![static_check_error_undefined_variable]),
-        RequiresAtLeastArguments(_, _) => Tested(vec![static_check_error_requires_at_least_arguments]),
-        RequiresAtMostArguments(_, _) => Tested(vec![static_check_error_requires_at_most_arguments]),
-        IncorrectArgumentCount(_, _) => Tested(vec![static_check_error_incorrect_argument_count]),
-        IfArmsMustMatch(type_signature, type_signature1) => Tested(vec![static_check_error_if_arms_must_match]),
-        MatchArmsMustMatch(type_signature, type_signature1) => Tested(vec![static_check_error_match_arms_must_match]),
-        DefaultTypesMustMatch(type_signature, type_signature1) => Tested(vec![static_check_error_default_types_must_match]),
-        IllegalOrUnknownFunctionApplication(_) => Tested(vec![static_check_error_illegal_or_unknown_function_application]),
-        UnknownFunction(_) => Tested(vec![static_check_error_unknown_function]),
-        TooManyFunctionParameters(_, _) => Tested(vec![static_check_error_too_many_function_parameters]),
+        UndefinedVariable(_) => Tested(vec![static_analysis_error_undefined_variable]),
+        RequiresAtLeastArguments(_, _) => Tested(vec![static_analysis_error_requires_at_least_arguments]),
+        RequiresAtMostArguments(_, _) => Tested(vec![static_analysis_error_requires_at_most_arguments]),
+        IncorrectArgumentCount(_, _) => Tested(vec![static_analysis_error_incorrect_argument_count]),
+        IfArmsMustMatch(type_signature, type_signature1) => Tested(vec![static_analysis_error_if_arms_must_match]),
+        MatchArmsMustMatch(type_signature, type_signature1) => Tested(vec![static_analysis_error_match_arms_must_match]),
+        DefaultTypesMustMatch(type_signature, type_signature1) => Tested(vec![static_analysis_error_default_types_must_match]),
+        IllegalOrUnknownFunctionApplication(_) => Tested(vec![static_analysis_error_illegal_or_unknown_function_application]),
+        UnknownFunction(_) => Tested(vec![static_analysis_error_unknown_function]),
+        TooManyFunctionParameters(_, _) => Tested(vec![static_analysis_error_too_many_function_parameters]),
         NoSuchTrait(_, _) => Unreachable_Functionally("Trait identifiers are validated by the parser and TraitsResolver before type checking; invalid or missing traits trigger TraitReferenceUnknown earlier, so this error is never returned."),
-        TraitReferenceUnknown(_) => Tested(vec![static_check_error_trait_reference_unknown]),
-        TraitMethodUnknown(_, _) => Tested(vec![static_check_error_trait_method_unknown]),
+        TraitReferenceUnknown(_) => Tested(vec![static_analysis_error_trait_reference_unknown]),
+        TraitMethodUnknown(_, _) => Tested(vec![static_analysis_error_trait_method_unknown]),
         ExpectedTraitIdentifier => Unreachable_Functionally("`use-trait` or `impl-trait` with an invalid second argument fails in the AST stage, raising ParseErrorKind::ImportTraitBadSignature/ImplTraitBadSignature before static checks run."),
-        BadTraitImplementation(_, _) => Tested(vec![static_check_error_bad_trait_implementation]),
-        DefineTraitBadSignature => Tested(vec![static_check_error_define_trait_bad_signature]),
-        DefineTraitDuplicateMethod(_) => Tested(vec![static_check_error_define_trait_duplicate_method]),
-        UnexpectedTraitOrFieldReference => Tested(vec![static_check_error_unexpected_trait_or_field_reference]),
-        ContractOfExpectsTrait => Tested(vec![static_check_error_contract_of_expects_trait]),
-        IncompatibleTrait(trait_identifier, trait_identifier1) => Tested(vec![static_check_error_incompatible_trait]),
-        TraitTooManyMethods(_, _) => Tested(vec![static_check_error_trait_too_many_methods]),
-        WriteAttemptedInReadOnly => Tested(vec![static_check_error_write_attempted_in_read_only]),
-        AtBlockClosureMustBeReadOnly => Tested(vec![static_check_error_at_block_closure_must_be_read_only]),
-        ExpectedListOfAllowances(_, _) => Tested(vec![static_check_error_expected_list_of_allowances]),
-        AllowanceExprNotAllowed => Tested(vec![static_check_error_allowance_expr_not_allowed]),
-        ExpectedAllowanceExpr(_) => Tested(vec![static_check_error_expected_allowance_expr]),
-        WithAllAllowanceNotAllowed => Tested(vec![static_check_error_with_all_allowance_not_allowed]),
-        WithAllAllowanceNotAlone => Tested(vec![static_check_error_with_all_allowance_not_alone]),
-        WithNftExpectedListOfIdentifiers => Tested(vec![static_check_error_with_nft_expected_list_of_identifiers]),
-        MaxIdentifierLengthExceeded(_, _) => Tested(vec![static_check_error_max_identifier_length_exceeded]),
-        TooManyAllowances(_, _) => Tested(vec![static_check_error_too_many_allowances]),
+        BadTraitImplementation(_, _) => Tested(vec![static_analysis_error_bad_trait_implementation]),
+        DefineTraitBadSignature => Tested(vec![static_analysis_error_define_trait_bad_signature]),
+        DefineTraitDuplicateMethod(_) => Tested(vec![static_analysis_error_define_trait_duplicate_method]),
+        UnexpectedTraitOrFieldReference => Tested(vec![static_analysis_error_unexpected_trait_or_field_reference]),
+        ContractOfExpectsTrait => Tested(vec![static_analysis_error_contract_of_expects_trait]),
+        IncompatibleTrait(trait_identifier, trait_identifier1) => Tested(vec![static_analysis_error_incompatible_trait]),
+        TraitTooManyMethods(_, _) => Tested(vec![static_analysis_error_trait_too_many_methods]),
+        WriteAttemptedInReadOnly => Tested(vec![static_analysis_error_write_attempted_in_read_only]),
+        AtBlockClosureMustBeReadOnly => Tested(vec![static_analysis_error_at_block_closure_must_be_read_only]),
+        ExpectedListOfAllowances(_, _) => Tested(vec![static_analysis_error_expected_list_of_allowances]),
+        AllowanceExprNotAllowed => Tested(vec![static_analysis_error_allowance_expr_not_allowed]),
+        ExpectedAllowanceExpr(_) => Tested(vec![static_analysis_error_expected_allowance_expr]),
+        WithAllAllowanceNotAllowed => Tested(vec![static_analysis_error_with_all_allowance_not_allowed]),
+        WithAllAllowanceNotAlone => Tested(vec![static_analysis_error_with_all_allowance_not_alone]),
+        WithNftExpectedListOfIdentifiers => Tested(vec![static_analysis_error_with_nft_expected_list_of_identifiers]),
+        MaxIdentifierLengthExceeded(_, _) => Tested(vec![static_analysis_error_max_identifier_length_exceeded]),
+        TooManyAllowances(_, _) => Tested(vec![static_analysis_error_too_many_allowances]),
     }
 }
 
@@ -188,7 +188,7 @@ fn variant_coverage_report(variant: StaticAnalysisError) {
 /// Note: Takes a couple of minutes to run!
 #[ignore]
 #[test]
-fn static_check_error_cost_balance_exceeded() {
+fn static_analysis_error_cost_balance_exceeded() {
     contract_deploy_consensus_test!(
         contract_name: "cost-balance-exceeded",
         contract_code: &{
@@ -213,7 +213,7 @@ fn static_check_error_cost_balance_exceeded() {
 ///   the 100MB memory limit during analysis.
 /// Outcome: block rejected.
 #[test]
-fn static_check_error_memory_balance_exceeded() {
+fn static_analysis_error_memory_balance_exceeded() {
     contract_deploy_consensus_test!(
         contract_name: "analysis-memory-test",
         contract_code: &{
@@ -245,7 +245,7 @@ fn static_check_error_memory_balance_exceeded() {
 /// Caused by: Value exceeds the maximum allowed size for type-checking
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_value_too_large() {
+fn static_analysis_error_value_too_large() {
     contract_deploy_consensus_test!(
         contract_name: "value-too-large",
         contract_code: "(as-max-len? 0x01 u1048577)",
@@ -256,7 +256,7 @@ fn static_check_error_value_too_large() {
 /// Caused by: Value is outside the acceptable range for its type
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_value_out_of_bounds() {
+fn static_analysis_error_value_out_of_bounds() {
     contract_deploy_consensus_test!(
     contract_name: "value-out-of-bounds",
     contract_code: "(define-private (func (x (buff -12))) (len x))
@@ -268,7 +268,7 @@ fn static_check_error_value_out_of_bounds() {
 /// Caused by: Expected a name (e.g., variable) but found an different expression.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_expected_name() {
+fn static_analysis_error_expected_name() {
     contract_deploy_consensus_test!(
         contract_name: "expected-name",
         contract_code: "(match (some 1) 2 (+ 1 1) (+ 3 4))",
@@ -279,7 +279,7 @@ fn static_check_error_expected_name() {
 /// Caused by: Expected a response type but found a different type.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_expected_response_type() {
+fn static_analysis_error_expected_response_type() {
     contract_deploy_consensus_test!(
         contract_name: "expected-response-type",
         contract_code: "(unwrap-err! (some 2) 2)",
@@ -290,7 +290,7 @@ fn static_check_error_expected_response_type() {
 /// Caused by: `unwrap!` on literal `(err 3)` leaves the response `ok` type unknown.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_could_not_determine_response_ok_type() {
+fn static_analysis_error_could_not_determine_response_ok_type() {
     contract_deploy_consensus_test!(
         contract_name: "could-not-determine",
         contract_code: "(unwrap! (err 3) 2)",
@@ -301,7 +301,7 @@ fn static_check_error_could_not_determine_response_ok_type() {
 /// Caused by: `unwrap-err-panic` on `(ok 3)` gives no way to infer the response `err` type.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_could_not_determine_response_err_type() {
+fn static_analysis_error_could_not_determine_response_err_type() {
     contract_deploy_consensus_test!(
         contract_name: "could-not-determine",
         contract_code: "(unwrap-err-panic (ok 3))",
@@ -312,7 +312,7 @@ fn static_check_error_could_not_determine_response_err_type() {
 /// Caused by: matching a bare `none` provides no option type, leaving branch types ambiguous.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_could_not_determine_match_types() {
+fn static_analysis_error_could_not_determine_match_types() {
     contract_deploy_consensus_test!(
         contract_name: "could-not-determine",
         contract_code: "(match none inner-value (/ 1 0) (+ 1 8))",
@@ -323,7 +323,7 @@ fn static_check_error_could_not_determine_match_types() {
 /// Caused by: the `some` arm yields an int while the `none` arm yields a bool.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_match_arms_must_match() {
+fn static_analysis_error_match_arms_must_match() {
     contract_deploy_consensus_test!(
         contract_name: "match-arms-must-match",
         contract_code: "(match (some 1) inner-value (+ 1 inner-value) (> 1 28))",
@@ -334,7 +334,7 @@ fn static_check_error_match_arms_must_match() {
 /// Caused by: option `match` expecting 4 arguments, got 3.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_match_option_syntax() {
+fn static_analysis_error_bad_match_option_syntax() {
     contract_deploy_consensus_test!(
         contract_name: "bad-match-option",
         contract_code: "(match (some 1) inner-value (+ 1 inner-value))",
@@ -345,7 +345,7 @@ fn static_check_error_bad_match_option_syntax() {
 /// Caused by: response `match` expecting 5 arguments, got 3.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_match_response_syntax() {
+fn static_analysis_error_bad_match_response_syntax() {
     contract_deploy_consensus_test!(
         contract_name: "bad-match-response",
         contract_code: "(match (ok 1) inner-value (+ 1 inner-value))",
@@ -356,7 +356,7 @@ fn static_check_error_bad_match_response_syntax() {
 /// Caused by: invoking `match` with no arguments.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_requires_at_least_arguments() {
+fn static_analysis_error_requires_at_least_arguments() {
     contract_deploy_consensus_test!(
         contract_name: "requires-at-least",
         contract_code: "(match)",
@@ -367,7 +367,7 @@ fn static_check_error_requires_at_least_arguments() {
 /// Caused by: `principal-construct?` is called with too many arguments.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_requires_at_most_arguments() {
+fn static_analysis_error_requires_at_most_arguments() {
     contract_deploy_consensus_test!(
         contract_name: "requires-at-most",
         contract_code: r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo" "bar")"#,
@@ -378,7 +378,7 @@ fn static_check_error_requires_at_most_arguments() {
 /// Caused by: `match` input is the integer `1`, not an option or response.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_match_input() {
+fn static_analysis_error_bad_match_input() {
     contract_deploy_consensus_test!(
         contract_name: "bad-match-input",
         contract_code: "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
@@ -389,7 +389,7 @@ fn static_check_error_bad_match_input() {
 /// Caused by: `default-to` second argument `5` is not an optional value.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_expected_optional_type() {
+fn static_analysis_error_expected_optional_type() {
     contract_deploy_consensus_test!(
         contract_name: "expected-optional-type",
         contract_code: "(default-to 3 5)",
@@ -400,7 +400,7 @@ fn static_check_error_expected_optional_type() {
 /// Caused by: trying to implement a trait with a bad implementation.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_trait_implementation() {
+fn static_analysis_error_bad_trait_implementation() {
     let setup_contract = SetupContract::new(
         "trait-contract",
         "(define-trait trait-1 ((get-1 ((list 10 uint)) (response uint uint))))",
@@ -419,7 +419,7 @@ fn static_check_error_bad_trait_implementation() {
 /// Caused by: redefining constant `foo` a second time.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_name_already_used() {
+fn static_analysis_error_name_already_used() {
     contract_deploy_consensus_test!(
         contract_name: "name-already-used",
         contract_code: "
@@ -432,7 +432,7 @@ fn static_check_error_name_already_used() {
 /// Caused by: `unwrap!` default returns `err 1` while the function returns `err false`, so response types diverge.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_return_types_must_match() {
+fn static_analysis_error_return_types_must_match() {
     contract_deploy_consensus_test!(
         contract_name: "return-types-must",
         contract_code: "
@@ -449,7 +449,7 @@ fn static_check_error_return_types_must_match() {
 /// Caused by: initializing `define-data-var cursor int` with the boolean `true`.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_type_error() {
+fn static_analysis_error_type_error() {
     contract_deploy_consensus_test!(
         contract_name: "type-error",
         contract_code: "(define-data-var cursor int true)",
@@ -460,7 +460,7 @@ fn static_check_error_type_error() {
 /// Caused by: `define-data-var` is provided only a name and value, missing the required type.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_define_variable_bad_signature() {
+fn static_analysis_error_define_variable_bad_signature() {
     contract_deploy_consensus_test!(
         contract_name: "define-variable-bad",
         contract_code: "(define-data-var cursor 0x00)",
@@ -471,7 +471,7 @@ fn static_check_error_define_variable_bad_signature() {
 /// Caused by: `define-data-var` uses `0x00` where a valid type description is required.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_invalid_type_description() {
+fn static_analysis_error_invalid_type_description() {
     contract_deploy_consensus_test!(
         contract_name: "invalid-type-desc",
         contract_code: "(define-data-var cursor 0x00 true)",
@@ -482,7 +482,7 @@ fn static_check_error_invalid_type_description() {
 /// Caused by: parameter type nests `optional` wrappers deeper than [`MAX_TYPE_DEPTH`].
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_type_signature_too_deep() {
+fn static_analysis_error_type_signature_too_deep() {
     contract_deploy_consensus_test!(
         contract_name: "signature-too-deep",
         contract_code: &{
@@ -505,7 +505,7 @@ fn static_check_error_type_signature_too_deep() {
 /// Caused by: combining tuples with `buff 600000` and `buff 10` forces a supertype beyond the size limit.
 /// Outcome: block rejected.
 #[test]
-fn static_check_error_supertype_too_large() {
+fn static_analysis_error_supertype_too_large() {
     contract_deploy_consensus_test!(
         contract_name: "supertype-too-large",
         contract_code: "
@@ -521,7 +521,7 @@ fn static_check_error_supertype_too_large() {
 /// Caused by: mapping `sha512` over a list capped at 65,535 elements constructs a list past [`MAX_VALUE_SIZE`].
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_constructed_list_too_large() {
+fn static_analysis_error_constructed_list_too_large() {
     contract_deploy_consensus_test!(
         contract_name: "constructed-list-large",
         contract_code: "
@@ -541,7 +541,7 @@ fn static_check_error_constructed_list_too_large() {
 ///       which is only available in Clarity 2 and later. So Clarity 1 will not trigger
 ///       this error.
 #[test]
-fn static_check_error_unknown_type_name() {
+fn static_analysis_error_unknown_type_name() {
     contract_deploy_consensus_test!(
         contract_name: "unknown-type-name",
         contract_code: "
@@ -555,7 +555,7 @@ fn static_check_error_unknown_type_name() {
 /// Caused by: defining a public function that does not return a response (ok or err).
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_public_function_must_return_response() {
+fn static_analysis_error_public_function_must_return_response() {
     contract_deploy_consensus_test!(
         contract_name: "non-response",
         contract_code: "(define-public (non-response) true)",
@@ -566,7 +566,7 @@ fn static_check_error_public_function_must_return_response() {
 /// Caused by: `map` applies subtraction to booleans.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_union_type_error() {
+fn static_analysis_error_union_type_error() {
     contract_deploy_consensus_test!(
         contract_name: "union-type-error",
         contract_code: "(map - (list true false true false))",
@@ -577,7 +577,7 @@ fn static_check_error_union_type_error() {
 /// Caused by: `x`, `y`, and `z` are referenced without being defined.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_undefined_variable() {
+fn static_analysis_error_undefined_variable() {
     contract_deploy_consensus_test!(
         contract_name: "undefined-variable",
         contract_code: "(+ x y z)",
@@ -588,7 +588,7 @@ fn static_check_error_undefined_variable() {
 /// Caused by: Invalid map type definition in a `(define-map ...)` expression.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_map_type_definition() {
+fn static_analysis_error_bad_map_type_definition() {
     contract_deploy_consensus_test!(
         contract_name: "bad-map-type",
         contract_code: "(define-map lists { name: int } contents)",
@@ -599,7 +599,7 @@ fn static_check_error_bad_map_type_definition() {
 /// Caused by: `(index-of (list) none)` supplies no concrete element types.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_could_not_determine_type() {
+fn static_analysis_error_could_not_determine_type() {
     contract_deploy_consensus_test!(
         contract_name: "could-not-determine",
         contract_code: "(index-of (list) none)",
@@ -610,7 +610,7 @@ fn static_check_error_could_not_determine_type() {
 /// Caused by: passing integer `3` as the sequence argument to `index-of` instead of a list or string.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_expected_sequence() {
+fn static_analysis_error_expected_sequence() {
     contract_deploy_consensus_test!(
         contract_name: "expected-sequence",
         contract_code: r#"(index-of 3 "a")"#,
@@ -624,7 +624,7 @@ fn static_check_error_expected_sequence() {
 ///       which is only available in Clarity 2 and later. So Clarity 1 will not trigger
 ///       this error.
 #[test]
-fn static_check_error_could_not_determine_serialization_type() {
+fn static_analysis_error_could_not_determine_serialization_type() {
     contract_deploy_consensus_test!(
         contract_name: "serialization-type",
         contract_code: "
@@ -640,7 +640,7 @@ fn static_check_error_could_not_determine_serialization_type() {
 /// Caused by: calling `map` with `if` (a non-function) as its function argument.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_illegal_or_unknown_function_application() {
+fn static_analysis_error_illegal_or_unknown_function_application() {
     contract_deploy_consensus_test!(
         contract_name: "illegal-or-unknown",
         contract_code: "(map if (list 1 2 3 4 5))",
@@ -651,7 +651,7 @@ fn static_check_error_illegal_or_unknown_function_application() {
 /// Caused by: invoking the undefined function `ynot`.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_unknown_function() {
+fn static_analysis_error_unknown_function() {
     contract_deploy_consensus_test!(
         contract_name: "unknown-function",
         contract_code: "(ynot 1 2)",
@@ -662,7 +662,7 @@ fn static_check_error_unknown_function() {
 /// Caused by: `len` receives two arguments even though it expects exactly one.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_incorrect_argument_count() {
+fn static_analysis_error_incorrect_argument_count() {
     contract_deploy_consensus_test!(
         contract_name: "incorrect-arg-count",
         contract_code: "(len (list 1) (list 1))",
@@ -673,7 +673,7 @@ fn static_check_error_incorrect_argument_count() {
 /// Caused by: `let` is used without a binding list.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_let_syntax() {
+fn static_analysis_error_bad_let_syntax() {
     contract_deploy_consensus_test!(
         contract_name: "bad-let-syntax",
         contract_code: "(let 1 2)",
@@ -684,7 +684,7 @@ fn static_check_error_bad_let_syntax() {
 /// Caused by: `let` binding `((1))` is not a two-element list.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_syntax_binding() {
+fn static_analysis_error_bad_syntax_binding() {
     contract_deploy_consensus_test!(
         contract_name: "bad-syntax-binding",
         contract_code: "(let ((1)) (+ 1 2))",
@@ -695,7 +695,7 @@ fn static_check_error_bad_syntax_binding() {
 /// Caused by: expected an optional or response type, but got a value
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_expected_optional_or_response_type() {
+fn static_analysis_error_expected_optional_or_response_type() {
     contract_deploy_consensus_test!(
         contract_name: "exp-opt-or-res",
         contract_code: "(try! 3)",
@@ -706,7 +706,7 @@ fn static_check_error_expected_optional_or_response_type() {
 /// Caused by: calling `define-trait` with a method signature that is not valid.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_define_trait_bad_signature() {
+fn static_analysis_error_define_trait_bad_signature() {
     contract_deploy_consensus_test!(
         contract_name: "def-trait-bad-sign",
         contract_code: "(define-trait trait-1 ((get-1 uint uint)))",
@@ -718,7 +718,7 @@ fn static_check_error_define_trait_bad_signature() {
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 2. Clarity 1 will accept the contract.
 #[test]
-fn static_check_error_define_trait_duplicate_method() {
+fn static_analysis_error_define_trait_duplicate_method() {
     contract_deploy_consensus_test!(
         contract_name: "def-trait-dup-method",
         contract_code: "
@@ -733,7 +733,7 @@ fn static_check_error_define_trait_duplicate_method() {
 /// Caused by: unexpected use of trait reference or field
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_unexpected_trait_or_field_reference() {
+fn static_analysis_error_unexpected_trait_or_field_reference() {
     contract_deploy_consensus_test!(
         contract_name: "trait-or-field-ref",
         contract_code: "(+ 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract.field)",
@@ -745,7 +745,7 @@ fn static_check_error_unexpected_trait_or_field_reference() {
 /// Outcome: block accepted.
 /// Note: Added in Clarity 2. Clarity 1 will trigger a [`RuntimeAnalysisError::TypeError`].
 #[test]
-fn static_check_error_incompatible_trait() {
+fn static_analysis_error_incompatible_trait() {
     contract_deploy_consensus_test!(
         contract_name: "incompatible-trait",
         contract_code: "
@@ -766,7 +766,7 @@ fn static_check_error_incompatible_trait() {
 /// Caused by: a trait has too many methods.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_trait_too_many_methods() {
+fn static_analysis_error_trait_too_many_methods() {
     contract_deploy_consensus_test!(
         contract_name: "too-many-methods",
         contract_code: &format!(
@@ -783,7 +783,7 @@ fn static_check_error_trait_too_many_methods() {
 /// Caused by: a function has too many parameters.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_too_many_function_parameters() {
+fn static_analysis_error_too_many_function_parameters() {
     contract_deploy_consensus_test!(
         contract_name: "too-many-params",
         contract_code: &format!(
@@ -802,7 +802,7 @@ fn static_check_error_too_many_function_parameters() {
 /// Note: This error was added in Clarity 3. Clarity 1 and 2
 ///       will trigger a [`RuntimeAnalysisError::NameAlreadyUsed`].
 #[test]
-fn static_check_error_reserved_word() {
+fn static_analysis_error_reserved_word() {
     contract_deploy_consensus_test!(
         contract_name: "reserved-word",
         contract_code: "(define-private (block-height) true)",
@@ -813,7 +813,7 @@ fn static_check_error_reserved_word() {
 /// Caused by: referenced an unknown property of a burn block
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_no_such_block_info_property() {
+fn static_analysis_error_no_such_block_info_property() {
     contract_deploy_consensus_test!(
         contract_name: "no-such-block-info",
         contract_code: "(get-burn-block-info? none u1)",
@@ -826,7 +826,7 @@ fn static_check_error_no_such_block_info_property() {
 /// Note: This error was added in Clarity 3. Clarity 1, and 2
 ///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_no_such_stacks_block_info_property() {
+fn static_analysis_error_no_such_stacks_block_info_property() {
     contract_deploy_consensus_test!(
         contract_name: "no-such-stacks-info",
         contract_code: "(get-stacks-block-info? none u1)",
@@ -837,7 +837,7 @@ fn static_check_error_no_such_stacks_block_info_property() {
 /// Caused by: Intermediate `(ok ...)` expressions inside a `begin` block that are not unwrapped.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_unchecked_intermediary_responses() {
+fn static_analysis_error_unchecked_intermediary_responses() {
     contract_deploy_consensus_test!(
         contract_name: "unchecked-resp",
         contract_code: "
@@ -852,7 +852,7 @@ fn static_check_error_unchecked_intermediary_responses() {
 /// Caused by: calling `ft-get-balance` with a non-existent FT name.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_no_such_ft() {
+fn static_analysis_error_no_such_ft() {
     contract_deploy_consensus_test!(
         contract_name: "no-such-ft",
         contract_code: "(ft-get-balance stackoos tx-sender)",
@@ -863,7 +863,7 @@ fn static_check_error_no_such_ft() {
 /// Caused by: calling `nft-get-owner?` with a non-existent NFT name.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_no_such_nft() {
+fn static_analysis_error_no_such_nft() {
     contract_deploy_consensus_test!(
         contract_name: "no-such-nft",
         contract_code: r#"(nft-get-owner? stackoos "abc")"#,
@@ -874,7 +874,7 @@ fn static_check_error_no_such_nft() {
 /// Caused by: malformed signature in a `(define-non-fungible-token ...)` expression
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_define_nft_bad_signature() {
+fn static_analysis_error_define_nft_bad_signature() {
     contract_deploy_consensus_test!(
         contract_name: "nft-bad-signature",
         contract_code: "(define-non-fungible-token stackaroos integer)",
@@ -885,7 +885,7 @@ fn static_check_error_define_nft_bad_signature() {
 /// Caused by: calling `ft-get-balance` with a non-valid token name.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_token_name() {
+fn static_analysis_error_bad_token_name() {
     contract_deploy_consensus_test!(
         contract_name: "bad-token-name",
         contract_code: "(ft-get-balance u1234 tx-sender)",
@@ -896,7 +896,7 @@ fn static_check_error_bad_token_name() {
 /// Caused by: calling `set-cursor` with an empty tuple.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_empty_tuples_not_allowed() {
+fn static_analysis_error_empty_tuples_not_allowed() {
     contract_deploy_consensus_test!(
         contract_name: "empty-tuples-not",
         contract_code: "
@@ -909,7 +909,7 @@ fn static_check_error_empty_tuples_not_allowed() {
 /// Caused by: calling var-get with a non-existent variable.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_no_such_data_variable() {
+fn static_analysis_error_no_such_data_variable() {
     contract_deploy_consensus_test!(
         contract_name: "no-such-data-var",
         contract_code: "
@@ -922,7 +922,7 @@ fn static_check_error_no_such_data_variable() {
 /// Caused by: attempt to apply a non-function value as a function.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_non_function_application() {
+fn static_analysis_error_non_function_application() {
     contract_deploy_consensus_test!(
         contract_name: "non-function-appl",
         contract_code: "((lambda (x y) 1) 2 1)",
@@ -933,7 +933,7 @@ fn static_check_error_non_function_application() {
 /// Caused by: calling append with lhs that is not a list.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_expected_list_application() {
+fn static_analysis_error_expected_list_application() {
     contract_deploy_consensus_test!(
         contract_name: "expected-list-appl",
         contract_code: "(append 2 3)",
@@ -944,7 +944,7 @@ fn static_check_error_expected_list_application() {
 /// Caused by: calling contract-call? with a non-existent contract name.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_no_such_contract() {
+fn static_analysis_error_no_such_contract() {
     contract_deploy_consensus_test!(
         contract_name: "no-such-contract",
         contract_code: "(contract-call? 'S1G2081040G2081040G2081040G208105NK8PE5.contract-name test! u1)",
@@ -955,7 +955,7 @@ fn static_check_error_no_such_contract() {
 /// Caused by: calling contract-call? without a contract function name.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_contract_call_expect_name() {
+fn static_analysis_error_contract_call_expect_name() {
     contract_deploy_consensus_test!(
         contract_name: "ccall-expect-name",
         contract_code: "(contract-call? 'S1G2081040G2081040G2081040G208105NK8PE5.contract-name u1)",
@@ -967,7 +967,7 @@ fn static_check_error_contract_call_expect_name() {
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 2. Clarity 1 will trigger a [`RuntimeAnalysisError::TraitReferenceUnknown`]
 #[test]
-fn static_check_error_expected_callable_type() {
+fn static_analysis_error_expected_callable_type() {
     contract_deploy_consensus_test!(
         contract_name: "exp-callable-type",
         contract_code: "
@@ -980,7 +980,7 @@ fn static_check_error_expected_callable_type() {
 /// Caused by: calling a non-existent public or read-only function on a contract literal.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_no_such_public_function() {
+fn static_analysis_error_no_such_public_function() {
     contract_deploy_consensus_test!(
         contract_name: "no-such-pub-func-lit",
         // using the pox-4 contract as we know it exists!
@@ -992,7 +992,7 @@ fn static_check_error_no_such_public_function() {
 /// Caused by: calling `default-to` with a default value that does not match the expected type.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_default_types_must_match() {
+fn static_analysis_error_default_types_must_match() {
     contract_deploy_consensus_test!(
         contract_name: "default-types-must",
         contract_code: "
@@ -1005,7 +1005,7 @@ fn static_check_error_default_types_must_match() {
 /// Caused by: calling `if` with arms that do not match the same type.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_if_arms_must_match() {
+fn static_analysis_error_if_arms_must_match() {
     contract_deploy_consensus_test!(
         contract_name: "if-arms-must-match",
         contract_code: "(if true true 1)",
@@ -1016,7 +1016,7 @@ fn static_check_error_if_arms_must_match() {
 /// Caused by: `(get ...)` is given `(some 1)` instead of a tuple value.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_expected_tuple() {
+fn static_analysis_error_expected_tuple() {
     contract_deploy_consensus_test!(
         contract_name: "expected-tuple",
         contract_code: "(get field-0 (some 1))",
@@ -1027,7 +1027,7 @@ fn static_check_error_expected_tuple() {
 /// Caused by: tuple argument only contains `name`, so requesting `value` fails.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_no_such_tuple_field() {
+fn static_analysis_error_no_such_tuple_field() {
     contract_deploy_consensus_test!(
         contract_name: "no-such-tuple-f",
         contract_code: "(get value (tuple (name 1)))",
@@ -1038,7 +1038,7 @@ fn static_check_error_no_such_tuple_field() {
 /// Caused by: `map-get?` refers to map `non-existent`, which is never defined.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_no_such_map() {
+fn static_analysis_error_no_such_map() {
     contract_deploy_consensus_test!(
         contract_name: "no-such-map",
         contract_code: "(map-get? non-existent (tuple (name 1)))",
@@ -1049,7 +1049,7 @@ fn static_check_error_no_such_map() {
 /// Caused by: defining a function whose signature does not start with an atom name.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_function_name() {
+fn static_analysis_error_bad_function_name() {
     contract_deploy_consensus_test!(
         contract_name: "bad-func-name",
         contract_code: "(define-private (u1) u0)",
@@ -1060,7 +1060,7 @@ fn static_check_error_bad_function_name() {
 /// Caused by: defining a function with an empty signature list.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_define_function_bad_signature() {
+fn static_analysis_error_define_function_bad_signature() {
     contract_deploy_consensus_test!(
         contract_name: "def-func-bad-sign",
         contract_code: "(define-private () 1)",
@@ -1071,7 +1071,7 @@ fn static_check_error_define_function_bad_signature() {
 /// Caused by: using `(get ...)` with a tuple field argument that is not an atom.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_tuple_field_name() {
+fn static_analysis_error_bad_tuple_field_name() {
     contract_deploy_consensus_test!(
         contract_name: "bad-tuple-field-name",
         contract_code: "(get u1 (tuple (foo u0)))",
@@ -1082,7 +1082,7 @@ fn static_check_error_bad_tuple_field_name() {
 /// Caused by: passing a literal instead of a map identifier to `map-get?`.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_map_name() {
+fn static_analysis_error_bad_map_name() {
     contract_deploy_consensus_test!(
         contract_name: "bad-map-name",
         contract_code: "(map-get? u1 (tuple (id u0)))",
@@ -1095,7 +1095,7 @@ fn static_check_error_bad_map_name() {
 /// Note: Only Clarity 1 and 2 will trigger this error. Clarity 3 and 4
 ///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_get_block_info_expect_property_name() {
+fn static_analysis_error_get_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
         contract_name: "info-exp-prop-name",
         contract_code: "(get-block-info? u1 u0)",
@@ -1109,7 +1109,7 @@ fn static_check_error_get_block_info_expect_property_name() {
 /// Note: This error was added in Clarity 2. Clarity 1 will trigger
 ///       a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_get_burn_block_info_expect_property_name() {
+fn static_analysis_error_get_burn_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
         contract_name: "burn-exp-prop-name",
         contract_code: "(get-burn-block-info? u1 u0)",
@@ -1123,7 +1123,7 @@ fn static_check_error_get_burn_block_info_expect_property_name() {
 /// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
 ///       a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_get_stacks_block_info_expect_property_name() {
+fn static_analysis_error_get_stacks_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
         contract_name: "stacks-exp-prop-name",
         contract_code: "(get-stacks-block-info? u1 u0)",
@@ -1137,7 +1137,7 @@ fn static_check_error_get_stacks_block_info_expect_property_name() {
 /// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
 ///       a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_get_tenure_info_expect_property_name() {
+fn static_analysis_error_get_tenure_info_expect_property_name() {
     contract_deploy_consensus_test!(
         contract_name: "tenure-exp-prop-name",
         contract_code: "(get-tenure-info? u1 u0)",
@@ -1151,7 +1151,7 @@ fn static_check_error_get_tenure_info_expect_property_name() {
 /// Note: This error was added in Clarity 3. Clarity 1, and 2
 ///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_no_such_tenure_info_property() {
+fn static_analysis_error_no_such_tenure_info_property() {
     contract_deploy_consensus_test!(
         contract_name: "no-such-tenure-info",
         contract_code: "(get-tenure-info? none u1)",
@@ -1163,7 +1163,7 @@ fn static_check_error_no_such_tenure_info_property() {
 /// Caused by: referenced trait is unknown
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_trait_reference_unknown() {
+fn static_analysis_error_trait_reference_unknown() {
     contract_deploy_consensus_test!(
         contract_name: "trait-ref-unknown",
         contract_code: "(+ 1 <kvstore>)",
@@ -1174,7 +1174,7 @@ fn static_check_error_trait_reference_unknown() {
 /// Caused by: calling `contract-of` with a non-trait argument.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_contract_of_expects_trait() {
+fn static_analysis_error_contract_of_expects_trait() {
     contract_deploy_consensus_test!(
         contract_name: "expect-trait",
         contract_code: "(contract-of u1)",
@@ -1185,7 +1185,7 @@ fn static_check_error_contract_of_expects_trait() {
 /// Caused by: defining a method that is not declared in the trait
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_trait_method_unknown() {
+fn static_analysis_error_trait_method_unknown() {
     contract_deploy_consensus_test!(
         contract_name: "trait-method-unknown",
         contract_code: "
@@ -1200,7 +1200,7 @@ fn static_check_error_trait_method_unknown() {
 /// Caused by: read-only function `silly` invoking `map-delete`, which performs a write.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_write_attempted_in_read_only() {
+fn static_analysis_error_write_attempted_in_read_only() {
     contract_deploy_consensus_test!(
         contract_name: "write-attempted-in-ro",
         contract_code: "
@@ -1214,7 +1214,7 @@ fn static_check_error_write_attempted_in_read_only() {
 /// Caused by: `at-block` closure must be read-only but contains write operations.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_at_block_closure_must_be_read_only() {
+fn static_analysis_error_at_block_closure_must_be_read_only() {
     contract_deploy_consensus_test!(
         contract_name: "closure-must-be-ro",
         contract_code: "
@@ -1231,7 +1231,7 @@ fn static_check_error_at_block_closure_must_be_read_only() {
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
 ///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_allowance_expr_not_allowed() {
+fn static_analysis_error_allowance_expr_not_allowed() {
     contract_deploy_consensus_test!(
         contract_name: "allow-expr-not-allo",
         contract_code: "(with-stx u1)",
@@ -1245,7 +1245,7 @@ fn static_check_error_allowance_expr_not_allowed() {
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
 ///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_expected_list_of_allowances() {
+fn static_analysis_error_expected_list_of_allowances() {
     contract_deploy_consensus_test!(
         contract_name: "exp-list-of-allowances",
         contract_code: "(restrict-assets? tx-sender u1 true)",
@@ -1259,7 +1259,7 @@ fn static_check_error_expected_list_of_allowances() {
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
 ///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_expected_allowance_expr() {
+fn static_analysis_error_expected_allowance_expr() {
     contract_deploy_consensus_test!(
         contract_name: "exp-allowa-expr",
         contract_code: "(restrict-assets? tx-sender ((not true)) true)",
@@ -1273,7 +1273,7 @@ fn static_check_error_expected_allowance_expr() {
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
 ///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_with_all_allowance_not_allowed() {
+fn static_analysis_error_with_all_allowance_not_allowed() {
     contract_deploy_consensus_test!(
         contract_name: "all-allow-not-allowed",
         contract_code: "(restrict-assets? tx-sender ((with-all-assets-unsafe)) true)",
@@ -1287,7 +1287,7 @@ fn static_check_error_with_all_allowance_not_allowed() {
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
 ///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_with_all_allowance_not_alone() {
+fn static_analysis_error_with_all_allowance_not_alone() {
     contract_deploy_consensus_test!(
         contract_name: "all-allow-not-alone",
         contract_code: "(as-contract? ((with-all-assets-unsafe) (with-stx u1000)) true)",
@@ -1301,7 +1301,7 @@ fn static_check_error_with_all_allowance_not_alone() {
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
 ///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_with_nft_expected_list_of_identifiers() {
+fn static_analysis_error_with_nft_expected_list_of_identifiers() {
     contract_deploy_consensus_test!(
         contract_name: "with-nft-exp-ident",
         contract_code: r#"(restrict-assets? tx-sender ((with-nft tx-sender "token-name" tx-sender)) true)"#,
@@ -1315,7 +1315,7 @@ fn static_check_error_with_nft_expected_list_of_identifiers() {
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
 ///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_max_identifier_length_exceeded() {
+fn static_analysis_error_max_identifier_length_exceeded() {
     contract_deploy_consensus_test!(
         contract_name: "max-ident-len-excd",
         contract_code: &format!(
@@ -1334,7 +1334,7 @@ fn static_check_error_max_identifier_length_exceeded() {
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
 ///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
-fn static_check_error_too_many_allowances() {
+fn static_analysis_error_too_many_allowances() {
     contract_deploy_consensus_test!(
         contract_name: "too-many-allowances",
         contract_code: &format!(
@@ -1351,7 +1351,7 @@ fn static_check_error_too_many_allowances() {
 /// Caused by: tuple literal repeats the `name` field twice.
 /// Outcome: block accepted.
 #[test]
-fn static_check_error_bad_tuple_construction() {
+fn static_analysis_error_bad_tuple_construction() {
     contract_deploy_consensus_test!(
         contract_name: "bad-tuple-constr",
         contract_code: "(tuple (name 1) (name 2))",
