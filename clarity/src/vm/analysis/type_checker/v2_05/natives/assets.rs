@@ -16,7 +16,7 @@
 
 use super::{TypeChecker, TypingContext};
 use crate::vm::analysis::errors::{
-    check_argument_count, StaticAnalysisErrorReport, StaticAnalysisError,
+    check_argument_count, StaticAnalysisError, StaticAnalysisErrorReport,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;

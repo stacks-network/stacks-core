@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{StaticAnalysisErrorReport, StaticAnalysisError};
+use crate::vm::analysis::errors::{StaticAnalysisError, StaticAnalysisErrorReport};
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::analysis::AnalysisDatabase;
 

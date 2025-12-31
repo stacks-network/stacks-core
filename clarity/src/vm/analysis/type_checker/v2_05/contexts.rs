@@ -16,7 +16,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::vm::analysis::errors::{StaticAnalysisErrorReport, StaticAnalysisError};
+use crate::vm::analysis::errors::{StaticAnalysisError, StaticAnalysisErrorReport};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::representations::ClarityName;
 use crate::vm::types::signatures::FunctionSignature;

@@ -21,7 +21,7 @@ use super::{
     compute_typecheck_cost, no_type, TypeChecker, TypingContext,
 };
 use crate::vm::analysis::errors::{
-    StaticAnalysisErrorReport, StaticAnalysisError, SyntaxBindingErrorType,
+    StaticAnalysisError, StaticAnalysisErrorReport, SyntaxBindingErrorType,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTracker};

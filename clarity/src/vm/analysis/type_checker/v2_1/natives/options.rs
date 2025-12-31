@@ -19,8 +19,8 @@ use clarity_types::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
 use super::{
-    check_argument_count, check_arguments_at_least, no_type, StaticAnalysisErrorReport,
-    StaticAnalysisError, TypeChecker,
+    check_argument_count, check_arguments_at_least, no_type, StaticAnalysisError,
+    StaticAnalysisErrorReport, TypeChecker,
 };
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;

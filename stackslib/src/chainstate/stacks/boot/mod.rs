@@ -1358,9 +1358,9 @@ impl StacksChainState {
         // Catch the epoch boundary edge case where burn height >= pox 3 activation height, but
         // there hasn't yet been a Stacks block.
         match result {
-            Err(Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-                RuntimeAnalysisError::NoSuchContract(_),
-            )))) => {
+            Err(Error::ClarityError(ClarityError::Interpreter(
+                VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NoSuchContract(_)),
+            ))) => {
                 warn!("Reward cycle attempted to calculate rewards before the PoX contract was instantiated");
                 return Ok(vec![]);
             }

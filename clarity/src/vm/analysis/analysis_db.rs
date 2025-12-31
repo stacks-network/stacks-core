@@ -20,7 +20,7 @@ use clarity_types::representations::ClarityName;
 use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{StaticAnalysisErrorReport, StaticAnalysisError};
+use crate::vm::analysis::errors::{StaticAnalysisError, StaticAnalysisErrorReport};
 use crate::vm::analysis::type_checker::ContractAnalysis;
 use crate::vm::database::{
     ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,

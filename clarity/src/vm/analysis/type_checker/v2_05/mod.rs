@@ -27,7 +27,7 @@ pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 use super::contexts::{TypeMap, TypingContext};
 use super::ContractAnalysis;
 pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, StaticAnalysisErrorReport, StaticAnalysisError,
+    check_argument_count, check_arguments_at_least, StaticAnalysisError, StaticAnalysisErrorReport,
     SyntaxBindingErrorType,
 };
 use crate::vm::analysis::AnalysisDatabase;

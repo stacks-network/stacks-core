@@ -17,7 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{
-    StaticAnalysisErrorReport, StaticAnalysisError, SyntaxBindingError,
+    StaticAnalysisError, StaticAnalysisErrorReport, SyntaxBindingError,
 };
 use crate::vm::analysis::mem_type_check;
 use crate::vm::ast::build_ast;

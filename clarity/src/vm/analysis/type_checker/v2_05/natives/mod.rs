@@ -18,7 +18,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::{check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypingContext};
 use crate::vm::analysis::errors::{
-    StaticAnalysisErrorReport, StaticAnalysisError, SyntaxBindingErrorType,
+    StaticAnalysisError, StaticAnalysisErrorReport, SyntaxBindingErrorType,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};

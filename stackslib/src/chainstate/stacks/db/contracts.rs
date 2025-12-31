@@ -49,9 +49,9 @@ impl StacksChainState {
             .with_clarity_db_readonly(|ref mut db| {
                 match db.lookup_variable_unknown_descriptor(contract_id, data_var, &epoch) {
                     Ok(c) => Ok(Some(c)),
-                    Err(VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NoSuchDataVariable(
-                        _,
-                    ))) => Ok(None),
+                    Err(VmExecutionError::RuntimeCheck(
+                        RuntimeAnalysisError::NoSuchDataVariable(_),
+                    )) => Ok(None),
                     Err(e) => Err(ClarityError::Interpreter(e)),
                 }
             })

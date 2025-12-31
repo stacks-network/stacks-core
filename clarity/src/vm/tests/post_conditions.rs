@@ -1660,10 +1660,9 @@ fn restrict_assets_too_many_allowances() {
             .collect::<Vec<_>>()
             .join(" ")
     );
-    let max_allowances_err = VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TooManyAllowances(
-        MAX_ALLOWANCES,
-        MAX_ALLOWANCES + 1,
-    ));
+    let max_allowances_err = VmExecutionError::RuntimeCheck(
+        RuntimeAnalysisError::TooManyAllowances(MAX_ALLOWANCES, MAX_ALLOWANCES + 1),
+    );
     let err = execute(&snippet).expect_err("execution passed unexpectedly");
     assert_eq!(err, max_allowances_err);
 }
@@ -1676,9 +1675,9 @@ fn expected_allowance_expr_error() {
     // Construct a "fake" allowance expression that is invalid
     let snippet = "(restrict-assets? tx-sender ((bad-fn u1)) true)";
 
-    let expected_error = VmExecutionError::RuntimeCheck(RuntimeAnalysisError::ExpectedAllowanceExpr(
-        "bad-fn".to_string(),
-    ));
+    let expected_error = VmExecutionError::RuntimeCheck(
+        RuntimeAnalysisError::ExpectedAllowanceExpr("bad-fn".to_string()),
+    );
 
     // Execute and verify that the error is raised
     let err = execute(snippet).expect_err("execution passed unexpectedly");
@@ -1694,9 +1693,9 @@ fn expected_allowance_expr_error_unhandled_native() {
     // For example: `tx-sender` (or `caller`), which is a native function but not a handled allowance
     let snippet = "(restrict-assets? tx-sender ((tx-sender u1)) true)";
 
-    let expected_error = VmExecutionError::RuntimeCheck(RuntimeAnalysisError::ExpectedAllowanceExpr(
-        "tx-sender".to_string(),
-    ));
+    let expected_error = VmExecutionError::RuntimeCheck(
+        RuntimeAnalysisError::ExpectedAllowanceExpr("tx-sender".to_string()),
+    );
 
     let err = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(err, expected_error);

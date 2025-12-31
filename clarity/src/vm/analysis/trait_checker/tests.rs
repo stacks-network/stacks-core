@@ -20,7 +20,7 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{type_check, StaticAnalysisErrorReport, StaticAnalysisError};
+use crate::vm::analysis::{type_check, StaticAnalysisError, StaticAnalysisErrorReport};
 use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;

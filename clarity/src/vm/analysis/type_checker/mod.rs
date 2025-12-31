@@ -20,7 +20,7 @@ pub mod v2_1;
 
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{StaticAnalysisErrorReport, StaticAnalysisError};
+use super::errors::{StaticAnalysisError, StaticAnalysisErrorReport};
 pub use super::types::{AnalysisPass, ContractAnalysis};
 use super::AnalysisDatabase;
 use crate::vm::costs::CostTracker;
