@@ -929,7 +929,7 @@ mod test {
         let err = special_contract_of(&[non_atom], &mut env, &context).unwrap_err();
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(RuntimeAnalysisError::ContractOfExpectsTrait)
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::ContractOfExpectsTrait)
         );
     }
 
@@ -972,7 +972,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(RuntimeAnalysisError::ContractOfExpectsTrait)
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::ContractOfExpectsTrait)
         );
     }
 
@@ -1014,7 +1014,7 @@ mod test {
 
         assert!(matches!(
             err,
-            VmExecutionError::Unchecked(RuntimeAnalysisError::BadLetSyntax)
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::BadLetSyntax)
         ));
     }
 
@@ -1060,7 +1060,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(RuntimeAnalysisError::GetTenureInfoExpectPropertyName)
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::GetTenureInfoExpectPropertyName)
         );
     }
 
@@ -1107,7 +1107,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(RuntimeAnalysisError::GetBlockInfoExpectPropertyName)
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::GetBlockInfoExpectPropertyName)
         );
     }
 
@@ -1152,7 +1152,9 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(RuntimeAnalysisError::GetStacksBlockInfoExpectPropertyName)
+            VmExecutionError::RuntimeCheck(
+                RuntimeAnalysisError::GetStacksBlockInfoExpectPropertyName
+            )
         );
     }
 
@@ -1198,7 +1200,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(RuntimeAnalysisError::NoSuchStacksBlockInfoProperty(
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NoSuchStacksBlockInfoProperty(
                 "not-a-valid-stacks-prop".to_string()
             ))
         );
@@ -1247,7 +1249,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(RuntimeAnalysisError::NoSuchBurnBlockInfoProperty(
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NoSuchBurnBlockInfoProperty(
                 "not-a-valid-burn-prop".to_string()
             ))
         );
@@ -1292,7 +1294,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(RuntimeAnalysisError::ContractCallExpectName)
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::ContractCallExpectName)
         );
     }
 }

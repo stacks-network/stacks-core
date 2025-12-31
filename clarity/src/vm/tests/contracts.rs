@@ -961,7 +961,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        VmExecutionError::Unchecked(RuntimeAnalysisError::NoSuchPublicFunction(_, _))
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NoSuchPublicFunction(_, _))
     ));
 
     let err_result = env
@@ -974,7 +974,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        VmExecutionError::Unchecked(RuntimeAnalysisError::TypeValueError(_, _))
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(_, _))
     ));
 }
 
@@ -1165,7 +1165,7 @@ fn test_eval_with_non_existing_contract(
     );
     assert_eq!(
         result.as_ref().unwrap_err(),
-        &VmExecutionError::Unchecked(RuntimeAnalysisError::NoSuchContract(
+        &VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NoSuchContract(
             QualifiedContractIdentifier::local("absent")
                 .unwrap()
                 .to_string()
@@ -1355,7 +1355,7 @@ fn test_contract_hash_type_check(
         .unwrap_err();
     assert_eq!(
         err,
-        VmExecutionError::Unchecked(RuntimeAnalysisError::ExpectedContractPrincipalValue(
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::ExpectedContractPrincipalValue(
             Box::new(Value::UInt(123))
         ))
     );
@@ -1409,7 +1409,7 @@ fn test_contract_hash_pre_clarity4(
 
     assert_eq!(
         err,
-        VmExecutionError::Unchecked(RuntimeAnalysisError::UndefinedFunction(
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::UndefinedFunction(
             "contract-hash?".to_string()
         ))
     );

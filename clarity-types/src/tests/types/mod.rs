@@ -597,7 +597,7 @@ fn invalid_utf8_encoding_from_oob_unicode_escape() {
     let err = Value::string_utf8_from_string_utf8_literal(bad_utf8_literal).unwrap_err();
     assert!(matches!(
         err,
-        VmExecutionError::Unchecked(RuntimeAnalysisError::InvalidUTF8Encoding)
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::InvalidUTF8Encoding)
     ));
 }
 
@@ -613,7 +613,7 @@ fn invalid_string_ascii_from_bytes() {
 
     assert!(matches!(
         err,
-        VmExecutionError::Unchecked(RuntimeAnalysisError::InvalidCharactersDetected)
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::InvalidCharactersDetected)
     ));
 }
 
@@ -626,6 +626,6 @@ fn invalid_utf8_string_from_bytes() {
 
     assert!(matches!(
         err,
-        VmExecutionError::Unchecked(RuntimeAnalysisError::InvalidCharactersDetected)
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::InvalidCharactersDetected)
     ));
 }

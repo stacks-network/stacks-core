@@ -495,7 +495,7 @@ fn lists_system_2() {
 
     matches!(
         execute(test),
-        Err(VmExecutionError::Unchecked(
+        Err(VmExecutionError::RuntimeCheck(
             RuntimeAnalysisError::TypeError(_, _)
         ))
     );
@@ -562,7 +562,7 @@ fn lists_system() {
         println!("{test:#?}");
         assert!(matches!(
             test,
-            Err(VmExecutionError::Unchecked(
+            Err(VmExecutionError::RuntimeCheck(
                 RuntimeAnalysisError::TypeValueError(_, _)
             ))
         ));
@@ -627,7 +627,7 @@ fn tuples_system() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(VmExecutionError::Unchecked(RuntimeAnalysisError::TypeValueError(_, _))) => true,
+            Err(VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(_, _))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -774,7 +774,7 @@ fn test_non_tuple_map_get_set() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(VmExecutionError::Unchecked(RuntimeAnalysisError::TypeValueError(_, _))) => true,
+            Err(VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(_, _))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false

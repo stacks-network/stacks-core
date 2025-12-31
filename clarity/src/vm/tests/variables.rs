@@ -79,7 +79,7 @@ fn test_block_height(
     if version >= ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            VmExecutionError::Unchecked(RuntimeAnalysisError::UndefinedVariable(
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::UndefinedVariable(
                 "block-height".to_string(),
             )),
             err
@@ -138,7 +138,7 @@ fn test_stacks_block_height(
     if version < ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            VmExecutionError::Unchecked(RuntimeAnalysisError::UndefinedVariable(
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::UndefinedVariable(
                 "stacks-block-height".to_string(),
             )),
             err
@@ -197,7 +197,7 @@ fn test_tenure_height(
     if version < ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            VmExecutionError::Unchecked(RuntimeAnalysisError::UndefinedVariable(
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::UndefinedVariable(
                 "tenure-height".to_string(),
             )),
             err
@@ -274,10 +274,10 @@ fn expect_contract_error(
         if let ExpectedContractError::Initialization(expected_error) = expected_error {
             if err_condition(version, epoch) {
                 let err = init_result.unwrap_err();
-                if let VmExecutionError::Unchecked(inner_err) = &err {
+                if let VmExecutionError::RuntimeCheck(inner_err) = &err {
                     assert_eq!(expected_error, inner_err);
                 } else {
-                    panic!("Expected an Unchecked error, but got a different error");
+                    panic!("Expected a RuntimeCheck error, but got a different error");
                 }
                 // Do not continue with the test if the initialization failed.
                 return;
@@ -294,10 +294,10 @@ fn expect_contract_error(
         if let ExpectedContractError::Runtime(expected_error) = expected_error {
             if err_condition(version, epoch) {
                 let err = eval_result.unwrap_err();
-                if let VmExecutionError::Unchecked(inner_err) = &err {
+                if let VmExecutionError::RuntimeCheck(inner_err) = &err {
                     assert_eq!(expected_error, inner_err);
                 } else {
-                    panic!("Expected an Unchecked error, but got a different error");
+                    panic!("Expected a RuntimeCheck error, but got a different error");
                 }
 
                 // Do not continue with the test if the evaluation failed.
@@ -1203,7 +1203,7 @@ fn test_block_time(
     if version < ClarityVersion::Clarity4 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            VmExecutionError::Unchecked(RuntimeAnalysisError::UndefinedVariable(
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::UndefinedVariable(
                 "stacks-block-time".to_string(),
             )),
             err
@@ -1329,7 +1329,7 @@ fn test_current_contract(
     if version < ClarityVersion::Clarity4 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            VmExecutionError::Unchecked(RuntimeAnalysisError::UndefinedVariable(
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::UndefinedVariable(
                 "current-contract".to_string(),
             )),
             err

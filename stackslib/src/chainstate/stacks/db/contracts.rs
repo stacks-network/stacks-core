@@ -31,7 +31,7 @@ impl StacksChainState {
         clarity_tx
             .with_clarity_db_readonly(|ref mut db| match db.get_contract(contract_id) {
                 Ok(c) => Ok(Some(c)),
-                Err(VmExecutionError::Unchecked(RuntimeAnalysisError::NoSuchContract(_))) => {
+                Err(VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NoSuchContract(_))) => {
                     Ok(None)
                 }
                 Err(e) => Err(ClarityError::Interpreter(e)),
@@ -49,7 +49,7 @@ impl StacksChainState {
             .with_clarity_db_readonly(|ref mut db| {
                 match db.lookup_variable_unknown_descriptor(contract_id, data_var, &epoch) {
                     Ok(c) => Ok(Some(c)),
-                    Err(VmExecutionError::Unchecked(RuntimeAnalysisError::NoSuchDataVariable(
+                    Err(VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NoSuchDataVariable(
                         _,
                     ))) => Ok(None),
                     Err(e) => Err(ClarityError::Interpreter(e)),

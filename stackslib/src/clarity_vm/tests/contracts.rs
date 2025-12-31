@@ -438,10 +438,10 @@ fn trait_invocation_cross_epoch() {
                 )
                 .unwrap_err();
 
-            if let ClarityError::Interpreter(VmExecutionError::Unchecked(RuntimeAnalysisError::TypeValueError(trait_ref_type, value))) = error {
+            if let ClarityError::Interpreter(VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(trait_ref_type, value))) = error {
                 assert!(matches!(*trait_ref_type, TypeSignature::TraitReferenceType(_)));
             } else {
-                panic!("Expected an Interpreter(UncheckedError(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
+                panic!("Expected an Interpreter(RuntimeCheck(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
             };
         });
     });
@@ -462,10 +462,10 @@ fn trait_invocation_cross_epoch() {
                 )
                 .unwrap_err();
 
-            if let ClarityError::Interpreter(VmExecutionError::Unchecked(RuntimeAnalysisError::TypeValueError(trait_ref_type, value))) = error {
+            if let ClarityError::Interpreter(VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(trait_ref_type, value))) = error {
                 assert!(matches!(*trait_ref_type, TypeSignature::TraitReferenceType(_)));
             } else {
-                panic!("Expected an Interpreter(UncheckedError(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
+                panic!("Expected an Interpreter(RuntimeCheck(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
             };
         });
     });

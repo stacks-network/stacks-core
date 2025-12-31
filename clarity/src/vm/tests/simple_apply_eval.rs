@@ -300,15 +300,15 @@ fn test_from_consensus_buff_type_checks() {
     let vectors = [
         (
             "(from-consensus-buff? uint 0x10 0x00)",
-            "Unchecked(IncorrectArgumentCount(2, 3))",
+            "RuntimeCheck(IncorrectArgumentCount(2, 3))",
         ),
         (
             "(from-consensus-buff? uint 1)",
-            "Unchecked(TypeValueError(SequenceType(BufferType(BufferLength(1048576))), Int(1)))",
+            "RuntimeCheck(TypeValueError(SequenceType(BufferType(BufferLength(1048576))), Int(1)))",
         ),
         (
             "(from-consensus-buff? 2 0x10)",
-            "Unchecked(InvalidTypeDescription)",
+            "RuntimeCheck(InvalidTypeDescription)",
         ),
     ];
 

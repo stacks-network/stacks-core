@@ -2516,7 +2516,7 @@ mod test {
 
         assert!(matches!(
             err,
-            VmExecutionError::Unchecked(RuntimeAnalysisError::ContractAlreadyExists(_))
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::ContractAlreadyExists(_))
         ));
     }
 }

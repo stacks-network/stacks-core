@@ -1496,7 +1496,7 @@ fn map_no_contract_as_none<T>(
     res: Result<Option<T>, VmExecutionError>,
 ) -> Result<Option<T>, VmExecutionError> {
     res.or_else(|e| match e {
-        VmExecutionError::Unchecked(RuntimeAnalysisError::NoSuchContract(_)) => Ok(None),
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NoSuchContract(_)) => Ok(None),
         x => Err(x),
     })
 }

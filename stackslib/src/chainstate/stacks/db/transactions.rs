@@ -385,10 +385,10 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
                 err_type: "short return/panic",
             }
         }
-        ClarityError::Interpreter(VmExecutionError::Unchecked(runtime_analysis_err)) => {
+        ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_analysis_err)) => {
             if runtime_analysis_err.rejectable() {
                 ClarityRuntimeTxError::Rejectable(ClarityError::Interpreter(
-                    VmExecutionError::Unchecked(runtime_analysis_err),
+                    VmExecutionError::RuntimeCheck(runtime_analysis_err),
                 ))
             } else {
                 ClarityRuntimeTxError::AnalysisError(runtime_analysis_err)
@@ -1209,7 +1209,7 @@ impl StacksChainState {
                                            "function_args" => %VecDisplay(&contract_call.function_args),
                                            "error" => %runtime_analysis_err);
                                 return Err(Error::ClarityError(ClarityError::Interpreter(
-                                    VmExecutionError::Unchecked(runtime_analysis_err),
+                                    VmExecutionError::RuntimeCheck(runtime_analysis_err),
                                 )));
                             }
                         }
@@ -1433,7 +1433,7 @@ impl StacksChainState {
                                       "contract" => %contract_id,
                                       "error" => %runtime_analysis_err);
                                 return Err(Error::ClarityError(ClarityError::Interpreter(
-                                    VmExecutionError::Unchecked(runtime_analysis_err),
+                                    VmExecutionError::RuntimeCheck(runtime_analysis_err),
                                 )));
                             }
                         }
@@ -9530,7 +9530,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
             _runtime_analysis_err,
         ))) = err
         {
@@ -9583,7 +9583,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
             _runtime_analysis_err,
         ))) = err
         {
@@ -9634,7 +9634,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
             _runtime_analysis_err,
         ))) = err
         {
@@ -9686,7 +9686,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
             _runtime_analysis_err,
         ))) = err
         {
@@ -10190,7 +10190,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
             runtime_analysis_err,
         ))) = err
         {
@@ -10649,7 +10649,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
             runtime_analysis_err,
         ))) = err
         {
@@ -10755,7 +10755,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
             runtime_analysis_err,
         ))) = err
         {

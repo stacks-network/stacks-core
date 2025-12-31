@@ -59,7 +59,7 @@ fn test_simple_list_admission() {
     );
     let err = execute(&t3).unwrap_err();
     assert!(match err {
-        VmExecutionError::Unchecked(RuntimeAnalysisError::TypeValueError(_, _)) => true,
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(_, _)) => true,
         _ => {
             eprintln!("Expected TypeError, but found: {err:?}");
             false
@@ -129,7 +129,7 @@ fn test_index_of() {
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         match execute(bad_test).unwrap_err() {
-            VmExecutionError::Unchecked(runtime_analysis_err) => {
+            VmExecutionError::RuntimeCheck(runtime_analysis_err) => {
                 assert_eq!(&runtime_analysis_err, expected);
             }
             _ => unreachable!("Should have raised unchecked errors"),
@@ -182,7 +182,7 @@ fn test_element_at() {
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         match execute(bad_test).unwrap_err() {
-            VmExecutionError::Unchecked(runtime_analysis_err) => {
+            VmExecutionError::RuntimeCheck(runtime_analysis_err) => {
                 assert_eq!(&runtime_analysis_err, expected);
             }
             _ => unreachable!("Should have raised unchecked errors"),

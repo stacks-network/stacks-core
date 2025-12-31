@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, SharedAnalysisError, RuntimeAnalysisError,
+    check_argument_count, check_arguments_at_least, RuntimeAnalysisError, SharedAnalysisError,
     SyntaxBindingErrorType, VmExecutionError,
 };
 use crate::vm::eval;
@@ -535,7 +535,7 @@ mod test {
 
         assert!(matches!(
             result,
-            Err(VmExecutionError::Unchecked(
+            Err(VmExecutionError::RuntimeCheck(
                 RuntimeAnalysisError::BadSyntaxBinding(_)
             ))
         ));
@@ -594,7 +594,7 @@ mod test {
 
         assert!(matches!(
             result,
-            Err(VmExecutionError::Unchecked(
+            Err(VmExecutionError::RuntimeCheck(
                 RuntimeAnalysisError::TooManyFunctionParameters(found, max)
             ))
         ));

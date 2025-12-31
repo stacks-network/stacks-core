@@ -606,7 +606,7 @@ fn test_simple_token_system(
 
     assert!(matches!(
         err,
-        VmExecutionError::Unchecked(RuntimeAnalysisError::TypeValueError(_, _))
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(_, _))
     ));
 
     let (result, asset_map, _events) = execute_transaction(
@@ -835,7 +835,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        VmExecutionError::Unchecked(RuntimeAnalysisError::TypeValueError(_, _))
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(_, _))
     ));
 
     let err = owned_env
@@ -843,7 +843,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        VmExecutionError::Unchecked(RuntimeAnalysisError::TypeValueError(_, _))
+        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(_, _))
     ));
 
     owned_env

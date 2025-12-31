@@ -242,7 +242,7 @@ fn test_dynamic_dispatch_intra_contract_call(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(RuntimeAnalysisError::CircularReference(_)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::CircularReference(_)) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -557,7 +557,7 @@ fn test_dynamic_dispatch_mismatched_args(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(RuntimeAnalysisError::BadTraitImplementation(_, _)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::BadTraitImplementation(_, _)) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -612,7 +612,7 @@ fn test_dynamic_dispatch_mismatched_returned(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(RuntimeAnalysisError::ReturnTypesMustMatch(_, _)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::ReturnTypesMustMatch(_, _)) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -670,7 +670,7 @@ fn test_reentrant_dynamic_dispatch(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(RuntimeAnalysisError::CircularReference(_)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::CircularReference(_)) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -725,8 +725,9 @@ fn test_readwrite_dynamic_dispatch(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(RuntimeAnalysisError::TraitBasedContractCallInReadOnly) => {
-            }
+            VmExecutionError::RuntimeCheck(
+                RuntimeAnalysisError::TraitBasedContractCallInReadOnly,
+            ) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -781,8 +782,9 @@ fn test_readwrite_violation_dynamic_dispatch(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(RuntimeAnalysisError::TraitBasedContractCallInReadOnly) => {
-            }
+            VmExecutionError::RuntimeCheck(
+                RuntimeAnalysisError::TraitBasedContractCallInReadOnly,
+            ) => {}
             _ => panic!("{err_result:?}"),
         }
     }

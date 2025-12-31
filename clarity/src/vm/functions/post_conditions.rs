@@ -611,7 +611,7 @@ mod test {
 
         assert!(matches!(
             result,
-            Err(VmExecutionError::Unchecked(
+            Err(VmExecutionError::RuntimeCheck(
                 RuntimeAnalysisError::NonFunctionApplication
             ))
         ));

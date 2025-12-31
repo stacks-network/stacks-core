@@ -122,13 +122,13 @@ impl From<StaticAnalysisErrorReport> for ClarityError {
 impl From<VmExecutionError> for ClarityError {
     fn from(e: VmExecutionError) -> Self {
         match &e {
-            VmExecutionError::Unchecked(RuntimeAnalysisError::CostBalanceExceeded(a, b)) => {
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::CostBalanceExceeded(a, b)) => {
                 ClarityError::CostError(a.clone(), b.clone())
             }
-            VmExecutionError::Unchecked(RuntimeAnalysisError::CostOverflow) => {
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::CostOverflow) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            VmExecutionError::Unchecked(RuntimeAnalysisError::ExecutionTimeExpired) => {
+            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::ExecutionTimeExpired) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => ClarityError::Interpreter(e),

@@ -52,12 +52,9 @@ pub struct IncomparableError<T> {
 /// (e.g., based on VRF seeds or runtime data).
 #[derive(Debug)]
 pub enum VmExecutionError {
-    /// Type-checking errors caught during runtime analysis, which should typically be detected by
-    /// static type-checking passes before execution. These may occur in test executions or when
-    /// dynamic expression construction (e.g., using runtime data like VRF seeds) creates structures
-    /// violating type or resource constraints (e.g., excessive stack depth).
+    /// Type-checking errors caught during runtime analysis.
     /// The `RuntimeAnalysisError` wraps the specific type-checking error encountered at runtime.
-    Unchecked(RuntimeAnalysisError),
+    RuntimeCheck(RuntimeAnalysisError),
     /// A critical, unrecoverable bug within the VM's internal logic.
     ///
     /// The presence of this error indicates a violation of one of the VM's
@@ -217,7 +214,7 @@ impl PartialEq<VmExecutionError> for VmExecutionError {
     fn eq(&self, other: &VmExecutionError) -> bool {
         match (self, other) {
             (VmExecutionError::Runtime(x, _), VmExecutionError::Runtime(y, _)) => x == y,
-            (VmExecutionError::Unchecked(x), VmExecutionError::Unchecked(y)) => x == y,
+            (VmExecutionError::RuntimeCheck(x), VmExecutionError::RuntimeCheck(y)) => x == y,
             (VmExecutionError::EarlyReturn(x), VmExecutionError::EarlyReturn(y)) => x == y,
             (VmExecutionError::Internal(x), VmExecutionError::Internal(y)) => x == y,
             _ => false,
@@ -296,19 +293,19 @@ impl From<RuntimeError> for VmExecutionError {
 
 impl From<SharedAnalysisError> for VmExecutionError {
     fn from(err: SharedAnalysisError) -> Self {
-        VmExecutionError::Unchecked(err.into())
+        VmExecutionError::RuntimeCheck(err.into())
     }
 }
 
 impl From<RuntimeAnalysisError> for VmExecutionError {
     fn from(err: RuntimeAnalysisError) -> Self {
-        VmExecutionError::Unchecked(err)
+        VmExecutionError::RuntimeCheck(err)
     }
 }
 
 impl From<(SharedAnalysisError, &SymbolicExpression)> for VmExecutionError {
     fn from(err: (SharedAnalysisError, &SymbolicExpression)) -> Self {
-        VmExecutionError::Unchecked(err.0.into())
+        VmExecutionError::RuntimeCheck(err.0.into())
     }
 }
 

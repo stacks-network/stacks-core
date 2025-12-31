@@ -1743,7 +1743,7 @@ fn simple_epoch21_test() {
             ClarityError::Interpreter(e) => {
                 assert_eq!(
                     e,
-                    VmExecutionError::Unchecked(RuntimeAnalysisError::NameAlreadyUsed(
+                    VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NameAlreadyUsed(
                         "stx-account".into()
                     ))
                 );
