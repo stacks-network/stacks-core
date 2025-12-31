@@ -20,7 +20,7 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{type_check, StaticCheckError, StaticCheckErrorKind};
+use crate::vm::analysis::{type_check, StaticAnalysisErrorReport, StaticAnalysisError};
 use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;
@@ -97,7 +97,7 @@ fn test_incomplete_impl_trait_1(#[case] version: ClarityVersion, #[case] epoch: 
         })
         .unwrap_err();
     match *err.err {
-        StaticCheckErrorKind::BadTraitImplementation(_, _) => {}
+        StaticAnalysisError::BadTraitImplementation(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -124,7 +124,7 @@ fn test_incomplete_impl_trait_2(#[case] version: ClarityVersion, #[case] epoch: 
         })
         .unwrap_err();
     match *err.err {
-        StaticCheckErrorKind::BadTraitImplementation(_, _) => {}
+        StaticAnalysisError::BadTraitImplementation(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -148,7 +148,7 @@ fn test_impl_trait_arg_admission_1(#[case] version: ClarityVersion, #[case] epoc
         })
         .unwrap_err();
     match *err.err {
-        StaticCheckErrorKind::BadTraitImplementation(_, _) => {}
+        StaticAnalysisError::BadTraitImplementation(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -288,7 +288,7 @@ fn test_get_trait_reference_from_tuple(
         })
         .unwrap_err();
     match *err.err {
-        StaticCheckErrorKind::ContractCallExpectName => {}
+        StaticAnalysisError::ContractCallExpectName => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -331,7 +331,7 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait(
         })
         .unwrap_err();
     match *err.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
+        StaticAnalysisError::TraitReferenceUnknown(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -433,7 +433,7 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epo
         })
         .unwrap_err();
     match *err.err {
-        StaticCheckErrorKind::NoSuchContract(_) => {}
+        StaticAnalysisError::NoSuchContract(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -486,7 +486,7 @@ fn test_dynamic_dispatch_unknown_method(
         })
         .unwrap_err();
     match *err.err {
-        StaticCheckErrorKind::TraitMethodUnknown(_, _) => {}
+        StaticAnalysisError::TraitMethodUnknown(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -811,7 +811,7 @@ fn test_dynamic_dispatch_importing_non_existant_trait(
         })
         .unwrap_err();
     match *err.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
+        StaticAnalysisError::TraitReferenceUnknown(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -1098,13 +1098,13 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
         .unwrap_err();
 
     match *err.err {
-        StaticCheckErrorKind::TypeError(expected, actual) if epoch < StacksEpochId::Epoch21 => {
+        StaticAnalysisError::TypeError(expected, actual) if epoch < StacksEpochId::Epoch21 => {
             match (&*expected, &*actual) {
                 (TypeSignature::TraitReferenceType(_), TypeSignature::TraitReferenceType(_)) => {}
                 _ => panic!("unexpected TypeSignature: {expected:?} {actual:?}"),
             }
         }
-        StaticCheckErrorKind::TypeError(expected, actual)
+        StaticAnalysisError::TypeError(expected, actual)
             if epoch >= StacksEpochId::Epoch21 && version < ClarityVersion::Clarity2 =>
         {
             match (&*expected, &*actual) {
@@ -1112,7 +1112,7 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
                 _ => panic!("unexpected TypeSignature: {expected:?} {actual:?}"),
             }
         }
-        StaticCheckErrorKind::TraitReferenceUnknown(name) => assert_eq!(name.as_str(), "trait-a"),
+        StaticAnalysisError::TraitReferenceUnknown(name) => assert_eq!(name.as_str(), "trait-a"),
         _ => panic!("{err:?}"),
     }
 }
@@ -1166,7 +1166,7 @@ fn test_dynamic_dispatch_mismatched_args(
         })
         .unwrap_err();
     match *err.err {
-        StaticCheckErrorKind::TypeError(_, _) => {}
+        StaticAnalysisError::TypeError(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -1220,7 +1220,7 @@ fn test_dynamic_dispatch_mismatched_returns(
         })
         .unwrap_err();
     match *err.err {
-        StaticCheckErrorKind::BadTraitImplementation(_, _) => {}
+        StaticAnalysisError::BadTraitImplementation(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -1256,7 +1256,7 @@ fn test_bad_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Stac
         })
         .unwrap_err();
     match *err.err {
-        StaticCheckErrorKind::TypeError(_, _) => {}
+        StaticAnalysisError::TypeError(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -1465,7 +1465,7 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
     match result {
         Err(err) if version == ClarityVersion::Clarity1 => {
             match *err.err {
-                StaticCheckErrorKind::TypeError(_, _) => {}
+                StaticAnalysisError::TypeError(_, _) => {}
                 _ => panic!("{err:?}"),
             };
         }
@@ -1559,7 +1559,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_principal.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
+        StaticAnalysisError::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_principal:?}"),
     }
     let err_int = db
@@ -1569,7 +1569,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_int.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
+        StaticAnalysisError::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_int:?}"),
     }
     let err_uint = db
@@ -1579,7 +1579,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_uint.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
+        StaticAnalysisError::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_uint:?}"),
     }
     let err_bool = db
@@ -1589,7 +1589,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_bool.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
+        StaticAnalysisError::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_bool:?}"),
     }
     let err_list = db
@@ -1599,7 +1599,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_list.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
+        StaticAnalysisError::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_list:?}"),
     }
     let err_buff = db
@@ -1609,7 +1609,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_buff.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
+        StaticAnalysisError::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_buff:?}"),
     }
     let err_tuple = db
@@ -1619,7 +1619,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_tuple.err {
-        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
+        StaticAnalysisError::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_tuple:?}"),
     }
 }
@@ -1817,12 +1817,14 @@ fn test_trait_contract_not_found(#[case] version: ClarityVersion, #[case] epoch:
             &version,
         )
     }) {
-        Err(StaticCheckError { err, .. }) if version < ClarityVersion::Clarity2 => match *err {
-            StaticCheckErrorKind::NoSuchContract(contract) => {
-                assert!(contract.ends_with(".trait-contract"))
+        Err(StaticAnalysisErrorReport { err, .. }) if version < ClarityVersion::Clarity2 => {
+            match *err {
+                StaticAnalysisError::NoSuchContract(contract) => {
+                    assert!(contract.ends_with(".trait-contract"))
+                }
+                _ => panic!("{version}: unexpected NoSuchContract error"),
             }
-            _ => panic!("{version}: unexpected NoSuchContract error"),
-        },
+        }
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
         res => panic!("{version}: {res:?}"),
     }

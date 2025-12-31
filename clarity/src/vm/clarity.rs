@@ -3,7 +3,8 @@ use std::fmt;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{
-    AnalysisDatabase, CheckErrorKind, ContractAnalysis, StaticCheckError, StaticCheckErrorKind,
+    AnalysisDatabase, ContractAnalysis, RuntimeAnalysisError, StaticAnalysisError,
+    StaticAnalysisErrorReport,
 };
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::ast::ContractAST;
@@ -20,8 +21,8 @@ use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpressi
 #[derive(Debug)]
 pub enum ClarityError {
     /// Error during static type-checking or semantic analysis.
-    /// The `StaticCheckError` wraps the specific type-checking error, including diagnostic details.
-    StaticCheck(StaticCheckError),
+    /// The `StaticAnalysisDiagnostic` wraps the specific type-checking error, including diagnostic details.
+    StaticCheck(StaticAnalysisErrorReport),
     /// Error during lexical or syntactic parsing.
     /// The `ParseError` wraps the specific parsing error, such as invalid syntax or tokens.
     Parse(ParseError),
@@ -78,17 +79,17 @@ impl std::error::Error for ClarityError {
     }
 }
 
-impl From<StaticCheckError> for ClarityError {
-    fn from(e: StaticCheckError) -> Self {
+impl From<StaticAnalysisErrorReport> for ClarityError {
+    fn from(e: StaticAnalysisErrorReport) -> Self {
         match *e.err {
-            StaticCheckErrorKind::CostOverflow => {
+            StaticAnalysisError::CostOverflow => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            StaticCheckErrorKind::CostBalanceExceeded(a, b) => ClarityError::CostError(a, b),
-            StaticCheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
+            StaticAnalysisError::CostBalanceExceeded(a, b) => ClarityError::CostError(a, b),
+            StaticAnalysisError::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            StaticCheckErrorKind::ExecutionTimeExpired => {
+            StaticAnalysisError::ExecutionTimeExpired => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => ClarityError::StaticCheck(e),
@@ -105,13 +106,13 @@ impl From<StaticCheckError> for ClarityError {
 ///
 /// # Notes
 ///
-/// - [`CheckErrorKind::MemoryBalanceExceeded`] and [`CheckErrorKind::CostComputationFailed`]
+/// - [`RuntimeAnalysisError::MemoryBalanceExceeded`] and [`RuntimeAnalysisError::CostComputationFailed`]
 ///   are intentionally not converted to [`ClarityError::CostError`].
-///   Instead, they remain wrapped in `ClarityError::Interpreter(VmExecutionError::Unchecked(CheckErrorKind::MemoryBalanceExceeded))`,
+///   Instead, they remain wrapped in `ClarityError::Interpreter(VmExecutionError::Unchecked(RuntimeAnalysisError::MemoryBalanceExceeded))`,
 ///   which causes the transaction to fail, but still be included in the block.
 ///
-/// - This behavior differs from direct conversions of [`StaticCheckError`] and [`ParseError`] to [`ClarityError`],
-///   where [`CheckErrorKind::MemoryBalanceExceeded`] is converted to [`ClarityError::CostError`],
+/// - This behavior differs from direct conversions of [`StaticAnalysisDiagnostic`] and [`ParseError`] to [`ClarityError`],
+///   where [`RuntimeAnalysisError::MemoryBalanceExceeded`] is converted to [`ClarityError::CostError`],
 ///   during contract analysis.
 ///
 ///   As a result:
@@ -121,13 +122,13 @@ impl From<StaticCheckError> for ClarityError {
 impl From<VmExecutionError> for ClarityError {
     fn from(e: VmExecutionError) -> Self {
         match &e {
-            VmExecutionError::Unchecked(CheckErrorKind::CostBalanceExceeded(a, b)) => {
+            VmExecutionError::Unchecked(RuntimeAnalysisError::CostBalanceExceeded(a, b)) => {
                 ClarityError::CostError(a.clone(), b.clone())
             }
-            VmExecutionError::Unchecked(CheckErrorKind::CostOverflow) => {
+            VmExecutionError::Unchecked(RuntimeAnalysisError::CostOverflow) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            VmExecutionError::Unchecked(CheckErrorKind::ExecutionTimeExpired) => {
+            VmExecutionError::Unchecked(RuntimeAnalysisError::ExecutionTimeExpired) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => ClarityError::Interpreter(e),
@@ -291,7 +292,7 @@ pub trait TransactionConnection: ClarityConnection {
         &mut self,
         identifier: &QualifiedContractIdentifier,
         contract_analysis: &ContractAnalysis,
-    ) -> Result<(), StaticCheckError> {
+    ) -> Result<(), StaticAnalysisErrorReport> {
         self.with_analysis_db(|db, cost_tracker| {
             db.begin();
             let result = db.insert_contract(identifier, contract_analysis);
@@ -299,13 +300,13 @@ pub trait TransactionConnection: ClarityConnection {
                 Ok(_) => {
                     let result = db
                         .commit()
-                        .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into());
+                        .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")).into());
                     (cost_tracker, result)
                 }
                 Err(e) => {
                     let result = db
                         .roll_back()
-                        .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into());
+                        .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")).into());
                     if result.is_err() {
                         (cost_tracker, result)
                     } else {

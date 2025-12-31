@@ -2282,7 +2282,7 @@ mod tests {
     use std::path::PathBuf;
 
     use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
-    use clarity::vm::analysis::errors::CheckErrorKind;
+    use clarity::vm::analysis::errors::RuntimeAnalysisError;
     use clarity::vm::database::{ClarityBackingStore, STXBalance, SqliteConnection};
     use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
     use clarity::vm::types::{StandardPrincipalData, TupleData, Value};
@@ -2684,7 +2684,7 @@ mod tests {
         // should not be in the marf.
         assert_eq!(
             conn.get_contract_hash(&contract_identifier).unwrap_err(),
-            CheckErrorKind::NoSuchContract(contract_identifier.to_string()).into()
+            RuntimeAnalysisError::NoSuchContract(contract_identifier.to_string()).into()
         );
         let sql = conn.get_side_store();
         // sqlite only have entries
@@ -2830,7 +2830,7 @@ mod tests {
         // should not be in the marf.
         assert_eq!(
             conn.get_contract_hash(&contract_identifier).unwrap_err(),
-            CheckErrorKind::NoSuchContract(contract_identifier.to_string()).into()
+            RuntimeAnalysisError::NoSuchContract(contract_identifier.to_string()).into()
         );
 
         let sql = conn.get_side_store();

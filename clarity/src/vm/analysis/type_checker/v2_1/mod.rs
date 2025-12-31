@@ -26,8 +26,8 @@ pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 use super::contexts::{TypeMap, TypingContext};
 use super::ContractAnalysis;
 pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, StaticCheckError,
-    StaticCheckErrorKind, SyntaxBindingErrorType,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, StaticAnalysisError,
+    StaticAnalysisErrorReport, SyntaxBindingErrorType,
 };
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -128,7 +128,7 @@ impl TypeChecker<'_, '_> {
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
         build_type_map: bool,
-    ) -> Result<(), StaticCheckError> {
+    ) -> Result<(), StaticAnalysisErrorReport> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command = TypeChecker::new(
             epoch,
@@ -178,7 +178,7 @@ impl FunctionType {
         accumulated_type: Option<&TypeSignature>,
     ) -> (
         Option<Result<ExecutionCost, CostErrors>>,
-        Result<Option<TypeSignature>, StaticCheckError>,
+        Result<Option<TypeSignature>, StaticAnalysisErrorReport>,
     ) {
         match self {
             // variadic stops checking cost at the first error...
@@ -191,7 +191,7 @@ impl FunctionType {
                 if !admitted {
                     return (
                         cost,
-                        Err(StaticCheckErrorKind::TypeError(
+                        Err(StaticAnalysisError::TypeError(
                             Box::new(expected_type.clone()),
                             Box::new(arg_type.clone()),
                         )
@@ -210,7 +210,7 @@ impl FunctionType {
                     let return_type = match arg_type {
                         TypeSignature::IntType => Ok(Some(TypeSignature::IntType)),
                         TypeSignature::UIntType => Ok(Some(TypeSignature::UIntType)),
-                        _ => Err(StaticCheckErrorKind::UnionTypeError(
+                        _ => Err(StaticAnalysisError::UnionTypeError(
                             vec![TypeSignature::IntType, TypeSignature::UIntType],
                             Box::new(arg_type.clone()),
                         )
@@ -219,10 +219,10 @@ impl FunctionType {
                     (cost, return_type)
                 } else {
                     let return_type = accumulated_type
-                        .ok_or_else(|| StaticCheckErrorKind::Expects("Failed to set accumulated type for arg indices >= 1 in variadic arithmetic".into()).into());
+                        .ok_or_else(|| StaticAnalysisError::Expects("Failed to set accumulated type for arg indices >= 1 in variadic arithmetic".into()).into());
                     let check_result = return_type.and_then(|return_type| {
                         if arg_type != return_type {
-                            Err(StaticCheckErrorKind::TypeError(
+                            Err(StaticAnalysisError::TypeError(
                                 Box::new(return_type.clone()),
                                 Box::new(arg_type.clone()),
                             )
@@ -245,7 +245,7 @@ impl FunctionType {
                     // note: argument count will be wrong?
                     return (
                         None,
-                        Err(StaticCheckErrorKind::IncorrectArgumentCount(
+                        Err(StaticAnalysisError::IncorrectArgumentCount(
                             arg_types.len(),
                             arg_index,
                         )
@@ -262,7 +262,7 @@ impl FunctionType {
                 if arg_index >= 1 {
                     return (
                         None,
-                        Err(StaticCheckErrorKind::IncorrectArgumentCount(1, arg_index).into()),
+                        Err(StaticAnalysisError::IncorrectArgumentCount(1, arg_index).into()),
                     );
                 }
                 (None, Ok(None))
@@ -273,7 +273,7 @@ impl FunctionType {
                 if arg_index >= 2 {
                     return (
                         None,
-                        Err(StaticCheckErrorKind::IncorrectArgumentCount(2, arg_index).into()),
+                        Err(StaticAnalysisError::IncorrectArgumentCount(2, arg_index).into()),
                     );
                 }
                 (None, Ok(None))
@@ -286,14 +286,14 @@ impl FunctionType {
         accounting: &mut T,
         args: &[TypeSignature],
         clarity_version: ClarityVersion,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         match self {
             FunctionType::Variadic(expected_type, return_type) => {
                 check_arguments_at_least(1, args)?;
                 for found_type in args.iter() {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
                     if !expected_type.admits_type(&StacksEpochId::Epoch21, found_type)? {
-                        return Err(StaticCheckErrorKind::TypeError(
+                        return Err(StaticAnalysisError::TypeError(
                             Box::new(expected_type.clone()),
                             Box::new(found_type.clone()),
                         )
@@ -311,7 +311,7 @@ impl FunctionType {
                 {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
                     if !expected_type.admits_type(&StacksEpochId::Epoch21, found_type)? {
-                        return Err(StaticCheckErrorKind::TypeError(
+                        return Err(StaticAnalysisError::TypeError(
                             Box::new(expected_type.clone()),
                             Box::new(found_type.clone()),
                         )
@@ -329,7 +329,7 @@ impl FunctionType {
                         return Ok(return_type.clone());
                     }
                 }
-                Err(StaticCheckErrorKind::UnionTypeError(
+                Err(StaticAnalysisError::UnionTypeError(
                     arg_types.clone(),
                     Box::new(found_type.clone()),
                 )
@@ -358,17 +358,14 @@ impl FunctionType {
                 if self == &FunctionType::ArithmeticBinary {
                     check_argument_count(2, args)?;
                 }
-                let (first, rest) =
-                    args.split_first()
-                        .ok_or(StaticCheckErrorKind::RequiresAtLeastArguments(
-                            1,
-                            args.len(),
-                        ))?;
+                let (first, rest) = args
+                    .split_first()
+                    .ok_or(StaticAnalysisError::RequiresAtLeastArguments(1, args.len()))?;
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
                 let return_type = match first {
                     TypeSignature::IntType => Ok(TypeSignature::IntType),
                     TypeSignature::UIntType => Ok(TypeSignature::UIntType),
-                    _ => Err(StaticCheckErrorKind::UnionTypeError(
+                    _ => Err(StaticAnalysisError::UnionTypeError(
                         vec![TypeSignature::IntType, TypeSignature::UIntType],
                         Box::new(first.clone()),
                     )),
@@ -376,7 +373,7 @@ impl FunctionType {
                 for found_type in rest.iter() {
                     analysis_typecheck_cost(accounting, &TypeSignature::IntType, found_type)?;
                     if found_type != &return_type {
-                        return Err(StaticCheckErrorKind::TypeError(
+                        return Err(StaticAnalysisError::TypeError(
                             Box::new(return_type.clone()),
                             Box::new(found_type.clone()),
                         )
@@ -410,7 +407,7 @@ impl FunctionType {
                 };
 
                 if !first_type_supported {
-                    return Err(StaticCheckErrorKind::UnionTypeError(
+                    return Err(StaticAnalysisError::UnionTypeError(
                         vec![
                             TypeSignature::IntType,
                             TypeSignature::UIntType,
@@ -452,7 +449,7 @@ impl FunctionType {
                 };
 
                 if !pair_of_types_matches {
-                    return Err(StaticCheckErrorKind::TypeError(
+                    return Err(StaticAnalysisError::TypeError(
                         Box::new(first.clone()),
                         Box::new(second.clone()),
                     )
@@ -473,7 +470,7 @@ impl FunctionType {
         value: &Value,
         depth: u8,
         clarity_version: ClarityVersion,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         if clarity_version >= ClarityVersion::Clarity2 {
             // In Clarity2, we recurse into complex data types
             self.clarity2_principal_to_callable_type(value, depth)
@@ -495,9 +492,9 @@ impl FunctionType {
         &self,
         value: &Value,
         depth: u8,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         if depth > MAX_TYPE_DEPTH {
-            return Err(StaticCheckErrorKind::TypeSignatureTooDeep.into());
+            return Err(StaticAnalysisError::TypeSignatureTooDeep.into());
         }
 
         Ok(match value {
@@ -564,11 +561,11 @@ impl FunctionType {
         db: &mut AnalysisDatabase,
         clarity_version: ClarityVersion,
         func_args: &[Value],
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         let (expected_args, returns) = match self {
             FunctionType::Fixed(FixedFunction { args, returns }) => (args, returns),
             _ => {
-                return Err(StaticCheckErrorKind::Expects("Unexpected function type".into()).into())
+                return Err(StaticAnalysisError::Expects("Unexpected function type".into()).into())
             }
         };
         check_argument_count(expected_args.len(), func_args)?;
@@ -583,7 +580,7 @@ impl FunctionType {
                         let contract_to_check = db
                             .load_contract(contract, &StacksEpochId::Epoch21)?
                             .ok_or_else(|| {
-                                StaticCheckErrorKind::NoSuchContract(contract.name.to_string())
+                                StaticAnalysisError::NoSuchContract(contract.name.to_string())
                             })?;
                         let trait_definition = db
                             .get_defined_trait(
@@ -592,9 +589,9 @@ impl FunctionType {
                                 &StacksEpochId::Epoch21,
                             )
                             .map_err(|_| {
-                                StaticCheckErrorKind::Expects("Failed to get trait".into())
+                                StaticAnalysisError::Expects("Failed to get trait".into())
                             })?
-                            .ok_or(StaticCheckErrorKind::NoSuchContract(
+                            .ok_or(StaticAnalysisError::NoSuchContract(
                                 trait_id.contract_identifier.to_string(),
                             ))?;
                         contract_to_check.check_trait_compliance(
@@ -606,7 +603,7 @@ impl FunctionType {
                     (expected_type, value) => {
                         if !expected_type.admits(&StacksEpochId::Epoch21, value)? {
                             let actual_type = TypeSignature::type_of(value)?;
-                            return Err(StaticCheckErrorKind::TypeError(
+                            return Err(StaticAnalysisError::TypeError(
                                 Box::new(expected_type.clone()),
                                 Box::new(actual_type.clone()),
                             )
@@ -640,12 +637,12 @@ fn check_function_arg_signature<T: CostTracker>(
     cost_tracker: &mut T,
     expected_sig: &FunctionArgSignature,
     actual_type: &TypeSignature,
-) -> Result<(), StaticCheckError> {
+) -> Result<(), StaticAnalysisErrorReport> {
     match expected_sig {
         FunctionArgSignature::Single(expected_type) => {
             analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
             if !expected_type.admits_type(&StacksEpochId::Epoch21, actual_type)? {
-                return Err(StaticCheckErrorKind::TypeError(
+                return Err(StaticAnalysisError::TypeError(
                     Box::new(expected_type.clone()),
                     Box::new(actual_type.clone()),
                 )
@@ -662,7 +659,7 @@ fn check_function_arg_signature<T: CostTracker>(
                 }
             }
             if !admitted {
-                return Err(StaticCheckErrorKind::UnionTypeError(
+                return Err(StaticAnalysisError::UnionTypeError(
                     expected_types.clone(),
                     Box::new(actual_type.clone()),
                 )
@@ -728,7 +725,7 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
     expected_trait_identifier: &TraitIdentifier,
     expected_trait: &BTreeMap<ClarityName, FunctionSignature>,
     tracker: &mut T,
-) -> Result<(), StaticCheckError> {
+) -> Result<(), StaticAnalysisErrorReport> {
     // Shortcut for the simple case when the two traits are the same.
     if actual_trait_identifier == expected_trait_identifier {
         return Ok(());
@@ -743,14 +740,14 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
                 func,
                 tracker,
             ) {
-                return Err(StaticCheckErrorKind::IncompatibleTrait(
+                return Err(StaticAnalysisError::IncompatibleTrait(
                     Box::new(expected_trait_identifier.clone()),
                     Box::new(actual_trait_identifier.clone()),
                 )
                 .into());
             }
         } else {
-            return Err(StaticCheckErrorKind::IncompatibleTrait(
+            return Err(StaticAnalysisError::IncompatibleTrait(
                 Box::new(expected_trait_identifier.clone()),
                 Box::new(actual_trait_identifier.clone()),
             )
@@ -769,9 +766,9 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
     expected_type: &TypeSignature,
     depth: u8,
     tracker: &mut T,
-) -> Result<TypeSignature, StaticCheckError> {
+) -> Result<TypeSignature, StaticAnalysisErrorReport> {
     if depth > MAX_TYPE_DEPTH {
-        return Err(StaticCheckErrorKind::TypeSignatureTooDeep.into());
+        return Err(StaticAnalysisError::TypeSignatureTooDeep.into());
     }
 
     // Recurse into values to check embedded traits properly
@@ -824,7 +821,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                     tracker,
                 )?;
             } else {
-                return Err(StaticCheckErrorKind::TypeError(
+                return Err(StaticAnalysisError::TypeError(
                     Box::new(expected_type.clone()),
                     Box::new(actual_type.clone()),
                 )
@@ -836,7 +833,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
             TypeSignature::TupleType(expected_tuple_type),
         ) => {
             if expected_tuple_type.get_type_map().len() != atom_tuple_type.get_type_map().len() {
-                return Err(StaticCheckErrorKind::TypeError(
+                return Err(StaticAnalysisError::TypeError(
                     Box::new(expected_type.clone()),
                     Box::new(actual_type.clone()),
                 )
@@ -856,7 +853,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                         )?;
                     }
                     None => {
-                        return Err(StaticCheckErrorKind::TypeError(
+                        return Err(StaticAnalysisError::TypeError(
                             Box::new(expected_type.clone()),
                             Box::new(actual_type.clone()),
                         )
@@ -901,7 +898,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                     }
                     None => {
                         runtime_cost(ClarityCostFunction::AnalysisFetchContractEntry, tracker, 1)?;
-                        return Err(StaticCheckErrorKind::NoSuchContract(
+                        return Err(StaticAnalysisError::NoSuchContract(
                             contract_identifier.to_string(),
                         )
                         .into());
@@ -934,7 +931,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
         (TypeSignature::NoType, _) => (),
         (_, _) => {
             if !expected_type.admits_type(&StacksEpochId::Epoch21, actual_type)? {
-                return Err(StaticCheckErrorKind::TypeError(
+                return Err(StaticAnalysisError::TypeError(
                     Box::new(expected_type.clone()),
                     Box::new(actual_type.clone()),
                 )
@@ -950,13 +947,13 @@ fn clarity2_lookup_trait<T: CostTracker>(
     contract_context: Option<&ContractContext>,
     trait_id: &TraitIdentifier,
     tracker: &mut T,
-) -> Result<BTreeMap<ClarityName, FunctionSignature>, StaticCheckError> {
+) -> Result<BTreeMap<ClarityName, FunctionSignature>, StaticAnalysisErrorReport> {
     if let Some(contract_context) = contract_context {
         // If the trait is from this contract, then it must be in the context or it doesn't exist.
         if contract_context.is_contract(&trait_id.contract_identifier) {
             return Ok(contract_context
                 .get_trait(trait_id)
-                .ok_or(StaticCheckErrorKind::NoSuchTrait(
+                .ok_or(StaticAnalysisError::NoSuchTrait(
                     trait_id.contract_identifier.to_string(),
                     trait_id.name.to_string(),
                 ))?
@@ -983,7 +980,7 @@ fn clarity2_lookup_trait<T: CostTracker>(
         }
         Ok(None) => {
             runtime_cost(ClarityCostFunction::AnalysisUseTraitEntry, tracker, 1)?;
-            Err(StaticCheckErrorKind::NoSuchTrait(
+            Err(StaticAnalysisError::NoSuchTrait(
                 trait_id.contract_identifier.to_string(),
                 trait_id.name.to_string(),
             )
@@ -998,7 +995,7 @@ fn clarity2_lookup_trait<T: CostTracker>(
 
 fn trait_type_size(
     trait_sig: &BTreeMap<ClarityName, FunctionSignature>,
-) -> Result<u64, StaticCheckError> {
+) -> Result<u64, StaticAnalysisErrorReport> {
     let mut total_size = 0;
     for (_func_name, value) in trait_sig.iter() {
         total_size = total_size.cost_overflow_add(value.total_type_size()?)?;
@@ -1006,7 +1003,7 @@ fn trait_type_size(
     Ok(total_size)
 }
 
-fn contract_analysis_size(contract: &ContractAnalysis) -> Result<u64, StaticCheckError> {
+fn contract_analysis_size(contract: &ContractAnalysis) -> Result<u64, StaticAnalysisErrorReport> {
     let mut total_size = contract.public_function_types.len() as u64;
     total_size = total_size.cost_overflow_add(contract.read_only_function_types.len() as u64)?;
     Ok(total_size)
@@ -1015,20 +1012,20 @@ fn contract_analysis_size(contract: &ContractAnalysis) -> Result<u64, StaticChec
 fn type_reserved_variable(
     variable_name: &str,
     version: &ClarityVersion,
-) -> Result<Option<TypeSignature>, StaticCheckError> {
+) -> Result<Option<TypeSignature>, StaticAnalysisErrorReport> {
     if let Some(variable) = NativeVariables::lookup_by_name_at_version(variable_name, version) {
         use crate::vm::variables::NativeVariables::*;
         let var_type = match variable {
             TxSender => TypeSignature::PrincipalType,
             TxSponsor => TypeSignature::new_option(TypeSignature::PrincipalType)
-                .map_err(|_| StaticCheckErrorKind::Expects("Bad construction".into()))?,
+                .map_err(|_| StaticAnalysisError::Expects("Bad construction".into()))?,
             ContractCaller => TypeSignature::PrincipalType,
             BlockHeight => TypeSignature::UIntType,
             StacksBlockHeight => TypeSignature::UIntType,
             TenureHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,
             NativeNone => TypeSignature::new_option(no_type())
-                .map_err(|_| StaticCheckErrorKind::Expects("Bad construction".into()))?,
+                .map_err(|_| StaticAnalysisError::Expects("Bad construction".into()))?,
             NativeTrue => TypeSignature::BoolType,
             NativeFalse => TypeSignature::BoolType,
             TotalLiquidMicroSTX => TypeSignature::UIntType,
@@ -1081,7 +1078,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     pub fn track_return_type(
         &mut self,
         return_type: TypeSignature,
-    ) -> Result<(), StaticCheckError> {
+    ) -> Result<(), StaticAnalysisErrorReport> {
         runtime_cost(
             ClarityCostFunction::AnalysisTypeCheck,
             self,
@@ -1097,7 +1094,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                         &return_type,
                     )
                     .map_err(|_| {
-                        StaticCheckErrorKind::ReturnTypesMustMatch(
+                        StaticAnalysisError::ReturnTypesMustMatch(
                             Box::new(expected_type),
                             Box::new(return_type),
                         )
@@ -1116,7 +1113,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), StaticCheckError> {
+    pub fn run(
+        &mut self,
+        contract_analysis: &ContractAnalysis,
+    ) -> Result<(), StaticAnalysisErrorReport> {
         // charge for the eventual storage cost of the analysis --
         //  it is linear in the size of the AST.
         let mut size: u64 = 0;
@@ -1128,7 +1128,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 }
                 Err(e) => Err(e),
             })?
-            .ok_or_else(|| StaticCheckErrorKind::Expects("Expected a depth result".into()))?;
+            .ok_or_else(|| StaticAnalysisError::Expects("Expected a depth result".into()))?;
         }
 
         runtime_cost(ClarityCostFunction::AnalysisStorage, self, size)?;
@@ -1157,7 +1157,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         expr: &SymbolicExpression,
         context: &TypingContext,
         expected_type: &TypeSignature,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         // Clarity 2 allows traits embedded in compound types and allows
         // implicit casts between compatible traits, while Clarity 1 does not.
         if self.clarity_version >= ClarityVersion::Clarity2 {
@@ -1178,7 +1178,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         expr: &SymbolicExpression,
         context: &TypingContext,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
 
         let mut result = self.inner_type_check(expr, context);
@@ -1198,14 +1198,14 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         args: &[SymbolicExpression],
         context: &TypingContext,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         let mut last_return = None;
         let mut return_failure = Ok(());
         for ix in 0..args.len() {
             let type_return = self.type_check(&args[ix], context)?;
             if ix + 1 < args.len() {
                 if type_return.is_response_type() {
-                    return_failure = Err(StaticCheckErrorKind::UncheckedIntermediaryResponses);
+                    return_failure = Err(StaticAnalysisError::UncheckedIntermediaryResponses);
                 }
             } else {
                 last_return = Some(type_return);
@@ -1213,7 +1213,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
 
         let last_return = last_return.ok_or_else(|| {
-            StaticCheckError::new(StaticCheckErrorKind::CheckerImplementationFailure)
+            StaticAnalysisErrorReport::new(StaticAnalysisError::CheckerImplementationFailure)
         })?;
         return_failure?;
 
@@ -1224,7 +1224,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         args: &[SymbolicExpression],
         context: &TypingContext,
-    ) -> Result<Vec<TypeSignature>, StaticCheckError> {
+    ) -> Result<Vec<TypeSignature>, StaticAnalysisErrorReport> {
         let mut result = Vec::with_capacity(args.len());
         for arg in args.iter() {
             // don't use map here, since type_check has side-effects.
@@ -1240,7 +1240,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         if epoch <= StacksEpochId::Epoch2_05 {
             let typed_args = self.type_check_all(args, context)?;
             return func_type.check_args(self, &typed_args, epoch, clarity_version);
@@ -1276,15 +1276,15 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 };
             }
         }
-        if let Err(mut check_error) = check_result {
-            if let StaticCheckErrorKind::IncorrectArgumentCount(expected, _actual) =
-                *check_error.err
+        if let Err(mut analysis_report) = check_result {
+            if let StaticAnalysisError::IncorrectArgumentCount(expected, _actual) =
+                *analysis_report.err
             {
-                check_error.err = Box::new(StaticCheckErrorKind::IncorrectArgumentCount(
+                analysis_report.err = Box::new(StaticAnalysisError::IncorrectArgumentCount(
                     expected,
                     args.len(),
                 ));
-                check_error.diagnostic = Diagnostic::err(check_error.err.as_ref());
+                analysis_report.diagnostic = Diagnostic::err(analysis_report.err.as_ref());
             }
             // accumulate the checking costs
             // the reason we do this now (instead of within the loop) is for backwards compatibility
@@ -1292,7 +1292,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 self.add_cost(cost?)?;
             }
 
-            return Err(check_error);
+            return Err(analysis_report);
         }
         // otherwise, just invoke the normal checking routine
         func_type.check_args(self, &accumulated_types, epoch, clarity_version)
@@ -1310,13 +1310,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         signature: &[SymbolicExpression],
         body: &SymbolicExpression,
         context: &TypingContext,
-    ) -> Result<(ClarityName, FixedFunction), StaticCheckError> {
+    ) -> Result<(ClarityName, FixedFunction), StaticAnalysisErrorReport> {
         let (function_name, args) = signature
             .split_first()
-            .ok_or(StaticCheckErrorKind::RequiresAtLeastArguments(1, 0))?;
+            .ok_or(StaticAnalysisError::RequiresAtLeastArguments(1, 0))?;
 
         if self.epoch.limits_parameter_and_method_count() && args.len() > MAX_FUNCTION_PARAMETERS {
-            return Err(StaticCheckErrorKind::TooManyFunctionParameters(
+            return Err(StaticAnalysisError::TooManyFunctionParameters(
                 args.len(),
                 MAX_FUNCTION_PARAMETERS,
             )
@@ -1325,8 +1325,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
         let function_name = function_name
             .match_atom()
-            .ok_or(StaticCheckErrorKind::BadFunctionName)?;
-        let args = parse_name_type_pairs::<(), StaticCheckError>(
+            .ok_or(StaticAnalysisError::BadFunctionName)?;
+        let args = parse_name_type_pairs::<(), StaticAnalysisErrorReport>(
             StacksEpochId::Epoch21,
             args,
             SyntaxBindingErrorType::Eval,
@@ -1334,7 +1334,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         )?;
 
         if self.function_return_tracker.is_some() {
-            return Err(StaticCheckErrorKind::Expects(
+            return Err(StaticAnalysisError::Expects(
                 "Interpreter error: Previous function define left dirty typecheck state.".into(),
             )
             .into());
@@ -1390,7 +1390,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                             &return_type,
                         )
                         .map_err(|_| {
-                            StaticCheckErrorKind::ReturnTypesMustMatch(
+                            StaticAnalysisError::ReturnTypesMustMatch(
                                 Box::new(expected.clone()),
                                 Box::new(return_type),
                             )
@@ -1424,16 +1424,16 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         map_name: &ClarityName,
         key_type: &SymbolicExpression,
         value_type: &SymbolicExpression,
-    ) -> Result<(ClarityName, (TypeSignature, TypeSignature)), StaticCheckError> {
+    ) -> Result<(ClarityName, (TypeSignature, TypeSignature)), StaticAnalysisErrorReport> {
         self.type_map.set_type(key_type, no_type())?;
         self.type_map.set_type(value_type, no_type())?;
         // should we set the type of the subexpressions of the signature to no-type as well?
 
         let key_type = TypeSignature::parse_type_repr(StacksEpochId::Epoch21, key_type, &mut ())
-            .map_err(|_| StaticCheckErrorKind::BadMapTypeDefinition)?;
+            .map_err(|_| StaticAnalysisError::BadMapTypeDefinition)?;
         let value_type =
             TypeSignature::parse_type_repr(StacksEpochId::Epoch21, value_type, &mut ())
-                .map_err(|_| StaticCheckErrorKind::BadMapTypeDefinition)?;
+                .map_err(|_| StaticAnalysisError::BadMapTypeDefinition)?;
 
         Ok((map_name.clone(), (key_type, value_type)))
     }
@@ -1444,7 +1444,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         function: &str,
         args: &[SymbolicExpression],
         context: &TypingContext,
-    ) -> Option<Result<TypeSignature, StaticCheckError>> {
+    ) -> Option<Result<TypeSignature, StaticAnalysisErrorReport>> {
         if let Some(ref native_function) =
             NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
         {
@@ -1462,22 +1462,22 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         expression: &[SymbolicExpression],
         context: &TypingContext,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         let (function_name, args) = expression
             .split_first()
-            .ok_or(StaticCheckErrorKind::NonFunctionApplication)?;
+            .ok_or(StaticAnalysisError::NonFunctionApplication)?;
 
         self.type_map.set_type(function_name, no_type())?;
         let function_name = function_name
             .match_atom()
-            .ok_or(StaticCheckErrorKind::NonFunctionApplication)?;
+            .ok_or(StaticAnalysisError::NonFunctionApplication)?;
 
         if let Some(type_result) = self.try_native_function_check(function_name, args, context) {
             type_result
         } else {
             let function = match self.get_function_type(function_name) {
                 Some(FunctionType::Fixed(function)) => Ok(function),
-                _ => Err(StaticCheckErrorKind::UnknownFunction(
+                _ => Err(StaticAnalysisError::UnknownFunction(
                     function_name.to_string(),
                 )),
             }?;
@@ -1495,7 +1495,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         name: &str,
         context: &TypingContext,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         runtime_cost(ClarityCostFunction::AnalysisLookupVariableConst, self, 0)?;
 
         if let Some(type_result) = type_reserved_variable(name, &self.clarity_version)? {
@@ -1511,7 +1511,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             // be undefined. This early error prevents a cost function error
             // due to `context.depth` being 0.
             if context.depth == 0 {
-                return Err(StaticCheckErrorKind::UndefinedVariable(name.to_string()).into());
+                return Err(StaticAnalysisError::UndefinedVariable(name.to_string()).into());
             }
 
             runtime_cost(
@@ -1523,7 +1523,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             if let Some(type_result) = context.lookup_variable_type(name) {
                 Ok(type_result.clone())
             } else {
-                Err(StaticCheckErrorKind::UndefinedVariable(name.to_string()).into())
+                Err(StaticAnalysisError::UndefinedVariable(name.to_string()).into())
             }
         }
     }
@@ -1533,7 +1533,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         expr: &SymbolicExpression,
         context: &TypingContext,
         expected_type: &TypeSignature,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         if let (
             LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
             TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
@@ -1542,7 +1542,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             let contract_to_check = self
                 .db
                 .load_contract(contract_identifier, &StacksEpochId::Epoch21)?
-                .ok_or(StaticCheckErrorKind::NoSuchContract(
+                .ok_or(StaticAnalysisError::NoSuchContract(
                     contract_identifier.to_string(),
                 ))?;
 
@@ -1552,13 +1552,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     &trait_identifier.contract_identifier,
                     &StacksEpochId::Epoch21,
                 )?
-                .ok_or(StaticCheckErrorKind::NoSuchContract(
+                .ok_or(StaticAnalysisError::NoSuchContract(
                     trait_identifier.contract_identifier.to_string(),
                 ))?;
 
             let trait_definition = contract_defining_trait
                 .get_defined_trait(&trait_identifier.name)
-                .ok_or(StaticCheckErrorKind::NoSuchTrait(
+                .ok_or(StaticAnalysisError::NoSuchTrait(
                     trait_identifier.contract_identifier.to_string(),
                     trait_identifier.name.to_string(),
                 ))?;
@@ -1575,7 +1575,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         analysis_typecheck_cost(self, expected_type, &actual_type)?;
 
         if !expected_type.admits_type(&StacksEpochId::Epoch21, &actual_type)? {
-            let mut err: StaticCheckError = StaticCheckErrorKind::TypeError(
+            let mut err: StaticAnalysisErrorReport = StaticAnalysisError::TypeError(
                 Box::new(expected_type.clone()),
                 Box::new(actual_type.clone()),
             )
@@ -1592,14 +1592,14 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         expr: &SymbolicExpression,
         context: &TypingContext,
         expected_type: &TypeSignature,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         let mut expr_type = match expr.expr {
             AtomValue(ref value) => TypeSignature::type_of(value)?,
             LiteralValue(ref value) => TypeSignature::literal_type_of(value)?,
             Atom(ref name) => self.lookup_variable(name, context)?,
             List(ref expression) => self.type_check_function_application(expression, context)?,
             TraitReference(_, _) | Field(_) => {
-                return Err(StaticCheckErrorKind::UnexpectedTraitOrFieldReference.into());
+                return Err(StaticAnalysisError::UnexpectedTraitOrFieldReference.into());
             }
         };
 
@@ -1630,14 +1630,14 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         expr: &SymbolicExpression,
         context: &TypingContext,
-    ) -> Result<TypeSignature, StaticCheckError> {
+    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
         let expr_type = match expr.expr {
             AtomValue(ref value) => TypeSignature::type_of(value)?,
             LiteralValue(ref value) => TypeSignature::literal_type_of(value)?,
             Atom(ref name) => self.lookup_variable(name, context)?,
             List(ref expression) => self.type_check_function_application(expression, context)?,
             TraitReference(_, _) | Field(_) => {
-                return Err(StaticCheckErrorKind::UnexpectedTraitOrFieldReference.into());
+                return Err(StaticAnalysisError::UnexpectedTraitOrFieldReference.into());
             }
         };
 
@@ -1655,7 +1655,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         var_name: &ClarityName,
         var_type: &SymbolicExpression,
         context: &mut TypingContext,
-    ) -> Result<(ClarityName, TypeSignature), StaticCheckError> {
+    ) -> Result<(ClarityName, TypeSignature), StaticAnalysisErrorReport> {
         let var_type = self.type_check(var_type, context)?;
         Ok((var_name.clone(), var_type))
     }
@@ -1666,10 +1666,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         var_type: &SymbolicExpression,
         initial: &SymbolicExpression,
         context: &mut TypingContext,
-    ) -> Result<(ClarityName, TypeSignature), StaticCheckError> {
+    ) -> Result<(ClarityName, TypeSignature), StaticAnalysisErrorReport> {
         let expected_type =
             TypeSignature::parse_type_repr::<()>(StacksEpochId::Epoch21, var_type, &mut ())
-                .map_err(|_e| StaticCheckErrorKind::DefineVariableBadSignature)?;
+                .map_err(|_e| StaticAnalysisError::DefineVariableBadSignature)?;
 
         self.type_check_expects(initial, context, &expected_type)?;
 
@@ -1681,7 +1681,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         token_name: &ClarityName,
         bound: Option<&SymbolicExpression>,
         context: &mut TypingContext,
-    ) -> Result<ClarityName, StaticCheckError> {
+    ) -> Result<ClarityName, StaticAnalysisErrorReport> {
         if let Some(bound) = bound {
             self.type_check_expects(bound, context, &TypeSignature::UIntType)?;
         }
@@ -1694,10 +1694,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         asset_name: &ClarityName,
         nft_type: &SymbolicExpression,
         _context: &mut TypingContext,
-    ) -> Result<(ClarityName, TypeSignature), StaticCheckError> {
+    ) -> Result<(ClarityName, TypeSignature), StaticAnalysisErrorReport> {
         let asset_type =
             TypeSignature::parse_type_repr::<()>(StacksEpochId::Epoch21, nft_type, &mut ())
-                .map_err(|_| StaticCheckErrorKind::DefineNFTBadSignature)?;
+                .map_err(|_| StaticAnalysisError::DefineNFTBadSignature)?;
 
         Ok((asset_name.clone(), asset_type))
     }
@@ -1707,7 +1707,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         trait_name: &ClarityName,
         function_types: &[SymbolicExpression],
         _context: &mut TypingContext,
-    ) -> Result<(ClarityName, BTreeMap<ClarityName, FunctionSignature>), StaticCheckError> {
+    ) -> Result<(ClarityName, BTreeMap<ClarityName, FunctionSignature>), StaticAnalysisErrorReport>
+    {
         let trait_signature = TypeSignature::parse_trait_type_repr(
             function_types,
             &mut (),
@@ -1723,7 +1724,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         expression: &SymbolicExpression,
         context: &mut TypingContext,
-    ) -> Result<Option<()>, StaticCheckError> {
+    ) -> Result<Option<()>, StaticAnalysisErrorReport> {
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
             match define_type {
                 DefineFunctionsParsed::Constant { name, value } => {
@@ -1772,7 +1773,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                             .add_public_function_type(f_name, FunctionType::Fixed(f_type))?;
                         return Ok(Some(()));
                     } else {
-                        return Err(StaticCheckErrorKind::PublicFunctionMustReturnResponse(
+                        return Err(StaticAnalysisError::PublicFunctionMustReturnResponse(
                             Box::new(f_type.returns),
                         )
                         .into());
@@ -1915,7 +1916,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                         None => {
                             // still had to do a db read, even if it didn't exist!
                             runtime_cost(ClarityCostFunction::AnalysisUseTraitEntry, self, 1)?;
-                            return Err(StaticCheckErrorKind::TraitReferenceUnknown(
+                            return Err(StaticAnalysisError::TraitReferenceUnknown(
                                 name.to_string(),
                             )
                             .into());

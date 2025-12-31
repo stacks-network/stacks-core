@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::analysis_db::AnalysisDatabase;
 use crate::vm::analysis::contract_interface_builder::ContractInterface;
-use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
+use crate::vm::analysis::errors::{StaticAnalysisErrorReport, StaticAnalysisError};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::types::signatures::FunctionSignature;
@@ -39,7 +39,7 @@ pub trait AnalysisPass {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
-    ) -> Result<(), StaticCheckError>;
+    ) -> Result<(), StaticAnalysisErrorReport>;
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -230,7 +230,7 @@ impl ContractAnalysis {
         epoch: &StacksEpochId,
         trait_identifier: &TraitIdentifier,
         trait_definition: &BTreeMap<ClarityName, FunctionSignature>,
-    ) -> Result<(), StaticCheckError> {
+    ) -> Result<(), StaticAnalysisErrorReport> {
         let trait_name = trait_identifier.name.to_string();
 
         for (func_name, expected_sig) in trait_definition.iter() {
@@ -242,7 +242,7 @@ impl ContractAnalysis {
                 | (None, Some(FunctionType::Fixed(func))) => {
                     let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
                     if !expected_sig.check_args_trait_compliance(epoch, args_sig)? {
-                        return Err(StaticCheckErrorKind::BadTraitImplementation(
+                        return Err(StaticAnalysisError::BadTraitImplementation(
                             trait_name,
                             func_name.to_string(),
                         )
@@ -250,7 +250,7 @@ impl ContractAnalysis {
                     }
 
                     if !expected_sig.returns.admits_type(epoch, &func.returns)? {
-                        return Err(StaticCheckErrorKind::BadTraitImplementation(
+                        return Err(StaticAnalysisError::BadTraitImplementation(
                             trait_name,
                             func_name.to_string(),
                         )
@@ -258,7 +258,7 @@ impl ContractAnalysis {
                     }
                 }
                 (_, _) => {
-                    return Err(StaticCheckErrorKind::BadTraitImplementation(
+                    return Err(StaticAnalysisError::BadTraitImplementation(
                         trait_name,
                         func_name.to_string(),
                     )

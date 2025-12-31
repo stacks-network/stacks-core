@@ -14,9 +14,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity_types::errors::analysis::{
-    check_argument_count, check_arguments_at_least, StaticCheckErrorKind,
+    check_argument_count, check_arguments_at_least, StaticAnalysisError,
 };
-use clarity_types::errors::StaticCheckError;
+use clarity_types::errors::StaticAnalysisErrorReport;
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::{SequenceSubtype, TypeSignature};
 
@@ -37,27 +37,27 @@ pub fn check_restrict_assets(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticCheckError> {
+) -> Result<TypeSignature, StaticAnalysisErrorReport> {
     check_arguments_at_least(3, args)?;
 
     let asset_owner = args
         .first()
-        .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?;
+        .ok_or(StaticAnalysisError::CheckerImplementationFailure)?;
     let allowance_list = args
         .get(1)
-        .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?
+        .ok_or(StaticAnalysisError::CheckerImplementationFailure)?
         .match_list()
-        .ok_or(StaticCheckErrorKind::ExpectedListOfAllowances(
+        .ok_or(StaticAnalysisError::ExpectedListOfAllowances(
             "restrict-assets?".into(),
             2,
         ))?;
     let body_exprs = args
         .get(2..)
-        .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?;
+        .ok_or(StaticAnalysisError::CheckerImplementationFailure)?;
 
     if allowance_list.len() > MAX_ALLOWANCES {
         return Err(
-            StaticCheckErrorKind::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into(),
+            StaticAnalysisError::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into(),
         );
     }
 
@@ -71,7 +71,7 @@ pub fn check_restrict_assets(
 
     for allowance in allowance_list {
         if check_allowance(checker, allowance, context)? {
-            return Err(StaticCheckErrorKind::WithAllAllowanceNotAllowed.into());
+            return Err(StaticAnalysisError::WithAllAllowanceNotAllowed.into());
         }
     }
 
@@ -80,12 +80,12 @@ pub fn check_restrict_assets(
     for expr in body_exprs {
         let type_return = checker.type_check(expr, context)?;
         if type_return.is_response_type() {
-            return Err(StaticCheckErrorKind::UncheckedIntermediaryResponses.into());
+            return Err(StaticAnalysisError::UncheckedIntermediaryResponses.into());
         }
         last_return = Some(type_return);
     }
 
-    let ok_type = last_return.ok_or_else(|| StaticCheckErrorKind::CheckerImplementationFailure)?;
+    let ok_type = last_return.ok_or_else(|| StaticAnalysisError::CheckerImplementationFailure)?;
     Ok(TypeSignature::new_response(
         ok_type,
         TypeSignature::UIntType,
@@ -96,24 +96,24 @@ pub fn check_as_contract(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticCheckError> {
+) -> Result<TypeSignature, StaticAnalysisErrorReport> {
     check_arguments_at_least(2, args)?;
 
     let allowance_list = args
         .first()
-        .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?
+        .ok_or(StaticAnalysisError::CheckerImplementationFailure)?
         .match_list()
-        .ok_or(StaticCheckErrorKind::ExpectedListOfAllowances(
+        .ok_or(StaticAnalysisError::ExpectedListOfAllowances(
             "as-contract?".into(),
             1,
         ))?;
     let body_exprs = args
         .get(1..)
-        .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?;
+        .ok_or(StaticAnalysisError::CheckerImplementationFailure)?;
 
     if allowance_list.len() > MAX_ALLOWANCES {
         return Err(
-            StaticCheckErrorKind::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into(),
+            StaticAnalysisError::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into(),
         );
     }
 
@@ -125,7 +125,7 @@ pub fn check_as_contract(
 
     for allowance in allowance_list {
         if check_allowance(checker, allowance, context)? && allowance_list.len() > 1 {
-            return Err(StaticCheckErrorKind::WithAllAllowanceNotAlone.into());
+            return Err(StaticAnalysisError::WithAllAllowanceNotAlone.into());
         }
     }
 
@@ -134,12 +134,12 @@ pub fn check_as_contract(
     for expr in body_exprs {
         let type_return = checker.type_check(expr, context)?;
         if type_return.is_response_type() {
-            return Err(StaticCheckErrorKind::UncheckedIntermediaryResponses.into());
+            return Err(StaticAnalysisError::UncheckedIntermediaryResponses.into());
         }
         last_return = Some(type_return);
     }
 
-    let ok_type = last_return.ok_or_else(|| StaticCheckErrorKind::CheckerImplementationFailure)?;
+    let ok_type = last_return.ok_or_else(|| StaticAnalysisError::CheckerImplementationFailure)?;
     Ok(TypeSignature::new_response(
         ok_type,
         TypeSignature::UIntType,
@@ -153,8 +153,8 @@ pub fn check_allowance_err(
     _checker: &mut TypeChecker,
     _args: &[SymbolicExpression],
     _context: &TypingContext,
-) -> Result<TypeSignature, StaticCheckError> {
-    Err(StaticCheckErrorKind::AllowanceExprNotAllowed.into())
+) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+    Err(StaticAnalysisError::AllowanceExprNotAllowed.into())
 }
 
 /// Type check an allowance expression, returning whether it is a
@@ -163,20 +163,20 @@ pub fn check_allowance(
     checker: &mut TypeChecker,
     allowance: &SymbolicExpression,
     context: &TypingContext,
-) -> Result<bool, StaticCheckError> {
+) -> Result<bool, StaticAnalysisErrorReport> {
     let list = allowance
         .match_list()
-        .ok_or(StaticCheckErrorKind::ExpectedListApplication)?;
+        .ok_or(StaticAnalysisError::ExpectedListApplication)?;
     let (allowance_fn, args) = list
         .split_first()
-        .ok_or(StaticCheckErrorKind::ExpectedListApplication)?;
+        .ok_or(StaticAnalysisError::ExpectedListApplication)?;
     let function_name = allowance_fn
         .match_atom()
-        .ok_or(StaticCheckErrorKind::NonFunctionApplication)?;
+        .ok_or(StaticAnalysisError::NonFunctionApplication)?;
     let Some(ref native_function) =
         NativeFunctions::lookup_by_name_at_version(function_name, &checker.clarity_version)
     else {
-        return Err(StaticCheckErrorKind::ExpectedAllowanceExpr(function_name.to_string()).into());
+        return Err(StaticAnalysisError::ExpectedAllowanceExpr(function_name.to_string()).into());
     };
 
     match native_function {
@@ -187,7 +187,7 @@ pub fn check_allowance(
             check_allowance_with_stacking(checker, args, context)
         }
         NativeFunctions::AllowanceAll => check_allowance_all(checker, args, context),
-        _ => Err(StaticCheckErrorKind::ExpectedAllowanceExpr(function_name.to_string()).into()),
+        _ => Err(StaticAnalysisError::ExpectedAllowanceExpr(function_name.to_string()).into()),
     }
 }
 
@@ -197,12 +197,12 @@ fn check_allowance_with_stx(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<bool, StaticCheckError> {
+) -> Result<bool, StaticAnalysisErrorReport> {
     check_argument_count(1, args)?;
 
     checker.type_check_expects(
         args.first()
-            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticAnalysisError::CheckerImplementationFailure)?,
         context,
         &TypeSignature::UIntType,
     )?;
@@ -216,24 +216,24 @@ fn check_allowance_with_ft(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<bool, StaticCheckError> {
+) -> Result<bool, StaticAnalysisErrorReport> {
     check_argument_count(3, args)?;
 
     checker.type_check_expects(
         args.first()
-            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticAnalysisError::CheckerImplementationFailure)?,
         context,
         &TypeSignature::PrincipalType,
     )?;
     checker.type_check_expects(
         args.get(1)
-            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticAnalysisError::CheckerImplementationFailure)?,
         context,
         &TypeSignature::STRING_ASCII_128,
     )?;
     checker.type_check_expects(
         args.get(2)
-            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticAnalysisError::CheckerImplementationFailure)?,
         context,
         &TypeSignature::UIntType,
     )?;
@@ -247,18 +247,18 @@ fn check_allowance_with_nft(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<bool, StaticCheckError> {
+) -> Result<bool, StaticAnalysisErrorReport> {
     check_argument_count(3, args)?;
 
     checker.type_check_expects(
         args.first()
-            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticAnalysisError::CheckerImplementationFailure)?,
         context,
         &TypeSignature::PrincipalType,
     )?;
     checker.type_check_expects(
         args.get(1)
-            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticAnalysisError::CheckerImplementationFailure)?,
         context,
         &TypeSignature::STRING_ASCII_128,
     )?;
@@ -266,14 +266,14 @@ fn check_allowance_with_nft(
     // Asset identifiers must be a Clarity list with any type of elements
     let id_list_ty = checker.type_check(
         args.get(2)
-            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticAnalysisError::CheckerImplementationFailure)?,
         context,
     )?;
     let TypeSignature::SequenceType(SequenceSubtype::ListType(list_data)) = id_list_ty else {
-        return Err(StaticCheckErrorKind::WithNftExpectedListOfIdentifiers.into());
+        return Err(StaticAnalysisError::WithNftExpectedListOfIdentifiers.into());
     };
     if list_data.get_max_len() > MAX_NFT_IDENTIFIERS {
-        return Err(StaticCheckErrorKind::MaxIdentifierLengthExceeded(
+        return Err(StaticAnalysisError::MaxIdentifierLengthExceeded(
             MAX_NFT_IDENTIFIERS,
             list_data.get_max_len(),
         )
@@ -289,12 +289,12 @@ fn check_allowance_with_stacking(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<bool, StaticCheckError> {
+) -> Result<bool, StaticAnalysisErrorReport> {
     check_argument_count(1, args)?;
 
     checker.type_check_expects(
         args.first()
-            .ok_or(StaticCheckErrorKind::CheckerImplementationFailure)?,
+            .ok_or(StaticAnalysisError::CheckerImplementationFailure)?,
         context,
         &TypeSignature::UIntType,
     )?;
@@ -308,7 +308,7 @@ fn check_allowance_all(
     _checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     _context: &TypingContext,
-) -> Result<bool, StaticCheckError> {
+) -> Result<bool, StaticAnalysisErrorReport> {
     check_argument_count(0, args)?;
 
     Ok(true)

@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
+use crate::vm::analysis::errors::{StaticAnalysisErrorReport, StaticAnalysisError};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{TraitIdentifier, TypeSignature};
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
@@ -64,12 +64,12 @@ impl TypeMap {
         &mut self,
         expr: &SymbolicExpression,
         type_sig: TypeSignature,
-    ) -> Result<(), StaticCheckError> {
+    ) -> Result<(), StaticAnalysisErrorReport> {
         match self.map {
             TypeMapDataType::Map(ref mut map) => {
                 if map.insert(expr.id, type_sig).is_some() {
-                    Err(StaticCheckError::new(
-                        StaticCheckErrorKind::TypeAlreadyAnnotatedFailure,
+                    Err(StaticAnalysisErrorReport::new(
+                        StaticAnalysisError::TypeAlreadyAnnotatedFailure,
                     ))
                 } else {
                     Ok(())
@@ -77,8 +77,8 @@ impl TypeMap {
             }
             TypeMapDataType::Set(ref mut map) => {
                 if !map.insert(expr.id) {
-                    Err(StaticCheckError::new(
-                        StaticCheckErrorKind::TypeAlreadyAnnotatedFailure,
+                    Err(StaticAnalysisErrorReport::new(
+                        StaticAnalysisError::TypeAlreadyAnnotatedFailure,
                     ))
                 } else {
                     Ok(())
@@ -107,10 +107,10 @@ impl TypingContext<'_> {
         }
     }
 
-    pub fn extend(&self) -> Result<TypingContext<'_>, StaticCheckError> {
+    pub fn extend(&self) -> Result<TypingContext<'_>, StaticAnalysisErrorReport> {
         if self.depth >= MAX_CONTEXT_DEPTH {
-            Err(StaticCheckError::new(
-                StaticCheckErrorKind::MaxContextDepthReached,
+            Err(StaticAnalysisErrorReport::new(
+                StaticAnalysisError::MaxContextDepthReached,
             ))
         } else {
             Ok(TypingContext {

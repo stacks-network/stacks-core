@@ -20,7 +20,7 @@ use clarity_types::representations::ClarityName;
 use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
+use crate::vm::analysis::errors::{StaticAnalysisErrorReport, StaticAnalysisError};
 use crate::vm::analysis::type_checker::ContractAnalysis;
 use crate::vm::database::{
     ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,
@@ -46,16 +46,16 @@ impl<'a> AnalysisDatabase<'a> {
     pub fn execute<F, T, E>(&mut self, f: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self) -> Result<T, E>,
-        E: From<StaticCheckErrorKind>,
+        E: From<StaticAnalysisError>,
     {
         self.begin();
         let result = f(self).or_else(|e| {
             self.roll_back()
-                .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")))?;
+                .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")))?;
             Err(e)
         })?;
         self.commit()
-            .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")))?;
+            .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")))?;
         Ok(result)
     }
 
@@ -63,16 +63,16 @@ impl<'a> AnalysisDatabase<'a> {
         self.store.nest();
     }
 
-    pub fn commit(&mut self) -> Result<(), StaticCheckError> {
+    pub fn commit(&mut self) -> Result<(), StaticAnalysisErrorReport> {
         self.store
             .commit()
-            .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into())
+            .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")).into())
     }
 
-    pub fn roll_back(&mut self) -> Result<(), StaticCheckError> {
+    pub fn roll_back(&mut self) -> Result<(), StaticAnalysisErrorReport> {
         self.store
             .rollback()
-            .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into())
+            .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")).into())
     }
 
     pub fn storage_key() -> &'static str {
@@ -99,16 +99,16 @@ impl<'a> AnalysisDatabase<'a> {
     pub fn load_contract_non_canonical(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<Option<ContractAnalysis>, StaticCheckError> {
+    ) -> Result<Option<ContractAnalysis>, StaticAnalysisErrorReport> {
         self.store
             .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
-            //    the analysis will propagate that as a StaticCheckError anyways.
+            //    the analysis will propagate that as a StaticAnalysisDiagnostic anyways.
             .ok()
             .flatten()
             .map(|x| {
                 ContractAnalysis::deserialize(&x).map_err(|_| {
-                    StaticCheckErrorKind::Expects("Bad data deserialized from DB".into()).into()
+                    StaticAnalysisError::Expects("Bad data deserialized from DB".into()).into()
                 })
             })
             .transpose()
@@ -118,17 +118,17 @@ impl<'a> AnalysisDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         epoch: &StacksEpochId,
-    ) -> Result<Option<ContractAnalysis>, StaticCheckError> {
+    ) -> Result<Option<ContractAnalysis>, StaticAnalysisErrorReport> {
         Ok(self
             .store
             .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
-            //    the analysis will propagate that as a StaticCheckError anyways.
+            //    the analysis will propagate that as a StaticAnalysisDiagnostic anyways.
             .ok()
             .flatten()
             .map(|x| {
                 ContractAnalysis::deserialize(&x).map_err(|_| {
-                    StaticCheckErrorKind::Expects("Bad data deserialized from DB".into())
+                    StaticAnalysisError::Expects("Bad data deserialized from DB".into())
                 })
             })
             .transpose()?
@@ -142,10 +142,10 @@ impl<'a> AnalysisDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         contract: &ContractAnalysis,
-    ) -> Result<(), StaticCheckError> {
+    ) -> Result<(), StaticAnalysisErrorReport> {
         let key = AnalysisDatabase::storage_key();
         if self.store.has_metadata_entry(contract_identifier, key) {
-            return Err(StaticCheckErrorKind::ContractAlreadyExists(
+            return Err(StaticAnalysisError::ContractAlreadyExists(
                 contract_identifier.to_string(),
             )
             .into());
@@ -153,21 +153,21 @@ impl<'a> AnalysisDatabase<'a> {
 
         self.store
             .insert_metadata(contract_identifier, key, &contract.serialize())
-            .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")))?;
+            .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")))?;
         Ok(())
     }
 
     pub fn get_clarity_version(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<ClarityVersion, StaticCheckError> {
+    ) -> Result<ClarityVersion, StaticAnalysisErrorReport> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only
         //         charges based on the function type size.
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
-            .ok_or(StaticCheckErrorKind::NoSuchContract(
+            .ok_or(StaticAnalysisError::NoSuchContract(
                 contract_identifier.to_string(),
             ))?;
         Ok(contract.clarity_version)
@@ -178,14 +178,14 @@ impl<'a> AnalysisDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         function_name: &str,
         epoch: &StacksEpochId,
-    ) -> Result<Option<FunctionType>, StaticCheckError> {
+    ) -> Result<Option<FunctionType>, StaticAnalysisErrorReport> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only
         //         charges based on the function type size.
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
-            .ok_or(StaticCheckErrorKind::NoSuchContract(
+            .ok_or(StaticAnalysisError::NoSuchContract(
                 contract_identifier.to_string(),
             ))?;
         Ok(contract
@@ -198,14 +198,14 @@ impl<'a> AnalysisDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         function_name: &str,
         epoch: &StacksEpochId,
-    ) -> Result<Option<FunctionType>, StaticCheckError> {
+    ) -> Result<Option<FunctionType>, StaticAnalysisErrorReport> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only
         //         charges based on the function type size.
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
-            .ok_or(StaticCheckErrorKind::NoSuchContract(
+            .ok_or(StaticAnalysisError::NoSuchContract(
                 contract_identifier.to_string(),
             ))?;
         Ok(contract
@@ -218,14 +218,14 @@ impl<'a> AnalysisDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         trait_name: &str,
         epoch: &StacksEpochId,
-    ) -> Result<Option<BTreeMap<ClarityName, FunctionSignature>>, StaticCheckError> {
+    ) -> Result<Option<BTreeMap<ClarityName, FunctionSignature>>, StaticAnalysisErrorReport> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only
         //         charges based on the function type size.
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
-            .ok_or(StaticCheckErrorKind::NoSuchContract(
+            .ok_or(StaticAnalysisError::NoSuchContract(
                 contract_identifier.to_string(),
             ))?;
         Ok(contract.get_defined_trait(trait_name).map(|trait_map| {
@@ -239,10 +239,10 @@ impl<'a> AnalysisDatabase<'a> {
     pub fn get_implemented_traits(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<BTreeSet<TraitIdentifier>, StaticCheckError> {
+    ) -> Result<BTreeSet<TraitIdentifier>, StaticAnalysisErrorReport> {
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
-            .ok_or(StaticCheckErrorKind::NoSuchContract(
+            .ok_or(StaticAnalysisError::NoSuchContract(
                 contract_identifier.to_string(),
             ))?;
         Ok(contract.implemented_traits)

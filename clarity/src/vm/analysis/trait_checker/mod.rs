@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
+use crate::vm::analysis::errors::{StaticAnalysisErrorReport, StaticAnalysisError};
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::analysis::AnalysisDatabase;
 
@@ -28,7 +28,7 @@ impl AnalysisPass for TraitChecker {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
-    ) -> Result<(), StaticCheckError> {
+    ) -> Result<(), StaticAnalysisErrorReport> {
         let mut command = TraitChecker::new(epoch);
         command.run(contract_analysis, analysis_db)?;
         Ok(())
@@ -44,18 +44,18 @@ impl TraitChecker {
         &mut self,
         contract_analysis: &ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
-    ) -> Result<(), StaticCheckError> {
+    ) -> Result<(), StaticAnalysisErrorReport> {
         for trait_identifier in &contract_analysis.implemented_traits {
             let trait_name = trait_identifier.name.to_string();
             let contract_defining_trait = analysis_db
                 .load_contract(&trait_identifier.contract_identifier, &self.epoch)?
-                .ok_or(StaticCheckErrorKind::TraitReferenceUnknown(
+                .ok_or(StaticAnalysisError::TraitReferenceUnknown(
                     trait_identifier.name.to_string(),
                 ))?;
 
             let trait_definition = contract_defining_trait
                 .get_defined_trait(&trait_name)
-                .ok_or(StaticCheckErrorKind::TraitReferenceUnknown(
+                .ok_or(StaticAnalysisError::TraitReferenceUnknown(
                     trait_identifier.name.to_string(),
                 ))?;
 

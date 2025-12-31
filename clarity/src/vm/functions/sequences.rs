@@ -21,7 +21,8 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, RuntimeError, VmExecutionError,
+    check_argument_count, check_arguments_at_least, RuntimeAnalysisError, RuntimeError,
+    VmExecutionError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::ListTypeData;
@@ -57,7 +58,9 @@ pub fn special_filter(
 
     runtime_cost(ClarityCostFunction::Filter, env, 0)?;
 
-    let function_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let function_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeAnalysisError::ExpectedName)?;
 
     let mut sequence = eval(&args[1], env, context)?;
     let function = lookup_function(function_name, env)?;
@@ -70,17 +73,20 @@ pub fn special_filter(
                 if let Value::Bool(include) = filter_eval {
                     Ok(include)
                 } else {
-                    Err(
-                        CheckErrorKind::TypeValueError(Box::new(BoolType), Box::new(filter_eval))
-                            .into(),
+                    Err(RuntimeAnalysisError::TypeValueError(
+                        Box::new(BoolType),
+                        Box::new(filter_eval),
                     )
+                    .into())
                 }
             })?;
         }
         _ => {
             return Err(
-                CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
-                    .into(),
+                RuntimeAnalysisError::ExpectedSequence(Box::new(TypeSignature::type_of(
+                    &sequence,
+                )?))
+                .into(),
             )
         }
     };
@@ -96,7 +102,9 @@ pub fn special_fold(
 
     runtime_cost(ClarityCostFunction::Fold, env, 0)?;
 
-    let function_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let function_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeAnalysisError::ExpectedName)?;
 
     let function = lookup_function(function_name, env)?;
     let mut sequence = eval(&args[1], env, context)?;
@@ -115,7 +123,8 @@ pub fn special_fold(
                 )
             }),
         _ => Err(
-            CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into(),
+            RuntimeAnalysisError::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
+                .into(),
         ),
     }
 }
@@ -129,7 +138,9 @@ pub fn special_map(
 
     runtime_cost(ClarityCostFunction::Map, env, args.len())?;
 
-    let function_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let function_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeAnalysisError::ExpectedName)?;
     let function = lookup_function(function_name, env)?;
 
     // Let's consider a function f (f a b c ...)
@@ -154,10 +165,10 @@ pub fn special_map(
                 }
             }
             _ => {
-                return Err(
-                    CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
-                        .into(),
-                )
+                return Err(RuntimeAnalysisError::ExpectedSequence(Box::new(
+                    TypeSignature::type_of(&sequence)?,
+                ))
+                .into())
             }
         }
     }
@@ -211,7 +222,7 @@ pub fn special_append(
                 TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)
             {
                 let (element, _) = Value::sanitize_value(env.epoch(), &next_entry_type, element)
-                    .ok_or_else(|| CheckErrorKind::ListTypesMustMatch)?;
+                    .ok_or_else(|| RuntimeAnalysisError::ListTypesMustMatch)?;
 
                 let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
                 data.push(element);
@@ -220,10 +231,13 @@ pub fn special_append(
                     data,
                 })))
             } else {
-                Err(CheckErrorKind::TypeValueError(Box::new(entry_type), Box::new(element)).into())
+                Err(
+                    RuntimeAnalysisError::TypeValueError(Box::new(entry_type), Box::new(element))
+                        .into(),
+                )
             }
         }
-        _ => Err(CheckErrorKind::ExpectedListApplication.into()),
+        _ => Err(RuntimeAnalysisError::ExpectedListApplication.into()),
     }
 }
 
@@ -299,10 +313,10 @@ pub fn special_as_max_len(
         let sequence_len = match sequence {
             Value::Sequence(ref sequence_data) => sequence_data.len() as u128,
             _ => {
-                return Err(
-                    CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
-                        .into(),
-                )
+                return Err(RuntimeAnalysisError::ExpectedSequence(Box::new(
+                    TypeSignature::type_of(&sequence)?,
+                ))
+                .into())
             }
         };
         if sequence_len > *expected_len {
@@ -315,7 +329,7 @@ pub fn special_as_max_len(
         }
     } else {
         let actual_len = eval(&args[1], env, context)?;
-        Err(CheckErrorKind::TypeError(
+        Err(RuntimeAnalysisError::TypeError(
             Box::new(TypeSignature::UIntType),
             Box::new(TypeSignature::type_of(&actual_len)?),
         )
@@ -327,7 +341,8 @@ pub fn native_len(sequence: Value) -> Result<Value, VmExecutionError> {
     match sequence {
         Value::Sequence(sequence_data) => Ok(Value::UInt(sequence_data.len() as u128)),
         _ => Err(
-            CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into(),
+            RuntimeAnalysisError::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
+                .into(),
         ),
     }
 }
@@ -339,7 +354,10 @@ pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value, VmExecu
             None => Ok(Value::none()),
         }
     } else {
-        Err(CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into())
+        Err(
+            RuntimeAnalysisError::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
+                .into(),
+        )
     }
 }
 
@@ -348,7 +366,8 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value, VmExecu
         sequence_data
     } else {
         return Err(
-            CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?)).into(),
+            RuntimeAnalysisError::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
+                .into(),
         );
     };
 
@@ -359,7 +378,7 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value, VmExecu
             return Ok(Value::none());
         }
     } else {
-        return Err(CheckErrorKind::TypeValueError(
+        return Err(RuntimeAnalysisError::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(index),
         )
@@ -440,7 +459,7 @@ pub fn special_replace_at(
     let expected_elem_type = if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
         seq_subtype.unit_type()
     } else {
-        return Err(CheckErrorKind::ExpectedSequence(Box::new(seq_type)).into());
+        return Err(RuntimeAnalysisError::ExpectedSequence(Box::new(seq_type)).into());
     };
     let index_val = eval(&args[1], env, context)?;
     let new_element = eval(&args[2], env, context)?;
@@ -448,7 +467,7 @@ pub fn special_replace_at(
     if expected_elem_type != TypeSignature::NoType
         && !expected_elem_type.admits(env.epoch(), &new_element)?
     {
-        return Err(CheckErrorKind::TypeValueError(
+        return Err(RuntimeAnalysisError::TypeValueError(
             Box::new(expected_elem_type),
             Box::new(new_element),
         )
@@ -462,7 +481,7 @@ pub fn special_replace_at(
             return Ok(Value::none());
         }
     } else {
-        return Err(CheckErrorKind::TypeValueError(
+        return Err(RuntimeAnalysisError::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(index_val),
         )
@@ -476,6 +495,6 @@ pub fn special_replace_at(
         }
         data.replace_at(env.epoch(), index, new_element)
     } else {
-        Err(CheckErrorKind::ExpectedSequence(Box::new(seq_type)).into())
+        Err(RuntimeAnalysisError::ExpectedSequence(Box::new(seq_type)).into())
     }
 }

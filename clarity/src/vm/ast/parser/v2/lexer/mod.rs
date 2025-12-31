@@ -1425,7 +1425,7 @@ mod tests {
         +-*/    < <=       >
 >=.: ;; comment
    "hello" u"world"     0x0123456789abcdeffedcba9876543210
-	
+
 
    foo-bar_
 "#,
@@ -1894,7 +1894,7 @@ mod tests {
     }
 
     #[test]
-    fn check_error_span() {
+    fn analysis_report_span() {
         let mut lexer = Lexer::new("0a 123", false).unwrap();
         lexer.read_token().unwrap();
         assert_eq!(

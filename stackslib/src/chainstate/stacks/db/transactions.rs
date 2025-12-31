@@ -193,14 +193,14 @@ impl StacksTransactionReceipt {
         error: ClarityError,
     ) -> StacksTransactionReceipt {
         let error_string = match error {
-            ClarityError::StaticCheck(ref check_error) => {
-                if let Some(span) = check_error.diagnostic.spans.first() {
+            ClarityError::StaticCheck(ref analysis_report) => {
+                if let Some(span) = analysis_report.diagnostic.spans.first() {
                     format!(
                         ":{}:{}: {}",
-                        span.start_line, span.start_column, check_error.diagnostic.message
+                        span.start_line, span.start_column, analysis_report.diagnostic.message
                     )
                 } else {
-                    check_error.diagnostic.message.to_string()
+                    analysis_report.diagnostic.message.to_string()
                 }
             }
             ClarityError::Parse(ref parse_error) => {
@@ -252,7 +252,7 @@ impl StacksTransactionReceipt {
         tx: StacksTransaction,
         cost: ExecutionCost,
         contract_analysis: ContractAnalysis,
-        error: CheckErrorKind,
+        error: RuntimeAnalysisError,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -271,7 +271,7 @@ impl StacksTransactionReceipt {
     pub fn from_runtime_failure_contract_call(
         tx: StacksTransaction,
         cost: ExecutionCost,
-        error: CheckErrorKind,
+        error: RuntimeAnalysisError,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -366,7 +366,7 @@ pub enum ClarityRuntimeTxError {
         reason: String,
     },
     CostError(ExecutionCost, ExecutionCost),
-    AnalysisError(CheckErrorKind),
+    AnalysisError(RuntimeAnalysisError),
     Rejectable(ClarityError),
 }
 
@@ -385,13 +385,13 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
                 err_type: "short return/panic",
             }
         }
-        ClarityError::Interpreter(VmExecutionError::Unchecked(check_error)) => {
-            if check_error.rejectable() {
+        ClarityError::Interpreter(VmExecutionError::Unchecked(runtime_analysis_err)) => {
+            if runtime_analysis_err.rejectable() {
                 ClarityRuntimeTxError::Rejectable(ClarityError::Interpreter(
-                    VmExecutionError::Unchecked(check_error),
+                    VmExecutionError::Unchecked(runtime_analysis_err),
                 ))
             } else {
-                ClarityRuntimeTxError::AnalysisError(check_error)
+                ClarityRuntimeTxError::AnalysisError(runtime_analysis_err)
             }
         }
         ClarityError::AbortedByCallback {
@@ -1178,7 +1178,7 @@ impl StacksChainState {
                             warn!("Block compute budget exceeded: if included, this will invalidate a block"; "txid" => %tx.txid(), "cost" => %cost_after, "budget" => %budget);
                             return Err(Error::CostOverflowError(cost_before, cost_after, budget));
                         }
-                        ClarityRuntimeTxError::AnalysisError(check_error) => {
+                        ClarityRuntimeTxError::AnalysisError(runtime_analysis_err) => {
                             if epoch_id >= StacksEpochId::Epoch21 {
                                 // in 2.1 and later, this is a permitted runtime error.  take the
                                 // fee from the payer and keep the tx.
@@ -1189,13 +1189,13 @@ impl StacksChainState {
                                       "contract_name" => %contract_id,
                                       "function_name" => %contract_call.function_name,
                                       "function_args" => %VecDisplay(&contract_call.function_args),
-                                      "error" => %check_error);
+                                      "error" => %runtime_analysis_err);
 
                                 let receipt =
                                     StacksTransactionReceipt::from_runtime_failure_contract_call(
                                         tx.clone(),
                                         total_cost,
-                                        check_error,
+                                        runtime_analysis_err,
                                     );
                                 return Ok(receipt);
                             } else {
@@ -1207,9 +1207,9 @@ impl StacksChainState {
                                            "contract_name" => %contract_id,
                                            "function_name" => %contract_call.function_name,
                                            "function_args" => %VecDisplay(&contract_call.function_args),
-                                           "error" => %check_error);
+                                           "error" => %runtime_analysis_err);
                                 return Err(Error::ClarityError(ClarityError::Interpreter(
-                                    VmExecutionError::Unchecked(check_error),
+                                    VmExecutionError::Unchecked(runtime_analysis_err),
                                 )));
                             }
                         }
@@ -1409,21 +1409,21 @@ impl StacksChainState {
                                       "budget" => %budget);
                             return Err(Error::CostOverflowError(cost_before, cost_after, budget));
                         }
-                        ClarityRuntimeTxError::AnalysisError(check_error) => {
+                        ClarityRuntimeTxError::AnalysisError(runtime_analysis_err) => {
                             if epoch_id >= StacksEpochId::Epoch21 {
                                 // in 2.1 and later, this is a permitted runtime error.  take the
                                 // fee from the payer and keep the tx.
                                 info!("Smart-contract encountered an analysis error at runtime";
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
-                                      "error" => %check_error);
+                                      "error" => %runtime_analysis_err);
 
                                 let receipt =
                                     StacksTransactionReceipt::from_runtime_failure_smart_contract(
                                         tx.clone(),
                                         total_cost,
                                         contract_analysis,
-                                        check_error,
+                                        runtime_analysis_err,
                                     );
                                 return Ok(receipt);
                             } else {
@@ -1431,9 +1431,9 @@ impl StacksChainState {
                                 warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
-                                      "error" => %check_error);
+                                      "error" => %runtime_analysis_err);
                                 return Err(Error::ClarityError(ClarityError::Interpreter(
-                                    VmExecutionError::Unchecked(check_error),
+                                    VmExecutionError::Unchecked(runtime_analysis_err),
                                 )));
                             }
                         }
@@ -9185,7 +9185,7 @@ pub mod test {
     }
 
     #[test]
-    fn test_checkerrors_at_runtime() {
+    fn test_analysis_errors_at_runtime() {
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
         )
@@ -9193,7 +9193,7 @@ pub mod test {
         let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
         let addr = auth.origin().address_testnet();
 
-        let runtime_checkerror_trait = "
+        let runtime_analysis_error_trait = "
             (define-trait foo
                 (
                     (lolwut () (response bool uint))
@@ -9202,7 +9202,7 @@ pub mod test {
             "
         .to_string();
 
-        let runtime_checkerror_impl = "
+        let runtime_analysis_error_impl = "
             (impl-trait .foo.foo)
 
             (define-public (lolwut)
@@ -9211,7 +9211,7 @@ pub mod test {
             "
         .to_string();
 
-        let runtime_checkerror = "
+        let runtime_analysis_error = "
             (use-trait trait .foo.foo)
 
             (define-data-var mutex bool true)
@@ -9221,7 +9221,7 @@ pub mod test {
               (ok (var-set mutex (not (var-get mutex))))
             )
 
-            ;; triggers checkerror at runtime because <trait> gets coerced
+            ;; triggers analysis error at runtime because <trait> gets coerced
             ;; into a principal when `internal` is called.
             (define-public (test (ref <trait>))
                 (ok (internal (if (var-get mutex)
@@ -9238,10 +9238,10 @@ pub mod test {
             "
         .to_string();
 
-        let runtime_checkerror_contract = "
+        let runtime_analysis_error_contract = "
             (begin
                 (print \"about to contract-call with trait impl\")
-                (unwrap-panic (contract-call? .trait-checkerror test .foo-impl))
+                (unwrap-panic (contract-call? .trait-runtime-analysis-error test .foo-impl))
                 (print \"contract-call with trait impl finished\")
             )
             ";
@@ -9251,149 +9251,154 @@ pub mod test {
         let mut chainstate =
             instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
 
-        let mut tx_runtime_checkerror_trait_no_version = StacksTransaction::new(
+        let mut tx_runtime_analysis_error_trait_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract("foo", &runtime_checkerror_trait, None).unwrap(),
+            TransactionPayload::new_smart_contract("foo", &runtime_analysis_error_trait, None)
+                .unwrap(),
         );
 
-        tx_runtime_checkerror_trait_no_version.post_condition_mode =
+        tx_runtime_analysis_error_trait_no_version.post_condition_mode =
             TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror_trait_no_version.chain_id = 0x80000000;
-        tx_runtime_checkerror_trait_no_version.set_tx_fee(1);
-        tx_runtime_checkerror_trait_no_version.set_origin_nonce(0);
+        tx_runtime_analysis_error_trait_no_version.chain_id = 0x80000000;
+        tx_runtime_analysis_error_trait_no_version.set_tx_fee(1);
+        tx_runtime_analysis_error_trait_no_version.set_origin_nonce(0);
 
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_trait_no_version);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_analysis_error_trait_no_version);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_trait_tx_no_version = signer.get_tx().unwrap();
+        let signed_runtime_analysis_error_trait_tx_no_version = signer.get_tx().unwrap();
 
-        let mut tx_runtime_checkerror_trait = StacksTransaction::new(
+        let mut tx_runtime_analysis_error_trait = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
                 "foo",
-                &runtime_checkerror_trait,
+                &runtime_analysis_error_trait,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
         );
 
-        tx_runtime_checkerror_trait.post_condition_mode = TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror_trait.chain_id = 0x80000000;
-        tx_runtime_checkerror_trait.set_tx_fee(1);
-        tx_runtime_checkerror_trait.set_origin_nonce(0);
+        tx_runtime_analysis_error_trait.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_runtime_analysis_error_trait.chain_id = 0x80000000;
+        tx_runtime_analysis_error_trait.set_tx_fee(1);
+        tx_runtime_analysis_error_trait.set_origin_nonce(0);
 
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_trait);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_analysis_error_trait);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_trait_tx = signer.get_tx().unwrap();
+        let signed_runtime_analysis_error_trait_tx = signer.get_tx().unwrap();
 
-        let mut tx_runtime_checkerror_impl = StacksTransaction::new(
+        let mut tx_runtime_analysis_error_impl = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
                 "foo-impl",
-                &runtime_checkerror_impl,
+                &runtime_analysis_error_impl,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
         );
 
-        tx_runtime_checkerror_impl.post_condition_mode = TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror_impl.chain_id = 0x80000000;
-        tx_runtime_checkerror_impl.set_tx_fee(1);
-        tx_runtime_checkerror_impl.set_origin_nonce(1);
+        tx_runtime_analysis_error_impl.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_runtime_analysis_error_impl.chain_id = 0x80000000;
+        tx_runtime_analysis_error_impl.set_tx_fee(1);
+        tx_runtime_analysis_error_impl.set_origin_nonce(1);
 
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_impl);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_analysis_error_impl);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_impl_tx = signer.get_tx().unwrap();
+        let signed_runtime_analysis_error_impl_tx = signer.get_tx().unwrap();
 
-        let mut tx_runtime_checkerror_impl_no_version = StacksTransaction::new(
+        let mut tx_runtime_analysis_error_impl_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::new_smart_contract("foo-impl", &runtime_checkerror_impl, None)
+            TransactionPayload::new_smart_contract("foo-impl", &runtime_analysis_error_impl, None)
                 .unwrap(),
         );
 
-        tx_runtime_checkerror_impl_no_version.post_condition_mode =
+        tx_runtime_analysis_error_impl_no_version.post_condition_mode =
             TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror_impl_no_version.chain_id = 0x80000000;
-        tx_runtime_checkerror_impl_no_version.set_tx_fee(1);
-        tx_runtime_checkerror_impl_no_version.set_origin_nonce(1);
+        tx_runtime_analysis_error_impl_no_version.chain_id = 0x80000000;
+        tx_runtime_analysis_error_impl_no_version.set_tx_fee(1);
+        tx_runtime_analysis_error_impl_no_version.set_origin_nonce(1);
 
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_impl_no_version);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_analysis_error_impl_no_version);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_impl_tx_no_version = signer.get_tx().unwrap();
+        let signed_runtime_analysis_error_impl_tx_no_version = signer.get_tx().unwrap();
 
-        let mut tx_runtime_checkerror_clar1 = StacksTransaction::new(
+        let mut tx_runtime_analysis_error_clar1 = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                "trait-checkerror",
-                &runtime_checkerror,
+                "trait-runtime-analysis-error",
+                &runtime_analysis_error,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
         );
 
-        tx_runtime_checkerror_clar1.post_condition_mode = TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror_clar1.chain_id = 0x80000000;
-        tx_runtime_checkerror_clar1.set_tx_fee(1);
-        tx_runtime_checkerror_clar1.set_origin_nonce(2);
+        tx_runtime_analysis_error_clar1.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_runtime_analysis_error_clar1.chain_id = 0x80000000;
+        tx_runtime_analysis_error_clar1.set_tx_fee(1);
+        tx_runtime_analysis_error_clar1.set_origin_nonce(2);
 
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_clar1);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_analysis_error_clar1);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_tx_clar1 = signer.get_tx().unwrap();
+        let signed_runtime_analysis_error_tx_clar1 = signer.get_tx().unwrap();
 
-        let mut tx_runtime_checkerror_clar1_no_version = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::new_smart_contract("trait-checkerror", &runtime_checkerror, None)
-                .unwrap(),
-        );
-
-        tx_runtime_checkerror_clar1_no_version.post_condition_mode =
-            TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror_clar1_no_version.chain_id = 0x80000000;
-        tx_runtime_checkerror_clar1_no_version.set_tx_fee(1);
-        tx_runtime_checkerror_clar1_no_version.set_origin_nonce(2);
-
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_clar1_no_version);
-        signer.sign_origin(&privk).unwrap();
-
-        let signed_runtime_checkerror_tx_clar1_no_version = signer.get_tx().unwrap();
-
-        let mut tx_runtime_checkerror_clar2 = StacksTransaction::new(
+        let mut tx_runtime_analysis_error_clar1_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                "trait-checkerror",
-                &runtime_checkerror,
+                "trait-runtime-analysis-error",
+                &runtime_analysis_error,
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_runtime_analysis_error_clar1_no_version.post_condition_mode =
+            TransactionPostConditionMode::Allow;
+        tx_runtime_analysis_error_clar1_no_version.chain_id = 0x80000000;
+        tx_runtime_analysis_error_clar1_no_version.set_tx_fee(1);
+        tx_runtime_analysis_error_clar1_no_version.set_origin_nonce(2);
+
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_analysis_error_clar1_no_version);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_analysis_error_tx_clar1_no_version = signer.get_tx().unwrap();
+
+        let mut tx_runtime_analysis_error_clar2 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                "trait-runtime-analysis-error",
+                &runtime_analysis_error,
                 Some(ClarityVersion::Clarity2),
             )
             .unwrap(),
         );
 
-        tx_runtime_checkerror_clar2.post_condition_mode = TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror_clar2.chain_id = 0x80000000;
-        tx_runtime_checkerror_clar2.set_tx_fee(1);
-        tx_runtime_checkerror_clar2.set_origin_nonce(2);
+        tx_runtime_analysis_error_clar2.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_runtime_analysis_error_clar2.chain_id = 0x80000000;
+        tx_runtime_analysis_error_clar2.set_tx_fee(1);
+        tx_runtime_analysis_error_clar2.set_origin_nonce(2);
 
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_clar2);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_analysis_error_clar2);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_tx_clar2 = signer.get_tx().unwrap();
+        let signed_runtime_analysis_error_tx_clar2 = signer.get_tx().unwrap();
 
-        let mut tx_test_trait_checkerror = StacksTransaction::new(
+        let mut tx_test_trait_runtime_analysis_error = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_contract_call(
                 addr.clone(),
-                "trait-checkerror",
+                "trait-runtime-analysis-error",
                 "test",
                 vec![Value::Principal(PrincipalData::Contract(
                     QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addr)).unwrap(),
@@ -9402,86 +9407,88 @@ pub mod test {
             .unwrap(),
         );
 
-        tx_test_trait_checkerror.post_condition_mode = TransactionPostConditionMode::Allow;
-        tx_test_trait_checkerror.chain_id = 0x80000000;
-        tx_test_trait_checkerror.set_tx_fee(1);
-        tx_test_trait_checkerror.set_origin_nonce(3);
+        tx_test_trait_runtime_analysis_error.post_condition_mode =
+            TransactionPostConditionMode::Allow;
+        tx_test_trait_runtime_analysis_error.chain_id = 0x80000000;
+        tx_test_trait_runtime_analysis_error.set_tx_fee(1);
+        tx_test_trait_runtime_analysis_error.set_origin_nonce(3);
 
-        let mut signer = StacksTransactionSigner::new(&tx_test_trait_checkerror);
+        let mut signer = StacksTransactionSigner::new(&tx_test_trait_runtime_analysis_error);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_test_trait_checkerror_tx = signer.get_tx().unwrap();
+        let signed_test_trait_runtime_analysis_error_tx = signer.get_tx().unwrap();
 
-        let mut tx_runtime_checkerror_cc_contract_clar1 = StacksTransaction::new(
+        let mut tx_runtime_analysis_error_cc_contract_clar1 = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                "trait-checkerror-cc",
-                runtime_checkerror_contract,
+                "trait-runtime-analysis-error-cc",
+                runtime_analysis_error_contract,
                 Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
         );
 
-        tx_runtime_checkerror_cc_contract_clar1.post_condition_mode =
+        tx_runtime_analysis_error_cc_contract_clar1.post_condition_mode =
             TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror_cc_contract_clar1.chain_id = 0x80000000;
-        tx_runtime_checkerror_cc_contract_clar1.set_tx_fee(1);
-        tx_runtime_checkerror_cc_contract_clar1.set_origin_nonce(3);
+        tx_runtime_analysis_error_cc_contract_clar1.chain_id = 0x80000000;
+        tx_runtime_analysis_error_cc_contract_clar1.set_tx_fee(1);
+        tx_runtime_analysis_error_cc_contract_clar1.set_origin_nonce(3);
 
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract_clar1);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_analysis_error_cc_contract_clar1);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_cc_contract_tx_clar1 = signer.get_tx().unwrap();
+        let signed_runtime_analysis_error_cc_contract_tx_clar1 = signer.get_tx().unwrap();
 
-        let mut tx_runtime_checkerror_cc_contract_clar1_no_version = StacksTransaction::new(
+        let mut tx_runtime_analysis_error_cc_contract_clar1_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
-                "trait-checkerror-cc",
-                runtime_checkerror_contract,
+                "trait-runtime-analysis-error-cc",
+                runtime_analysis_error_contract,
                 None,
             )
             .unwrap(),
         );
 
-        tx_runtime_checkerror_cc_contract_clar1_no_version.post_condition_mode =
+        tx_runtime_analysis_error_cc_contract_clar1_no_version.post_condition_mode =
             TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror_cc_contract_clar1_no_version.chain_id = 0x80000000;
-        tx_runtime_checkerror_cc_contract_clar1_no_version.set_tx_fee(1);
-        tx_runtime_checkerror_cc_contract_clar1_no_version.set_origin_nonce(3);
+        tx_runtime_analysis_error_cc_contract_clar1_no_version.chain_id = 0x80000000;
+        tx_runtime_analysis_error_cc_contract_clar1_no_version.set_tx_fee(1);
+        tx_runtime_analysis_error_cc_contract_clar1_no_version.set_origin_nonce(3);
 
         let mut signer =
-            StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract_clar1_no_version);
+            StacksTransactionSigner::new(&tx_runtime_analysis_error_cc_contract_clar1_no_version);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_cc_contract_tx_clar1_no_version = signer.get_tx().unwrap();
+        let signed_runtime_analysis_error_cc_contract_tx_clar1_no_version =
+            signer.get_tx().unwrap();
 
-        let mut tx_runtime_checkerror_cc_contract_clar2 = StacksTransaction::new(
+        let mut tx_runtime_analysis_error_cc_contract_clar2 = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth,
             TransactionPayload::new_smart_contract(
-                "trait-checkerror-cc",
-                runtime_checkerror_contract,
+                "trait-runtime-analysis-error-cc",
+                runtime_analysis_error_contract,
                 Some(ClarityVersion::Clarity2),
             )
             .unwrap(),
         );
 
-        tx_runtime_checkerror_cc_contract_clar2.post_condition_mode =
+        tx_runtime_analysis_error_cc_contract_clar2.post_condition_mode =
             TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror_cc_contract_clar2.chain_id = 0x80000000;
-        tx_runtime_checkerror_cc_contract_clar2.set_tx_fee(1);
-        tx_runtime_checkerror_cc_contract_clar2.set_origin_nonce(4);
+        tx_runtime_analysis_error_cc_contract_clar2.chain_id = 0x80000000;
+        tx_runtime_analysis_error_cc_contract_clar2.set_tx_fee(1);
+        tx_runtime_analysis_error_cc_contract_clar2.set_origin_nonce(4);
 
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract_clar2);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_analysis_error_cc_contract_clar2);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_cc_contract_tx_clar2 = signer.get_tx().unwrap();
+        let signed_runtime_analysis_error_cc_contract_tx_clar2 = signer.get_tx().unwrap();
 
         let contract_id = QualifiedContractIdentifier::new(
             StandardPrincipalData::from(addr.clone()),
-            ContractName::from("trait-checkerror"),
+            ContractName::from("trait-runtime-analysis-error"),
         );
 
         // in 2.0, this invalidates the block
@@ -9495,7 +9502,7 @@ pub mod test {
 
         let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_trait_tx_no_version,
+            &signed_runtime_analysis_error_trait_tx_no_version,
             false,
         )
         .unwrap();
@@ -9503,7 +9510,7 @@ pub mod test {
 
         let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_impl_tx_no_version,
+            &signed_runtime_analysis_error_impl_tx_no_version,
             false,
         )
         .unwrap();
@@ -9511,7 +9518,7 @@ pub mod test {
 
         let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_tx_clar1_no_version,
+            &signed_runtime_analysis_error_tx_clar1_no_version,
             false,
         )
         .unwrap();
@@ -9519,12 +9526,12 @@ pub mod test {
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_test_trait_checkerror_tx,
+            &signed_test_trait_runtime_analysis_error_tx,
             false,
         )
         .unwrap_err();
         if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
-            _check_error,
+            _runtime_analysis_err,
         ))) = err
         {
         } else {
@@ -9533,7 +9540,7 @@ pub mod test {
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_impl_tx,
+            &signed_runtime_analysis_error_impl_tx,
             false,
         )
         .unwrap_err();
@@ -9545,7 +9552,7 @@ pub mod test {
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_tx_clar1,
+            &signed_runtime_analysis_error_tx_clar1,
             false,
         )
         .unwrap_err();
@@ -9557,7 +9564,7 @@ pub mod test {
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_trait_tx,
+            &signed_runtime_analysis_error_trait_tx,
             false,
         )
         .unwrap_err();
@@ -9572,12 +9579,12 @@ pub mod test {
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_cc_contract_tx_clar1_no_version,
+            &signed_runtime_analysis_error_cc_contract_tx_clar1_no_version,
             false,
         )
         .unwrap_err();
         if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
-            _check_error,
+            _runtime_analysis_err,
         ))) = err
         {
         } else {
@@ -9599,7 +9606,7 @@ pub mod test {
 
         let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_trait_tx_no_version,
+            &signed_runtime_analysis_error_trait_tx_no_version,
             false,
         )
         .unwrap();
@@ -9607,7 +9614,7 @@ pub mod test {
 
         let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_impl_tx_no_version,
+            &signed_runtime_analysis_error_impl_tx_no_version,
             false,
         )
         .unwrap();
@@ -9615,7 +9622,7 @@ pub mod test {
 
         let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_tx_clar1_no_version,
+            &signed_runtime_analysis_error_tx_clar1_no_version,
             false,
         )
         .unwrap();
@@ -9623,12 +9630,12 @@ pub mod test {
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_test_trait_checkerror_tx,
+            &signed_test_trait_runtime_analysis_error_tx,
             false,
         )
         .unwrap_err();
         if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
-            _check_error,
+            _runtime_analysis_err,
         ))) = err
         {
         } else {
@@ -9637,7 +9644,7 @@ pub mod test {
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_impl_tx,
+            &signed_runtime_analysis_error_impl_tx,
             false,
         )
         .unwrap_err();
@@ -9649,7 +9656,7 @@ pub mod test {
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_tx_clar1,
+            &signed_runtime_analysis_error_tx_clar1,
             false,
         )
         .unwrap_err();
@@ -9661,7 +9668,7 @@ pub mod test {
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_trait_tx,
+            &signed_runtime_analysis_error_trait_tx,
             false,
         )
         .unwrap_err();
@@ -9675,12 +9682,12 @@ pub mod test {
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_cc_contract_tx_clar1_no_version,
+            &signed_runtime_analysis_error_cc_contract_tx_clar1_no_version,
             false,
         )
         .unwrap_err();
         if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
-            _check_error,
+            _runtime_analysis_err,
         ))) = err
         {
         } else {
@@ -9701,15 +9708,15 @@ pub mod test {
         );
 
         // make this mineable
-        tx_runtime_checkerror_cc_contract_clar1.set_origin_nonce(4);
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract_clar1);
+        tx_runtime_analysis_error_cc_contract_clar1.set_origin_nonce(4);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_analysis_error_cc_contract_clar1);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_cc_contract_tx_clar1 = signer.get_tx().unwrap();
+        let signed_runtime_analysis_error_cc_contract_tx_clar1 = signer.get_tx().unwrap();
 
         let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_trait_tx,
+            &signed_runtime_analysis_error_trait_tx,
             false,
         )
         .unwrap();
@@ -9717,7 +9724,7 @@ pub mod test {
 
         let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_impl_tx,
+            &signed_runtime_analysis_error_impl_tx,
             false,
         )
         .unwrap();
@@ -9725,7 +9732,7 @@ pub mod test {
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_tx_clar1,
+            &signed_runtime_analysis_error_tx_clar1,
             false,
             None,
         )
@@ -9734,7 +9741,7 @@ pub mod test {
 
         let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_test_trait_checkerror_tx,
+            &signed_test_trait_runtime_analysis_error_tx,
             false,
         )
         .unwrap();
@@ -9757,7 +9764,7 @@ pub mod test {
 
         let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_cc_contract_tx_clar1,
+            &signed_runtime_analysis_error_cc_contract_tx_clar1,
             false,
         )
         .unwrap();
@@ -9791,7 +9798,7 @@ pub mod test {
 
         let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_trait_tx,
+            &signed_runtime_analysis_error_trait_tx,
             false,
         )
         .unwrap();
@@ -9799,7 +9806,7 @@ pub mod test {
 
         let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_impl_tx,
+            &signed_runtime_analysis_error_impl_tx,
             false,
         )
         .unwrap();
@@ -9807,7 +9814,7 @@ pub mod test {
 
         let (fee, _) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_tx_clar2,
+            &signed_runtime_analysis_error_tx_clar2,
             false,
         )
         .unwrap();
@@ -9815,7 +9822,7 @@ pub mod test {
 
         let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_test_trait_checkerror_tx,
+            &signed_test_trait_runtime_analysis_error_tx,
             false,
         )
         .unwrap();
@@ -9834,7 +9841,7 @@ pub mod test {
 
         let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_cc_contract_tx_clar2,
+            &signed_runtime_analysis_error_cc_contract_tx_clar2,
             false,
         )
         .unwrap();
@@ -10056,7 +10063,7 @@ pub mod test {
 
         let contract_id = QualifiedContractIdentifier::new(
             StandardPrincipalData::from(addr.clone()),
-            ContractName::from("trait-checkerror"),
+            ContractName::from("trait-runtime-analysis-error"),
         );
 
         // in 2.0: analysis error should cause contract publish to fail
@@ -10184,7 +10191,7 @@ pub mod test {
         )
         .unwrap_err();
         if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
-            check_error,
+            runtime_analysis_err,
         ))) = err
         {
         } else {
@@ -10592,7 +10599,7 @@ pub mod test {
 
         let contract_id = QualifiedContractIdentifier::new(
             StandardPrincipalData::from(addr.clone()),
-            ContractName::from("trait-checkerror"),
+            ContractName::from("trait-runtime-analysis-error"),
         );
 
         // in 2.0: calling call-foo invalidates the block
@@ -10643,7 +10650,7 @@ pub mod test {
         )
         .unwrap_err();
         if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
-            check_error,
+            runtime_analysis_err,
         ))) = err
         {
         } else {
@@ -10749,7 +10756,7 @@ pub mod test {
         )
         .unwrap_err();
         if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
-            check_error,
+            runtime_analysis_err,
         ))) = err
         {
         } else {

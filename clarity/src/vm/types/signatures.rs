@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use clarity_types::errors::analysis::{CommonCheckErrorKind, StaticCheckErrorKind};
+use clarity_types::errors::analysis::{SharedAnalysisError, StaticAnalysisError};
 pub use clarity_types::types::signatures::{
     AssetIdentifier, BufferLength, CallableSubtype, ListTypeData, SequenceSubtype, StringSubtype,
     StringUTF8Length, TupleTypeSignature, TypeSignature,
@@ -164,59 +164,59 @@ impl From<FixedFunction> for FunctionSignature {
 /// This is not included in clarity-types because it requires the
 /// [`CostTracker`] trait.
 pub trait TypeSignatureExt {
-    fn parse_atom_type(typename: &str) -> Result<TypeSignature, CommonCheckErrorKind>;
+    fn parse_atom_type(typename: &str) -> Result<TypeSignature, SharedAnalysisError>;
     fn parse_list_type_repr<A: CostTracker>(
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> Result<TypeSignature, CommonCheckErrorKind>;
+    ) -> Result<TypeSignature, SharedAnalysisError>;
     fn parse_tuple_type_repr<A: CostTracker>(
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> Result<TypeSignature, CommonCheckErrorKind>;
+    ) -> Result<TypeSignature, SharedAnalysisError>;
     fn parse_buff_type_repr(
         type_args: &[SymbolicExpression],
-    ) -> Result<TypeSignature, CommonCheckErrorKind>;
+    ) -> Result<TypeSignature, SharedAnalysisError>;
     fn parse_string_utf8_type_repr(
         type_args: &[SymbolicExpression],
-    ) -> Result<TypeSignature, CommonCheckErrorKind>;
+    ) -> Result<TypeSignature, SharedAnalysisError>;
     fn parse_string_ascii_type_repr(
         type_args: &[SymbolicExpression],
-    ) -> Result<TypeSignature, CommonCheckErrorKind>;
+    ) -> Result<TypeSignature, SharedAnalysisError>;
     fn parse_optional_type_repr<A: CostTracker>(
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> Result<TypeSignature, CommonCheckErrorKind>;
+    ) -> Result<TypeSignature, SharedAnalysisError>;
     fn parse_response_type_repr<A: CostTracker>(
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> Result<TypeSignature, CommonCheckErrorKind>;
+    ) -> Result<TypeSignature, SharedAnalysisError>;
     fn parse_type_repr<A: CostTracker>(
         epoch: StacksEpochId,
         x: &SymbolicExpression,
         accounting: &mut A,
-    ) -> Result<TypeSignature, CommonCheckErrorKind>;
+    ) -> Result<TypeSignature, SharedAnalysisError>;
     fn parse_trait_type_repr<A: CostTracker>(
         type_args: &[SymbolicExpression],
         accounting: &mut A,
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> Result<BTreeMap<ClarityName, FunctionSignature>, CommonCheckErrorKind>;
+    ) -> Result<BTreeMap<ClarityName, FunctionSignature>, SharedAnalysisError>;
     #[cfg(test)]
     fn from_string(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> Self;
 }
 
 impl TypeSignatureExt for TypeSignature {
-    fn parse_atom_type(typename: &str) -> Result<TypeSignature, CommonCheckErrorKind> {
+    fn parse_atom_type(typename: &str) -> Result<TypeSignature, SharedAnalysisError> {
         match typename {
             "int" => Ok(TypeSignature::IntType),
             "uint" => Ok(TypeSignature::UIntType),
             "bool" => Ok(TypeSignature::BoolType),
             "principal" => Ok(TypeSignature::PrincipalType),
-            _ => Err(CommonCheckErrorKind::UnknownTypeName(typename.into())),
+            _ => Err(SharedAnalysisError::UnknownTypeName(typename.into())),
         }
     }
 
@@ -226,19 +226,19 @@ impl TypeSignatureExt for TypeSignature {
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, SharedAnalysisError> {
         if type_args.len() != 2 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(SharedAnalysisError::InvalidTypeDescription);
         }
 
         if let SymbolicExpressionType::LiteralValue(Value::Int(max_len)) = &type_args[0].expr {
             let atomic_type_arg = &type_args[type_args.len() - 1];
             let entry_type = TypeSignature::parse_type_repr(epoch, atomic_type_arg, accounting)?;
             let max_len =
-                u32::try_from(*max_len).map_err(|_| CommonCheckErrorKind::ValueTooLarge)?;
+                u32::try_from(*max_len).map_err(|_| SharedAnalysisError::ValueTooLarge)?;
             ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
         } else {
-            Err(CommonCheckErrorKind::InvalidTypeDescription)
+            Err(SharedAnalysisError::InvalidTypeDescription)
         }
     }
 
@@ -248,8 +248,8 @@ impl TypeSignatureExt for TypeSignature {
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
-        let mapped_key_types = parse_name_type_pairs::<_, CommonCheckErrorKind>(
+    ) -> Result<TypeSignature, SharedAnalysisError> {
+        let mapped_key_types = parse_name_type_pairs::<_, SharedAnalysisError>(
             epoch,
             type_args,
             SyntaxBindingErrorType::TupleCons,
@@ -263,15 +263,15 @@ impl TypeSignatureExt for TypeSignature {
     // (buff 10)
     fn parse_buff_type_repr(
         type_args: &[SymbolicExpression],
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, SharedAnalysisError> {
         if type_args.len() != 1 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(SharedAnalysisError::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
             BufferLength::try_from(*buff_len)
                 .map(|buff_len| SequenceType(SequenceSubtype::BufferType(buff_len)))
         } else {
-            Err(CommonCheckErrorKind::InvalidTypeDescription)
+            Err(SharedAnalysisError::InvalidTypeDescription)
         }
     }
 
@@ -279,16 +279,16 @@ impl TypeSignatureExt for TypeSignature {
     // (string-utf8 10)
     fn parse_string_utf8_type_repr(
         type_args: &[SymbolicExpression],
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, SharedAnalysisError> {
         if type_args.len() != 1 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(SharedAnalysisError::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(utf8_len)) = &type_args[0].expr {
             StringUTF8Length::try_from(*utf8_len).map(|utf8_len| {
                 SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(utf8_len)))
             })
         } else {
-            Err(CommonCheckErrorKind::InvalidTypeDescription)
+            Err(SharedAnalysisError::InvalidTypeDescription)
         }
     }
 
@@ -296,16 +296,16 @@ impl TypeSignatureExt for TypeSignature {
     // (string-ascii 10)
     fn parse_string_ascii_type_repr(
         type_args: &[SymbolicExpression],
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, SharedAnalysisError> {
         if type_args.len() != 1 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(SharedAnalysisError::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
             BufferLength::try_from(*buff_len).map(|buff_len| {
                 SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_len)))
             })
         } else {
-            Err(CommonCheckErrorKind::InvalidTypeDescription)
+            Err(SharedAnalysisError::InvalidTypeDescription)
         }
     }
 
@@ -313,9 +313,9 @@ impl TypeSignatureExt for TypeSignature {
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, SharedAnalysisError> {
         if type_args.len() != 1 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(SharedAnalysisError::InvalidTypeDescription);
         }
         let inner_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
 
@@ -326,9 +326,9 @@ impl TypeSignatureExt for TypeSignature {
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, SharedAnalysisError> {
         if type_args.len() != 2 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(SharedAnalysisError::InvalidTypeDescription);
         }
         let ok_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
         let err_type = TypeSignature::parse_type_repr(epoch, &type_args[1], accounting)?;
@@ -340,7 +340,7 @@ impl TypeSignatureExt for TypeSignature {
         epoch: StacksEpochId,
         x: &SymbolicExpression,
         accounting: &mut A,
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, SharedAnalysisError> {
         runtime_cost(ClarityCostFunction::TypeParseStep, accounting, 0)?;
 
         match x.expr {
@@ -351,7 +351,7 @@ impl TypeSignatureExt for TypeSignature {
             SymbolicExpressionType::List(ref list_contents) => {
                 let (compound_type, rest) = list_contents
                     .split_first()
-                    .ok_or(CommonCheckErrorKind::InvalidTypeDescription)?;
+                    .ok_or(SharedAnalysisError::InvalidTypeDescription)?;
                 if let SymbolicExpressionType::Atom(ref compound_type) = compound_type.expr {
                     match compound_type.as_ref() {
                         "list" => TypeSignature::parse_list_type_repr(epoch, rest, accounting),
@@ -365,10 +365,10 @@ impl TypeSignatureExt for TypeSignature {
                         "response" => {
                             TypeSignature::parse_response_type_repr(epoch, rest, accounting)
                         }
-                        _ => Err(CommonCheckErrorKind::InvalidTypeDescription),
+                        _ => Err(SharedAnalysisError::InvalidTypeDescription),
                     }
                 } else {
-                    Err(CommonCheckErrorKind::InvalidTypeDescription)
+                    Err(SharedAnalysisError::InvalidTypeDescription)
                 }
             }
             SymbolicExpressionType::TraitReference(_, ref trait_definition)
@@ -393,7 +393,7 @@ impl TypeSignatureExt for TypeSignature {
                     )),
                 }
             }
-            _ => Err(CommonCheckErrorKind::InvalidTypeDescription),
+            _ => Err(SharedAnalysisError::InvalidTypeDescription),
         }
     }
 
@@ -402,17 +402,17 @@ impl TypeSignatureExt for TypeSignature {
         accounting: &mut A,
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> Result<BTreeMap<ClarityName, FunctionSignature>, CommonCheckErrorKind> {
+    ) -> Result<BTreeMap<ClarityName, FunctionSignature>, SharedAnalysisError> {
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
         let functions_types = type_args
             .first()
-            .ok_or_else(|| CommonCheckErrorKind::InvalidTypeDescription)?
+            .ok_or_else(|| SharedAnalysisError::InvalidTypeDescription)?
             .match_list()
-            .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
+            .ok_or(SharedAnalysisError::DefineTraitBadSignature)?;
 
         // Check the method count against the maximum allowed
         if epoch.limits_parameter_and_method_count() && functions_types.len() > MAX_TRAIT_METHODS {
-            return Err(CommonCheckErrorKind::TraitTooManyMethods(
+            return Err(SharedAnalysisError::TraitTooManyMethods(
                 functions_types.len(),
                 MAX_TRAIT_METHODS,
             ));
@@ -420,7 +420,7 @@ impl TypeSignatureExt for TypeSignature {
 
         // Check the method count against the maximum allowed
         if epoch.limits_parameter_and_method_count() && functions_types.len() > MAX_TRAIT_METHODS {
-            return Err(CommonCheckErrorKind::TraitTooManyMethods(
+            return Err(SharedAnalysisError::TraitTooManyMethods(
                 functions_types.len(),
                 MAX_TRAIT_METHODS,
             ));
@@ -429,26 +429,26 @@ impl TypeSignatureExt for TypeSignature {
         for function_type in functions_types.iter() {
             let args = function_type
                 .match_list()
-                .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
+                .ok_or(SharedAnalysisError::DefineTraitBadSignature)?;
             if args.len() != 3 {
-                return Err(CommonCheckErrorKind::InvalidTypeDescription);
+                return Err(SharedAnalysisError::InvalidTypeDescription);
             }
 
             // Extract function's name
             let fn_name = args[0]
                 .match_atom()
-                .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
+                .ok_or(SharedAnalysisError::DefineTraitBadSignature)?;
 
             // Extract function's arguments
             let fn_args_exprs = args[1]
                 .match_list()
-                .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
+                .ok_or(SharedAnalysisError::DefineTraitBadSignature)?;
 
             // Check the argument count against the maximum allowed
             if epoch.limits_parameter_and_method_count()
                 && fn_args_exprs.len() > MAX_FUNCTION_PARAMETERS
             {
-                return Err(CommonCheckErrorKind::TooManyFunctionParameters(
+                return Err(SharedAnalysisError::TooManyFunctionParameters(
                     fn_args_exprs.len(),
                     MAX_FUNCTION_PARAMETERS,
                 ));
@@ -457,15 +457,15 @@ impl TypeSignatureExt for TypeSignature {
             let fn_args = fn_args_exprs
                 .iter()
                 .map(|arg_type| TypeSignature::parse_type_repr(epoch, arg_type, accounting))
-                .collect::<Result<_, CommonCheckErrorKind>>()?;
+                .collect::<Result<_, SharedAnalysisError>>()?;
 
             // Extract function's type return - must be a response
             let fn_return = match TypeSignature::parse_type_repr(epoch, &args[2], accounting) {
                 Ok(response) => match response {
                     TypeSignature::ResponseType(_) => Ok(response),
-                    _ => Err(CommonCheckErrorKind::DefineTraitBadSignature),
+                    _ => Err(SharedAnalysisError::DefineTraitBadSignature),
                 },
-                _ => Err(CommonCheckErrorKind::DefineTraitBadSignature),
+                _ => Err(SharedAnalysisError::DefineTraitBadSignature),
             }?;
 
             if trait_signature
@@ -479,7 +479,7 @@ impl TypeSignatureExt for TypeSignature {
                 .is_some()
                 && clarity_version >= ClarityVersion::Clarity2
             {
-                return Err(CommonCheckErrorKind::DefineTraitDuplicateMethod(
+                return Err(SharedAnalysisError::DefineTraitDuplicateMethod(
                     fn_name.to_string(),
                 ));
             }
@@ -504,7 +504,7 @@ impl TypeSignatureExt for TypeSignature {
 }
 
 impl FixedFunction {
-    pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
+    pub fn total_type_size(&self) -> Result<u64, StaticAnalysisError> {
         let mut function_type_size = u64::from(self.returns.type_size()?);
         for arg in self.args.iter() {
             function_type_size =
@@ -515,12 +515,12 @@ impl FixedFunction {
 }
 
 impl FunctionSignature {
-    pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
+    pub fn total_type_size(&self) -> Result<u64, StaticAnalysisError> {
         let mut function_type_size = u64::from(self.returns.type_size()?);
         for arg in self.args.iter() {
             function_type_size = function_type_size
                 .cost_overflow_add(u64::from(arg.type_size()?))
-                .map_err(|_| StaticCheckErrorKind::CostOverflow)?;
+                .map_err(|_| StaticAnalysisError::CostOverflow)?;
         }
         Ok(function_type_size)
     }
@@ -529,7 +529,7 @@ impl FunctionSignature {
         &self,
         epoch: &StacksEpochId,
         args: Vec<TypeSignature>,
-    ) -> Result<bool, CommonCheckErrorKind> {
+    ) -> Result<bool, SharedAnalysisError> {
         if args.len() != self.args.len() {
             return Ok(false);
         }
@@ -578,7 +578,7 @@ pub fn parse_name_type_pairs<A: CostTracker, E>(
     accounting: &mut A,
 ) -> Result<Vec<(ClarityName, TypeSignature)>, E>
 where
-    E: for<'a> From<(CommonCheckErrorKind, &'a SymbolicExpression)>,
+    E: for<'a> From<(SharedAnalysisError, &'a SymbolicExpression)>,
 {
     // this is a pretty deep nesting here, but what we're trying to do is pick out the values of
     // the form:
@@ -587,14 +587,14 @@ where
     use crate::vm::representations::SymbolicExpressionType::List;
 
     // step 1: parse it into a vec of symbolicexpression pairs.
-    let as_pairs: Result<Vec<_>, (CommonCheckErrorKind, &SymbolicExpression)> = name_type_pairs
+    let as_pairs: Result<Vec<_>, (SharedAnalysisError, &SymbolicExpression)> = name_type_pairs
         .iter()
         .enumerate()
         .map(|(i, key_type_pair)| {
             if let List(ref as_vec) = key_type_pair.expr {
                 if as_vec.len() != 2 {
                     Err((
-                        CommonCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::InvalidLength(
+                        SharedAnalysisError::BadSyntaxBinding(SyntaxBindingError::InvalidLength(
                             binding_error_type,
                             i,
                         )),
@@ -613,7 +613,7 @@ where
         .collect();
 
     // step 2: turn into a vec of (name, typesignature) pairs.
-    let key_types: Result<Vec<_>, (CommonCheckErrorKind, &SymbolicExpression)> = (as_pairs?)
+    let key_types: Result<Vec<_>, (SharedAnalysisError, &SymbolicExpression)> = (as_pairs?)
         .iter()
         .enumerate()
         .map(|(i, (name_symbol, type_symbol))| {
@@ -621,7 +621,7 @@ where
                 .match_atom()
                 .ok_or_else(|| {
                     (
-                        CommonCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::NotAtom(
+                        SharedAnalysisError::BadSyntaxBinding(SyntaxBindingError::NotAtom(
                             binding_error_type,
                             i,
                         )),
@@ -646,8 +646,8 @@ impl fmt::Display for FunctionArg {
 
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::CheckErrorKind;
-    use clarity_types::errors::CheckErrorKind::*;
+    use clarity_types::errors::RuntimeAnalysisError;
+    use clarity_types::errors::RuntimeAnalysisError::*;
     #[cfg(test)]
     use rstest::rstest;
     #[cfg(test)]
@@ -659,7 +659,11 @@ mod test {
     use crate::vm::types::QualifiedContractIdentifier;
     use crate::vm::{execute, ClarityVersion};
 
-    fn fail_parse(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> CheckErrorKind {
+    fn fail_parse(
+        val: &str,
+        version: ClarityVersion,
+        epoch: StacksEpochId,
+    ) -> RuntimeAnalysisError {
         use crate::vm::ast::parse;
         let expr = &parse(
             &QualifiedContractIdentifier::transient(),
@@ -698,7 +702,7 @@ mod test {
 
         assert_eq!(
             TupleTypeSignature::try_from(keys).unwrap_err(),
-            CommonCheckErrorKind::ValueTooLarge
+            SharedAnalysisError::ValueTooLarge
         );
     }
 

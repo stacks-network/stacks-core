@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, CommonCheckErrorKind,
+    check_argument_count, check_arguments_at_least, SharedAnalysisError, RuntimeAnalysisError,
     SyntaxBindingErrorType, VmExecutionError,
 };
 use crate::vm::eval;
@@ -113,7 +113,7 @@ fn check_legal_define(
     contract_context: &ContractContext,
 ) -> Result<(), VmExecutionError> {
     if contract_context.is_name_used(name) {
-        Err(CheckErrorKind::NameAlreadyUsed(name.to_string()).into())
+        Err(RuntimeAnalysisError::NameAlreadyUsed(name.to_string()).into())
     } else {
         Ok(())
     }
@@ -139,15 +139,15 @@ fn handle_define_function(
 ) -> Result<DefineResult, VmExecutionError> {
     let (function_symbol, arg_symbols) = signature
         .split_first()
-        .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
+        .ok_or(RuntimeAnalysisError::DefineFunctionBadSignature)?;
 
     let function_name = function_symbol
         .match_atom()
-        .ok_or(CheckErrorKind::ExpectedName)?;
+        .ok_or(RuntimeAnalysisError::ExpectedName)?;
 
     check_legal_define(function_name, env.contract_context)?;
 
-    let arguments = parse_name_type_pairs::<_, CheckErrorKind>(
+    let arguments = parse_name_type_pairs::<_, RuntimeAnalysisError>(
         *env.epoch(),
         arg_symbols,
         SyntaxBindingErrorType::Eval,
@@ -220,7 +220,7 @@ fn handle_define_fungible_token(
                 Some(total_supply_int),
             ))
         } else {
-            Err(CheckErrorKind::TypeValueError(
+            Err(RuntimeAnalysisError::TypeValueError(
                 Box::new(TypeSignature::UIntType),
                 Box::new(total_supply_value),
             )
@@ -291,7 +291,7 @@ impl<'a> DefineFunctionsParsed<'a> {
     /// a define-statement, returns None if the supplied expression is not a define.
     pub fn try_parse(
         expression: &'a SymbolicExpression,
-    ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CommonCheckErrorKind> {
+    ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, SharedAnalysisError> {
         let (define_type, args) = match DefineFunctions::try_parse(expression) {
             Some(x) => x,
             None => return Ok(None),
@@ -301,7 +301,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let name = args[0]
                     .match_atom()
-                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
+                    .ok_or(SharedAnalysisError::ExpectedName)?;
                 DefineFunctionsParsed::Constant {
                     name,
                     value: &args[1],
@@ -311,7 +311,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
+                    .ok_or(SharedAnalysisError::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::PrivateFunction {
                     signature,
                     body: &args[1],
@@ -321,7 +321,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
+                    .ok_or(SharedAnalysisError::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::ReadOnlyFunction {
                     signature,
                     body: &args[1],
@@ -331,7 +331,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
+                    .ok_or(SharedAnalysisError::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::PublicFunction {
                     signature,
                     body: &args[1],
@@ -341,7 +341,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let name = args[0]
                     .match_atom()
-                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
+                    .ok_or(SharedAnalysisError::ExpectedName)?;
                 DefineFunctionsParsed::NonFungibleToken {
                     name,
                     nft_type: &args[1],
@@ -351,7 +351,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_arguments_at_least(1, args)?;
                 let name = args[0]
                     .match_atom()
-                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
+                    .ok_or(SharedAnalysisError::ExpectedName)?;
                 if args.len() == 1 {
                     DefineFunctionsParsed::UnboundedFungibleToken { name }
                 } else if args.len() == 2 {
@@ -360,14 +360,14 @@ impl<'a> DefineFunctionsParsed<'a> {
                         max_supply: &args[1],
                     }
                 } else {
-                    return Err(CommonCheckErrorKind::IncorrectArgumentCount(1, args.len()));
+                    return Err(SharedAnalysisError::IncorrectArgumentCount(1, args.len()));
                 }
             }
             DefineFunctions::Map => {
                 check_argument_count(3, args)?;
                 let name = args[0]
                     .match_atom()
-                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
+                    .ok_or(SharedAnalysisError::ExpectedName)?;
                 DefineFunctionsParsed::Map {
                     name,
                     key_type: &args[1],
@@ -378,7 +378,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(3, args)?;
                 let name = args[0]
                     .match_atom()
-                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
+                    .ok_or(SharedAnalysisError::ExpectedName)?;
                 DefineFunctionsParsed::PersistedVariable {
                     name,
                     data_type: &args[1],
@@ -389,7 +389,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let name = args[0]
                     .match_atom()
-                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
+                    .ok_or(SharedAnalysisError::ExpectedName)?;
                 DefineFunctionsParsed::Trait {
                     name,
                     functions: &args[1..],
@@ -399,13 +399,13 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let name = args[0]
                     .match_atom()
-                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
+                    .ok_or(SharedAnalysisError::ExpectedName)?;
                 match &args[1].expr {
                     Field(ref field) => DefineFunctionsParsed::UseTrait {
                         name,
                         trait_identifier: field,
                     },
-                    _ => return Err(CommonCheckErrorKind::ExpectedTraitIdentifier),
+                    _ => return Err(SharedAnalysisError::ExpectedTraitIdentifier),
                 }
             }
             DefineFunctions::ImplTrait => {
@@ -414,7 +414,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                     Field(ref field) => DefineFunctionsParsed::ImplTrait {
                         trait_identifier: field,
                     },
-                    _ => return Err(CommonCheckErrorKind::ExpectedTraitIdentifier),
+                    _ => return Err(SharedAnalysisError::ExpectedTraitIdentifier),
                 }
             }
         };
@@ -477,7 +477,7 @@ pub fn evaluate_define(
 
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::CheckErrorKind;
+    use clarity_types::errors::RuntimeAnalysisError;
     use clarity_types::representations::SymbolicExpression;
     use clarity_types::types::QualifiedContractIdentifier;
     use clarity_types::{Value, VmExecutionError};
@@ -536,7 +536,7 @@ mod test {
         assert!(matches!(
             result,
             Err(VmExecutionError::Unchecked(
-                CheckErrorKind::BadSyntaxBinding(_)
+                RuntimeAnalysisError::BadSyntaxBinding(_)
             ))
         ));
     }
@@ -595,7 +595,7 @@ mod test {
         assert!(matches!(
             result,
             Err(VmExecutionError::Unchecked(
-                CheckErrorKind::TooManyFunctionParameters(found, max)
+                RuntimeAnalysisError::TooManyFunctionParameters(found, max)
             ))
         ));
     }

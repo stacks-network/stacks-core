@@ -24,7 +24,7 @@ use crate::vm::analysis::type_check;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::StaticCheckErrorKind;
+use crate::vm::errors::StaticAnalysisError;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
@@ -35,11 +35,11 @@ fn test_argument_count_violations() {
         (
             "(define-private (foo-bar)
            (at-block))",
-            StaticCheckErrorKind::IncorrectArgumentCount(2, 0),
+            StaticAnalysisError::IncorrectArgumentCount(2, 0),
         ),
         (
             "(define-private (foo-bar) (map-get?))",
-            StaticCheckErrorKind::IncorrectArgumentCount(2, 0),
+            StaticAnalysisError::IncorrectArgumentCount(2, 0),
         ),
     ];
 
@@ -73,7 +73,7 @@ fn test_at_block_violations() {
     for contract in examples.iter() {
         let err = mem_type_check(contract).unwrap_err();
         eprintln!("{err}");
-        assert_eq!(*err.err, StaticCheckErrorKind::AtBlockClosureMustBeReadOnly)
+        assert_eq!(*err.err, StaticAnalysisError::AtBlockClosureMustBeReadOnly)
     }
 }
 
@@ -164,7 +164,7 @@ fn test_simple_read_only_violations() {
 
     for contract in bad_contracts.iter() {
         let err = mem_type_check(contract).unwrap_err();
-        assert_eq!(*err.err, StaticCheckErrorKind::WriteAttemptedInReadOnly)
+        assert_eq!(*err.err, StaticAnalysisError::WriteAttemptedInReadOnly)
     }
 }
 
@@ -181,7 +181,7 @@ fn test_nested_writing_closure() {
 
     for contract in bad_contracts.iter() {
         let err = mem_type_check(contract).unwrap_err();
-        assert_eq!(*err.err, StaticCheckErrorKind::AtBlockClosureMustBeReadOnly)
+        assert_eq!(*err.err, StaticAnalysisError::AtBlockClosureMustBeReadOnly)
     }
 }
 
@@ -232,7 +232,7 @@ fn test_contract_call_read_only_violations(
             )
         })
         .unwrap_err();
-    assert_eq!(*err.err, StaticCheckErrorKind::WriteAttemptedInReadOnly);
+    assert_eq!(*err.err, StaticAnalysisError::WriteAttemptedInReadOnly);
 
     db.execute(|db| {
         type_check(

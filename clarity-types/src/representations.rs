@@ -623,14 +623,14 @@ impl SymbolicExpression {
     }
 
     /// Encode this SymbolicExpression as a String suitable for logging an error (such as in
-    /// CheckErrorKind).  The `developer-mode` feature includes the `span`.
+    /// RuntimeAnalysisError).  The `developer-mode` feature includes the `span`.
     #[cfg(feature = "developer-mode")]
     pub fn as_error_string(&self) -> String {
         format!("{} at {:?}", &self.expr, &self.span)
     }
 
     /// Encode this SymbolicExpression as a String suitable for logging an error (such as in
-    /// CheckErrorKind).
+    /// RuntimeAnalysisError).
     #[cfg(not(feature = "developer-mode"))]
     pub fn as_error_string(&self) -> String {
         format!("{}", &self.expr)

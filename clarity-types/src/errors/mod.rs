@@ -20,7 +20,9 @@ pub mod lexer;
 
 use std::{error, fmt};
 
-pub use analysis::{CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind};
+pub use analysis::{
+    RuntimeAnalysisError, SharedAnalysisError, StaticAnalysisError, StaticAnalysisErrorReport,
+};
 pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
@@ -44,7 +46,7 @@ pub struct IncomparableError<T> {
 
 /// Errors that can occur during the runtime execution of Clarity contracts in the virtual machine.
 /// These encompass type-checking failures, interpreter issues, runtime errors, and premature returns.
-/// Unlike static analysis errors in `ClarityError::StaticCheck(StaticCheckError)` or `ClarityError::Parse(ParseError)`,
+/// Unlike static analysis errors in `ClarityError::StaticCheck(StaticAnalysisDiagnostic)` or `ClarityError::Parse(ParseError)`,
 /// which are caught before execution during type-checking or parsing, these errors occur during dynamic
 /// evaluation and may involve conditions not detectable statically, such as dynamically constructed expressions
 /// (e.g., based on VRF seeds or runtime data).
@@ -54,8 +56,8 @@ pub enum VmExecutionError {
     /// static type-checking passes before execution. These may occur in test executions or when
     /// dynamic expression construction (e.g., using runtime data like VRF seeds) creates structures
     /// violating type or resource constraints (e.g., excessive stack depth).
-    /// The `CheckErrorKind` wraps the specific type-checking error encountered at runtime.
-    Unchecked(CheckErrorKind),
+    /// The `RuntimeAnalysisError` wraps the specific type-checking error encountered at runtime.
+    Unchecked(RuntimeAnalysisError),
     /// A critical, unrecoverable bug within the VM's internal logic.
     ///
     /// The presence of this error indicates a violation of one of the VM's
@@ -281,7 +283,7 @@ impl From<CostErrors> for VmExecutionError {
             CostErrors::Expect(s) => VmExecutionError::from(VmInternalError::Expect(format!(
                 "Interpreter failure during cost calculation: {s}"
             ))),
-            other_err => VmExecutionError::from(CheckErrorKind::from(other_err)),
+            other_err => VmExecutionError::from(RuntimeAnalysisError::from(other_err)),
         }
     }
 }
@@ -292,20 +294,20 @@ impl From<RuntimeError> for VmExecutionError {
     }
 }
 
-impl From<CommonCheckErrorKind> for VmExecutionError {
-    fn from(err: CommonCheckErrorKind) -> Self {
+impl From<SharedAnalysisError> for VmExecutionError {
+    fn from(err: SharedAnalysisError) -> Self {
         VmExecutionError::Unchecked(err.into())
     }
 }
 
-impl From<CheckErrorKind> for VmExecutionError {
-    fn from(err: CheckErrorKind) -> Self {
+impl From<RuntimeAnalysisError> for VmExecutionError {
+    fn from(err: RuntimeAnalysisError) -> Self {
         VmExecutionError::Unchecked(err)
     }
 }
 
-impl From<(CommonCheckErrorKind, &SymbolicExpression)> for VmExecutionError {
-    fn from(err: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
+impl From<(SharedAnalysisError, &SymbolicExpression)> for VmExecutionError {
+    fn from(err: (SharedAnalysisError, &SymbolicExpression)) -> Self {
         VmExecutionError::Unchecked(err.0.into())
     }
 }

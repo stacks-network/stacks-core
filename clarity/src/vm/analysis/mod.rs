@@ -29,7 +29,7 @@ pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
 pub use self::errors::{
-    CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
+    RuntimeAnalysisError, SharedAnalysisError, StaticAnalysisError, StaticAnalysisErrorReport,
 };
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
@@ -54,10 +54,10 @@ pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticCheckError> {
+) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticAnalysisErrorReport> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
-        .map_err(|e| StaticCheckErrorKind::Expects(format!("Failed to build AST: {e}")))?
+        .map_err(|e| StaticAnalysisError::Expects(format!("Failed to build AST: {e}")))?
         .expressions;
 
     let mut marf = MemoryBackingStore::new();
@@ -79,9 +79,9 @@ pub fn mem_type_check(
             let first_type =
                 x.type_map
                     .as_ref()
-                    .ok_or_else(|| StaticCheckErrorKind::Expects("Should be non-empty".into()))?
+                    .ok_or_else(|| StaticAnalysisError::Expects("Should be non-empty".into()))?
                     .get_type_expected(x.expressions.last().ok_or_else(|| {
-                        StaticCheckErrorKind::Expects("Should be non-empty".into())
+                        StaticAnalysisError::Expects("Should be non-empty".into())
                     })?)
                     .cloned();
             Ok((first_type, x))
@@ -100,7 +100,7 @@ pub fn type_check(
     insert_contract: bool,
     epoch: &StacksEpochId,
     version: &ClarityVersion,
-) -> Result<ContractAnalysis, StaticCheckError> {
+) -> Result<ContractAnalysis, StaticAnalysisErrorReport> {
     run_analysis(
         contract_identifier,
         expressions,
@@ -126,7 +126,7 @@ pub fn run_analysis(
     epoch: StacksEpochId,
     version: ClarityVersion,
     build_type_map: bool,
-) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticAnalysisErrorReport, LimitedCostTracker)>> {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
         expressions.to_vec(),
@@ -152,7 +152,7 @@ pub fn run_analysis(
                 TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db, build_type_map)
             }
             StacksEpochId::Epoch10 => {
-                return Err(StaticCheckErrorKind::Expects(
+                return Err(StaticAnalysisError::Expects(
                     "Epoch 1.0 is not a valid epoch for analysis".into(),
                 )
                 .into())

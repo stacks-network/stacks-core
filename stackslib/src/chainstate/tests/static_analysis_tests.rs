@@ -13,14 +13,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! This module contains consensus tests related to Clarity StaticCheckErrorKind errors that happens during contract analysis.
+//! This module contains consensus tests related to Clarity StaticAnalysisError errors that happens during contract analysis.
 
 use std::collections::HashMap;
 
 use clarity::types::StacksEpochId;
 use clarity::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 #[allow(unused_imports)]
-use clarity::vm::analysis::StaticCheckErrorKind;
+use clarity::vm::analysis::StaticAnalysisError;
 use clarity::vm::types::MAX_TYPE_DEPTH;
 use clarity::vm::ClarityVersion;
 
@@ -31,7 +31,7 @@ use crate::chainstate::tests::consensus::{
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::util_lib::boot::boot_code_test_addr;
 
-/// Generates a coverage classification report for a specific [`StaticCheckErrorKind`] variant.
+/// Generates a coverage classification report for a specific [`StaticAnalysisError`] variant.
 ///
 /// This method exists purely for **documentation and tracking purposes**.
 /// It helps maintainers understand which error variants have been:
@@ -40,7 +40,7 @@ use crate::util_lib::boot::boot_code_test_addr;
 /// - ⚙️ **Ignored** — not tested on purpose.
 /// - 🚫 **Unreachable** — not testable from consensus test side for reasons.
 #[allow(dead_code)]
-fn variant_coverage_report(variant: StaticCheckErrorKind) {
+fn variant_coverage_report(variant: StaticAnalysisError) {
     enum VariantCoverage {
         // Cannot occur through valid execution. The string is to explain the reason.
         Unreachable_Functionally(&'static str),
@@ -54,7 +54,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         Tested(Vec<fn()>),
     }
 
-    use StaticCheckErrorKind::*;
+    use StaticAnalysisError::*;
     use VariantCoverage::*;
 
     _ = match variant {
@@ -179,7 +179,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
     }
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::CostBalanceExceeded`]
+/// StaticAnalysisError: [`StaticAnalysisError::CostBalanceExceeded`]
 /// Caused by: exceeding the static-read analysis budget during contract deployment.
 /// The contract repeatedly performs static-dispatch `contract-call?` lookups against the boot
 /// `.costs-3` contract, forcing the type checker to fetch the remote function signature enough
@@ -207,7 +207,7 @@ fn static_check_error_cost_balance_exceeded() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::MemoryBalanceExceeded`]
+/// StaticAnalysisError: [`StaticAnalysisError::MemoryBalanceExceeded`]
 /// Caused by: This test creates a contract that fails during analysis phase.
 ///   The contract defines large nested tuple constants that exhaust
 ///   the 100MB memory limit during analysis.
@@ -241,7 +241,7 @@ fn static_check_error_memory_balance_exceeded() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ValueTooLarge`]
+/// StaticAnalysisError: [`StaticAnalysisError::ValueTooLarge`]
 /// Caused by: Value exceeds the maximum allowed size for type-checking
 /// Outcome: block accepted.
 #[test]
@@ -252,7 +252,7 @@ fn static_check_error_value_too_large() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ValueOutOfBounds`]
+/// StaticAnalysisError: [`StaticAnalysisError::ValueOutOfBounds`]
 /// Caused by: Value is outside the acceptable range for its type
 /// Outcome: block accepted.
 #[test]
@@ -264,7 +264,7 @@ fn static_check_error_value_out_of_bounds() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedName`]
+/// StaticAnalysisError: [`StaticAnalysisError::ExpectedName`]
 /// Caused by: Expected a name (e.g., variable) but found an different expression.
 /// Outcome: block accepted.
 #[test]
@@ -275,7 +275,7 @@ fn static_check_error_expected_name() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedResponseType`]
+/// StaticAnalysisError: [`StaticAnalysisError::ExpectedResponseType`]
 /// Caused by: Expected a response type but found a different type.
 /// Outcome: block accepted.
 #[test]
@@ -286,7 +286,7 @@ fn static_check_error_expected_response_type() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineResponseOkType`]
+/// StaticAnalysisError: [`StaticAnalysisError::CouldNotDetermineResponseOkType`]
 /// Caused by: `unwrap!` on literal `(err 3)` leaves the response `ok` type unknown.
 /// Outcome: block accepted.
 #[test]
@@ -297,7 +297,7 @@ fn static_check_error_could_not_determine_response_ok_type() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineResponseErrType`]
+/// StaticAnalysisError: [`StaticAnalysisError::CouldNotDetermineResponseErrType`]
 /// Caused by: `unwrap-err-panic` on `(ok 3)` gives no way to infer the response `err` type.
 /// Outcome: block accepted.
 #[test]
@@ -308,7 +308,7 @@ fn static_check_error_could_not_determine_response_err_type() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineMatchTypes`]
+/// StaticAnalysisError: [`StaticAnalysisError::CouldNotDetermineMatchTypes`]
 /// Caused by: matching a bare `none` provides no option type, leaving branch types ambiguous.
 /// Outcome: block accepted.
 #[test]
@@ -319,7 +319,7 @@ fn static_check_error_could_not_determine_match_types() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::MatchArmsMustMatch`]
+/// StaticAnalysisError: [`StaticAnalysisError::MatchArmsMustMatch`]
 /// Caused by: the `some` arm yields an int while the `none` arm yields a bool.
 /// Outcome: block accepted.
 #[test]
@@ -330,7 +330,7 @@ fn static_check_error_match_arms_must_match() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMatchOptionSyntax`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadMatchOptionSyntax`]
 /// Caused by: option `match` expecting 4 arguments, got 3.
 /// Outcome: block accepted.
 #[test]
@@ -341,7 +341,7 @@ fn static_check_error_bad_match_option_syntax() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMatchResponseSyntax`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadMatchResponseSyntax`]
 /// Caused by: response `match` expecting 5 arguments, got 3.
 /// Outcome: block accepted.
 #[test]
@@ -352,7 +352,7 @@ fn static_check_error_bad_match_response_syntax() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::RequiresAtLeastArguments`]
+/// StaticAnalysisError: [`StaticAnalysisError::RequiresAtLeastArguments`]
 /// Caused by: invoking `match` with no arguments.
 /// Outcome: block accepted.
 #[test]
@@ -363,7 +363,7 @@ fn static_check_error_requires_at_least_arguments() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::RequiresAtMostArguments`]
+/// StaticAnalysisError: [`StaticAnalysisError::RequiresAtMostArguments`]
 /// Caused by: `principal-construct?` is called with too many arguments.
 /// Outcome: block accepted.
 #[test]
@@ -374,7 +374,7 @@ fn static_check_error_requires_at_most_arguments() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMatchInput`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadMatchInput`]
 /// Caused by: `match` input is the integer `1`, not an option or response.
 /// Outcome: block accepted.
 #[test]
@@ -385,7 +385,7 @@ fn static_check_error_bad_match_input() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedOptionalType`]
+/// StaticAnalysisError: [`StaticAnalysisError::ExpectedOptionalType`]
 /// Caused by: `default-to` second argument `5` is not an optional value.
 /// Outcome: block accepted.
 #[test]
@@ -396,7 +396,7 @@ fn static_check_error_expected_optional_type() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTraitImplementation`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadTraitImplementation`]
 /// Caused by: trying to implement a trait with a bad implementation.
 /// Outcome: block accepted.
 #[test]
@@ -415,7 +415,7 @@ fn static_check_error_bad_trait_implementation() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NameAlreadyUsed`]
+/// StaticAnalysisError: [`StaticAnalysisError::NameAlreadyUsed`]
 /// Caused by: redefining constant `foo` a second time.
 /// Outcome: block accepted.
 #[test]
@@ -428,7 +428,7 @@ fn static_check_error_name_already_used() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ReturnTypesMustMatch`]
+/// StaticAnalysisError: [`StaticAnalysisError::ReturnTypesMustMatch`]
 /// Caused by: `unwrap!` default returns `err 1` while the function returns `err false`, so response types diverge.
 /// Outcome: block accepted.
 #[test]
@@ -445,7 +445,7 @@ fn static_check_error_return_types_must_match() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::TypeError`]
+/// StaticAnalysisError: [`StaticAnalysisError::TypeError`]
 /// Caused by: initializing `define-data-var cursor int` with the boolean `true`.
 /// Outcome: block accepted.
 #[test]
@@ -456,7 +456,7 @@ fn static_check_error_type_error() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineVariableBadSignature`]
+/// StaticAnalysisError: [`StaticAnalysisError::DefineVariableBadSignature`]
 /// Caused by: `define-data-var` is provided only a name and value, missing the required type.
 /// Outcome: block accepted.
 #[test]
@@ -467,7 +467,7 @@ fn static_check_error_define_variable_bad_signature() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::InvalidTypeDescription`]
+/// StaticAnalysisError: [`StaticAnalysisError::InvalidTypeDescription`]
 /// Caused by: `define-data-var` uses `0x00` where a valid type description is required.
 /// Outcome: block accepted.
 #[test]
@@ -478,7 +478,7 @@ fn static_check_error_invalid_type_description() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::TypeSignatureTooDeep`]
+/// StaticAnalysisError: [`StaticAnalysisError::TypeSignatureTooDeep`]
 /// Caused by: parameter type nests `optional` wrappers deeper than [`MAX_TYPE_DEPTH`].
 /// Outcome: block accepted.
 #[test]
@@ -501,7 +501,7 @@ fn static_check_error_type_signature_too_deep() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::SupertypeTooLarge`]
+/// StaticAnalysisError: [`StaticAnalysisError::SupertypeTooLarge`]
 /// Caused by: combining tuples with `buff 600000` and `buff 10` forces a supertype beyond the size limit.
 /// Outcome: block rejected.
 #[test]
@@ -517,7 +517,7 @@ fn static_check_error_supertype_too_large() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ConstructedListTooLarge`]
+/// StaticAnalysisError: [`StaticAnalysisError::ConstructedListTooLarge`]
 /// Caused by: mapping `sha512` over a list capped at 65,535 elements constructs a list past [`MAX_VALUE_SIZE`].
 /// Outcome: block accepted.
 #[test]
@@ -534,7 +534,7 @@ fn static_check_error_constructed_list_too_large() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnknownTypeName`]
+/// StaticAnalysisError: [`StaticAnalysisError::UnknownTypeName`]
 /// Caused by: `from-consensus-buff?` references an undefined type named `foo`.
 /// Outcome: block accepted.
 /// Note: during analysis, this error can only be triggered by `from-consensus-buff?`
@@ -551,7 +551,7 @@ fn static_check_error_unknown_type_name() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::PublicFunctionMustReturnResponse`]
+/// StaticAnalysisError: [`StaticAnalysisError::PublicFunctionMustReturnResponse`]
 /// Caused by: defining a public function that does not return a response (ok or err).
 /// Outcome: block accepted.
 #[test]
@@ -562,7 +562,7 @@ fn static_check_error_public_function_must_return_response() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnionTypeError`]
+/// StaticAnalysisError: [`StaticAnalysisError::UnionTypeError`]
 /// Caused by: `map` applies subtraction to booleans.
 /// Outcome: block accepted.
 #[test]
@@ -573,7 +573,7 @@ fn static_check_error_union_type_error() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::UndefinedVariable`]
+/// StaticAnalysisError: [`StaticAnalysisError::UndefinedVariable`]
 /// Caused by: `x`, `y`, and `z` are referenced without being defined.
 /// Outcome: block accepted.
 #[test]
@@ -584,7 +584,7 @@ fn static_check_error_undefined_variable() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMapTypeDefinition`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadMapTypeDefinition`]
 /// Caused by: Invalid map type definition in a `(define-map ...)` expression.
 /// Outcome: block accepted.
 #[test]
@@ -595,7 +595,7 @@ fn static_check_error_bad_map_type_definition() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineType`]
+/// StaticAnalysisError: [`StaticAnalysisError::CouldNotDetermineType`]
 /// Caused by: `(index-of (list) none)` supplies no concrete element types.
 /// Outcome: block accepted.
 #[test]
@@ -606,7 +606,7 @@ fn static_check_error_could_not_determine_type() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedSequence`]
+/// StaticAnalysisError: [`StaticAnalysisError::ExpectedSequence`]
 /// Caused by: passing integer `3` as the sequence argument to `index-of` instead of a list or string.
 /// Outcome: block accepted.
 #[test]
@@ -617,7 +617,7 @@ fn static_check_error_expected_sequence() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineSerializationType`]
+/// StaticAnalysisError: [`StaticAnalysisError::CouldNotDetermineSerializationType`]
 /// Caused by: `to-consensus-buff?` over a list of trait references lacks a serialization type.
 /// Outcome: block accepted.
 /// Note: during analysis, this error can only be triggered by `from-consensus-buff?`
@@ -636,7 +636,7 @@ fn static_check_error_could_not_determine_serialization_type() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::IllegalOrUnknownFunctionApplication`]
+/// StaticAnalysisError: [`StaticAnalysisError::IllegalOrUnknownFunctionApplication`]
 /// Caused by: calling `map` with `if` (a non-function) as its function argument.
 /// Outcome: block accepted.
 #[test]
@@ -647,7 +647,7 @@ fn static_check_error_illegal_or_unknown_function_application() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnknownFunction`]
+/// StaticAnalysisError: [`StaticAnalysisError::UnknownFunction`]
 /// Caused by: invoking the undefined function `ynot`.
 /// Outcome: block accepted.
 #[test]
@@ -658,7 +658,7 @@ fn static_check_error_unknown_function() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::IncorrectArgumentCount`]
+/// StaticAnalysisError: [`StaticAnalysisError::IncorrectArgumentCount`]
 /// Caused by: `len` receives two arguments even though it expects exactly one.
 /// Outcome: block accepted.
 #[test]
@@ -669,7 +669,7 @@ fn static_check_error_incorrect_argument_count() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadLetSyntax`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadLetSyntax`]
 /// Caused by: `let` is used without a binding list.
 /// Outcome: block accepted.
 #[test]
@@ -680,7 +680,7 @@ fn static_check_error_bad_let_syntax() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadSyntaxBinding`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadSyntaxBinding`]
 /// Caused by: `let` binding `((1))` is not a two-element list.
 /// Outcome: block accepted.
 #[test]
@@ -691,7 +691,7 @@ fn static_check_error_bad_syntax_binding() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedOptionalOrResponseType`]
+/// StaticAnalysisError: [`StaticAnalysisError::ExpectedOptionalOrResponseType`]
 /// Caused by: expected an optional or response type, but got a value
 /// Outcome: block accepted.
 #[test]
@@ -702,7 +702,7 @@ fn static_check_error_expected_optional_or_response_type() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitBadSignature`]
+/// StaticAnalysisError: [`StaticAnalysisError::DefineTraitBadSignature`]
 /// Caused by: calling `define-trait` with a method signature that is not valid.
 /// Outcome: block accepted.
 #[test]
@@ -713,7 +713,7 @@ fn static_check_error_define_trait_bad_signature() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitDuplicateMethod`]
+/// StaticAnalysisError: [`StaticAnalysisError::DefineTraitDuplicateMethod`]
 /// Caused by: trait definition contains duplicate method names
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 2. Clarity 1 will accept the contract.
@@ -729,7 +729,7 @@ fn static_check_error_define_trait_duplicate_method() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnexpectedTraitOrFieldReference`]
+/// StaticAnalysisError: [`StaticAnalysisError::UnexpectedTraitOrFieldReference`]
 /// Caused by: unexpected use of trait reference or field
 /// Outcome: block accepted.
 #[test]
@@ -740,10 +740,10 @@ fn static_check_error_unexpected_trait_or_field_reference() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::IncompatibleTrait`]
+/// StaticAnalysisError: [`StaticAnalysisError::IncompatibleTrait`]
 /// Caused by: pass a trait to a trait parameter which is not compatible.
 /// Outcome: block accepted.
-/// Note: Added in Clarity 2. Clarity 1 will trigger a [`CheckErrorKind::TypeError`].
+/// Note: Added in Clarity 2. Clarity 1 will trigger a [`RuntimeAnalysisError::TypeError`].
 #[test]
 fn static_check_error_incompatible_trait() {
     contract_deploy_consensus_test!(
@@ -762,7 +762,7 @@ fn static_check_error_incompatible_trait() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitTooManyMethods`]
+/// StaticAnalysisError: [`StaticAnalysisError::TraitTooManyMethods`]
 /// Caused by: a trait has too many methods.
 /// Outcome: block accepted.
 #[test]
@@ -779,7 +779,7 @@ fn static_check_error_trait_too_many_methods() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::TooManyFunctionParameters`]
+/// StaticAnalysisError: [`StaticAnalysisError::TooManyFunctionParameters`]
 /// Caused by: a function has too many parameters.
 /// Outcome: block accepted.
 #[test]
@@ -796,11 +796,11 @@ fn static_check_error_too_many_function_parameters() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ReservedWord`]
+/// StaticAnalysisError: [`StaticAnalysisError::ReservedWord`]
 /// Caused by: name is a reserved word
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1 and 2
-///       will trigger a [`CheckErrorKind::NameAlreadyUsed`].
+///       will trigger a [`RuntimeAnalysisError::NameAlreadyUsed`].
 #[test]
 fn static_check_error_reserved_word() {
     contract_deploy_consensus_test!(
@@ -809,7 +809,7 @@ fn static_check_error_reserved_word() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchBlockInfoProperty`]
+/// StaticAnalysisError: [`StaticAnalysisError::NoSuchBlockInfoProperty`]
 /// Caused by: referenced an unknown property of a burn block
 /// Outcome: block accepted.
 #[test]
@@ -820,11 +820,11 @@ fn static_check_error_no_such_block_info_property() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchStacksBlockInfoProperty`]
+/// StaticAnalysisError: [`StaticAnalysisError::NoSuchStacksBlockInfoProperty`]
 /// Caused by: referenced an unknown property of a stacks block
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1, and 2
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_no_such_stacks_block_info_property() {
     contract_deploy_consensus_test!(
@@ -833,7 +833,7 @@ fn static_check_error_no_such_stacks_block_info_property() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::UncheckedIntermediaryResponses`]
+/// StaticAnalysisError: [`StaticAnalysisError::UncheckedIntermediaryResponses`]
 /// Caused by: Intermediate `(ok ...)` expressions inside a `begin` block that are not unwrapped.
 /// Outcome: block accepted.
 #[test]
@@ -848,7 +848,7 @@ fn static_check_error_unchecked_intermediary_responses() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchFT`]
+/// StaticAnalysisError: [`StaticAnalysisError::NoSuchFT`]
 /// Caused by: calling `ft-get-balance` with a non-existent FT name.
 /// Outcome: block accepted.
 #[test]
@@ -859,7 +859,7 @@ fn static_check_error_no_such_ft() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchNFT`]
+/// StaticAnalysisError: [`StaticAnalysisError::NoSuchNFT`]
 /// Caused by: calling `nft-get-owner?` with a non-existent NFT name.
 /// Outcome: block accepted.
 #[test]
@@ -870,7 +870,7 @@ fn static_check_error_no_such_nft() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineNFTBadSignature`]
+/// StaticAnalysisError: [`StaticAnalysisError::DefineNFTBadSignature`]
 /// Caused by: malformed signature in a `(define-non-fungible-token ...)` expression
 /// Outcome: block accepted.
 #[test]
@@ -881,7 +881,7 @@ fn static_check_error_define_nft_bad_signature() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTokenName`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadTokenName`]
 /// Caused by: calling `ft-get-balance` with a non-valid token name.
 /// Outcome: block accepted.
 #[test]
@@ -892,7 +892,7 @@ fn static_check_error_bad_token_name() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::EmptyTuplesNotAllowed`]
+/// StaticAnalysisError: [`StaticAnalysisError::EmptyTuplesNotAllowed`]
 /// Caused by: calling `set-cursor` with an empty tuple.
 /// Outcome: block accepted.
 #[test]
@@ -905,7 +905,7 @@ fn static_check_error_empty_tuples_not_allowed() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchDataVariable`]
+/// StaticAnalysisError: [`StaticAnalysisError::NoSuchDataVariable`]
 /// Caused by: calling var-get with a non-existent variable.
 /// Outcome: block accepted.
 #[test]
@@ -918,7 +918,7 @@ fn static_check_error_no_such_data_variable() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NonFunctionApplication`]
+/// StaticAnalysisError: [`StaticAnalysisError::NonFunctionApplication`]
 /// Caused by: attempt to apply a non-function value as a function.
 /// Outcome: block accepted.
 #[test]
@@ -929,7 +929,7 @@ fn static_check_error_non_function_application() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedListApplication`]
+/// StaticAnalysisError: [`StaticAnalysisError::ExpectedListApplication`]
 /// Caused by: calling append with lhs that is not a list.
 /// Outcome: block accepted.
 #[test]
@@ -940,7 +940,7 @@ fn static_check_error_expected_list_application() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchContract`]
+/// StaticAnalysisError: [`StaticAnalysisError::NoSuchContract`]
 /// Caused by: calling contract-call? with a non-existent contract name.
 /// Outcome: block accepted.
 #[test]
@@ -951,7 +951,7 @@ fn static_check_error_no_such_contract() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ContractCallExpectName`]
+/// StaticAnalysisError: [`StaticAnalysisError::ContractCallExpectName`]
 /// Caused by: calling contract-call? without a contract function name.
 /// Outcome: block accepted.
 #[test]
@@ -962,10 +962,10 @@ fn static_check_error_contract_call_expect_name() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedCallableType`]
+/// StaticAnalysisError: [`StaticAnalysisError::ExpectedCallableType`]
 /// Caused by: passing a non-callable constant as the contract principal in `contract-call?`.
 /// Outcome: block accepted.
-/// Note: This error was added in Clarity 2. Clarity 1 will trigger a [`CheckErrorKind::TraitReferenceUnknown`]
+/// Note: This error was added in Clarity 2. Clarity 1 will trigger a [`RuntimeAnalysisError::TraitReferenceUnknown`]
 #[test]
 fn static_check_error_expected_callable_type() {
     contract_deploy_consensus_test!(
@@ -976,7 +976,7 @@ fn static_check_error_expected_callable_type() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchPublicFunction`]
+/// StaticAnalysisError: [`StaticAnalysisError::NoSuchPublicFunction`]
 /// Caused by: calling a non-existent public or read-only function on a contract literal.
 /// Outcome: block accepted.
 #[test]
@@ -988,7 +988,7 @@ fn static_check_error_no_such_public_function() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefaultTypesMustMatch`]
+/// StaticAnalysisError: [`StaticAnalysisError::DefaultTypesMustMatch`]
 /// Caused by: calling `default-to` with a default value that does not match the expected type.
 /// Outcome: block accepted.
 #[test]
@@ -1001,7 +1001,7 @@ fn static_check_error_default_types_must_match() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::IfArmsMustMatch`]
+/// StaticAnalysisError: [`StaticAnalysisError::IfArmsMustMatch`]
 /// Caused by: calling `if` with arms that do not match the same type.
 /// Outcome: block accepted.
 #[test]
@@ -1012,7 +1012,7 @@ fn static_check_error_if_arms_must_match() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedTuple`]
+/// StaticAnalysisError: [`StaticAnalysisError::ExpectedTuple`]
 /// Caused by: `(get ...)` is given `(some 1)` instead of a tuple value.
 /// Outcome: block accepted.
 #[test]
@@ -1023,7 +1023,7 @@ fn static_check_error_expected_tuple() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchTupleField`]
+/// StaticAnalysisError: [`StaticAnalysisError::NoSuchTupleField`]
 /// Caused by: tuple argument only contains `name`, so requesting `value` fails.
 /// Outcome: block accepted.
 #[test]
@@ -1034,7 +1034,7 @@ fn static_check_error_no_such_tuple_field() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchMap`]
+/// StaticAnalysisError: [`StaticAnalysisError::NoSuchMap`]
 /// Caused by: `map-get?` refers to map `non-existent`, which is never defined.
 /// Outcome: block accepted.
 #[test]
@@ -1045,7 +1045,7 @@ fn static_check_error_no_such_map() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadFunctionName`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadFunctionName`]
 /// Caused by: defining a function whose signature does not start with an atom name.
 /// Outcome: block accepted.
 #[test]
@@ -1056,7 +1056,7 @@ fn static_check_error_bad_function_name() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineFunctionBadSignature`]
+/// StaticAnalysisError: [`StaticAnalysisError::DefineFunctionBadSignature`]
 /// Caused by: defining a function with an empty signature list.
 /// Outcome: block accepted.
 #[test]
@@ -1067,7 +1067,7 @@ fn static_check_error_define_function_bad_signature() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTupleFieldName`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadTupleFieldName`]
 /// Caused by: using `(get ...)` with a tuple field argument that is not an atom.
 /// Outcome: block accepted.
 #[test]
@@ -1078,7 +1078,7 @@ fn static_check_error_bad_tuple_field_name() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMapName`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadMapName`]
 /// Caused by: passing a literal instead of a map identifier to `map-get?`.
 /// Outcome: block accepted.
 #[test]
@@ -1089,11 +1089,11 @@ fn static_check_error_bad_map_name() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::GetBlockInfoExpectPropertyName`]
+/// StaticAnalysisError: [`StaticAnalysisError::GetBlockInfoExpectPropertyName`]
 /// Caused by: calling `get-block-info` with a non-atom property argument.
 /// Outcome: block accepted.
 /// Note: Only Clarity 1 and 2 will trigger this error. Clarity 3 and 4
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_get_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1103,11 +1103,11 @@ fn static_check_error_get_block_info_expect_property_name() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::GetBurnBlockInfoExpectPropertyName`]
+/// StaticAnalysisError: [`StaticAnalysisError::GetBurnBlockInfoExpectPropertyName`]
 /// Caused by: calling `get-burn-block-info` with a non-atom property argument.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 2. Clarity 1 will trigger
-///       a [`CheckErrorKind::UnknownFunction`].
+///       a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_get_burn_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1117,11 +1117,11 @@ fn static_check_error_get_burn_block_info_expect_property_name() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::GetStacksBlockInfoExpectPropertyName`]
+/// StaticAnalysisError: [`StaticAnalysisError::GetStacksBlockInfoExpectPropertyName`]
 /// Caused by: calling `get-stacks-block-info` with a non-atom property argument.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
-///       a [`CheckErrorKind::UnknownFunction`].
+///       a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_get_stacks_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1131,11 +1131,11 @@ fn static_check_error_get_stacks_block_info_expect_property_name() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::GetTenureInfoExpectPropertyName`]
+/// StaticAnalysisError: [`StaticAnalysisError::GetTenureInfoExpectPropertyName`]
 /// Caused by: calling `get-tenure-info` with a non-atom property argument.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
-///       a [`CheckErrorKind::UnknownFunction`].
+///       a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_get_tenure_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1145,11 +1145,11 @@ fn static_check_error_get_tenure_info_expect_property_name() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchTenureInfoProperty`]
+/// StaticAnalysisError: [`StaticAnalysisError::NoSuchTenureInfoProperty`]
 /// Caused by: referenced an unknown property of a tenure
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1, and 2
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_no_such_tenure_info_property() {
     contract_deploy_consensus_test!(
@@ -1159,7 +1159,7 @@ fn static_check_error_no_such_tenure_info_property() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitReferenceUnknown`]
+/// StaticAnalysisError: [`StaticAnalysisError::TraitReferenceUnknown`]
 /// Caused by: referenced trait is unknown
 /// Outcome: block accepted.
 #[test]
@@ -1170,7 +1170,7 @@ fn static_check_error_trait_reference_unknown() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ContractOfExpectsTrait`]
+/// StaticAnalysisError: [`StaticAnalysisError::ContractOfExpectsTrait`]
 /// Caused by: calling `contract-of` with a non-trait argument.
 /// Outcome: block accepted.
 #[test]
@@ -1181,7 +1181,7 @@ fn static_check_error_contract_of_expects_trait() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitMethodUnknown`]
+/// StaticAnalysisError: [`StaticAnalysisError::TraitMethodUnknown`]
 /// Caused by: defining a method that is not declared in the trait
 /// Outcome: block accepted.
 #[test]
@@ -1196,7 +1196,7 @@ fn static_check_error_trait_method_unknown() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::WriteAttemptedInReadOnly`]
+/// StaticAnalysisError: [`StaticAnalysisError::WriteAttemptedInReadOnly`]
 /// Caused by: read-only function `silly` invoking `map-delete`, which performs a write.
 /// Outcome: block accepted.
 #[test]
@@ -1210,7 +1210,7 @@ fn static_check_error_write_attempted_in_read_only() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::AtBlockClosureMustBeReadOnly`]
+/// StaticAnalysisError: [`StaticAnalysisError::AtBlockClosureMustBeReadOnly`]
 /// Caused by: `at-block` closure must be read-only but contains write operations.
 /// Outcome: block accepted.
 #[test]
@@ -1225,11 +1225,11 @@ fn static_check_error_at_block_closure_must_be_read_only() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::AllowanceExprNotAllowed`]
+/// StaticAnalysisError: [`StaticAnalysisError::AllowanceExprNotAllowed`]
 /// Caused by: using an allowance expression outside of `restrict-assets?` or `as-contract?`.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_allowance_expr_not_allowed() {
     contract_deploy_consensus_test!(
@@ -1239,11 +1239,11 @@ fn static_check_error_allowance_expr_not_allowed() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedListOfAllowances`]
+/// StaticAnalysisError: [`StaticAnalysisError::ExpectedListOfAllowances`]
 /// Caused by: post-condition expects a list of asset allowances but received invalid input.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_expected_list_of_allowances() {
     contract_deploy_consensus_test!(
@@ -1253,11 +1253,11 @@ fn static_check_error_expected_list_of_allowances() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedAllowanceExpr`]
+/// StaticAnalysisError: [`StaticAnalysisError::ExpectedAllowanceExpr`]
 /// Caused by: allowance list contains a non-allowance expression.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_expected_allowance_expr() {
     contract_deploy_consensus_test!(
@@ -1267,11 +1267,11 @@ fn static_check_error_expected_allowance_expr() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::WithAllAllowanceNotAllowed`]
+/// StaticAnalysisError: [`StaticAnalysisError::WithAllAllowanceNotAllowed`]
 /// Caused by: `restrict-assets?` allowance list contains `with-all-assets-unsafe`, which is forbidden.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_with_all_allowance_not_allowed() {
     contract_deploy_consensus_test!(
@@ -1281,11 +1281,11 @@ fn static_check_error_with_all_allowance_not_allowed() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::WithAllAllowanceNotAlone`]
+/// StaticAnalysisError: [`StaticAnalysisError::WithAllAllowanceNotAlone`]
 /// Caused by: combining `with-all-assets-unsafe` with another allowance inside `as-contract?`.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_with_all_allowance_not_alone() {
     contract_deploy_consensus_test!(
@@ -1295,11 +1295,11 @@ fn static_check_error_with_all_allowance_not_alone() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::WithNftExpectedListOfIdentifiers`]
+/// StaticAnalysisError: [`StaticAnalysisError::WithNftExpectedListOfIdentifiers`]
 /// Caused by: the third argument to `with-nft` is not a list of identifiers.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_with_nft_expected_list_of_identifiers() {
     contract_deploy_consensus_test!(
@@ -1309,11 +1309,11 @@ fn static_check_error_with_nft_expected_list_of_identifiers() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::MaxIdentifierLengthExceeded`]
+/// StaticAnalysisError: [`StaticAnalysisError::MaxIdentifierLengthExceeded`]
 /// Caused by: `with-nft` lists 130 identifiers, surpassing [`MAX_NFT_IDENTIFIERS`] (128).
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_max_identifier_length_exceeded() {
     contract_deploy_consensus_test!(
@@ -1328,11 +1328,11 @@ fn static_check_error_max_identifier_length_exceeded() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::TooManyAllowances`]
+/// StaticAnalysisError: [`StaticAnalysisError::TooManyAllowances`]
 /// Caused by: allowance list supplies 130 entries, exceeding [`MAX_ALLOWANCES`] (128).
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeAnalysisError::UnknownFunction`].
 #[test]
 fn static_check_error_too_many_allowances() {
     contract_deploy_consensus_test!(
@@ -1347,7 +1347,7 @@ fn static_check_error_too_many_allowances() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTupleConstruction`]
+/// StaticAnalysisError: [`StaticAnalysisError::BadTupleConstruction`]
 /// Caused by: tuple literal repeats the `name` field twice.
 /// Outcome: block accepted.
 #[test]

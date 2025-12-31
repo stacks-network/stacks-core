@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub use clarity_types::errors::analysis::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrorKind,
-    CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind, SyntaxBindingError,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, RuntimeAnalysisError,
+    SharedAnalysisError, StaticAnalysisError, StaticAnalysisErrorReport, SyntaxBindingError,
     SyntaxBindingErrorType,
 };

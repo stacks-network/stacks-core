@@ -37,7 +37,7 @@ use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
 };
-use crate::vm::errors::{CheckErrorKind, RuntimeError, VmInternalError};
+use crate::vm::errors::{RuntimeAnalysisError, RuntimeError, VmInternalError};
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::FunctionSignature;
@@ -1173,11 +1173,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
 
             let func = contract.contract_context.lookup_function(tx_name)
-                .ok_or_else(|| { CheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
+                .ok_or_else(|| { RuntimeAnalysisError::UndefinedFunction(tx_name.to_string()) })?;
             if !allow_private && !func.is_public() {
-                return Err(CheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
+                return Err(RuntimeAnalysisError::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             } else if read_only && !func.is_read_only() {
-                return Err(CheckErrorKind::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
+                return Err(RuntimeAnalysisError::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
             }
 
             let args: Result<Vec<Value>, VmExecutionError> = args.iter()
@@ -1191,7 +1191,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                         self.epoch(),
                         &expected_type,
                         value.clone(),
-                    ).ok_or_else(|| CheckErrorKind::TypeValueError(
+                    ).ok_or_else(|| RuntimeAnalysisError::TypeValueError(
                             Box::new(expected_type),
                             Box::new(value.clone()),
                         )
@@ -1205,7 +1205,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
 
             let func_identifier = func.get_identifier();
             if self.call_stack.contains(&func_identifier) {
-                return Err(CheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
+                return Err(RuntimeAnalysisError::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
             let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), allow_private);
@@ -1344,9 +1344,10 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 .database
                 .has_contract(&contract_identifier)
             {
-                return Err(
-                    CheckErrorKind::ContractAlreadyExists(contract_identifier.to_string()).into(),
-                );
+                return Err(RuntimeAnalysisError::ContractAlreadyExists(
+                    contract_identifier.to_string(),
+                )
+                .into());
             }
 
             // first, store the contract _content hash_ in the data store.
@@ -1877,10 +1878,12 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 self.commit()?;
                 Ok(result)
             } else {
-                Err(CheckErrorKind::PublicFunctionMustReturnResponse(Box::new(
-                    TypeSignature::type_of(&result)?,
-                ))
-                .into())
+                Err(
+                    RuntimeAnalysisError::PublicFunctionMustReturnResponse(Box::new(
+                        TypeSignature::type_of(&result)?,
+                    ))
+                    .into(),
+                )
             }
         } else {
             self.roll_back()?;
@@ -2513,7 +2516,7 @@ mod test {
 
         assert!(matches!(
             err,
-            VmExecutionError::Unchecked(CheckErrorKind::ContractAlreadyExists(_))
+            VmExecutionError::Unchecked(RuntimeAnalysisError::ContractAlreadyExists(_))
         ));
     }
 }

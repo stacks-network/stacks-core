@@ -1,4 +1,4 @@
-use clarity_types::errors::CheckErrorKind;
+use clarity_types::errors::RuntimeAnalysisError;
 use clarity_types::VmExecutionError;
 use proptest::prelude::*;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
@@ -164,7 +164,7 @@ fn test_secp256r1_verify_signature_too_long_errors() {
     )
     .unwrap_err();
     match err {
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(expected, _)) => {
+        VmExecutionError::Unchecked(RuntimeAnalysisError::TypeValueError(expected, _)) => {
             assert_eq!(*expected, TypeSignature::BUFFER_64);
         }
         _ => panic!("expected BUFFER_65 type error, found {err:?}"),
@@ -314,7 +314,7 @@ fn test_secp256k1_verify_signature_too_long_errors() {
     )
     .unwrap_err();
     match err {
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(expected, _)) => {
+        VmExecutionError::Unchecked(RuntimeAnalysisError::TypeValueError(expected, _)) => {
             assert_eq!(*expected, TypeSignature::BUFFER_65);
         }
         _ => panic!("expected BUFFER_65 type error, found {err:?}"),

@@ -498,10 +498,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///
     /// # Errors
     ///
-    /// - Returns CheckErrorKind::WriteAttemptedInReadOnly if there is a read-only
+    /// - Returns RuntimeAnalysisError::WriteAttemptedInReadOnly if there is a read-only
     ///   violation, i.e. if some function marked read-only attempts to modify
     ///   the chainstate.
-    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), StaticCheckError>
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), StaticAnalysisDiagnostic>
 ```
 
 This comment is considered positive because it explains the contract of the function in pseudo-code. Someone who understands the constructs mentioned could, e.g., write a test for this method from this description.

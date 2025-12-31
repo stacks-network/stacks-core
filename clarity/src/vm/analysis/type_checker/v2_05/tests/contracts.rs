@@ -22,7 +22,7 @@ use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::{mem_type_check, type_check};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::StaticCheckErrorKind;
+use crate::vm::errors::StaticAnalysisError;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
 
@@ -492,7 +492,7 @@ fn test_names_tokens_contracts_bad() {
             )
         })
         .unwrap_err();
-    assert!(matches!(*err.err, StaticCheckErrorKind::TypeError(_, _)));
+    assert!(matches!(*err.err, StaticAnalysisError::TypeError(_, _)));
 }
 
 #[test]
@@ -534,7 +534,7 @@ fn test_bad_map_usage() {
     for contract in tests.iter() {
         let err = mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
             .unwrap_err();
-        assert!(matches!(*err.err, StaticCheckErrorKind::TypeError(_, _)));
+        assert!(matches!(*err.err, StaticAnalysisError::TypeError(_, _)));
     }
 
     assert!(matches!(
@@ -545,7 +545,7 @@ fn test_bad_map_usage() {
         )
         .unwrap_err()
         .err,
-        StaticCheckErrorKind::UnionTypeError(_, _)
+        StaticAnalysisError::UnionTypeError(_, _)
     ));
 }
 
@@ -662,10 +662,10 @@ fn test_expects() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        eprintln!("unmatched_return_types returned check error: {err}");
+        eprintln!("unmatched_return_types returned StaticAnalysisError: {err}");
         assert!(matches!(
             *err.err,
-            StaticCheckErrorKind::ReturnTypesMustMatch(_, _)
+            StaticAnalysisError::ReturnTypesMustMatch(_, _)
         ));
     }
 
@@ -675,10 +675,10 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("bad_default_types returned check error: {err}");
+    eprintln!("bad_default_types returned StaticAnalysisError: {err}");
     assert!(matches!(
         *err.err,
-        StaticCheckErrorKind::DefaultTypesMustMatch(_, _)
+        StaticAnalysisError::DefaultTypesMustMatch(_, _)
     ));
 
     let err = mem_type_check(
@@ -687,10 +687,10 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("notype_response_type returned check error: {err}");
+    eprintln!("notype_response_type returned StaticAnalysisError: {err}");
     assert!(matches!(
         *err.err,
-        StaticCheckErrorKind::CouldNotDetermineResponseErrType
+        StaticAnalysisError::CouldNotDetermineResponseErrType
     ));
 
     let err = mem_type_check(
@@ -699,9 +699,9 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("notype_response_type_2 returned check error: {err}");
+    eprintln!("notype_response_type_2 returned StaticAnalysisError: {err}");
     assert!(matches!(
         *err.err,
-        StaticCheckErrorKind::CouldNotDetermineResponseOkType
+        StaticAnalysisError::CouldNotDetermineResponseOkType
     ));
 }

@@ -19,8 +19,8 @@ pub use clarity_types::errors::{
 };
 
 pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrorKind,
-    CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind, SyntaxBindingError,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, SharedAnalysisError,
+    RuntimeAnalysisError, StaticAnalysisError, StaticAnalysisErrorReport, SyntaxBindingError,
     SyntaxBindingErrorType,
 };
 
