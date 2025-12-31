@@ -400,7 +400,7 @@ fn sub_arg_len_underflow_ccall() {
     contract_call_consensus_test!(
         contract_name: "arg-len-underflow",
         contract_code: "
-(define-read-only (trigger) 
+(define-read-only (trigger)
   (- u5))
 ",
         function_name: "trigger",
@@ -688,7 +688,7 @@ fn unknown_block_header_hash_fork() {
         contract_code: "
 (define-public (trigger)
   (ok
-    (at-block 
+    (at-block
       0x0202020202020202020202020202020202020202020202020202020202020202
       (+ 1 2)
     )
@@ -709,7 +709,7 @@ fn bad_block_hash() {
         contract_code: "
 (define-public (trigger)
   (ok
-    (at-block 
+    (at-block
       0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e
       (+ 1 2)
     )
@@ -728,7 +728,7 @@ fn unwrap_err_panic_on_ok_runtime() {
     contract_call_consensus_test!(
         contract_name: "unwrap-ok",
         contract_code: "
-(define-public (trigger (input (response uint uint))) 
+(define-public (trigger (input (response uint uint)))
     (ok (unwrap-err-panic input))
 )",
         function_name: "trigger",

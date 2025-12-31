@@ -790,11 +790,10 @@ fn check_error_kind_type_error_ccall() {
 fn check_error_kind_type_value_error_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "check-error-kind",
-        contract_code: "
-        ;; `as-max-len?` widens `0x` to type `(buff 33)` even though it contains 0 bytes.
-        ;; This passes the analyzer but fails at runtime when `principal-of` enforces
-        ;; the exact length, raising `CheckErrorKind::TypeValueError`.
-        (principal-of? (unwrap-panic (as-max-len? 0x u33)))",
+        // `as-max-len?` widens `0x` to type `(buff 33)` even though it contains 0 bytes.
+        // This passes the analyzer but fails at runtime when `principal-of` enforces
+        // the exact length, raising `RuntimeAnalysisError::TypeValueError`.
+        contract_code: "(principal-of? (unwrap-panic (as-max-len? 0x u33)))",
     );
 }
 
