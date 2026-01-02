@@ -1,3 +1,20 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use clarity_types::errors::ast::ClarityEvalError;
 use clarity_types::errors::CheckErrorKind;
 use clarity_types::VmExecutionError;
 use proptest::prelude::*;
@@ -164,7 +181,10 @@ fn test_secp256r1_verify_signature_too_long_errors() {
     )
     .unwrap_err();
     match err {
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(expected, _)) => {
+        ClarityEvalError::Vm(VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(
+            expected,
+            _,
+        ))) => {
             assert_eq!(*expected, TypeSignature::BUFFER_64);
         }
         _ => panic!("expected BUFFER_65 type error, found {err:?}"),
@@ -314,7 +334,10 @@ fn test_secp256k1_verify_signature_too_long_errors() {
     )
     .unwrap_err();
     match err {
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(expected, _)) => {
+        ClarityEvalError::Vm(VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(
+            expected,
+            _,
+        ))) => {
             assert_eq!(*expected, TypeSignature::BUFFER_65);
         }
         _ => panic!("expected BUFFER_65 type error, found {err:?}"),

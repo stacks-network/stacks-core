@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(test)]
+use clarity_types::errors::ast::ClarityEvalError;
 use rstest::rstest;
 use rstest_reuse::{self, *};
 #[cfg(test)]
@@ -59,7 +61,8 @@ fn test_simple_list_admission() {
     );
     let err = execute(&t3).unwrap_err();
     assert!(match err {
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _)) => true,
+        ClarityEvalError::Vm(VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))) =>
+            true,
         _ => {
             eprintln!("Expected TypeError, but found: {err:?}");
             false
@@ -129,7 +132,7 @@ fn test_index_of() {
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         match execute(bad_test).unwrap_err() {
-            VmExecutionError::Unchecked(check_error) => {
+            ClarityEvalError::Vm(VmExecutionError::Unchecked(check_error)) => {
                 assert_eq!(&check_error, expected);
             }
             _ => unreachable!("Should have raised unchecked errors"),
@@ -179,7 +182,7 @@ fn test_element_at() {
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         match execute(bad_test).unwrap_err() {
-            VmExecutionError::Unchecked(check_error) => {
+            ClarityEvalError::Vm(VmExecutionError::Unchecked(check_error)) => {
                 assert_eq!(&check_error, expected);
             }
             _ => unreachable!("Should have raised unchecked errors"),
@@ -1250,24 +1253,24 @@ fn test_construct_bad_list(#[case] version: ClarityVersion, #[case] epoch: Stack
 #[test]
 fn test_eval_func_arg_panic() {
     let test1 = "(fold (lambda (x y) (* x y)) (list 1 2 3 4) 1)";
-    let e: VmExecutionError = CheckErrorKind::ExpectedName.into();
+    let e: ClarityEvalError = CheckErrorKind::ExpectedName.into();
     assert_eq!(e, execute(test1).unwrap_err());
 
     let test2 = "(map (lambda (x) (* x x)) (list 1 2 3 4))";
-    let e: VmExecutionError = CheckErrorKind::ExpectedName.into();
+    let e: ClarityEvalError = CheckErrorKind::ExpectedName.into();
     assert_eq!(e, execute(test2).unwrap_err());
 
     let test3 = "(map square (list 1 2 3 4) 2)";
-    let e: VmExecutionError = CheckErrorKind::UndefinedFunction("square".to_string()).into();
+    let e: ClarityEvalError = CheckErrorKind::UndefinedFunction("square".to_string()).into();
     assert_eq!(e, execute(test3).unwrap_err());
 
     let test4 = "(define-private (multiply-all (x int) (acc int)) (* x acc))
          (fold multiply-all (list 1 2 3 4))";
-    let e: VmExecutionError = CheckErrorKind::IncorrectArgumentCount(3, 2).into();
+    let e: ClarityEvalError = CheckErrorKind::IncorrectArgumentCount(3, 2).into();
     assert_eq!(e, execute(test4).unwrap_err());
 
     let test5 = "(map + (list 1 2 3 4) 2)";
-    let e: VmExecutionError = CheckErrorKind::ExpectedSequence(Box::new(IntType)).into();
+    let e: ClarityEvalError = CheckErrorKind::ExpectedSequence(Box::new(IntType)).into();
     assert_eq!(e, execute(test5).unwrap_err());
 }
 
@@ -1276,6 +1279,6 @@ fn test_expected_list_application() {
     // append expects (list, element)
     // first argument is NOT a list
     let test1 = "(append u1 u2)";
-    let e: VmExecutionError = CheckErrorKind::ExpectedListApplication.into();
+    let e: ClarityEvalError = CheckErrorKind::ExpectedListApplication.into();
     assert_eq!(e, execute(test1).unwrap_err());
 }

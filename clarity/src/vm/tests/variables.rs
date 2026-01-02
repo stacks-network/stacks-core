@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,6 +13,8 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#[cfg(test)]
+use clarity_types::errors::ast::ClarityEvalError;
 #[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
 #[cfg(test)]
@@ -79,8 +81,8 @@ fn test_block_height(
     if version >= ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            VmExecutionError::Unchecked(CheckErrorKind::UndefinedVariable(
-                "block-height".to_string(),
+            ClarityEvalError::Vm(VmExecutionError::Unchecked(
+                CheckErrorKind::UndefinedVariable("block-height".to_string(),)
             )),
             err
         );
@@ -138,8 +140,8 @@ fn test_stacks_block_height(
     if version < ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            VmExecutionError::Unchecked(CheckErrorKind::UndefinedVariable(
-                "stacks-block-height".to_string(),
+            ClarityEvalError::Vm(VmExecutionError::Unchecked(
+                CheckErrorKind::UndefinedVariable("stacks-block-height".to_string(),)
             )),
             err
         );
@@ -197,8 +199,8 @@ fn test_tenure_height(
     if version < ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            VmExecutionError::Unchecked(CheckErrorKind::UndefinedVariable(
-                "tenure-height".to_string(),
+            ClarityEvalError::Vm(VmExecutionError::Unchecked(
+                CheckErrorKind::UndefinedVariable("tenure-height".to_string(),)
             )),
             err
         );
@@ -274,7 +276,7 @@ fn expect_contract_error(
         if let ExpectedContractError::Initialization(expected_error) = expected_error {
             if err_condition(version, epoch) {
                 let err = init_result.unwrap_err();
-                if let VmExecutionError::Unchecked(inner_err) = &err {
+                if let ClarityEvalError::Vm(VmExecutionError::Unchecked(inner_err)) = &err {
                     assert_eq!(expected_error, inner_err);
                 } else {
                     panic!("Expected an Unchecked error, but got a different error");
@@ -294,7 +296,7 @@ fn expect_contract_error(
         if let ExpectedContractError::Runtime(expected_error) = expected_error {
             if err_condition(version, epoch) {
                 let err = eval_result.unwrap_err();
-                if let VmExecutionError::Unchecked(inner_err) = &err {
+                if let ClarityEvalError::Vm(VmExecutionError::Unchecked(inner_err)) = &err {
                     assert_eq!(expected_error, inner_err);
                 } else {
                     panic!("Expected an Unchecked error, but got a different error");
@@ -1203,8 +1205,8 @@ fn test_block_time(
     if version < ClarityVersion::Clarity4 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            VmExecutionError::Unchecked(CheckErrorKind::UndefinedVariable(
-                "stacks-block-time".to_string(),
+            ClarityEvalError::Vm(VmExecutionError::Unchecked(
+                CheckErrorKind::UndefinedVariable("stacks-block-time".to_string(),)
             )),
             err
         );
@@ -1329,8 +1331,8 @@ fn test_current_contract(
     if version < ClarityVersion::Clarity4 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            VmExecutionError::Unchecked(CheckErrorKind::UndefinedVariable(
-                "current-contract".to_string(),
+            ClarityEvalError::Vm(VmExecutionError::Unchecked(
+                CheckErrorKind::UndefinedVariable("current-contract".to_string(),)
             )),
             err
         );

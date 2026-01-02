@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
 use std::collections::BTreeSet;
 use std::result::Result;
 
+use clarity_types::errors::ast::ClarityEvalError;
 use clarity_types::errors::VmExecutionError;
 use clarity_types::types::{
     CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData,
@@ -80,7 +81,7 @@ fn initialize_balances(
 
 /// Execute a Clarity code snippet in a fresh global context with default
 /// parameters, setting up initial balances.
-pub fn execute(snippet: &str) -> Result<Option<Value>, VmExecutionError> {
+pub fn execute(snippet: &str) -> Result<Option<Value>, ClarityEvalError> {
     execute_versioned(snippet, DEFAULT_CLARITY_VERSION)
 }
 
@@ -89,7 +90,7 @@ pub fn execute(snippet: &str) -> Result<Option<Value>, VmExecutionError> {
 pub fn execute_versioned(
     snippet: &str,
     version: ClarityVersion,
-) -> Result<Option<Value>, VmExecutionError> {
+) -> Result<Option<Value>, ClarityEvalError> {
     let sender_pk = StacksPrivateKey::random();
     let sender: StandardPrincipalData = (&sender_pk).into();
     let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
@@ -112,7 +113,7 @@ pub fn execute_and_check<F>(
     snippet: &str,
     sender: StandardPrincipalData,
     check: F,
-) -> Result<Option<Value>, VmExecutionError>
+) -> Result<Option<Value>, ClarityEvalError>
 where
     F: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
 {
@@ -127,7 +128,7 @@ pub fn execute_and_check_versioned<F>(
     version: ClarityVersion,
     sender: StandardPrincipalData,
     mut check: F,
-) -> Result<Option<Value>, VmExecutionError>
+) -> Result<Option<Value>, ClarityEvalError>
 where
     F: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
 {

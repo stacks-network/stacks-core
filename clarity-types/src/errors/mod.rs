@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@ pub mod lexer;
 use std::{error, fmt};
 
 pub use analysis::{CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind};
-pub use ast::{ParseError, ParseErrorKind, ParseResult};
+pub use ast::{ClarityEvalError, ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
 #[cfg(feature = "rusqlite")]
@@ -151,12 +151,6 @@ pub enum RuntimeError {
     SupplyUnderflow(u128, u128),
     /// Attempt to divide or compute modulo by zero.
     DivisionByZero,
-    /// Failure to parse types dynamically during contract execution.
-    /// The `String` represents the specific parsing issue, such as invalid data formats.
-    TypeParseFailure(String),
-    /// Failure to parse the abstract syntax tree (AST) during dynamic evaluation.
-    /// The `Box<ParseError>` wraps the specific parsing error encountered, detailing code interpretation issues.
-    ASTError(Box<ParseError>),
     /// The call stack exceeded the virtual machine's maximum depth.
     MaxStackDepthReached,
     /// The execution context depth exceeded the virtual machine's limit.
@@ -260,17 +254,6 @@ impl error::Error for RuntimeError {
 impl From<ClarityTypeError> for VmExecutionError {
     fn from(err: ClarityTypeError) -> Self {
         Self::from(CheckErrorKind::from(err))
-    }
-}
-
-impl From<ParseError> for VmExecutionError {
-    fn from(err: ParseError) -> Self {
-        match *err.err {
-            ParseErrorKind::InterpreterFailure => VmExecutionError::from(VmInternalError::Expect(
-                "Unexpected interpreter failure during parsing".into(),
-            )),
-            _ => VmExecutionError::from(RuntimeError::ASTError(Box::new(err))),
-        }
     }
 }
 

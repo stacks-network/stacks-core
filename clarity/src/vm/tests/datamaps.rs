@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity_types::types::ClarityTypeError;
 #[cfg(test)]
-use clarity_types::VmExecutionError;
+use clarity_types::{errors::ast::ClarityEvalError, VmExecutionError};
 
 use crate::vm::types::{TupleData, Value};
 #[cfg(test)]
@@ -300,7 +300,10 @@ fn test_set_response_variable() {
     "#;
     let contract_src = contract_src.to_string();
     assert_eq!(
-        Err(EarlyReturnError::UnwrapFailed(Box::new(Value::Int(5))).into()),
+        Err(
+            ClarityEvalError::Vm(EarlyReturnError::UnwrapFailed(Box::new(Value::Int(5))).into())
+                .into()
+        ),
         execute(&contract_src)
     );
 }
@@ -499,7 +502,9 @@ fn lists_system_2() {
 
     matches!(
         execute(test),
-        Err(VmExecutionError::Unchecked(CheckErrorKind::TypeError(_, _)))
+        Err(ClarityEvalError::Vm(VmExecutionError::Unchecked(
+            CheckErrorKind::TypeError(_, _)
+        )))
     );
 }
 
@@ -564,9 +569,8 @@ fn lists_system() {
         println!("{test:#?}");
         assert!(matches!(
             test,
-            Err(VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(
-                _,
-                _
+            Err(ClarityEvalError::Vm(VmExecutionError::Unchecked(
+                CheckErrorKind::TypeValueError(_, _)
             )))
         ));
     }
@@ -630,7 +634,9 @@ fn tuples_system() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))) => true,
+            Err(ClarityEvalError::Vm(VmExecutionError::Unchecked(
+                CheckErrorKind::TypeValueError(_, _),
+            ))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -650,7 +656,7 @@ fn bad_define_maps() {
         "(define-map lists { name: int } contents 5)",
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
-    let expected: Vec<VmExecutionError> = vec![
+    let expected: Vec<ClarityEvalError> = vec![
         CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0)).into(),
         CheckErrorKind::UnknownTypeName("contents".to_string()).into(),
         CheckErrorKind::ExpectedName.into(),
@@ -776,7 +782,9 @@ fn test_non_tuple_map_get_set() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))) => true,
+            Err(ClarityEvalError::Vm(VmExecutionError::Unchecked(
+                CheckErrorKind::TypeValueError(_, _),
+            ))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false

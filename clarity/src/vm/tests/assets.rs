@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,6 +13,8 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#[cfg(test)]
+use clarity_types::errors::ast::ClarityEvalError;
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
@@ -835,7 +837,10 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))
+        ClarityEvalError::Vm(VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(
+            _,
+            _
+        )))
     ));
 
     let err = owned_env
@@ -843,7 +848,10 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))
+        ClarityEvalError::Vm(VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(
+            _,
+            _
+        )))
     ));
 
     owned_env

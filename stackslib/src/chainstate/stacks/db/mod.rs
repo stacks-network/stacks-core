@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
+use clarity::vm::ast::errors::ClarityEvalError;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
@@ -2051,6 +2052,7 @@ impl StacksChainState {
                     //  can be executed. any transformation is rolled back.
                     false,
                 )
+                .map_err(ClarityEvalError::from)
             },
         )?;
 

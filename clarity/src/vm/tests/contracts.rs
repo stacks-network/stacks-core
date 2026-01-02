@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(test)]
+use clarity_types::errors::ast::ClarityEvalError;
 #[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
 #[cfg(test)]
@@ -996,11 +998,11 @@ fn test_at_unknown_block(
         .unwrap_err();
     eprintln!("{err}");
     match err {
-        VmExecutionError::Runtime(x, _) => assert_eq!(
+        ClarityEvalError::Vm(VmExecutionError::Runtime(x, _)) => assert_eq!(
             x,
             RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(vec![2_u8; 32].as_slice()))
         ),
-        _ => panic!("Unexpected error"),
+        e => panic!("Unexpected error: {e}"),
     }
 }
 
@@ -1036,10 +1038,7 @@ fn test_ast_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        RuntimeError::ASTError(Box::new(
-            ParseErrorKind::VaryExpressionStackDepthTooDeep.into(),
-        ))
-        .into()
+        ClarityEvalError::Parse(ParseErrorKind::VaryExpressionStackDepthTooDeep.into()).into()
     );
 }
 
@@ -1170,6 +1169,7 @@ fn test_eval_with_non_existing_contract(
                 .unwrap()
                 .to_string()
         ))
+        .into()
     );
     drop(env);
     owned_env.commit().unwrap();

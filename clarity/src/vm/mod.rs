@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -53,6 +53,8 @@ pub mod clarity;
 
 use std::collections::BTreeMap;
 
+#[cfg(any(test, feature = "testing"))]
+use clarity_types::errors::ast::ClarityEvalError;
 pub use clarity_types::MAX_CALL_STACK_DEPTH;
 use costs::CostErrors;
 use stacks_common::types::StacksEpochId;
@@ -502,7 +504,7 @@ pub fn eval_all(
 pub fn execute_on_network(
     program: &str,
     use_mainnet: bool,
-) -> Result<Option<Value>, VmExecutionError> {
+) -> Result<Option<Value>, ClarityEvalError> {
     let epoch_200_result = execute_with_parameters(
         program,
         ClarityVersion::Clarity2,
@@ -534,7 +536,7 @@ pub fn execute_with_parameters_and_call_in_global_context<F, G>(
     sender: clarity_types::types::StandardPrincipalData,
     mut before_function: F,
     mut after_function: G,
-) -> Result<Option<Value>, VmExecutionError>
+) -> Result<Option<Value>, ClarityEvalError>
 where
     F: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
     G: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
@@ -555,14 +557,24 @@ where
         LimitedCostTracker::new_free(),
         epoch,
     );
-    global_context.execute(|g| {
-        before_function(g)?;
-        let parsed =
-            ast::build_ast(&contract_id, program, &mut (), clarity_version, epoch)?.expressions;
-        let res = eval_all(&parsed, &mut contract_context, g, None);
-        after_function(g)?;
-        res
-    })
+
+    let parsed = ast::build_ast(
+        &contract_id,
+        program,
+        &mut global_context.cost_track,
+        clarity_version,
+        epoch,
+    )?
+    .expressions;
+
+    global_context
+        .execute(|g| {
+            before_function(g)?;
+            let res = eval_all(&parsed, &mut contract_context, g, None);
+            after_function(g)?;
+            res
+        })
+        .map_err(ClarityEvalError::from)
 }
 
 #[cfg(any(test, feature = "testing"))]
@@ -571,7 +583,7 @@ pub fn execute_with_parameters(
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
     use_mainnet: bool,
-) -> Result<Option<Value>, VmExecutionError> {
+) -> Result<Option<Value>, ClarityEvalError> {
     execute_with_parameters_and_call_in_global_context(
         program,
         clarity_version,
@@ -588,13 +600,13 @@ pub fn execute_with_parameters(
 pub fn execute_against_version(
     program: &str,
     version: ClarityVersion,
-) -> Result<Option<Value>, VmExecutionError> {
+) -> Result<Option<Value>, ClarityEvalError> {
     execute_with_parameters(program, version, StacksEpochId::Epoch20, false)
 }
 
 /// Execute for test in Clarity1, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute(program: &str) -> Result<Option<Value>, VmExecutionError> {
+pub fn execute(program: &str) -> Result<Option<Value>, ClarityEvalError> {
     execute_with_parameters(
         program,
         ClarityVersion::Clarity1,
@@ -608,7 +620,7 @@ pub fn execute(program: &str) -> Result<Option<Value>, VmExecutionError> {
 pub fn execute_with_limited_execution_time(
     program: &str,
     max_execution_time: std::time::Duration,
-) -> Result<Option<Value>, VmExecutionError> {
+) -> Result<Option<Value>, ClarityEvalError> {
     execute_with_parameters_and_call_in_global_context(
         program,
         ClarityVersion::Clarity1,
@@ -625,7 +637,7 @@ pub fn execute_with_limited_execution_time(
 
 /// Execute for test in Clarity2, Epoch21, testnet.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_v2(program: &str) -> Result<Option<Value>, VmExecutionError> {
+pub fn execute_v2(program: &str) -> Result<Option<Value>, ClarityEvalError> {
     execute_with_parameters(
         program,
         ClarityVersion::Clarity2,

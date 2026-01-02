@@ -86,7 +86,7 @@ fn variant_coverage_report(variant: ParseErrorKind) {
         ExpectedWhitespace => Tested(vec![test_expected_white_space]),
         FailedParsingUIntValue(_) => Tested(vec![test_failed_parsing_uint_value]),
         IllegalTraitName(_) => Unreachable_Functionally("prevented by Lexer checks returning `Lexer` variant"),
-        InvalidPrincipalLiteral => Tested(vec![test_invalid_principal_literal]),
+        InvalidPrincipalLiteral => Tested(vec![test_invalid_principal_literal, principal_wrong_byte_length]),
         InvalidBuffer => Unreachable_Functionally("prevented by both Lexer checks, and StacksTransaction::consensus_serialize with MAX_TRANSACTION_LEN (panic)"),
         NameTooLong(_) => Tested(vec![test_name_too_long]),
         UnexpectedToken(_) => Tested(vec![test_unexpected_token]),
@@ -455,12 +455,24 @@ fn test_name_too_long() {
 /// ParserError: [`ParseErrorKind::InvalidPrincipalLiteral`]
 /// Caused by: valid principal chars but wrong format (due to the starting "AAA")
 /// Outcome: block accepted
-/// Note: gets converted from [`clarity::vm::errors::RuntimeError::TypeParseFailure`]
 #[test]
 pub fn test_invalid_principal_literal() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: "(define-constant my-principal 'AAAST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA)",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::InvalidPrincipalLiteral`]
+/// Caused by: invalid standard principal literal (wrong byte length)
+/// Outcome: block accepted.
+#[test]
+pub fn principal_wrong_byte_length() {
+    contract_deploy_consensus_test!(
+        contract_name: "wrong-byte-length",
+        contract_code: "
+;; This literal decodes via c32 but has the wrong byte length
+(define-constant my-principal 'S162RK3CHJPCSSK6BM757FW)",
     );
 }
 

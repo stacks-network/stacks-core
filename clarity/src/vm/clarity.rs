@@ -1,5 +1,21 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
 
+use clarity_types::errors::ClarityEvalError;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{
@@ -96,6 +112,15 @@ impl From<StaticCheckError> for ClarityError {
     }
 }
 
+impl From<ClarityEvalError> for ClarityError {
+    fn from(e: ClarityEvalError) -> Self {
+        match e {
+            ClarityEvalError::Parse(err) => ClarityError::Parse(err),
+            ClarityEvalError::Vm(err) => ClarityError::Interpreter(err),
+        }
+    }
+}
+
 /// Converts [`VmExecutionError`] to [`ClarityError`] for transaction execution contexts.
 ///
 /// This conversion is used in:
@@ -180,9 +205,9 @@ pub trait ClarityConnection {
         sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
         to_do: F,
-    ) -> Result<R, VmExecutionError>
+    ) -> Result<R, ClarityEvalError>
     where
-        F: FnOnce(&mut Environment) -> Result<R, VmExecutionError>,
+        F: FnOnce(&mut Environment) -> Result<R, ClarityEvalError>,
     {
         let epoch_id = self.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);

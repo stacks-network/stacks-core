@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,9 +21,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::contexts::ClarityEvalError;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
 use lazy_static::lazy_static;
@@ -4832,7 +4832,7 @@ fn get_total_stacked_info(
     parent_tip: &StacksBlockId,
     reward_cycle: u64,
     is_pox_2: bool,
-) -> Result<u128, VmExecutionError> {
+) -> Result<u128, ClarityEvalError> {
     chainstate
         .with_read_only_clarity_tx(burn_dbconn, parent_tip, |conn| {
             conn.with_readonly_clarity_env(

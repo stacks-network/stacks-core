@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,6 +16,7 @@
 use std::time::Duration;
 
 use clarity::vm::analysis::CheckErrorKind;
+use clarity::vm::ast::errors::ClarityEvalError;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
@@ -246,6 +247,7 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                                     &args,
                                     false,
                                 )
+                                .map_err(ClarityEvalError::from)
                             },
                         )
                     },
@@ -266,16 +268,15 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                 }
             }
             Ok(Some(Err(e))) => match e {
-                Unchecked(CheckErrorKind::CostBalanceExceeded(actual_cost, _))
-                    if actual_cost.write_count > 0 =>
-                {
-                    CallReadOnlyResponse {
-                        okay: false,
-                        result: None,
-                        cause: Some("NotReadOnly".to_string()),
-                    }
-                }
-                Unchecked(CheckErrorKind::ExecutionTimeExpired) => {
+                ClarityEvalError::Vm(Unchecked(CheckErrorKind::CostBalanceExceeded(
+                    actual_cost,
+                    _,
+                ))) if actual_cost.write_count > 0 => CallReadOnlyResponse {
+                    okay: false,
+                    result: None,
+                    cause: Some("NotReadOnly".to_string()),
+                },
+                ClarityEvalError::Vm(Unchecked(CheckErrorKind::ExecutionTimeExpired)) => {
                     return StacksHttpResponse::new_error(
                         &preamble,
                         &HttpRequestTimeout::new("ExecutionTime expired".to_string()),

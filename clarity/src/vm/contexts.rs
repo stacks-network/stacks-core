@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,6 +19,8 @@ use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
+use clarity_types::errors::{ParseError, ParseErrorKind};
+pub use clarity_types::errors::ast::ClarityEvalError;
 pub use clarity_types::errors::StackTrace;
 use clarity_types::representations::ClarityName;
 use clarity_types::VmExecutionError;
@@ -722,7 +724,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -737,7 +739,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         version: ClarityVersion,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -831,7 +833,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     pub fn eval_raw(
         &mut self,
         program: &str,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
             None,
@@ -844,7 +846,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         program: &str,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
             None,
@@ -1014,30 +1016,25 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
-    ) -> Result<Value, VmExecutionError> {
-        let clarity_version = self.contract_context.clarity_version;
-
+    ) -> Result<Value, ClarityEvalError> {
         let parsed = ast::build_ast(
             contract_identifier,
             program,
             self,
-            clarity_version,
+            self.contract_context.clarity_version,
             self.global_context.epoch_id,
         )?
         .expressions;
 
         if parsed.is_empty() {
-            // `TypeParseFailure` is **unreachable** in standard Clarity VM execution.
+            // This is **unreachable** in standard Clarity VM execution.
             // - `eval_read_only` parses a raw program string into an AST.
             // - Any empty or invalid program would be rejected at publish/deploy time or earlier parsing stages.
-            // - Therefore, `parsed.is_empty()` cannot occur for programs originating from a valid contract
+            // - Therefore, `ast.is_empty()` cannot occur for programs originating from a valid contract
             // or transaction.
             // - Only malformed input fed directly to this internal method (e.g., in unit tests or
             // artificial VM invocations) can trigger this error.
-            return Err(RuntimeError::TypeParseFailure(
-                "Expected a program of at least length 1".to_string(),
-            )
-            .into());
+            return Err(ParseError::from(ParseErrorKind::UnexpectedParserFailure).into());
         }
 
         self.global_context.begin();
@@ -1062,14 +1059,15 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             );
             let local_context = LocalContext::new();
             eval(&parsed[0], &mut nested_env, &local_context)
-        };
+        }
+        .map_err(ClarityEvalError::from);
 
         self.global_context.roll_back()?;
 
         result
     }
 
-    pub fn eval_raw(&mut self, program: &str) -> Result<Value, VmExecutionError> {
+    pub fn eval_raw(&mut self, program: &str) -> Result<Value, ClarityEvalError> {
         let contract_id = QualifiedContractIdentifier::transient();
         let clarity_version = self.contract_context.clarity_version;
 
@@ -1083,19 +1081,16 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         .expressions;
 
         if parsed.is_empty() {
-            // `TypeParseFailure` is **unreachable** in standard Clarity VM execution.
+            // This is **unreachable** in standard Clarity VM execution.
             // - `eval_raw` parses a raw program string into an AST.
             // - All programs deployed or called via the standard VM go through static parsing and validation first.
             // - Any empty or invalid program would be rejected at publish/deploy time or earlier parsing stages.
             // - Therefore, `parsed.is_empty()` cannot occur for a program that originates from a valid Clarity contract or transaction.
             // Only malformed input directly fed to this internal method (e.g., in unit tests) can trigger this error.
-            return Err(RuntimeError::TypeParseFailure(
-                "Expected a program of at least length 1".to_string(),
-            )
-            .into());
+            return Err(ParseError::from(ParseErrorKind::UnexpectedParserFailure).into());
         }
         let local_context = LocalContext::new();
-        eval(&parsed[0], self, &local_context)
+        eval(&parsed[0], self, &local_context).map_err(ClarityEvalError::from)
     }
 
     /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
@@ -1303,7 +1298,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
-    ) -> Result<(), VmExecutionError> {
+    ) -> Result<(), ClarityEvalError> {
         let clarity_version = self.contract_context.clarity_version;
 
         let contract_ast = ast::build_ast(
@@ -1319,6 +1314,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             &contract_ast,
             contract_content,
         )
+        .map_err(ClarityEvalError::from)
     }
 
     pub fn initialize_contract_from_ast(
@@ -1753,7 +1749,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         f: F,
     ) -> std::result::Result<A, E>
     where
-        E: From<VmExecutionError>,
+        E: From<ClarityEvalError>,
         F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
     {
         self.begin();
@@ -1772,7 +1768,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             );
             f(&mut exec_env)
         };
-        self.roll_back()?;
+        self.roll_back().map_err(ClarityEvalError::from)?;
 
         match result {
             Ok(return_value) => Ok(return_value),
@@ -2419,11 +2415,12 @@ mod test {
         // Call eval_read_only with an empty program
         let program = ""; // empty program triggers parsed.is_empty()
         let err = env.eval_raw(program).unwrap_err();
-
+        let expected_err =  ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
         assert!(
             matches!(
             err,
-            VmExecutionError::Runtime(RuntimeError::TypeParseFailure(msg), _) if msg.contains("Expected a program of at least length 1")),
+            expected_err
+            ),
             "Expected a type parse failure"
         );
     }
@@ -2440,11 +2437,12 @@ mod test {
         // Call eval_read_only with an empty program
         let program = ""; // empty program triggers parsed.is_empty()
         let err = env.eval_read_only(&contract_id, program).unwrap_err();
-
+        let expected_err =  ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
         assert!(
             matches!(
             err,
-            VmExecutionError::Runtime(RuntimeError::TypeParseFailure(msg), _) if msg.contains("Expected a program of at least length 1")),
+            expected_err
+            ),
             "Expected a type parse failure"
         );
     }
