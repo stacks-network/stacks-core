@@ -12,7 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use crate::errors::analysis::CommonCheckErrorKind;
 use crate::representations::CONTRACT_MAX_NAME_LENGTH;
@@ -370,7 +370,7 @@ fn test_least_supertype() {
         }),
     ];
     let list_union2 = ListUnionType(callables2.clone().into());
-    let list_union_merged = ListUnionType(HashSet::from_iter(
+    let list_union_merged = ListUnionType(BTreeSet::from_iter(
         [callables, callables2].concat().iter().cloned(),
     ));
     let callable_principals = [
