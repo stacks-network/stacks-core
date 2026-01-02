@@ -1688,7 +1688,7 @@ pub fn wait_for_state_machine_update(
             // We only need one update to match our conditions
             found_updates.insert(address.clone());
         }
-        Ok(found_updates.len() >= signer_addresses.len() * 7 / 10)
+        Ok(found_updates.len() > signer_addresses.len() * 7 / 10)
     })
 }
 
@@ -1754,7 +1754,7 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
                 (_, _) => continue,
             };
         }
-        Ok(found_updates.len() >= signer_addresses.len() * 7 / 10)
+        Ok(found_updates.len() > signer_addresses.len() * 7 / 10)
     })
 }
 
