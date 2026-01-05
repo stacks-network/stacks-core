@@ -1124,16 +1124,6 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         &self.global_context.epoch_id
     }
 
-    pub fn execute_contract_with_events(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        tx_name: &str,
-        args: &[SymbolicExpression],
-        read_only: bool,
-    ) -> Result<(Value, Vec<StacksTransactionEvent>), VmExecutionError> {
-        self.inner_execute_contract(contract, tx_name, args, read_only, false)
-    }
-
     pub fn execute_contract(
         &mut self,
         contract: &QualifiedContractIdentifier,
@@ -1142,7 +1132,6 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         read_only: bool,
     ) -> Result<Value, VmExecutionError> {
         self.inner_execute_contract(contract, tx_name, args, read_only, false)
-            .map(|(value, _)| value)
     }
 
     /// This method is exposed for callers that need to invoke a private method directly.
@@ -1156,7 +1145,6 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         read_only: bool,
     ) -> Result<Value, VmExecutionError> {
         self.inner_execute_contract(contract, tx_name, args, read_only, true)
-            .map(|(value, _)| value)
     }
 
     /// This method handles actual execution of contract-calls on a contract.
@@ -1172,7 +1160,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         args: &[SymbolicExpression],
         read_only: bool,
         allow_private: bool,
-    ) -> Result<(Value, Vec<StacksTransactionEvent>), VmExecutionError> {
+    ) -> Result<Value, VmExecutionError> {
         let contract_size = self
             .global_context
             .database
@@ -1220,11 +1208,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 return Err(CheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-            let res = self.execute_function_as_transaction_and_events(&func, &args, Some(&contract.contract_context), allow_private);
+            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), allow_private);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
-                Ok((value, events)) => {
+                Ok(value) => {
                     if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
                         handler(
                             self.global_context,
@@ -1236,7 +1224,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                             &value
                         )?;
                     }
-                    Ok((value, events))
+                    Ok(value)
                 },
                 Err(e) => Err(e)
             }
@@ -1250,23 +1238,6 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         next_contract_context: Option<&ContractContext>,
         allow_private: bool,
     ) -> Result<Value, VmExecutionError> {
-        let (value, _events) = self.execute_function_as_transaction_and_events(
-            function,
-            args,
-            next_contract_context,
-            allow_private,
-        )?;
-
-        Ok(value)
-    }
-
-    pub fn execute_function_as_transaction_and_events(
-        &mut self,
-        function: &DefinedFunction,
-        args: &[Value],
-        next_contract_context: Option<&ContractContext>,
-        allow_private: bool,
-    ) -> Result<(Value, Vec<StacksTransactionEvent>), VmExecutionError> {
         let make_read_only = function.is_read_only();
 
         if make_read_only {
@@ -1290,25 +1261,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             function.execute_apply(args, &mut nested_env)
         };
 
-        // retrieve all the events
-        let mut events = vec![];
-        self.global_context
-            .event_batches
-            .iter()
-            .for_each(|event_batch| {
-                events.extend(event_batch.events.clone());
-            });
-
-        let result = if make_read_only {
+        if make_read_only {
             self.global_context.roll_back()?;
             result
         } else {
             self.global_context.handle_tx_result(result, allow_private)
-        };
-
-        match result {
-            Ok(result) => Ok((result, events)),
-            Err(e) => Err(e),
         }
     }
 

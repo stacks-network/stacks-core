@@ -172,12 +172,13 @@ impl RPCCallReadOnlyRequestHandler {
                                 // can be called, and also circumvents limitations on `define-read-only`
                                 // functions that can not use `contrac-call?`, even when calling other
                                 // read-only functions
-                                env.execute_contract_with_events(
+                                let result = env.execute_contract(
                                     &contract_identifier,
                                     function.as_str(),
                                     &args,
                                     false,
-                                )
+                                );
+                                Ok((result.unwrap(), vec![]))
                             },
                         )
                     },
