@@ -16,13 +16,13 @@
 
 use std::cmp;
 
-use clarity_types::errors::VmInternalError;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrorKind, VmExecutionError,
+    VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::ListTypeData;
@@ -252,14 +252,19 @@ pub fn special_concat_v200(
         (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
             seq.concat(env.epoch(), other_seq)?
         }
-        (Value::Sequence(ref mut seq_data), other_value) => {
-            return Err(CheckErrorKind::TypeValueError(
-                Box::new(seq_data.type_signature()?),
-                Box::new(other_value),
-            )
-            .into())
+        (Value::Sequence(_), other_value) => {
+            // The first value is a sequence, but the second is not
+            return Err(
+                CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&other_value)?))
+                    .into(),
+            );
         }
-        _ => return Err(CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::NoType)).into()),
+        (value, _) => {
+            // The first value is not a sequence (the other may not be as well, but just error on the first)
+            return Err(
+                CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&value)?)).into(),
+            );
+        }
     };
 
     Ok(wrapped_seq)

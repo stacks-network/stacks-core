@@ -1066,13 +1066,13 @@ impl From<ClarityTypeError> for CommonCheckErrorKind {
             | ClarityTypeError::QualifiedContractMissingDot
             | ClarityTypeError::InvalidPrincipalEncoding(_)
             | ClarityTypeError::InvalidPrincipalLength(_)
-            | ClarityTypeError::ResponseTypeMismatch { .. } => {
-                Self::ExpectsAcceptable(format!("Unexpected but acceptable error type during analysis: {err}"))
-            }
+            | ClarityTypeError::ResponseTypeMismatch { .. } => Self::ExpectsAcceptable(format!(
+                "Unexpected but acceptable error type during analysis: {err}"
+            )),
             ClarityTypeError::InvariantViolation(_)
-            | ClarityTypeError::InvalidPrincipalVersion(_) => {
-                Self::ExpectsRejectable(format!("Unexpected and unacceptable error type during analysis: {err}"))
-            }
+            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::ExpectsRejectable(format!(
+                "Unexpected and unacceptable error type during analysis: {err}"
+            )),
             ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
                 Self::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
             }
