@@ -748,6 +748,13 @@ impl BlockMinerThread {
                 }
                 Ok(None)
             }
+            Err(NakamotoNodeError::ParentNotFound) if self.config.node.mock_mining => {
+                info!(
+                    "Mock miner could not load parent tenure info yet. Will try again.";
+                );
+                thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
+                Ok(None)
+            }
             Err(e) => {
                 warn!("Failed to mine block: {e:?}");
 
