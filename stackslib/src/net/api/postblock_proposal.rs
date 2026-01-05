@@ -193,6 +193,9 @@ impl BlockValidateResponse {
 #[cfg(any(test, feature = "testing"))]
 fn fault_injection_validation_delay() {
     let delay = TEST_VALIDATE_DELAY_DURATION_SECS.get();
+    if delay == 0 {
+        return;
+    }
     warn!("Sleeping for {} seconds to simulate slow processing", delay);
     thread::sleep(Duration::from_secs(delay));
 }
