@@ -38,7 +38,6 @@ pub use self::signatures::{
     TupleTypeSignature, TypeSignature,
 };
 use crate::VmExecutionError;
-use crate::diagnostic::DiagnosableError;
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 
 /// Maximum size in bytes allowed for types.

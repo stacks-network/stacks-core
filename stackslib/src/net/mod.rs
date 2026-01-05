@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::{error, fmt, io};
 
-use clarity::vm::errors::{ClarityTypeError, StaticCheckError, VmExecutionError};
+use clarity::vm::errors::{ClarityTypeError, VmExecutionError};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::{Error as libstackerdb_error, StackerDBChunkData};
 use p2p::{DropReason, DropSource};
@@ -204,6 +204,8 @@ pub enum Error {
     MARFError(marf_error),
     /// Clarity VM error, percolated up from chainstate
     ClarityError(ClarityError),
+    /// Clarity type manipulation error that occurred outside of VM execution
+    ClarityTypeError(ClarityTypeError),
     /// Catch-all for chainstate errors that don't map cleanly into network errors
     ChainstateError(String),
     /// Coordinator hung up
@@ -347,6 +349,7 @@ impl fmt::Display for Error {
             Error::LookupError(ref s) => fmt::Display::fmt(s, f),
             Error::ChainstateError(ref s) => fmt::Display::fmt(s, f),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
+            Error::ClarityTypeError(ref e) => fmt::Display::fmt(e, f),
             Error::MARFError(ref e) => fmt::Display::fmt(e, f),
             Error::CoordinatorClosed => write!(f, "Coordinator hung up"),
             Error::StaleView => write!(f, "State view is stale"),
@@ -457,6 +460,7 @@ impl error::Error for Error {
             Error::LookupError(ref _s) => None,
             Error::ChainstateError(ref _s) => None,
             Error::ClarityError(ref e) => Some(e),
+            Error::ClarityTypeError(ref e) => Some(e),
             Error::MARFError(ref e) => Some(e),
             Error::CoordinatorClosed => None,
             Error::StaleView => None,
@@ -533,12 +537,9 @@ impl From<ClarityError> for Error {
     }
 }
 
-/// TODO: remove this comment. Should this actually convert to a static check
-/// or is it possible for this to be a runtime error...I don't think so because
-/// if its a runtime issue, it would be really hitting VmExecutionError already
 impl From<ClarityTypeError> for Error {
     fn from(e: ClarityTypeError) -> Self {
-        Error::ClarityError(ClarityError::StaticCheck(StaticCheckError::from(e)))
+        Error::ClarityTypeError(e)
     }
 }
 
