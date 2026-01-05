@@ -260,9 +260,9 @@ impl From<ClarityTypeError> for VmExecutionError {
             ClarityTypeError::InvariantViolation(s) => {
                 VmExecutionError::Internal(VmInternalError::Expect(s))
             }
-            ClarityTypeError::InvalidPrincipalVersion(_) => {
-                VmExecutionError::Internal(VmInternalError::Expect("Unexpected principal data".into()))
-            }
+            ClarityTypeError::InvalidPrincipalVersion(_) => VmExecutionError::Internal(
+                VmInternalError::Expect("Unexpected principal data".into()),
+            ),
             other_err => VmExecutionError::from(CheckErrorKind::from(other_err)),
         }
     }

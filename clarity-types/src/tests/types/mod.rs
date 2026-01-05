@@ -343,9 +343,7 @@ fn test_clarity_type_error_invalid_principal_version_to_vm_internal_error_expect
     let vm_err: VmExecutionError = err.into();
     assert_eq!(
         vm_err,
-        VmExecutionError::Internal(VmInternalError::Expect(
-            "Unexpected principal data".into()
-        ))
+        VmExecutionError::Internal(VmInternalError::Expect("Unexpected principal data".into()))
     );
 }
 
