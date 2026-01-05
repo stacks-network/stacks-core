@@ -860,7 +860,11 @@ impl SequencedValue<u8> for BuffData {
     }
 
     fn type_signature(&self) -> Result<TypeSignature, ClarityTypeError> {
-        let buff_length = BufferLength::try_from(self.data.len())?;
+        let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: too large of a buffer successfully constructed.".into(),
+            )
+        })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::BufferType(
             buff_length,
         )))
@@ -881,14 +885,22 @@ impl SequencedValue<u8> for ASCIIData {
     }
 
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
-        let buff_length = BufferLength::try_from(self.data.len())?;
+        let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: too large of a buffer successfully constructed.".into(),
+            )
+        })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::ASCII(buff_length),
         )))
     }
 
     fn to_value(v: &u8) -> Result<Value, ClarityTypeError> {
-        Value::string_ascii_from_bytes(vec![*v])
+        Value::string_ascii_from_bytes(vec![*v]).map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: Invalid ASCII string successfully constructed.".into(),
+            )
+        })
     }
 }
 
@@ -902,14 +914,22 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
     }
 
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
-        let str_len = StringUTF8Length::try_from(self.data.len())?;
+        let str_len = StringUTF8Length::try_from(self.data.len()).map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: Too large of a buffer successfully constructed.".into(),
+            )
+        })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::UTF8(str_len),
         )))
     }
 
     fn to_value(v: &Vec<u8>) -> Result<Value, ClarityTypeError> {
-        Value::string_utf8_from_bytes(v.clone())
+        Value::string_utf8_from_bytes(v.clone()).map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: Invalid UTF-8 string successfully constructed.".into(),
+            )
+        })
     }
 }
 
@@ -919,6 +939,11 @@ impl OptionalData {
             Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(v)?),
             None => TypeSignature::new_option(TypeSignature::NoType),
         }
+        .map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: Should not have constructed too large of a type.".into(),
+            )
+        })
     }
 }
 
@@ -934,6 +959,11 @@ impl ResponseData {
                 TypeSignature::type_of(&self.data)?,
             ),
         }
+        .map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: Should not have constructed too large of a type.".into(),
+            )
+        })
     }
 }
 
@@ -1039,11 +1069,7 @@ impl Value {
             let expected_item_type = expected_type.get_list_item_type();
 
             for item in &list_data {
-                let admits = expected_item_type
-                    .admits(epoch, item)
-                    .map_err(|_| ClarityTypeError::ListTypeMismatch)?;
-
-                if !admits {
+                if !expected_item_type.admits(epoch, item).unwrap_or(false) {
                     return Err(ClarityTypeError::ListTypeMismatch);
                 }
             }
@@ -1169,8 +1195,6 @@ impl Value {
     }
 
     pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value, ClarityTypeError> {
-        // This used to return InvalidCharactersDetected, but its more accurate to label
-        // this as InvalidUtf8Encoding
         let validated_utf8_str =
             str::from_utf8(&bytes).map_err(|_| ClarityTypeError::InvalidUtf8Encoding)?;
         let data = validated_utf8_str
@@ -1419,7 +1443,10 @@ impl Value {
 
 impl BuffData {
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data.len().try_into()
+        self.data
+            .len()
+            .try_into()
+            .map_err(|_| ClarityTypeError::InvariantViolation("Data length should be valid".into()))
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -1440,7 +1467,7 @@ impl ListData {
         self.data
             .len()
             .try_into()
-            .map_err(|_| ClarityTypeError::ValueTooLarge)
+            .map_err(|_| ClarityTypeError::InvariantViolation("Data length should be valid".into()))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1473,7 +1500,10 @@ impl ASCIIData {
     }
 
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data.len().try_into()
+        self.data
+            .len()
+            .try_into()
+            .map_err(|_| ClarityTypeError::InvariantViolation("Data length should be valid".into()))
     }
 }
 
@@ -1483,7 +1513,10 @@ impl UTF8Data {
     }
 
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data.len().try_into()
+        self.data
+            .len()
+            .try_into()
+            .map_err(|_| ClarityTypeError::InvariantViolation("Data length should be valid".into()))
     }
 }
 
@@ -1775,13 +1808,7 @@ impl TupleData {
             })?;
 
             // User provided a value that does not match the declared field type
-            let admits = expected_type.admits(epoch, &value).map_err(|_| {
-                ClarityTypeError::TypeMismatchValue(
-                    Box::new(expected_type.clone()),
-                    Box::new(value.clone()),
-                )
-            })?;
-            if !admits {
+            if !expected_type.admits(epoch, &value).unwrap_or(false) {
                 return Err(ClarityTypeError::TypeMismatchValue(
                     Box::new(expected_type.clone()),
                     Box::new(value),

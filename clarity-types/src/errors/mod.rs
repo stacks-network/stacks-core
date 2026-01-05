@@ -112,9 +112,6 @@ pub enum VmInternalError {
     /// A failure occurred within the MARF implementation.
     /// The `String` provides a message describing the specific failure.
     MarfFailure(String),
-    /// Failed to construct a tuple value from provided data because it did not
-    ///  match the expected type signature.
-    FailureConstructingTupleWithType,
     /// Failed to construct a list value from provided data because it
     /// did not match the expected type signature.
     FailureConstructingListWithType,
