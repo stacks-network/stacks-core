@@ -193,8 +193,6 @@ pub enum CommonCheckErrorKind {
     TypeSignatureTooDeep,
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
     ExpectedName,
-    /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
-    SupertypeTooLarge,
 
     // Unexpected interpreter behavior
     /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
@@ -203,11 +201,6 @@ pub enum CommonCheckErrorKind {
     /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
     /// This error does NOT indicate a transaction would invalidate a block if included.
     ExpectsAcceptable(String),
-
-    // Type mismatch errors
-    /// Expected type does not match the actual type during analysis.
-    /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
-    TypeError(Box<TypeSignature>, Box<TypeSignature>),
 
     /// Type description is invalid or malformed, preventing proper type-checking.
     InvalidTypeDescription,
@@ -1046,12 +1039,11 @@ impl From<ClarityTypeError> for CommonCheckErrorKind {
             ClarityTypeError::TypeSignatureTooDeep => Self::TypeSignatureTooDeep,
             ClarityTypeError::ValueOutOfBounds => Self::ValueOutOfBounds,
             ClarityTypeError::DuplicateTupleField(name) => Self::NameAlreadyUsed(name),
-            ClarityTypeError::TypeMismatch(expected, found) => Self::TypeError(expected, found),
             ClarityTypeError::EmptyTuplesNotAllowed => Self::EmptyTuplesNotAllowed,
-            ClarityTypeError::SupertypeTooLarge => Self::SupertypeTooLarge,
             ClarityTypeError::InvalidTypeDescription => Self::InvalidTypeDescription,
             ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
             ClarityTypeError::ListTypeMismatch
+            | ClarityTypeError::TypeMismatch(_, _)
             | ClarityTypeError::SequenceElementArityMismatch { .. }
             | ClarityTypeError::ExpectedSequenceValue
             | ClarityTypeError::InvalidAsciiCharacter(_)
@@ -1069,7 +1061,8 @@ impl From<ClarityTypeError> for CommonCheckErrorKind {
             | ClarityTypeError::ResponseTypeMismatch { .. } => Self::ExpectsAcceptable(format!(
                 "Unexpected but acceptable error type during analysis: {err}"
             )),
-            ClarityTypeError::InvariantViolation(_)
+            ClarityTypeError::SupertypeTooLarge
+            | ClarityTypeError::InvariantViolation(_)
             | ClarityTypeError::InvalidPrincipalVersion(_) => Self::ExpectsRejectable(format!(
                 "Unexpected and unacceptable error type during analysis: {err}"
             )),
@@ -1262,8 +1255,6 @@ impl From<CommonCheckErrorKind> for CheckErrorKind {
                 CheckErrorKind::DefineTraitBadSignature
             }
             CommonCheckErrorKind::InvalidTypeDescription => CheckErrorKind::InvalidTypeDescription,
-            CommonCheckErrorKind::SupertypeTooLarge => CheckErrorKind::SupertypeTooLarge,
-            CommonCheckErrorKind::TypeError(a, b) => CheckErrorKind::TypeError(a, b),
             CommonCheckErrorKind::BadSyntaxBinding(e) => CheckErrorKind::BadSyntaxBinding(e),
             CommonCheckErrorKind::ValueOutOfBounds => CheckErrorKind::ValueOutOfBounds,
             CommonCheckErrorKind::EmptyTuplesNotAllowed => CheckErrorKind::EmptyTuplesNotAllowed,
@@ -1333,8 +1324,6 @@ impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
             CommonCheckErrorKind::InvalidTypeDescription => {
                 StaticCheckErrorKind::InvalidTypeDescription
             }
-            CommonCheckErrorKind::SupertypeTooLarge => StaticCheckErrorKind::SupertypeTooLarge,
-            CommonCheckErrorKind::TypeError(a, b) => StaticCheckErrorKind::TypeError(a, b),
             CommonCheckErrorKind::BadSyntaxBinding(e) => StaticCheckErrorKind::BadSyntaxBinding(e),
             CommonCheckErrorKind::ValueOutOfBounds => StaticCheckErrorKind::ValueOutOfBounds,
             CommonCheckErrorKind::EmptyTuplesNotAllowed => {
