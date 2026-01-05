@@ -448,7 +448,7 @@ pub fn special_slice(
                 // seq must be a sequence
                 if !matches!(seq, Value::Sequence(_)) {
                     return Err(CheckErrorKind::ExpectedSequence(Box::new(
-                        TypeSignature::NoType,
+                        TypeSignature::type_of(&seq)?,
                     )));
                 }
 
