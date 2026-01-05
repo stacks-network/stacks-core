@@ -262,7 +262,7 @@ pub fn special_concat_v200(
         (value, _) => {
             // The first value is not a sequence (the other may not be as well, but just error on the first)
             return Err(
-                CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&value)?)).into(),
+                CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(value)?)).into(),
             );
         }
     };
