@@ -415,8 +415,6 @@ fn test_principals() {
     test_bad_expectation(standard_p, TypeSignature::BoolType);
 }
 
-/// TODO: remove this comment: I have made it so that any serialize_to_vec that fails is mapped to an Expect.
-/// Not sure that is sufficient...
 #[test]
 fn test_serialize_to_vec_returns_serialization_failure() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
@@ -424,13 +422,13 @@ fn test_serialize_to_vec_returns_serialization_failure() {
     })));
     let err = value.serialize_to_vec().unwrap_err();
     assert_eq!(
-        SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
+        SerializationError::SerializationFailure(
+            ClarityTypeError::InvariantViolation("Data length should be valid".into()).to_string()
+        ),
         err
     );
 }
 
-/// TODO: remove this comment: I have made it so that any serialize_to_vec that fails is mapped to an Expect.
-/// Not sure that is sufficient...
 #[test]
 fn test_serialize_to_hex_returns_serialization_failure() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
@@ -438,7 +436,9 @@ fn test_serialize_to_hex_returns_serialization_failure() {
     })));
     let err = value.serialize_to_hex().unwrap_err();
     assert_eq!(
-        SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
+        SerializationError::SerializationFailure(
+            ClarityTypeError::InvariantViolation("Data length should be valid".into()).to_string()
+        ),
         err
     );
 }

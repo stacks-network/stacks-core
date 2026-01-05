@@ -256,7 +256,15 @@ impl error::Error for RuntimeError {
 
 impl From<ClarityTypeError> for VmExecutionError {
     fn from(err: ClarityTypeError) -> Self {
-        Self::from(CheckErrorKind::from(err))
+        match err {
+            ClarityTypeError::InvariantViolation(s) => {
+                VmExecutionError::Internal(VmInternalError::Expect(s))
+            }
+            ClarityTypeError::InvalidPrincipalVersion(_) => {
+                VmExecutionError::Internal(VmInternalError::Expect("Unexpected principal data".into()))
+            }
+            other_err => VmExecutionError::from(CheckErrorKind::from(other_err)),
+        }
     }
 }
 
