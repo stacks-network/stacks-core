@@ -333,47 +333,32 @@ fn test_trait_identifier_parse_fully_qualified_returns_clarity_type_error(
         TraitIdentifier::parse_fully_qualified(input).expect_err("Unexpected trait identifier");
     assert_eq!(expected_err, err);
 }
-
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block
-/// The returned ClarityTypeError::InvalidPrincipalVersion is consensus-critical.
 #[test]
-fn test_standard_principal_data_new_returns_clarity_type_error_invalid_principal_version_error_consensus_critical()
- {
+fn test_clarity_type_error_invalid_principal_version_to_vm_internal_error_expect() {
     let result = StandardPrincipalData::new(32, [0; 20]);
     let err = result.expect_err("Unexpected valid principal data");
-
-    assert_eq!(ClarityTypeError::InvalidPrincipalVersion(32), err,);
+    assert_eq!(ClarityTypeError::InvalidPrincipalVersion(32), err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block? Currently all calls to elemant_at are converted to an VmInternal::Expects
 #[test]
-fn test_sequence_data_element_at_returns_clarity_type_error_consensus_critical() {
+fn test_sequence_data_element_at_returns_clarity_type_error() {
     let buff = SequenceData::String(CharType::ASCII(ASCIIData { data: vec![1] }));
     let err = buff.element_at(0).unwrap_err();
     assert_eq!(ClarityTypeError::InvalidAsciiCharacter(1), err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block
 #[test]
 fn test_ascii_data_to_value_returns_clarity_type_error() {
     let err = ASCIIData::to_value(&1).unwrap_err();
     assert_eq!(ClarityTypeError::InvalidAsciiCharacter(1), err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block
 #[test]
-fn test_utf8_data_to_value_returns_clarity_types_error_invalid_utf8_encoding_consensus_critical() {
+fn test_utf8_data_to_value_returns_clarity_types_error_invalid_utf8_encoding() {
     let err = UTF8Data::to_value(&vec![0xED, 0xA0, 0x80]).unwrap_err();
     assert_eq!(ClarityTypeError::InvalidUtf8Encoding, err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block? Currently even without my own changes, calls to from_data_typed are already
-// immediately remapped
 #[test]
 fn test_tuple_data_from_data_typed_returns_clarity_type_error() {
     let tuple_type =
@@ -410,8 +395,6 @@ fn test_value_expect_ascii_returns_clarity_type_error(
     assert_eq!(expected_err, err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block? I think its up to the caller to determine if its consensus critical issue
 #[test]
 fn test_value_expect_u128_returns_clarity_type_error() {
     let err = Value::none().expect_u128().unwrap_err();
@@ -505,8 +488,6 @@ fn test_value_expect_bool_returns_clarity_type_error() {
     );
 }
 
-/// TODO: remove this comment. Is this really consensus critical?
-/// I think its up to the caller to determine if its consensus critical issue
 #[test]
 fn test_value_expect_optional_returns_clarity_type_error() {
     let err = Value::okay_true().expect_optional().unwrap_err();
@@ -519,8 +500,6 @@ fn test_value_expect_optional_returns_clarity_type_error() {
     );
 }
 
-/// TODO: remove this comment. Is this really consensus critical?
-/// I think its up to the caller to determine if its consensus critical issue
 #[test]
 fn test_value_expect_principal_returns_clarity_type_error() {
     let err = Value::none().expect_principal().unwrap_err();
@@ -533,8 +512,6 @@ fn test_value_expect_principal_returns_clarity_type_error() {
     );
 }
 
-/// TODO: remove this comment. Is this really consensus critical?
-/// I think its up to the caller to determine if its consensus critical issue
 #[test]
 fn test_value_expect_callable_returns_clarity_type_error() {
     let err = Value::none().expect_callable().unwrap_err();
@@ -586,8 +563,6 @@ fn test_value_expect_result_err_returns_clarity_type_error(
     assert_eq!(expected_err, err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block
 #[test]
 fn test_buff_data_len_returns_clarity_type_error() {
     let err = BuffData {

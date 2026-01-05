@@ -1419,10 +1419,7 @@ impl Value {
 
 impl BuffData {
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data
-            .len()
-            .try_into()
-            .map_err(|_| ClarityTypeError::ValueTooLarge)
+        self.data.len().try_into()
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -1476,10 +1473,7 @@ impl ASCIIData {
     }
 
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data
-            .len()
-            .try_into()
-            .map_err(|_| ClarityTypeError::ValueTooLarge)
+        self.data.len().try_into()
     }
 }
 
@@ -1489,10 +1483,7 @@ impl UTF8Data {
     }
 
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data
-            .len()
-            .try_into()
-            .map_err(|_| ClarityTypeError::ValueTooLarge)
+        self.data.len().try_into()
     }
 }
 

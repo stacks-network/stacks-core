@@ -51,7 +51,9 @@ pub fn buff_to_int_generic(
 ) -> Result<Value, VmExecutionError> {
     match value {
         Value::Sequence(SequenceData::Buffer(ref sequence_data)) => {
-            if sequence_data.len()?
+            if sequence_data
+                .len()
+                .map_err(|_| VmInternalError::Expect("Data length should be valid".into()))?
                 > BufferLength::try_from(16_u32)
                     .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?
             {

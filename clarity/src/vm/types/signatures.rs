@@ -407,7 +407,7 @@ impl TypeSignatureExt for TypeSignature {
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
         let functions_types = type_args
             .first()
-            .ok_or_else(|| CommonCheckErrorKind::InvalidTypeDescription)?
+            .ok_or(CommonCheckErrorKind::InvalidTypeDescription)?
             .match_list()
             .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
 
@@ -620,7 +620,7 @@ where
         .map(|(i, (name_symbol, type_symbol))| {
             let name = name_symbol
                 .match_atom()
-                .ok_or_else(|| {
+                .ok_or({
                     (
                         CommonCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::NotAtom(
                             binding_error_type,
