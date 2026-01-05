@@ -936,7 +936,7 @@ impl TypeSignature {
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)
-    pub fn factor_out_no_type(
+    pub(crate) fn factor_out_no_type(
         epoch: &StacksEpochId,
         a: &TypeSignature,
         b: &TypeSignature,
@@ -1007,7 +1007,7 @@ impl TypeSignature {
         }
     }
 
-    pub fn least_supertype_v2_0(
+    fn least_supertype_v2_0(
         a: &TypeSignature,
         b: &TypeSignature,
     ) -> Result<TypeSignature, ClarityTypeError> {
@@ -1116,7 +1116,7 @@ impl TypeSignature {
         }
     }
 
-    pub fn least_supertype_v2_1(
+    pub(crate) fn least_supertype_v2_1(
         a: &TypeSignature,
         b: &TypeSignature,
     ) -> Result<TypeSignature, ClarityTypeError> {
@@ -1366,8 +1366,12 @@ impl TypeSignature {
     }
 
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        self.inner_size()?
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)
+        self.inner_size()?.ok_or_else(|| {
+            ClarityTypeError::InvariantViolation(
+                "FAIL: .size() overflowed on too large of a type. Construction should have failed!"
+                    .into(),
+            )
+        })
     }
 
     fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
@@ -1485,8 +1489,9 @@ impl TupleTypeSignature {
     }
 
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        self.inner_size()?
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)
+        self.inner_size()?.ok_or_else(|| {
+            ClarityTypeError::InvariantViolation("size() overflowed on a constructed type.".into())
+        })
     }
 
     fn max_depth(&self) -> u8 {
