@@ -14,9 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::contexts::EventBatchHook;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::errors::VmExecutionError::Unchecked;
 use clarity::vm::events::StacksTransactionEvent;
@@ -79,6 +83,22 @@ pub struct RPCCallReadOnlyRequestHandler {
     pub arguments: Option<Vec<Value>>,
 }
 
+struct RPCCallReadOnlyEventsCollector {
+    events: Vec<StacksTransactionEvent>,
+}
+
+impl EventBatchHook for RPCCallReadOnlyEventsCollector {
+    fn on_push(&mut self, event: &StacksTransactionEvent) {
+        self.events.push(event.clone());
+    }
+}
+
+impl RPCCallReadOnlyEventsCollector {
+    fn new() -> Self {
+        RPCCallReadOnlyEventsCollector { events: vec![] }
+    }
+}
+
 impl RPCCallReadOnlyRequestHandler {
     pub fn new(maximum_call_argument_size: u32, read_only_call_limit: ExecutionCost) -> Self {
         Self {
@@ -128,6 +148,8 @@ impl RPCCallReadOnlyRequestHandler {
             .take()
             .ok_or(NetError::SendError("Missing `arguments`".into()))?;
 
+        let event_collector = Rc::new(RefCell::new(RPCCallReadOnlyEventsCollector::new()));
+
         // run the read-only call
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
@@ -166,19 +188,29 @@ impl RPCCallReadOnlyRequestHandler {
                             |env| {
                                 to_do(env);
 
+                                let event_collector_clone = Rc::clone(&event_collector);
+
+                                if let Some(ref mut event_batch_hooks) =
+                                    env.global_context.event_batch_hooks
+                                {
+                                    event_batch_hooks.push(event_collector_clone);
+                                } else {
+                                    env.global_context.event_batch_hooks =
+                                        Some(vec![event_collector_clone]);
+                                }
+
                                 // we want to execute any function as long as no actual writes are made as
                                 // opposed to be limited to purely calling `define-read-only` functions,
                                 // so use `read_only = false`.  This broadens the number of functions that
                                 // can be called, and also circumvents limitations on `define-read-only`
                                 // functions that can not use `contrac-call?`, even when calling other
                                 // read-only functions
-                                let result = env.execute_contract(
+                                env.execute_contract(
                                     &contract_identifier,
                                     function.as_str(),
                                     &args,
                                     false,
-                                );
-                                Ok((result.unwrap(), vec![]))
+                                )
                             },
                         )
                     },
@@ -187,13 +219,15 @@ impl RPCCallReadOnlyRequestHandler {
 
         // decode the response (and serialize the events)
         let data_resp = match data_resp {
-            Ok(Some(Ok((data, events)))) => {
+            Ok(Some(Ok(data))) => {
                 let hex_result = data
                     .serialize_to_hex()
                     .map_err(|e| NetError::SerializeError(format!("{:?}", &e)))?;
 
                 let events = {
-                    let events: Vec<CallReadOnlyEvent> = events
+                    let events: Vec<CallReadOnlyEvent> = event_collector
+                        .borrow()
+                        .events
                         .iter()
                         .filter_map(|event| match event {
                             StacksTransactionEvent::SmartContractEvent(event_data) => {
