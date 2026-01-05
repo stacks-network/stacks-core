@@ -19,6 +19,7 @@
 
 use std::collections::HashMap;
 
+use clarity::util::hash::Sha512Trunc256Sum;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::to_hex;
 
@@ -320,4 +321,35 @@ pub fn make_node4_path(
     leaf_data: Vec<u8>,
 ) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
     make_node_path(s, TrieNodeID::Node4 as u8, path_segments, leaf_data)
+}
+
+/// Generates deterministic test insert data as key–value pairs per block
+pub fn make_test_insert_data(
+    num_inserts_per_block: u64,
+    num_blocks: u64,
+) -> Vec<Vec<(String, MARFValue)>> {
+    let mut data = vec![0u8; 32];
+    let mut ret = vec![];
+
+    for blk in 0..num_blocks {
+        let mut block_data = vec![];
+        test_debug!("Make block {}", blk);
+        for val in 0..num_inserts_per_block {
+            let path_bytes = Sha512Trunc256Sum::from_data(&data).as_bytes().to_vec();
+            data.copy_from_slice(&path_bytes[0..32]);
+
+            let path = to_hex(&path_bytes);
+
+            let value_bytes = Sha512Trunc256Sum::from_data(&data).as_bytes().to_vec();
+            data.copy_from_slice(&value_bytes[0..32]);
+
+            let mut value_bytes_slice = [0u8; 40];
+            value_bytes_slice[0..32].copy_from_slice(&value_bytes);
+
+            let value = MARFValue(value_bytes_slice);
+            block_data.push((path, value));
+        }
+        ret.push(block_data);
+    }
+    ret
 }
