@@ -149,69 +149,6 @@ impl fmt::Display for ClarityTypeError {
     }
 }
 
-impl DiagnosableError for ClarityTypeError {
-    fn message(&self) -> String {
-        match &self {
-            // Size & Depth
-            Self::ValueTooLarge => "value exceeds maximum Clarity size".into(),
-            Self::TypeSignatureTooDeep => "type signature exceeds maximum nesting depth".into(),
-            // Encoding
-            Self::InvalidAsciiCharacter(b) => format!("invalid ASCII character byte: 0x{b:02x}"),
-            Self::InvalidUtf8Encoding => "invalid UTF-8 encoding".into(),
-            // List / Tuple / Type Construction
-            Self::ListTypeMismatch => "list elements do not match required type".into(),
-            Self::ValueOutOfBounds => "value index is out of bounds".into(),
-            Self::DuplicateTupleField(name) => format!("duplicate tuple field '{name}'"),
-            Self::NoSuchTupleField(field_name, tuple_signature) => {
-                format!("cannot find field '{field_name}' in tuple '{tuple_signature}'")
-            }
-            Self::TypeMismatchValue(expected_type, found_value) => {
-                format!("expecting expression of type '{expected_type}', found '{found_value}'")
-            }
-            Self::TypeMismatch(expected_type, found_type) => {
-                format!("expecting expression of type '{expected_type}', found '{found_type}'")
-            }
-            Self::ResponseTypeMismatch { expected_ok } => {
-                format!("expected ok response `{expected_ok}`")
-            }
-            Self::InvalidClarityName(value) => format!("invalid clarity name `{value}`"),
-            Self::InvalidContractName(value) => format!("invalid contract name `{value}`"),
-            Self::InvalidUrlString(value) => format!("invalid URL string `{value}`"),
-            Self::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
-            Self::SupertypeTooLarge => "supertype of two types is too large".into(),
-            Self::InvalidTypeDescription => "supplied type description is invalid".into(),
-            Self::SequenceElementArityMismatch { expected, found } => {
-                format!("sequence expected {expected} elements, but found {found} elements")
-            }
-            Self::ExpectedSequenceValue => "expected sequence value".into(),
-            // Principal
-            Self::InvalidPrincipalVersion(v) => format!("invalid principal version byte: {v}"),
-            Self::InvalidPrincipalLength(len) => {
-                format!("invalid principal byte length. Expected 20 bytes. Got: {len}")
-            }
-            Self::InvalidPrincipalEncoding(msg) => format!("invalid principal encoding: {msg}"),
-            Self::QualifiedContractMissingDot => {
-                "expected a `.` in a qualified contract name".into()
-            }
-            Self::QualifiedContractEmptyIssuer => "Expected an issuer, but found none".into(),
-            // Type resolution
-            Self::CouldNotDetermineSerializationType => {
-                "could not determine the input type for the serialization function".into()
-            }
-            Self::CouldNotDetermineType => "could not determine the input type".into(),
-            Self::UnsupportedTypeInEpoch(type_signature, epoch) => {
-                format!("{type_signature} is unsupported in {epoch}")
-            }
-            Self::UnsupportedEpoch(epoch) => format!("{epoch} is unsupported"),
-            Self::InvariantViolation(msg) => format!("Invariant violation: {msg}"),
-        }
-    }
-
-    fn suggestion(&self) -> Option<String> {
-        None
-    }
-}
-
 impl error::Error for ClarityTypeError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
