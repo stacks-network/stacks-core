@@ -1067,11 +1067,11 @@ impl From<ClarityTypeError> for CommonCheckErrorKind {
             | ClarityTypeError::InvalidPrincipalEncoding(_)
             | ClarityTypeError::InvalidPrincipalLength(_)
             | ClarityTypeError::ResponseTypeMismatch { .. } => {
-                Self::ExpectsAcceptable(format!("Unexpected error type during analysis: {err}"))
+                Self::ExpectsAcceptable(format!("Unexpected but acceptable error type during analysis: {err}"))
             }
             ClarityTypeError::InvariantViolation(_)
             | ClarityTypeError::InvalidPrincipalVersion(_) => {
-                Self::ExpectsRejectable(format!("Unexpected error type during analysis: {err}"))
+                Self::ExpectsRejectable(format!("Unexpected and unacceptable error type during analysis: {err}"))
             }
             ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
                 Self::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
