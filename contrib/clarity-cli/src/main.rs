@@ -217,10 +217,6 @@ enum Commands {
         #[arg(long)]
         costs: bool,
 
-        /// Coverage folder path
-        #[arg(short = 'c', long)]
-        coverage: Option<PathBuf>,
-
         /// Stacks epoch
         #[arg(long)]
         epoch: Option<String>,
@@ -295,10 +291,6 @@ enum Commands {
         #[arg(long)]
         output_analysis: bool,
 
-        /// Coverage folder path
-        #[arg(short = 'c', long)]
-        coverage: Option<PathBuf>,
-
         /// Contract identifier
         #[arg(value_name = "CONTRACT_ID")]
         contract_id: String,
@@ -333,10 +325,6 @@ enum Commands {
         /// Output asset changes
         #[arg(long)]
         assets: bool,
-
-        /// Coverage folder path
-        #[arg(short = 'c', long)]
-        coverage: Option<PathBuf>,
 
         /// Clarity version
         #[arg(long)]
@@ -482,7 +470,6 @@ fn main() {
 
         Commands::EvalAtChaintip {
             costs,
-            coverage,
             epoch,
             clarity_version,
             contract_id,
@@ -498,20 +485,8 @@ fn main() {
             let content = read_optional_file_or_stdin(program_file.as_ref());
 
             let db_path_str = db_path.to_str().expect("Invalid UTF-8 in db_path");
-            let coverage_str = coverage
-                .as_ref()
-                .and_then(|p| p.to_str())
-                .map(|s| s.to_string());
 
-            execute_eval_at_chaintip(
-                &cid,
-                &content,
-                *costs,
-                epoch_id,
-                clarity_ver,
-                db_path_str,
-                coverage_str,
-            )
+            execute_eval_at_chaintip(&cid, &content, *costs, epoch_id, clarity_ver, db_path_str)
         }
 
         Commands::EvalAtBlock {
@@ -548,7 +523,6 @@ fn main() {
             costs,
             assets,
             output_analysis,
-            coverage,
             contract_id,
             contract_file,
             clarity_version,
@@ -567,14 +541,9 @@ fn main() {
             let contract_content = read_file_or_stdin(contract_src_file);
 
             let db_path_str = db_path.to_str().expect("Invalid UTF-8 in db_path");
-            let coverage_str = coverage
-                .as_ref()
-                .and_then(|p| p.to_str())
-                .map(|s| s.to_string());
 
             execute_launch(
                 &cid,
-                contract_src_file,
                 &contract_content,
                 *costs,
                 *assets,
@@ -582,14 +551,12 @@ fn main() {
                 epoch_id,
                 clarity_ver,
                 db_path_str,
-                coverage_str,
             )
         }
 
         Commands::Execute {
             costs,
             assets,
-            coverage,
             clarity_version,
             epoch,
             db_path,
@@ -621,10 +588,6 @@ fn main() {
                 .collect();
 
             let db_path_str = db_path.to_str().expect("Invalid UTF-8 in db_path");
-            let coverage_str = coverage
-                .as_ref()
-                .and_then(|p| p.to_str())
-                .map(|s| s.to_string());
 
             execute_execute(
                 db_path_str,
@@ -635,7 +598,6 @@ fn main() {
                 *costs,
                 *assets,
                 epoch_id,
-                coverage_str,
             )
         }
     };

@@ -23,7 +23,6 @@ use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use clarity::vm::ast::build_ast;
 use clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::coverage::CoverageReporter;
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
 };
@@ -45,7 +44,6 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, bytes_to_hex};
 use stackslib::burnchains::{PoxConstants, Txid};
 use stackslib::chainstate::stacks::boot::{
@@ -440,7 +438,6 @@ fn with_env_costs<F, R>(
     epoch: StacksEpochId,
     header_db: &CLIHeadersDB,
     marf: &mut PersistentWritableMarfStore,
-    coverage: Option<&mut CoverageReporter>,
     f: F,
 ) -> (R, ExecutionCost)
 where
@@ -466,9 +463,6 @@ where
         cost_track,
         epoch,
     );
-    if let Some(coverage) = coverage {
-        vm_env.add_eval_hook(coverage);
-    }
     let result = f(&mut vm_env);
     let cost = vm_env.get_cost_total();
     (result, cost)
@@ -507,27 +501,6 @@ pub fn vm_execute(
     clarity_version: ClarityVersion,
 ) -> Result<Option<Value>, VmExecutionError> {
     vm_execute_in_epoch(program, clarity_version, StacksEpochId::latest())
-}
-
-fn save_coverage(
-    coverage_folder: Option<String>,
-    coverage: Option<CoverageReporter>,
-    prefix: &str,
-) {
-    match (coverage_folder, coverage) {
-        (Some(coverage_folder), Some(coverage)) => {
-            let mut coverage_file = PathBuf::from(coverage_folder);
-            coverage_file.push(format!("{prefix}_{}", get_epoch_time_ms()));
-            coverage_file.set_extension("clarcov");
-
-            coverage
-                .to_file(&coverage_file)
-                .expect("Coverage reference file generation failure");
-        }
-        (None, None) => (),
-        (None, Some(_)) => (),
-        (Some(_), None) => (),
-    }
 }
 
 struct CLIHeadersDB {
@@ -1262,12 +1235,11 @@ pub fn execute_eval(
 
     // Evaluate in a new block
     let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
-        let result_and_cost =
-            with_env_costs(mainnet, epoch, &header_db, &mut marf, None, |vm_env| {
-                vm_env
-                    .get_exec_environment(None, None, &placeholder_context)
-                    .eval_read_only(contract_identifier, content)
-            });
+        let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
+            vm_env
+                .get_exec_environment(None, None, &placeholder_context)
+                .eval_read_only(contract_identifier, content)
+        });
         (header_db, marf, result_and_cost)
     });
 
@@ -1308,7 +1280,6 @@ pub fn execute_eval_at_chaintip(
     epoch: StacksEpochId,
     clarity_version: ClarityVersion,
     vm_filename: &str,
-    coverage_folder: Option<String>,
 ) -> (i32, Option<serde_json::Value>) {
     // Open database
     let header_db = friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
@@ -1320,26 +1291,14 @@ pub fn execute_eval_at_chaintip(
     let mainnet = header_db.is_mainnet();
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
-    let mut coverage = if coverage_folder.is_some() {
-        Some(CoverageReporter::new())
-    } else {
-        None
-    };
 
     // Evaluate at chaintip (no block advance)
     let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
-        let result_and_cost = with_env_costs(
-            mainnet,
-            epoch,
-            &header_db,
-            &mut marf,
-            coverage.as_mut(),
-            |vm_env| {
-                vm_env
-                    .get_exec_environment(None, None, &placeholder_context)
-                    .eval_read_only(contract_identifier, content)
-            },
-        );
+        let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
+            vm_env
+                .get_exec_environment(None, None, &placeholder_context)
+                .eval_read_only(contract_identifier, content)
+        });
         let (result, cost) = result_and_cost;
 
         (marf, (result, cost))
@@ -1348,7 +1307,6 @@ pub fn execute_eval_at_chaintip(
     // Return success or error with costs
     match result_and_cost {
         (Ok(result), cost) => {
-            save_coverage(coverage_folder, coverage, "eval");
             let mut result_json = json!({
                 "output": serde_json::to_value(&result).unwrap(),
                 "success": true,
@@ -1360,7 +1318,6 @@ pub fn execute_eval_at_chaintip(
             (0, Some(result_json))
         }
         (Err(error), cost) => {
-            save_coverage(coverage_folder, coverage, "eval");
             let mut result_json = json!({
                 "error": {
                     "runtime": serde_json::to_value(format!("{error}")).unwrap()
@@ -1398,12 +1355,11 @@ pub fn execute_eval_at_block(
 
     // Evaluate at specific block
     let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
-        let result_and_cost =
-            with_env_costs(mainnet, epoch, &header_db, &mut marf, None, |vm_env| {
-                vm_env
-                    .get_exec_environment(None, None, &placeholder_context)
-                    .eval_read_only(contract_identifier, content)
-            });
+        let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
+            vm_env
+                .get_exec_environment(None, None, &placeholder_context)
+                .eval_read_only(contract_identifier, content)
+        });
         (marf, result_and_cost)
     });
 
@@ -1440,7 +1396,6 @@ pub fn execute_eval_at_block(
 #[allow(clippy::too_many_arguments)]
 pub fn execute_launch(
     contract_identifier: &QualifiedContractIdentifier,
-    contract_src_file: &str,
     contract_content: &str,
     costs: bool,
     assets: bool,
@@ -1448,7 +1403,6 @@ pub fn execute_launch(
     epoch: StacksEpochId,
     clarity_version: ClarityVersion,
     vm_filename: &str,
-    coverage_folder: Option<String>,
 ) -> (i32, Option<serde_json::Value>) {
     // Parse the contract
     let mut ast = friendly_expect(
@@ -1461,20 +1415,6 @@ pub fn execute_launch(
         "Failed to parse program.",
     );
 
-    // Register coverage if requested
-    if let Some(ref coverage_folder) = coverage_folder {
-        let mut coverage_file = PathBuf::from(coverage_folder);
-        coverage_file.push(format!("launch_{}", get_epoch_time_ms()));
-        coverage_file.set_extension("clarcovref");
-        CoverageReporter::register_src_file(
-            contract_identifier,
-            contract_src_file,
-            &ast,
-            &coverage_file,
-        )
-        .expect("Coverage reference file generation failure");
-    }
-
     // Open database
     let header_db = friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
     let marf_kv = friendly_expect(
@@ -1482,12 +1422,6 @@ pub fn execute_launch(
         "Failed to open VM database.",
     );
     let mainnet = header_db.is_mainnet();
-
-    let mut coverage = if coverage_folder.is_some() {
-        Some(CoverageReporter::new())
-    } else {
-        None
-    };
 
     // Run analysis and initialize contract in a new block
     let (_, _, analysis_result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
@@ -1503,21 +1437,15 @@ pub fn execute_launch(
         match analysis_result {
             Err(e) => (header_db, marf, Err(e)),
             Ok(analysis) => {
-                let result_and_cost = with_env_costs(
-                    mainnet,
-                    epoch,
-                    &header_db,
-                    &mut marf,
-                    coverage.as_mut(),
-                    |vm_env| {
+                let result_and_cost =
+                    with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
                         vm_env.initialize_versioned_contract(
                             contract_identifier.clone(),
                             clarity_version,
                             contract_content,
                             None,
                         )
-                    },
-                );
+                    });
                 let (result, cost) = result_and_cost;
                 (header_db, marf, Ok((analysis, (result, cost))))
             }
@@ -1533,8 +1461,6 @@ pub fn execute_launch(
 
             add_costs(&mut result, costs, cost);
             add_assets(&mut result, assets, asset_map);
-
-            save_coverage(coverage_folder, coverage, "launch");
 
             if output_analysis {
                 result["analysis"] =
@@ -1584,7 +1510,6 @@ pub fn execute_execute(
     costs: bool,
     assets: bool,
     epoch: StacksEpochId,
-    coverage_folder: Option<String>,
 ) -> (i32, Option<serde_json::Value>) {
     // Open database
     let header_db = friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
@@ -1594,30 +1519,17 @@ pub fn execute_execute(
     );
     let mainnet = header_db.is_mainnet();
 
-    let mut coverage = if coverage_folder.is_some() {
-        Some(CoverageReporter::new())
-    } else {
-        None
-    };
-
     // Execute transaction in a new block
     let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
-        let result_and_cost = with_env_costs(
-            mainnet,
-            epoch,
-            &header_db,
-            &mut marf,
-            coverage.as_mut(),
-            |vm_env| {
-                vm_env.execute_transaction(
-                    sender,
-                    None,
-                    contract_identifier.clone(),
-                    tx_name,
-                    arguments,
-                )
-            },
-        );
+        let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
+            vm_env.execute_transaction(
+                sender,
+                None,
+                contract_identifier.clone(),
+                tx_name,
+                arguments,
+            )
+        });
         let (result, cost) = result_and_cost;
         (header_db, marf, (result, cost))
     });
@@ -1626,7 +1538,6 @@ pub fn execute_execute(
     match result_and_cost {
         (Ok((x, asset_map, events)), cost) => {
             if let Value::Response(data) = x {
-                save_coverage(coverage_folder, coverage, "execute");
                 if data.committed {
                     let mut result = json!({
                         "message": "Transaction executed and committed.",
@@ -1727,7 +1638,6 @@ mod test {
 
         let (exit, _result) = execute_launch(
             &contract_id,
-            &clar_name,
             contract_code,
             false,
             false,
@@ -1735,7 +1645,6 @@ mod test {
             DEFAULT_CLI_EPOCH,
             ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
-            None,
         );
 
         assert_eq!(exit, 0);
@@ -1837,7 +1746,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let (exit, result) = execute_launch(
             &contract_id,
-            &file_path,
             &content,
             false,
             false,
@@ -1845,7 +1753,6 @@ mod test {
             DEFAULT_CLI_EPOCH,
             ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
-            None,
         );
 
         assert_eq!(exit, 0);
@@ -1942,7 +1849,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let (exit, result) = execute_launch(
             &contract_id,
-            &file_path,
             &content,
             true,
             true,
@@ -1950,7 +1856,6 @@ mod test {
             DEFAULT_CLI_EPOCH,
             ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
-            None,
         );
 
         let result = result.unwrap();
@@ -1984,7 +1889,6 @@ mod test {
             false,
             false,
             DEFAULT_CLI_EPOCH,
-            None,
         );
 
         let result = result.unwrap();
@@ -2071,7 +1975,6 @@ mod test {
             DEFAULT_CLI_EPOCH,
             ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
-            None,
         );
 
         let result = result.unwrap();
@@ -2103,7 +2006,6 @@ mod test {
             DEFAULT_CLI_EPOCH,
             ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
-            None,
         );
 
         let result = result.unwrap();
@@ -2157,7 +2059,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let (exit, result) = execute_launch(
             &contract_id,
-            &file_path,
             &content,
             false,
             true,
@@ -2165,7 +2066,6 @@ mod test {
             DEFAULT_CLI_EPOCH,
             ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
-            None,
         );
 
         let result = result.unwrap();
@@ -2399,7 +2299,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let (exit_code, result_json) = execute_launch(
             &contract_id,
-            &clar_path,
             &content,
             false,
             false,
@@ -2407,7 +2306,6 @@ mod test {
             DEFAULT_CLI_EPOCH,
             ClarityVersion::Clarity3,
             &db_name,
-            None,
         );
 
         // Assert
@@ -2452,7 +2350,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let (exit_code, result_json) = execute_launch(
             &contract_id,
-            &clar_path,
             &content,
             false,
             false,
@@ -2460,7 +2357,6 @@ mod test {
             DEFAULT_CLI_EPOCH,
             ClarityVersion::Clarity2,
             &db_name,
-            None,
         );
 
         // Assert
@@ -2491,7 +2387,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let _ = execute_launch(
             &launch_contract_id,
-            &launch_src,
             &launch_content,
             false,
             false,
@@ -2499,7 +2394,6 @@ mod test {
             DEFAULT_CLI_EPOCH,
             ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
-            None,
         );
 
         // Use a Clarity3-only native expression.
@@ -2551,7 +2445,6 @@ mod test {
                 .expect("Failed to parse contract ID");
         let _ = execute_launch(
             &launch_contract_id,
-            &launch_src,
             &launch_content,
             false,
             false,
@@ -2559,7 +2452,6 @@ mod test {
             DEFAULT_CLI_EPOCH,
             ClarityVersion::Clarity2,
             &db_name,
-            None,
         );
 
         // Use a Clarity3-only native expression.
