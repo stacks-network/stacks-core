@@ -304,9 +304,8 @@ fn build_common_opts(cli: &Cli) -> CommonOpts {
 
     // Handle --config option
     if let Some(ref config_path) = cli.config {
-        let path_str = config_path.to_string_lossy();
-        let config_file = ConfigFile::from_path(&path_str).unwrap_or_else(|e| {
-            panic!("Failed to read '{}' as stacks-node config: {e}", path_str)
+        let config_file = ConfigFile::from_path(config_path).unwrap_or_else(|e| {
+            panic!("Failed to read '{config_path}' as stacks-node config: {e}")
         });
         let config = Config::from_config_file(config_file, false).unwrap_or_else(|e| {
             panic!("Failed to convert config file into node config: {e}")
@@ -364,9 +363,8 @@ fn main() {
                 BitcoinNetworkType::Mainnet
             };
 
-            let headers_path_str = headers_path.to_string_lossy();
             let spv_client =
-                spv::SpvClient::new(&headers_path_str, 0, Some(block_height), mode, false, false)
+                spv::SpvClient::new(&headers_path, 0, Some(block_height), mode, false, false)
                     .expect("FATAL: could not instantiate SPV client");
             match spv_client
                 .read_block_header(block_height)

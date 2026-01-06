@@ -15,8 +15,6 @@
 
 //! CLI argument parsing for stacks-inspect using clap derive API
 
-use std::path::PathBuf;
-
 use clap::{Parser, Subcommand};
 
 /// Build the version string at compile time from Cargo metadata
@@ -38,7 +36,7 @@ fn build_version_string() -> &'static str {
 pub struct Cli {
     /// Path to stacks-node configuration file
     #[arg(long, global = true, value_name = "CONFIG_FILE")]
-    pub config: Option<PathBuf>,
+    pub config: Option<String>,
 
     /// Use a predefined network configuration (helium, mainnet, mocknet, xenon)
     #[arg(long, global = true, value_name = "NETWORK")]
@@ -60,7 +58,7 @@ pub enum Command {
 
         /// Path to Bitcoin headers file
         #[arg(value_name = "HEADERS_PATH")]
-        headers_path: PathBuf,
+        headers_path: String,
 
         /// Use testnet
         #[arg(short = 't', long, default_value_t = false)]
@@ -141,7 +139,7 @@ pub enum Command {
     MarfGet {
         /// Path to MARF database
         #[arg(value_name = "MARF_PATH")]
-        marf_path: PathBuf,
+        marf_path: String,
 
         /// Block header hash
         #[arg(value_name = "TIP_HASH")]
@@ -161,7 +159,7 @@ pub enum Command {
     DeserializeDb {
         /// Path to Clarity SQLite database
         #[arg(value_name = "DB_PATH")]
-        db_path: PathBuf,
+        db_path: String,
 
         /// Byte prefix to filter keys
         #[arg(value_name = "BYTE_PREFIX")]
@@ -173,7 +171,7 @@ pub enum Command {
     CheckDeserData {
         /// Path to check file
         #[arg(value_name = "CHECK_FILE")]
-        check_file: PathBuf,
+        check_file: String,
     },
 
     /// Trace block ancestry through staging database
@@ -181,7 +179,7 @@ pub enum Command {
     GetAncestors {
         /// Path to staging database
         #[arg(value_name = "DB_PATH")]
-        db_path: PathBuf,
+        db_path: String,
 
         /// Block header hash
         #[arg(value_name = "BLOCK_HASH")]
@@ -340,7 +338,7 @@ pub enum Command {
 
         /// Event log file path
         #[arg(value_name = "EVENT_LOG")]
-        event_log: PathBuf,
+        event_log: String,
 
         /// Target block height to mine at
         #[arg(value_name = "MINE_TIP_HEIGHT")]
@@ -455,7 +453,7 @@ pub enum Command {
     EvaluatePoxAnchor {
         /// Path to sortition database
         #[arg(value_name = "SORTITION_DB_PATH")]
-        sortition_db_path: PathBuf,
+        sortition_db_path: String,
 
         /// Start height to evaluate
         #[arg(value_name = "START_HEIGHT")]
@@ -548,7 +546,7 @@ pub enum Command {
     ExecProgram {
         /// Path to Clarity program file
         #[arg(value_name = "PROGRAM_FILE")]
-        program_file: PathBuf,
+        program_file: String,
     },
 }
 
@@ -599,7 +597,7 @@ mod tests {
             "dump-consts",
         ]).unwrap();
 
-        assert_eq!(cli.config, Some(PathBuf::from("/path/to/config.toml")));
+        assert_eq!(cli.config, Some("/path/to/config.toml".to_string()));
         assert!(matches!(cli.command, Command::DumpConsts));
     }
 }
