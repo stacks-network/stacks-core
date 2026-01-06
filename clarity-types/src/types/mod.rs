@@ -1346,7 +1346,7 @@ impl BuffData {
         self.data.as_slice()
     }
 
-    pub fn append(&mut self, other_seq: &mut BuffData) {
+    fn append(&mut self, other_seq: &mut BuffData) {
         self.data.append(&mut other_seq.data);
     }
 
@@ -1554,8 +1554,6 @@ impl fmt::Display for TraitIdentifier {
     }
 }
 
-/// TODO: Do we want to make these return errors? I know in theory its infallible, but there is a lot of
-/// in theory infallible that return errors instead of straight expects.
 impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> Self {
         let (version, bytes) = addr.destruct();
@@ -1573,8 +1571,6 @@ impl From<StacksAddress> for PrincipalData {
     }
 }
 
-/// TODO: Do we want to make these return errors? I know in theory its infallible, but there is a lot of
-/// in theory infallible that return errors instead of straight expects.
 impl From<StandardPrincipalData> for StacksAddress {
     fn from(o: StandardPrincipalData) -> StacksAddress {
         // should be infallible because it's impossible to construct a StandardPrincipalData with
@@ -1677,9 +1673,6 @@ impl TupleData {
     }
 
     // TODO: add tests from mutation testing results #4834
-    // TODO: remove this comment. This is to help reviewers: from_data_typed is only called in
-    // serialization.rs where its returned error is immediately ignored. Therefore changes to the error
-    // types in here are not consensus-breaking
     #[cfg_attr(test, mutants::skip)]
     pub fn from_data_typed(
         epoch: &StacksEpochId,
