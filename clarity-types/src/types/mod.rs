@@ -646,34 +646,26 @@ impl SequenceData {
         // Note: this macro can probably get removed once
         // ```Vec::drain_filter<F>(&mut self, filter: F) -> DrainFilter<T, F>```
         // is available in rust stable channel (experimental at this point).
-        macro_rules! drain_filter {
-            ($data:expr, $seq_type:ident) => {
-                let mut i = 0;
-                while i != $data.data.len() {
-                    let v =
-                        $seq_type::to_value(&$data.data[i]).map_err(RetainValuesError::Internal)?;
+        macro_rules! retain_inner {
+            ($data:expr, $seq_type:ident) => {{
+                // Removing elements in the middle of a vector is O(n^2) in the worst case scenario.
+                // To avoid this, we must drain and rebuild the vector
+                let mut out = Vec::with_capacity($data.data.len());
+                for item in $data.data.drain(..) {
+                    let v = $seq_type::to_value(&item).map_err(RetainValuesError::Internal)?;
                     if predicate(v).map_err(RetainValuesError::Predicate)? {
-                        i += 1
-                    } else {
-                        $data.data.remove(i);
+                        out.push(item);
                     }
                 }
-            };
-        }
 
+                $data.data = out;
+            }};
+        }
         match self {
-            SequenceData::Buffer(data) => {
-                drain_filter!(data, BuffData);
-            }
-            SequenceData::List(data) => {
-                drain_filter!(data, ListData);
-            }
-            SequenceData::String(CharType::ASCII(data)) => {
-                drain_filter!(data, ASCIIData);
-            }
-            SequenceData::String(CharType::UTF8(data)) => {
-                drain_filter!(data, UTF8Data);
-            }
+            SequenceData::Buffer(data) => retain_inner!(data, BuffData),
+            SequenceData::List(data) => retain_inner!(data, ListData),
+            SequenceData::String(CharType::ASCII(data)) => retain_inner!(data, ASCIIData),
+            SequenceData::String(CharType::UTF8(data)) => retain_inner!(data, UTF8Data),
         }
         Ok(())
     }
