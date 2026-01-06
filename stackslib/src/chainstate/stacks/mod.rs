@@ -355,7 +355,7 @@ impl From<db_error> for Error {
 
 impl From<VmExecutionError> for Error {
     fn from(e: VmExecutionError) -> Error {
-        Error::ClarityError(e.into())
+        Error::ClarityError(ClarityError::Interpreter(e))
     }
 }
 
