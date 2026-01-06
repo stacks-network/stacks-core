@@ -949,9 +949,6 @@ impl Value {
         Ok(TypeSignature::type_of(self)?.depth())
     }
 
-    // TODO: remove this comment. This is to help reviewers: list_with_type is only called in
-    // serialization.rs where its returned error is immediately ignored. Therefore changes to the error
-    // types in here are not consensus-breaking
     pub fn list_with_type(
         epoch: &StacksEpochId,
         list_data: Vec<Value>,
@@ -1109,8 +1106,6 @@ impl Value {
         ))))
     }
 
-    /// TODO: remove this comment. For code reviewers. Expect ascii is only called in load_cost_functions and immediately
-    /// is mapped to a CostError
     pub fn expect_ascii(self) -> Result<String, ClarityTypeError> {
         if let Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) = self {
             String::from_utf8(data).map_err(|_| ClarityTypeError::InvalidUtf8Encoding)
@@ -1194,8 +1189,6 @@ impl Value {
         Ok(data)
     }
 
-    /// TODO: remove this comment. For code reviwers: this is only ever called in tests and/or immediately unwrapped
-    /// (only non test call is its use in is_pox_active)
     pub fn expect_bool(self) -> Result<bool, ClarityTypeError> {
         if let Value::Bool(b) = self {
             Ok(b)
