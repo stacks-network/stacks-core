@@ -16,14 +16,17 @@
 #[macro_use]
 extern crate stacks_common;
 
+use clap::Parser;
 use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity_cli::{DEFAULT_CLI_EPOCH, read_file_or_stdin, read_file_or_stdin_bytes};
+use stacks_inspect::cli::{Cli, Command};
 use stacks_inspect::{
     command_contract_hash, command_replay_mock_mining, command_try_mine, command_validate_block,
-    command_validate_block_nakamoto, drain_common_opts,
+    command_validate_block_nakamoto, CommonOpts,
 };
+use stackslib::config::{Config, ConfigFile};
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksTransaction,
@@ -296,222 +299,225 @@ fn check_shadow_network(network: &str) {
     }
 }
 
+fn build_common_opts(cli: &Cli) -> CommonOpts {
+    let mut opts = CommonOpts::default();
+
+    // Handle --config option
+    if let Some(ref config_path) = cli.config {
+        let path_str = config_path.to_string_lossy();
+        let config_file = ConfigFile::from_path(&path_str).unwrap_or_else(|e| {
+            panic!("Failed to read '{}' as stacks-node config: {e}", path_str)
+        });
+        let config = Config::from_config_file(config_file, false).unwrap_or_else(|e| {
+            panic!("Failed to convert config file into node config: {e}")
+        });
+        opts.config.replace(config);
+    }
+
+    // Handle --network option
+    if let Some(ref network) = cli.network {
+        let config_file = match network.to_lowercase().as_str() {
+            "helium" => ConfigFile::helium(),
+            "mainnet" => ConfigFile::mainnet(),
+            "mocknet" => ConfigFile::mocknet(),
+            "xenon" => ConfigFile::xenon(),
+            other => {
+                eprintln!("Unknown network choice `{other}`");
+                process::exit(1);
+            }
+        };
+        let config = Config::from_config_file(config_file, false).unwrap_or_else(|e| {
+            panic!("Failed to convert config file into node config: {e}")
+        });
+        opts.config.replace(config);
+    }
+
+    opts
+}
+
 #[cfg_attr(test, mutants::skip)]
 #[allow(clippy::indexing_slicing)]
 fn main() {
-    let mut argv: Vec<String> = env::args().collect();
-    if argv.len() < 2 {
-        eprintln!("Usage: {} command [args...]", argv[0]);
-        process::exit(1);
-    }
+    let cli = Cli::parse();
+    let common_opts = build_common_opts(&cli);
 
-    let common_opts = drain_common_opts(&mut argv, 1);
+    match cli.command {
 
-    if argv[1] == "--version" {
-        println!(
-            "{}",
-            &stackslib::version_string(
-                option_env!("CARGO_PKG_NAME").unwrap_or(&argv[0]),
-                option_env!("STACKS_NODE_VERSION")
-            )
-        );
-        process::exit(0);
-    }
-
-    if argv[1] == "peer-pub-key" {
-        if argv.len() < 3 {
-            eprintln!("Usage: {} peer-pub-key <local-peer-seed>", argv[0]);
-            process::exit(1);
-        }
-
-        let local_seed = hex_bytes(&argv[2]).expect("Failed to parse hex input local-peer-seed");
-        let node_privkey = Secp256k1PrivateKey::from_seed(&local_seed);
-        let pubkey = Secp256k1PublicKey::from_private(&node_privkey).to_hex();
-        println!("{pubkey}");
-        process::exit(0);
-    }
-
-    if argv[1] == "decode-bitcoin-header" {
-        if argv.len() < 4 {
-            eprintln!(
-                "Usage: {} decode-bitcoin-header [-t|-r] BLOCK_HEIGHT PATH",
-                argv[0]
-            );
-            process::exit(1);
-        }
-
-        let mut testnet = false;
-        let mut regtest = false;
-        let mut idx = 0;
-        for (i, item) in argv.iter().enumerate() {
-            if item == "-t" {
-                testnet = true;
-                idx = i;
-            } else if item == "-r" {
-                regtest = true;
-                idx = i;
-            }
-        }
-        if regtest && testnet {
-            // don't allow both
-            eprintln!(
-                "Usage: {} decode-bitcoin-header [-t|-r] BLOCK_HEIGHT PATH",
-                argv[0]
-            );
-            process::exit(1);
-        }
-        if idx > 0 {
-            argv.remove(idx);
-        }
-
-        let mode = if testnet {
-            BitcoinNetworkType::Testnet
-        } else if regtest {
-            BitcoinNetworkType::Regtest
-        } else {
-            BitcoinNetworkType::Mainnet
-        };
-
-        let height = argv[2].parse::<u64>().expect("Invalid block height");
-        let headers_path = &argv[3];
-
-        let spv_client = spv::SpvClient::new(headers_path, 0, Some(height), mode, false, false)
-            .expect("FATAL: could not instantiate SPV client");
-        match spv_client
-            .read_block_header(height)
-            .expect("FATAL: could not read block header database")
-        {
-            Some(header) => {
-                println!("{header:#?}");
-                process::exit(0);
-            }
-            None => {
-                eprintln!("Failed to read header");
+        // Decode Commands
+        Command::DecodeBitcoinHeader {
+            block_height,
+            headers_path,
+            testnet,
+            regtest,
+        } => {
+            if regtest && testnet {
+                // Don't allow both
+                eprintln!("Cannot specify both --testnet and --regtest");
                 process::exit(1);
             }
-        }
-    }
 
-    if argv[1] == "decode-tx" {
-        if argv.len() < 3 {
-            eprintln!(
-                "Usage: {} decode-tx <TX_HEX | TX_FILE | - (stdin)>",
-                argv[0]
-            );
-            process::exit(1);
-        }
+            let mode = if testnet {
+                BitcoinNetworkType::Testnet
+            } else if regtest {
+                BitcoinNetworkType::Regtest
+            } else {
+                BitcoinNetworkType::Mainnet
+            };
 
-        let tx_arg = &argv[2];
-        let tx_str = if tx_arg == "-" || std::path::Path::new(tx_arg).exists() {
-            read_file_or_stdin(tx_arg).trim().to_string()
-        } else {
-            // Treat as hex string directly
-            tx_arg.clone()
-        };
-        let tx_bytes = hex_bytes(&tx_str)
-            .map_err(|_e| {
-                eprintln!("Failed to decode transaction: must be a hex string");
-                process::exit(1);
-            })
-            .unwrap();
-
-        let mut cursor = io::Cursor::new(&tx_bytes);
-        let mut debug_cursor = LogReader::from_reader(&mut cursor);
-
-        let tx = StacksTransaction::consensus_deserialize(&mut debug_cursor)
-            .map_err(|e| {
-                eprintln!("Failed to decode transaction: {e:?}");
-                eprintln!("Bytes consumed:");
-                for buf in debug_cursor.log().iter() {
-                    eprintln!("  {}", to_hex(buf));
+            let headers_path_str = headers_path.to_string_lossy();
+            let spv_client =
+                spv::SpvClient::new(&headers_path_str, 0, Some(block_height), mode, false, false)
+                    .expect("FATAL: could not instantiate SPV client");
+            match spv_client
+                .read_block_header(block_height)
+                .expect("FATAL: could not read block header database")
+            {
+                Some(header) => {
+                    println!("{header:#?}");
+                    process::exit(0);
                 }
-                process::exit(1);
-            })
-            .unwrap();
-
-        println!("Verified: {:#?}", tx.verify());
-        let address = tx.auth.origin().get_address(tx.is_mainnet());
-        println!("Address: {address}");
-
-        println!("{tx:#?}");
-        process::exit(0);
-    }
-
-    if argv[1] == "decode-block" {
-        if argv.len() < 3 {
-            eprintln!("Usage: {} decode-block <BLOCK_PATH | - (stdin)>", argv[0]);
-            process::exit(1);
-        }
-
-        let block_path = &argv[2];
-        let block_data = read_file_or_stdin_bytes(block_path);
-
-        let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
-            .map_err(|_e| {
-                eprintln!("Failed to decode block");
-                process::exit(1);
-            })
-            .unwrap();
-
-        println!("{block:#?}");
-        process::exit(0);
-    }
-
-    if argv[1] == "decode-nakamoto-block" {
-        if argv.len() < 3 {
-            eprintln!(
-                "Usage: {} decode-nakamoto-block <BLOCK_HEX | HEX_FILE | - (stdin)>",
-                argv[0]
-            );
-            process::exit(1);
-        }
-
-        let block_arg = &argv[2];
-        let block_hex = if block_arg == "-" || std::path::Path::new(block_arg).exists() {
-            read_file_or_stdin(block_arg).trim().to_string()
-        } else {
-            // Treat as hex string directly
-            block_arg.clone()
-        };
-        let block_data = hex_bytes(&block_hex).unwrap_or_else(|_| panic!("Failed to decode hex"));
-        let block = NakamotoBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
-            .map_err(|_e| {
-                eprintln!("Failed to decode block");
-                process::exit(1);
-            })
-            .unwrap();
-
-        println!("{block:#?}");
-        process::exit(0);
-    }
-
-    if argv[1] == "decode-net-message" {
-        let data: String = argv[2].clone();
-        let buf = if data == "-" || std::path::Path::new(&data).exists() {
-            read_file_or_stdin_bytes(&data)
-        } else {
-            // Parse as JSON array of bytes
-            let data: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
-            let data_array = data.as_array().unwrap();
-            let mut buf = vec![];
-            for elem in data_array {
-                buf.push(elem.as_u64().unwrap() as u8);
-            }
-            buf
-        };
-        match read_next::<StacksMessage, _>(&mut &buf[..]) {
-            Ok(msg) => {
-                println!("{msg:#?}");
-                process::exit(0);
-            }
-            Err(_) => {
-                let ptr = &mut &buf[..];
-                let mut debug_cursor = LogReader::from_reader(ptr);
-                let _ = read_next::<StacksMessage, _>(&mut debug_cursor);
-                process::exit(1);
+                None => {
+                    eprintln!("Failed to read header");
+                    process::exit(1);
+                }
             }
         }
+
+        Command::DecodeTx { tx_input } => {
+            let tx_str = if tx_input == "-" || std::path::Path::new(&tx_input).exists() {
+                read_file_or_stdin(&tx_input).trim().to_string()
+            } else {
+                // Treat as hex string directly
+                tx_input.clone()
+            };
+            let tx_bytes = hex_bytes(&tx_str)
+                .map_err(|_e| {
+                    eprintln!("Failed to decode transaction: must be a hex string");
+                    process::exit(1);
+                })
+                .unwrap();
+
+            let mut cursor = io::Cursor::new(&tx_bytes);
+            let mut debug_cursor = LogReader::from_reader(&mut cursor);
+
+            let tx = StacksTransaction::consensus_deserialize(&mut debug_cursor)
+                .map_err(|e| {
+                    eprintln!("Failed to decode transaction: {e:?}");
+                    eprintln!("Bytes consumed:");
+                    for buf in debug_cursor.log().iter() {
+                        eprintln!("  {}", to_hex(buf));
+                    }
+                    process::exit(1);
+                })
+                .unwrap();
+
+            println!("Verified: {:#?}", tx.verify());
+            let address = tx.auth.origin().get_address(tx.is_mainnet());
+            println!("Address: {address}");
+
+            println!("{tx:#?}");
+            process::exit(0);
+        }
+
+        Command::DecodeBlock { block_path } => {
+            let block_data = read_file_or_stdin_bytes(&block_path);
+
+            let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
+                .map_err(|_e| {
+                    eprintln!("Failed to decode block");
+                    process::exit(1);
+                })
+                .unwrap();
+
+            println!("{block:#?}");
+            process::exit(0);
+        }
+
+        Command::DecodeNakamotoBlock { block_input } => {
+            let block_hex = if block_input == "-" || std::path::Path::new(&block_input).exists() {
+                read_file_or_stdin(&block_input).trim().to_string()
+            } else {
+                // Treat as hex string directly
+                block_input.clone()
+            };
+            let block_data =
+                hex_bytes(&block_hex).unwrap_or_else(|_| panic!("Failed to decode hex"));
+            let block = NakamotoBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
+                .map_err(|_e| {
+                    eprintln!("Failed to decode block");
+                    process::exit(1);
+                })
+                .unwrap();
+
+            println!("{block:#?}");
+            process::exit(0);
+        }
+
+        Command::DecodeNetMessage { message_data } => {
+            let buf = if message_data == "-" || std::path::Path::new(&message_data).exists() {
+                read_file_or_stdin_bytes(&message_data)
+            } else {
+                // Parse as JSON array of bytes
+                let data: serde_json::Value = serde_json::from_str(message_data.as_str()).unwrap();
+                let data_array = data.as_array().unwrap();
+                let mut buf = vec![];
+                for elem in data_array {
+                    buf.push(elem.as_u64().unwrap() as u8);
+                }
+                buf
+            };
+            match read_next::<StacksMessage, _>(&mut &buf[..]) {
+                Ok(msg) => {
+                    println!("{msg:#?}");
+                    process::exit(0);
+                }
+                Err(_) => {
+                    let ptr = &mut &buf[..];
+                    let mut debug_cursor = LogReader::from_reader(ptr);
+                    let _ = read_next::<StacksMessage, _>(&mut debug_cursor);
+                    process::exit(1);
+                }
+            }
+        }
+
+        Command::DecodeMicroblocks { microblocks_path } => {
+            let mblock_data = read_file_or_stdin_bytes(&microblocks_path);
+
+            let mut cursor = io::Cursor::new(&mblock_data);
+            let mut debug_cursor = LogReader::from_reader(&mut cursor);
+            let mblocks: Vec<StacksMicroblock> = Vec::consensus_deserialize(&mut debug_cursor)
+                .map_err(|e| {
+                    eprintln!("Failed to decode microblocks: {e:?}");
+                    eprintln!("Bytes consumed:");
+                    for buf in debug_cursor.log().iter() {
+                        eprintln!("  {}", to_hex(buf));
+                    }
+                    process::exit(1);
+                })
+                .unwrap();
+
+            println!("{mblocks:#?}");
+            process::exit(0);
+        }
+
+        // Utility Commands
+        Command::PeerPubKey { local_peer_seed } => {
+            let local_seed =
+                hex_bytes(&local_peer_seed).expect("Failed to parse hex input local-peer-seed");
+            let node_privkey = Secp256k1PrivateKey::from_seed(&local_seed);
+            let pubkey = Secp256k1PublicKey::from_private(&node_privkey).to_hex();
+            println!("{pubkey}");
+            process::exit(0);
+        }
+
+        // FIXME: TEMP: All other commands use the legacy argv-based dispatch for now
+        _ => {
+            // FIXME: TEMP: This is a fall through to legacy command handling below
+        }
     }
+
+    // FIXME: TEMP: Old command handling for commands not yet migrated to clap
+    let mut argv: Vec<String> = env::args().collect();
 
     if argv[1] == "get-tenure" {
         if argv.len() < 4 {

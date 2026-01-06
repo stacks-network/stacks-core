@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod cli;
+
 use std::path::PathBuf;
 use std::time::Instant;
 use std::{fs, process};
