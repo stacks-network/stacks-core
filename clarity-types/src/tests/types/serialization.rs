@@ -422,9 +422,7 @@ fn test_serialize_to_vec_returns_serialization_failure() {
     })));
     let err = value.serialize_to_vec().unwrap_err();
     assert_eq!(
-        SerializationError::SerializationFailure(
-            ClarityTypeError::InvariantViolation("Data length should be valid".into()).to_string()
-        ),
+        SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
         err
     );
 }
@@ -436,9 +434,7 @@ fn test_serialize_to_hex_returns_serialization_failure() {
     })));
     let err = value.serialize_to_hex().unwrap_err();
     assert_eq!(
-        SerializationError::SerializationFailure(
-            ClarityTypeError::InvariantViolation("Data length should be valid".into()).to_string()
-        ),
+        SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
         err
     );
 }

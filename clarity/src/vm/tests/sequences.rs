@@ -546,7 +546,7 @@ fn test_slice_utf8() {
 fn test_slice_type_errors() {
     assert_eq!(
         execute_v2("(slice? 3 u0 u1)").unwrap_err(),
-        CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::NoType)).into()
+        CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::IntType)).into()
     );
 
     assert_eq!(
@@ -647,11 +647,7 @@ fn test_simple_buff_concat() {
 
     assert_eq!(
         execute("(concat 0x31 3)").unwrap_err(),
-        CheckErrorKind::TypeValueError(
-            Box::new(TypeSignature::BUFFER_MIN),
-            Box::new(Value::Int(3))
-        )
-        .into()
+        CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::IntType)).into()
     );
 
     assert_eq!(

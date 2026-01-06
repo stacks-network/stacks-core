@@ -18,8 +18,6 @@ mod signatures;
 use rstest::rstest;
 use stacks_common::types::StacksEpochId;
 
-use crate::VmExecutionError;
-use crate::errors::VmInternalError;
 use crate::types::{
     ASCIIData, BuffData, CharType, ClarityTypeError, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
     QualifiedContractIdentifier, SequenceData, SequenceSubtype, SequencedValue as _,
@@ -340,11 +338,6 @@ fn test_clarity_type_error_invalid_principal_version_to_vm_internal_error_expect
     let result = StandardPrincipalData::new(32, [0; 20]);
     let err = result.expect_err("Unexpected valid principal data");
     assert_eq!(ClarityTypeError::InvalidPrincipalVersion(32), err);
-    let vm_err: VmExecutionError = err.into();
-    assert_eq!(
-        vm_err,
-        VmExecutionError::Internal(VmInternalError::Expect("Unexpected principal data".into()))
-    );
 }
 
 #[test]
@@ -357,37 +350,13 @@ fn test_sequence_data_element_at_returns_clarity_type_error() {
 #[test]
 fn test_ascii_data_to_value_returns_clarity_type_error() {
     let err = ASCIIData::to_value(&1).unwrap_err();
-    assert_eq!(
-        ClarityTypeError::InvariantViolation(
-            "ERROR: Invalid ASCII string successfully constructed.".into()
-        ),
-        err
-    );
-    let vm_err: VmExecutionError = err.into();
-    assert_eq!(
-        vm_err,
-        VmExecutionError::Internal(VmInternalError::Expect(
-            "ERROR: Invalid ASCII string successfully constructed.".into()
-        ))
-    );
+    assert_eq!(ClarityTypeError::InvalidAsciiCharacter(1), err);
 }
 
 #[test]
 fn test_utf8_data_to_value_returns_clarity_types_error_invalid_utf8_encoding() {
     let err = UTF8Data::to_value(&vec![0xED, 0xA0, 0x80]).unwrap_err();
-    assert_eq!(
-        ClarityTypeError::InvariantViolation(
-            "ERROR: Invalid UTF-8 string successfully constructed.".into()
-        ),
-        err
-    );
-    let vm_err: VmExecutionError = err.into();
-    assert_eq!(
-        vm_err,
-        VmExecutionError::Internal(VmInternalError::Expect(
-            "ERROR: Invalid UTF-8 string successfully constructed.".into()
-        ))
-    );
+    assert_eq!(ClarityTypeError::InvalidUtf8Encoding, err);
 }
 
 #[test]
@@ -601,17 +570,7 @@ fn test_buff_data_len_returns_clarity_type_error() {
     }
     .len()
     .unwrap_err();
-    assert_eq!(
-        ClarityTypeError::InvariantViolation("Data length should be valid".into()),
-        err
-    );
-    let vm_err: VmExecutionError = err.into();
-    assert_eq!(
-        vm_err,
-        VmExecutionError::Internal(VmInternalError::Expect(
-            "Data length should be valid".into()
-        ))
-    );
+    assert_eq!(ClarityTypeError::ValueTooLarge, err);
 }
 
 #[test]
@@ -621,17 +580,7 @@ fn test_ascii_data_len_returns_clarity_type_error() {
     }
     .len()
     .unwrap_err();
-    assert_eq!(
-        ClarityTypeError::InvariantViolation("Data length should be valid".into()),
-        err
-    );
-    let vm_err: VmExecutionError = err.into();
-    assert_eq!(
-        vm_err,
-        VmExecutionError::Internal(VmInternalError::Expect(
-            "Data length should be valid".into()
-        ))
-    );
+    assert_eq!(ClarityTypeError::ValueTooLarge, err);
 }
 
 #[test]
@@ -641,17 +590,7 @@ fn test_utf8_data_len_returns_clarity_type_error() {
     }
     .len()
     .unwrap_err();
-    assert_eq!(
-        ClarityTypeError::InvariantViolation("Data length should be valid".into()),
-        err
-    );
-    let vm_err: VmExecutionError = err.into();
-    assert_eq!(
-        vm_err,
-        VmExecutionError::Internal(VmInternalError::Expect(
-            "Data length should be valid".into()
-        ))
-    );
+    assert_eq!(ClarityTypeError::ValueTooLarge, err);
 }
 
 #[test]

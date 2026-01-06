@@ -896,11 +896,7 @@ impl SequencedValue<u8> for ASCIIData {
     }
 
     fn to_value(v: &u8) -> Result<Value, ClarityTypeError> {
-        Value::string_ascii_from_bytes(vec![*v]).map_err(|_| {
-            ClarityTypeError::InvariantViolation(
-                "ERROR: Invalid ASCII string successfully constructed.".into(),
-            )
-        })
+        Value::string_ascii_from_bytes(vec![*v])
     }
 }
 
@@ -925,11 +921,7 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
     }
 
     fn to_value(v: &Vec<u8>) -> Result<Value, ClarityTypeError> {
-        Value::string_utf8_from_bytes(v.clone()).map_err(|_| {
-            ClarityTypeError::InvariantViolation(
-                "ERROR: Invalid UTF-8 string successfully constructed.".into(),
-            )
-        })
+        Value::string_utf8_from_bytes(v.clone())
     }
 }
 
@@ -1443,10 +1435,7 @@ impl Value {
 
 impl BuffData {
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data
-            .len()
-            .try_into()
-            .map_err(|_| ClarityTypeError::InvariantViolation("Data length should be valid".into()))
+        self.data.len().try_into()
     }
 
     pub fn as_slice(&self) -> &[u8] {
@@ -1467,7 +1456,7 @@ impl ListData {
         self.data
             .len()
             .try_into()
-            .map_err(|_| ClarityTypeError::InvariantViolation("Data length should be valid".into()))
+            .map_err(|_| ClarityTypeError::ValueTooLarge)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1500,10 +1489,7 @@ impl ASCIIData {
     }
 
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data
-            .len()
-            .try_into()
-            .map_err(|_| ClarityTypeError::InvariantViolation("Data length should be valid".into()))
+        self.data.len().try_into()
     }
 }
 
@@ -1513,10 +1499,7 @@ impl UTF8Data {
     }
 
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data
-            .len()
-            .try_into()
-            .map_err(|_| ClarityTypeError::InvariantViolation("Data length should be valid".into()))
+        self.data.len().try_into()
     }
 }
 
