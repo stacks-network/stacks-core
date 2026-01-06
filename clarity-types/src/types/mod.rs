@@ -37,7 +37,6 @@ pub use self::signatures::{
     AssetIdentifier, BufferLength, ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length,
     TupleTypeSignature, TypeSignature,
 };
-use crate::VmExecutionError;
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 
 /// Maximum size in bytes allowed for types.
@@ -429,6 +428,15 @@ pub enum SequenceData {
     String(CharType),
 }
 
+/// A helper to properly propogate errors from retain_values
+#[derive(Debug)]
+pub enum RetainValuesError<E> {
+    /// An internal error from Clarity type system operations occurred
+    Internal(ClarityTypeError),
+    /// The provided predicate returned an error
+    Predicate(E),
+}
+
 impl SequenceData {
     pub fn type_signature(&self) -> Result<TypeSignature, ClarityTypeError> {
         match self {
@@ -628,9 +636,12 @@ impl SequenceData {
         }
     }
 
-    pub fn filter<F>(&mut self, filter: &mut F) -> Result<(), VmExecutionError>
+    /// Retains elements where the predicate returns Ok(true).
+    /// Removes elements where it returns Ok(false).
+    /// Propagates the first error returned either by internal operations or the provided predicate.
+    pub fn retain_values<E, F>(&mut self, predicate: &mut F) -> Result<(), RetainValuesError<E>>
     where
-        F: FnMut(SymbolicExpression) -> Result<bool, VmExecutionError>,
+        F: FnMut(Value) -> Result<bool, E>,
     {
         // Note: this macro can probably get removed once
         // ```Vec::drain_filter<F>(&mut self, filter: F) -> DrainFilter<T, F>```
@@ -639,16 +650,12 @@ impl SequenceData {
             ($data:expr, $seq_type:ident) => {
                 let mut i = 0;
                 while i != $data.data.len() {
-                    let atom_value =
-                        SymbolicExpression::atom_value($seq_type::to_value(&$data.data[i])?);
-                    match filter(atom_value) {
-                        Ok(res) if res == false => {
-                            $data.data.remove(i);
-                        }
-                        Ok(_) => {
-                            i += 1;
-                        }
-                        Err(err) => return Err(err),
+                    let v =
+                        $seq_type::to_value(&$data.data[i]).map_err(RetainValuesError::Internal)?;
+                    if predicate(v).map_err(RetainValuesError::Predicate)? {
+                        i += 1
+                    } else {
+                        $data.data.remove(i);
                     }
                 }
             };

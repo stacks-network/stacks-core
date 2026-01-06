@@ -16,6 +16,7 @@
 
 use std::cmp;
 
+use clarity_types::types::RetainValuesError;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -66,18 +67,29 @@ pub fn special_filter(
 
     match sequence {
         Value::Sequence(ref mut sequence_data) => {
-            sequence_data.filter(&mut |atom_value: SymbolicExpression| {
-                let argument = [atom_value];
-                let filter_eval = apply(&function, &argument, env, context)?;
-                if let Value::Bool(include) = filter_eval {
-                    Ok(include)
-                } else {
-                    Err(
-                        CheckErrorKind::TypeValueError(Box::new(BoolType), Box::new(filter_eval))
-                            .into(),
-                    )
-                }
-            })?;
+            sequence_data
+                .retain_values(&mut |v: Value| -> Result<bool, VmExecutionError> {
+                    let atom = SymbolicExpression::atom_value(v);
+                    let argument = [atom];
+                    let filter_eval = apply(&function, &argument, env, context)?;
+                    if let Value::Bool(include) = filter_eval {
+                        Ok(include)
+                    } else {
+                        Err(CheckErrorKind::TypeValueError(
+                            Box::new(BoolType),
+                            Box::new(filter_eval),
+                        )
+                        .into())
+                    }
+                })
+                .map_err(|e| match e {
+                    RetainValuesError::Internal(err) => {
+                        VmExecutionError::Internal(VmInternalError::Expect(format!(
+                            "Internal error occurred while filtering sequence value: {err}"
+                        )))
+                    }
+                    RetainValuesError::Predicate(vm_err) => vm_err,
+                })?;
         }
         _ => {
             return Err(
@@ -106,7 +118,12 @@ pub fn special_fold(
 
     match sequence {
         Value::Sequence(ref mut sequence_data) => sequence_data
-            .atom_values()?
+            .atom_values()
+            .map_err(|_| {
+                VmInternalError::Expect(
+                    "ERROR: Invalid sequence data successfully constructed".into(),
+                )
+            })?
             .into_iter()
             .try_fold(initial, |acc, x| {
                 apply(
