@@ -228,8 +228,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TransactionSubmissionError"
-              example:
-                $ref: "./components/examples/transaction-submission-error.example.json"
+              examples:
+                transaction-submission-error:
+                  $ref: "./components/examples/transaction-submission-error.example.json"
             text/plain:
               schema:
                 type: string
@@ -256,8 +257,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ContractInterface"
-              example:
-                $ref: "./components/examples/contract-interface.example.json"
+              examples:
+                contract-interface:
+                  $ref: "./components/examples/contract-interface.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -317,8 +319,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ClarityData"
-              example:
-                $ref: "./components/examples/clarity-data.example.json"
+              examples:
+                clarity-data:
+                  $ref: "./components/examples/clarity-data.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -348,8 +351,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ContractSource"
-              example:
-                $ref: "./components/examples/contract-source.example.json"
+              examples:
+                contract-source:
+                  $ref: "./components/examples/contract-source.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -398,11 +402,9 @@ paths:
                 $ref: "#/components/schemas/ReadOnlyFunctionResult"
               examples:
                 success:
-                  summary: Successful function call
-                  externalValue: "./components/examples/read-only-function-success.example.json"
+                  $ref: "./components/examples/read-only-function-success.example.json"
                 failure:
-                  summary: Failed function call
-                  externalValue: "./components/examples/read-only-function-failure.example.json"
+                  $ref: "./components/examples/read-only-function-failure.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -446,11 +448,14 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ReadOnlyFunctionArgs"
-              example:
-                sender: "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info"
-                arguments:
-                  - "0x0011..."
-                  - "0x00231..."
+            examples:
+              fast-call-request:
+                summary: Fast call read-only function request
+                value:
+                  sender: "SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info"
+                  arguments:
+                    - "0x0011..."
+                    - "0x00231..."
       responses:
         "200":
           description: Function executed successfully
@@ -460,11 +465,9 @@ paths:
                 $ref: "#/components/schemas/ReadOnlyFunctionResult"
               examples:
                 success:
-                  summary: Successful function call
-                  externalValue: "./components/examples/read-only-function-success.example.json"
+                  $ref: "./components/examples/read-only-function-success.example.json"
                 failure:
-                  summary: Failed function call
-                  externalValue: "./components/examples/read-only-function-failure.example.json"
+                  $ref: "./components/examples/read-only-function-failure.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -500,8 +503,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AccountData"
-              example:
-                $ref: "./components/examples/account-data.example.json"
+              examples:
+                account-data:
+                  $ref: "./components/examples/account-data.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -588,9 +592,12 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/FeeTransactionRequest"
-            example:
-              estimated_len: 350
-              transaction_payload: "021af942874ce525e87f21bbe8c121b12fac831d02f4086765742d696e666f0b7570646174652d696e666f00000000"
+            examples:
+              fee-transaction-request:
+                summary: Fee estimation request
+                value:
+                  estimated_len: 350
+                  transaction_payload: "021af942874ce525e87f21bbe8c121b12fac831d02f4086765742d696e666f0b7570646174652d696e666f00000000"
       responses:
         "200":
           description: Estimated fees for the transaction
@@ -598,8 +605,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FeeTransactionResponse"
-              example:
-                $ref: "./components/examples/fee-transaction-response.example.json"
+              examples:
+                fee-transaction-response:
+                  $ref: "./components/examples/fee-transaction-response.example.json"
         "400":
           description: Fee estimation error
           content:
@@ -651,8 +659,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NodeInfo"
-              example:
-                $ref: "./components/examples/node-info.example.json"
+              examples:
+                node-info:
+                  $ref: "./components/examples/node-info.example.json"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -671,8 +680,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PoxInfo"
-              example:
-                $ref: "./components/examples/pox-info.example.json"
+              examples:
+                pox-info:
+                  $ref: "./components/examples/pox-info.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -726,8 +736,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/IsTraitImplemented"
-              example:
-                $ref: "./components/examples/is-trait-implemented.example.json"
+              examples:
+                is-trait-implemented:
+                  $ref: "./components/examples/is-trait-implemented.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -750,8 +761,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ClarityData"
-              example:
-                $ref: "./components/examples/clarity-data.example.json"
+              examples:
+                clarity-data:
+                  $ref: "./components/examples/clarity-data.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -789,8 +801,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ClarityMetadata"
-              example:
-                $ref: "./components/examples/clarity-metadata.example.json"
+              examples:
+                clarity-metadata:
+                  $ref: "./components/examples/clarity-metadata.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -834,8 +847,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ConstantValue"
-              example:
-                $ref: "./components/examples/constant-value.example.json"
+              examples:
+                constant-value:
+                  $ref: "./components/examples/constant-value.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -880,9 +894,12 @@ paths:
                   type: integer
                   minimum: 0
                   description: Chain ID for the block
-            example:
-              block: "00000000000000001f00000000000927c08fb5ae5bf80e39e4168f6a3fddb0407a069d21ee68465e6856393254d2a66194f44bb01070666d5effcfb2436e209a75878fe80a04b4258a8cd34ab97c38a8dde331a2a509dd7e4b90590726866172cc138c18e80567737667f55d3f9817ce4714c91d1adfd36101141829dc0b5ea0c4944668c0005ddb6f9e2718f60014f21932a42a36ffaf58e88e77b217b2af366c15dd59e6b136ca773729832dcfc5875ec0830d04012dd5a4fa77a196646ea2b356289116fd02558c034b62d63f8a65bdd20d7ffc3fec6c266cd974be776a9e92759b90f288dcc2525b6b6bd5622c5f02e0922440e9ad1095c19b4467fd94566caa9755669d8e0000000180800000000400f64081ae6209dce9245753a4f764d6f168aae1af00000000000000000000000000000064000041dbcc7391991c1a18371eb49b879240247a3ec7f281328f53976c1218ffd65421dbb101e59370e2c972b29f48dc674b2de5e1b65acbd41d5d2689124d42c16c01010000000000051a346048df62be3a52bb6236e11394e8600229e27b000000000000271000000000000000000000000000000000000000000000000000000000000000000000"
-              chain_id: 2147483648
+            examples:
+              block-proposal-request:
+                summary: Block proposal request
+                value:
+                  block: "00000000000000001f00000000000927c08fb5ae5bf80e39e4168f6a3fddb0407a069d21ee68465e6856393254d2a66194f44bb01070666d5effcfb2436e209a75878fe80a04b4258a8cd34ab97c38a8dde331a2a509dd7e4b90590726866172cc138c18e80567737667f55d3f9817ce4714c91d1adfd36101141829dc0b5ea0c4944668c0005ddb6f9e2718f60014f21932a42a36ffaf58e88e77b217b2af366c15dd59e6b136ca773729832dcfc5875ec0830d04012dd5a4fa77a196646ea2b356289116fd02558c034b62d63f8a65bdd20d7ffc3fec6c266cd974be776a9e92759b90f288dcc2525b6b6bd5622c5f02e0922440e9ad1095c19b4467fd94566caa9755669d8e0000000180800000000400f64081ae6209dce9245753a4f764d6f168aae1af00000000000000000000000000000064000041dbcc7391991c1a18371eb49b879240247a3ec7f281328f53976c1218ffd65421dbb101e59370e2c972b29f48dc674b2de5e1b65acbd41d5d2689124d42c16c01010000000000051a346048df62be3a52bb6236e11394e8600229e27b000000000000271000000000000000000000000000000000000000000000000000000000000000000000"
+                  chain_id: 2147483648
       responses:
         "202":
           description: |
@@ -892,8 +909,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BlockProposalResponse"
-              example:
-                $ref: "./components/examples/post-block-proposal-response.example.json"
+              examples:
+                block-proposal-accepted:
+                  $ref: "./components/examples/post-block-proposal-response.example.json"
         "400":
           description: Bad Request
           content:
@@ -917,8 +935,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BlockProposalResponse"
-              example:
-                $ref: "./components/examples/post-block-proposal-response.429.example.json"
+              examples:
+                too-many-requests:
+                  $ref: "./components/examples/post-block-proposal-response.429.example.json"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -949,8 +968,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetStackerSet"
-              example:
-                $ref: "./components/examples/get-stacker-set.example.json"
+              examples:
+                stacker-set:
+                  $ref: "./components/examples/get-stacker-set.example.json"
         "400":
           description: Could not fetch the given reward set
           content:
@@ -971,8 +991,9 @@ paths:
                   err_msg:
                     type: string
                     description: Detailed error message
-              example:
-                $ref: "./components/examples/get-stacker-set-400.example.json"
+              examples:
+                stacker-set-error:
+                  $ref: "./components/examples/get-stacker-set-400.example.json"
         "404":
           description: Reward cycle not found or does not exist
           content:
@@ -1074,8 +1095,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TenureInfo"
-              example:
-                $ref: "./components/examples/get-tenure-info.example.json"
+              examples:
+                tenure-info:
+                  $ref: "./components/examples/get-tenure-info.example.json"
 
   /v3/tenures/{block_id}:
     get:
@@ -1155,8 +1177,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TenureBlocks"
-              example:
-                $ref: "./components/examples/tenure-blocks.example.json"
+              examples:
+                tenure-blocks:
+                  $ref: "./components/examples/tenure-blocks.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1189,8 +1212,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TenureBlocks"
-              example:
-                $ref: "./components/examples/tenure-blocks.example.json"
+              examples:
+                tenure-blocks:
+                  $ref: "./components/examples/tenure-blocks.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1224,8 +1248,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TenureBlocks"
-              example:
-                $ref: "./components/examples/tenure-blocks.example.json"
+              examples:
+                tenure-blocks:
+                  $ref: "./components/examples/tenure-blocks.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1250,8 +1275,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Sortitions"
-              example:
-                $ref: "./components/examples/get-sortitions.example.json"
+              examples:
+                latest-sortition:
+                  $ref: "./components/examples/get-sortitions.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1276,8 +1302,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Sortitions"
-              example:
-                $ref: "./components/examples/get-sortitions-latest-and-prior.example.json"
+              examples:
+                latest-and-last-sortitions:
+                  $ref: "./components/examples/get-sortitions-latest-and-prior.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1310,8 +1337,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Sortitions"
-              example:
-                $ref: "./components/examples/get-sortitions.example.json"
+              examples:
+                sortition-by-consensus:
+                  $ref: "./components/examples/get-sortitions.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1344,8 +1372,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Sortitions"
-              example:
-                $ref: "./components/examples/get-sortitions.example.json"
+              examples:
+                sortition-by-burn-hash:
+                  $ref: "./components/examples/get-sortitions.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1379,8 +1408,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Sortitions"
-              example:
-                $ref: "./components/examples/get-sortitions.example.json"
+              examples:
+                sortition-by-height:
+                  $ref: "./components/examples/get-sortitions.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1454,8 +1484,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TransactionInfo"
-              example:
-                $ref: "./components/examples/get-transaction.example.json"
+              examples:
+                transaction-info:
+                  $ref: "./components/examples/get-transaction.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1492,8 +1523,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetHealth"
-              example:
-                $ref: "./components/examples/node-health.example.json"
+              examples:
+                node-health:
+                  $ref: "./components/examples/node-health.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "500":
@@ -1568,13 +1600,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AttachmentInventory"
-                example:
-                  block_id: "0123456789abcdef0123456789abcdef0123456789abcdef"
-                  pages:
-                    - index: 1
-                      inventory: [255, 0, 255, 0]
-                    - index: 2
-                      inventory: [0, 255, 0, 255]
+              examples:
+                attachment-inventory:
+                  summary: Attachment inventory response
+                  value:
+                    block_id: "0123456789abcdef0123456789abcdef0123456789abcdef"
+                    pages:
+                      - index: 1
+                        inventory: [255, 0, 255, 0]
+                      - index: 2
+                        inventory: [0, 255, 0, 255]
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1824,11 +1859,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StackerDbMetadata"
-                example:
-                  - slot_id: 0
-                    slot_version: 1
-                    data_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                    signature: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+              examples:
+                stackerdb-metadata:
+                  summary: StackerDB metadata response
+                  value:
+                    - slot_id: 0
+                      slot_version: 1
+                      data_hash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                      signature: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1861,11 +1899,14 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/StackerDbChunkData"
-            example:
-              slot_id: 1
-              slot_version: 2
-              sig: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01"
-              data: "deadbeefcafebabe"
+            examples:
+              stackerdb-chunk-request:
+                summary: StackerDB chunk data request
+                value:
+                  slot_id: 1
+                  slot_version: 2
+                  sig: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01"
+                  data: "deadbeefcafebabe"
       responses:
         "200":
           description: Chunk submission result (both success and failure cases)
@@ -1875,11 +1916,9 @@ paths:
                 $ref: "#/components/schemas/StackerDbChunkAckData"
               examples:
                 success:
-                  summary: Successful chunk write
-                  externalValue: "./components/examples/stackerdb-chunk-ack-success.example.json"
+                  $ref: "./components/examples/stackerdb-chunk-ack-success.example.json"
                 failure:
-                  summary: Failed chunk write
-                  externalValue: "./components/examples/stackerdb-chunk-ack-failure.example.json"
+                  $ref: "./components/examples/stackerdb-chunk-ack-failure.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1906,10 +1945,13 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StackerDbReplicas"
-                example:
-                  - ip: "127.0.0.1"
-                    port: 20444
-                    public_key_hash: "03abc123..."
+              examples:
+                stackerdb-replicas:
+                  summary: List of StackerDB replicas
+                  value:
+                    - ip: "127.0.0.1"
+                      port: 20444
+                      public_key_hash: "03abc123..."
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1945,7 +1987,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ClarityData"
-                example:
+              examples:
+                clarity-data:
                   $ref: "./components/examples/clarity-data.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -2038,8 +2081,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NetworkPeers"
-              example:
-                $ref: ./components/examples/network-peers.example.json
+              examples:
+                network-peers:
+                  $ref: "./components/examples/network-peers.example.json"
 
   /v3/tenures/fork_info/{start}/{stop}:
     get:
@@ -2106,8 +2150,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TenureTip"
-              example:
-                $ref: "./components/examples/get-tenure-tip.example.json"
+              examples:
+                tenure-tip:
+                  $ref: "./components/examples/get-tenure-tip.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -2140,9 +2185,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UnconfirmedTransaction"
-                example:
-                  tx: "800000000004..."
-                  status: "Mempool"
+              examples:
+                unconfirmed-transaction:
+                  summary: Unconfirmed transaction in mempool
+                  value:
+                    tx: "800000000004..."
+                    status: "Mempool"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -2184,9 +2232,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BlockUploadResponse"
-                example:
-                  stacks_block_id: "abc123..."
-                  accepted: true
+              examples:
+                block-upload-success:
+                  summary: Block upload accepted
+                  value:
+                    stacks_block_id: "abc123..."
+                    accepted: true
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -2282,9 +2333,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BlockUploadResponse"
-                example:
-                  stacks_block_id: "abc123..."
-                  accepted: true
+              examples:
+                nakamoto-block-upload-success:
+                  summary: Nakamoto block upload accepted
+                  value:
+                    stacks_block_id: "abc123..."
+                    accepted: true
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2317,8 +2371,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BlockReplay"
-              example:
-                $ref: "./components/examples/block-replay.example.json"
+              examples:
+                block-replay:
+                  $ref: "./components/examples/block-replay.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
