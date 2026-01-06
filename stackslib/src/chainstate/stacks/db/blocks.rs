@@ -4607,7 +4607,10 @@ impl StacksChainState {
             })?;
 
             let entries = match result {
-                Value::Optional(_) => match result.expect_optional()? {
+                Value::Optional(_) => match result
+                    .expect_optional()
+                    .map_err(|_| Error::Expects("expected lockups to return an optional".into()))?
+                {
                     Some(Value::Sequence(SequenceData::List(entries))) => entries.data,
                     _ => return Ok((0, vec![])),
                 },
@@ -4617,9 +4620,21 @@ impl StacksChainState {
             let mut total_minted = 0;
             let mut events = vec![];
             for entry in entries.into_iter() {
-                let schedule: TupleData = entry.expect_tuple()?;
-                let amount = schedule.get("amount")?.to_owned().expect_u128()?;
-                let recipient = schedule.get("recipient")?.to_owned().expect_principal()?;
+                let schedule: TupleData = entry
+                    .expect_tuple()
+                    .map_err(|_| Error::Expects("expected unlock schedule tuple".into()))?;
+                let amount = schedule
+                    .get("amount")
+                    .map_err(|_| Error::Expects("missing amount in unlock schedule".into()))?
+                    .to_owned()
+                    .expect_u128()
+                    .map_err(|_| Error::Expects("invalid amount in unlock schedule".into()))?;
+                let recipient = schedule
+                    .get("recipient")
+                    .map_err(|_| Error::Expects("missing recipient in unlock schedule".into()))?
+                    .to_owned()
+                    .expect_principal()
+                    .map_err(|_| Error::Expects("invalid recipient in unlock schedule".into()))?;
                 total_minted += amount;
                 StacksChainState::account_credit(
                     tx_connection,

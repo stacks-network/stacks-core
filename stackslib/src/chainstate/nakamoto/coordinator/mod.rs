@@ -112,9 +112,15 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                 &format!("(map-get? cycle-set-height u{cycle})"),
             )?
             .expect_optional()
-            .map_err(ChainstateError::from)?
+            .map_err(|_| {
+                ChainstateError::Expects(format!(
+                    "(map-get? cycle-set-height u{cycle}) did not return an optional"
+                ))
+            })?
             .map(|x| {
-                let as_u128 = x.expect_u128()?;
+                let as_u128 = x.expect_u128().map_err(|_| {
+                    ChainstateError::Expects("cycle-set-height did not return a u128".into())
+                })?;
                 u64::try_from(as_u128)
                     .map_err(|_| ChainstateError::Expects("block height exceeded u64".into()))
             })
@@ -156,9 +162,11 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
             )
             .map_err(ChainstateError::ClarityError)?
             .expect_optional()
-            .map_err(ChainstateError::from)?
+            .map_err(|e| ChainstateError::Expects(format!("Expected an optional: {e}")))?
             .map(|x| {
-                let as_u128 = x.expect_u128()?;
+                let as_u128 = x
+                    .expect_u128()
+                    .map_err(|e| ChainstateError::Expects(format!("Expected u128: {e}")))?;
                 u64::try_from(as_u128)
                     .map_err(|_| ChainstateError::Expects("block height exceeded u64".into()))
             })

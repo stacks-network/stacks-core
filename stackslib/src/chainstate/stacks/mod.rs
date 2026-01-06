@@ -20,7 +20,7 @@ use std::{error, fmt, io};
 
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::{CostErrors, ExecutionCost};
-use clarity::vm::errors::{ClarityTypeError, VmExecutionError};
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
@@ -102,8 +102,6 @@ pub enum Error {
     CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
     /// Errors that occur during clarity contract processing and execution
     ClarityError(ClarityError),
-    /// Clarity type manipulation errors that occur outside of VM execution
-    ClarityTypeError(ClarityTypeError),
     DBError(db_error),
     NetError(net_error),
     CodecError(codec_error),
@@ -182,7 +180,6 @@ impl fmt::Display for Error {
                 )
             ),
             Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
-            Error::ClarityTypeError(ref e) => fmt::Display::fmt(e, f),
             Error::DBError(ref e) => fmt::Display::fmt(e, f),
             Error::NetError(ref e) => fmt::Display::fmt(e, f),
             Error::CodecError(ref e) => fmt::Display::fmt(e, f),
@@ -255,7 +252,6 @@ impl error::Error for Error {
             Error::IncompatibleSpendingConditionError => None,
             Error::CostOverflowError(..) => None,
             Error::ClarityError(ref e) => Some(e),
-            Error::ClarityTypeError(ref e) => Some(e),
             Error::DBError(ref e) => Some(e),
             Error::NetError(ref e) => Some(e),
             Error::CodecError(ref e) => Some(e),
@@ -304,7 +300,6 @@ impl Error {
             Error::IncompatibleSpendingConditionError => "IncompatibleSpendingConditionError",
             Error::CostOverflowError(..) => "CostOverflowError",
             Error::ClarityError(ref _e) => "ClarityError",
-            Error::ClarityTypeError(ref _e) => "ClarityTypeError",
             Error::DBError(ref _e) => "DBError",
             Error::NetError(ref _e) => "NetError",
             Error::CodecError(ref _e) => "CodecError",
@@ -360,13 +355,7 @@ impl From<db_error> for Error {
 
 impl From<VmExecutionError> for Error {
     fn from(e: VmExecutionError) -> Error {
-        Error::ClarityError(ClarityError::Interpreter(e))
-    }
-}
-
-impl From<ClarityTypeError> for Error {
-    fn from(e: ClarityTypeError) -> Error {
-        Error::ClarityTypeError(e)
+        Error::ClarityError(e.into())
     }
 }
 
