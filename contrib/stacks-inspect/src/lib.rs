@@ -936,9 +936,11 @@ fn replay_block_nakamoto(
         return Ok(());
     };
 
-    let expected_cost = match block.get_tenure_extend_tx_payload() {
-        // Full Extend: No subtraction needed
-        Some(tc) if tc.cause.is_full_extend() => expected_total_tenure_cost,
+    let expected_cost = match block.get_tenure_tx_payload() {
+        // New block or full extend: No subtraction needed
+        Some(tc) if tc.cause.is_full_extend() || tc.cause.is_new_tenure() => {
+            expected_total_tenure_cost
+        }
 
         // Partial Extend or None: We need the parent cost.
         tenure_payload => {
