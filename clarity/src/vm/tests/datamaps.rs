@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,13 +13,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use crate::vm::errors::{
-    CheckErrorKind, ClarityTypeError, EarlyReturnError, SyntaxBindingError, VmExecutionError,
-};
+use clarity_types::errors::ClarityTypeError;
+
+use crate::vm::errors::{CheckErrorKind, EarlyReturnError, SyntaxBindingError, VmExecutionError};
 use crate::vm::types::{
     ListData, SequenceData, TupleData, TupleTypeSignature, TypeSignature, Value,
 };
-use crate::vm::{execute, ClarityName};
+use crate::vm::{ClarityName, execute};
 
 fn assert_executes(expected: Result<Value, ClarityTypeError>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());

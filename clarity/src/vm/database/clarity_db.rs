@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@ use stacks_common::types::chainstate::{
     TrieHash, VRFSeed,
 };
 use stacks_common::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId};
-use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, to_hex};
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
@@ -40,8 +40,8 @@ use crate::vm::errors::{CheckErrorKind, RuntimeError, VmExecutionError, VmIntern
 use crate::vm::representations::ClarityName;
 use crate::vm::types::serialization::NONE_SERIALIZATION_LEN;
 use crate::vm::types::{
-    byte_len_of_serialization, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
-    TupleData, TypeSignature, Value,
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, TypeSignature,
+    Value, byte_len_of_serialization,
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
@@ -145,7 +145,7 @@ pub trait HeadersDB {
         epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId)
-        -> Option<BurnchainHeaderHash>;
+    -> Option<BurnchainHeaderHash>;
     fn get_consensus_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -2092,10 +2092,10 @@ impl ClarityDatabase<'_> {
             .checked_add(amount)
             .ok_or(RuntimeError::ArithmeticOverflow)?;
 
-        if let Some(total_supply) = descriptor.total_supply {
-            if new_supply > total_supply {
-                return Err(RuntimeError::SupplyOverflow(new_supply, total_supply).into());
-            }
+        if let Some(total_supply) = descriptor.total_supply
+            && new_supply > total_supply
+        {
+            return Err(RuntimeError::SupplyOverflow(new_supply, total_supply).into());
         }
 
         self.put_data(&key, &new_supply)

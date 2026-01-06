@@ -17,7 +17,7 @@
 use std::str;
 
 pub use clarity_types::types::serialization::{
-    SerializationError, TypePrefix, NONE_SERIALIZATION_LEN,
+    NONE_SERIALIZATION_LEN, SerializationError, TypePrefix,
 };
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
@@ -52,9 +52,9 @@ pub mod tests {
 
     use super::super::*;
     use super::SerializationError;
+    use crate::vm::ClarityVersion;
     use crate::vm::database::{ClarityDeserializable, ClaritySerializable, RollbackWrapper};
     use crate::vm::tests::test_clarity_versions;
-    use crate::vm::ClarityVersion;
 
     fn test_deser_ser(v: Value) {
         assert_eq!(
@@ -102,12 +102,9 @@ pub mod tests {
 
     #[apply(test_clarity_versions)]
     fn test_lists(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
-        let list_list_int = Value::list_from(vec![Value::list_from(vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Int(3),
+        let list_list_int = Value::list_from(vec![
+            Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap(),
         ])
-        .unwrap()])
         .unwrap();
 
         // Should be legal!

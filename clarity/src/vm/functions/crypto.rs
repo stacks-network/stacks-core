@@ -19,15 +19,15 @@ use stacks_common::address::{
 };
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash;
-use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::{Secp256k1PublicKey, secp256k1_recover, secp256k1_verify};
 use stacks_common::util::secp256r1::secp256r1_verify;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_argument_count, CheckErrorKind, VmExecutionError, VmInternalError};
+use crate::vm::errors::{CheckErrorKind, VmExecutionError, VmInternalError, check_argument_count};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value};
-use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
+use crate::vm::{ClarityVersion, Environment, LocalContext, eval};
 
 macro_rules! native_hash_func {
     ($name:ident, $module:ty) => {
@@ -118,7 +118,7 @@ pub fn special_principal_of(
                 Box::new(TypeSignature::BUFFER_33),
                 Box::new(param0),
             )
-            .into())
+            .into());
         }
     };
 
@@ -166,7 +166,7 @@ pub fn special_secp256k1_recover(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(param0),
             )
-            .into())
+            .into());
         }
     };
 
@@ -190,7 +190,7 @@ pub fn special_secp256k1_recover(
                 Box::new(TypeSignature::BUFFER_65),
                 Box::new(param1),
             )
-            .into())
+            .into());
         }
     };
 
@@ -232,7 +232,7 @@ pub fn special_secp256k1_verify(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(param0),
             )
-            .into())
+            .into());
         }
     };
 
@@ -259,7 +259,7 @@ pub fn special_secp256k1_verify(
                 Box::new(TypeSignature::BUFFER_65),
                 Box::new(param1),
             )
-            .into())
+            .into());
         }
     };
 
@@ -280,7 +280,7 @@ pub fn special_secp256k1_verify(
                 Box::new(TypeSignature::BUFFER_33),
                 Box::new(param2),
             )
-            .into())
+            .into());
         }
     };
 
@@ -320,7 +320,7 @@ pub fn special_secp256r1_verify(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(message_value),
             )
-            .into())
+            .into());
         }
     };
 
@@ -347,7 +347,7 @@ pub fn special_secp256r1_verify(
                 Box::new(TypeSignature::BUFFER_64),
                 Box::new(signature_value),
             )
-            .into())
+            .into());
         }
     };
 
@@ -371,7 +371,7 @@ pub fn special_secp256r1_verify(
                 Box::new(TypeSignature::BUFFER_33),
                 Box::new(pubkey_value),
             )
-            .into())
+            .into());
         }
     };
 

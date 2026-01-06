@@ -294,7 +294,7 @@ impl ContractInterfaceFunction {
                                 "Contract functions should only have fixed function arguments!"
                                     .into(),
                             )
-                            .into())
+                            .into());
                         }
                     },
                 })

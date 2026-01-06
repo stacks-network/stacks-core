@@ -17,7 +17,7 @@
 use stacks_common::consts::TOKEN_TRANSFER_MEMO_LENGTH;
 
 use super::{TypeChecker, TypingContext};
-use crate::vm::analysis::errors::{check_argument_count, StaticCheckError, StaticCheckErrorKind};
+use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, check_argument_count};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::representations::SymbolicExpression;

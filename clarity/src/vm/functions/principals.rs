@@ -7,17 +7,17 @@ use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrorKind,
-    VmExecutionError, VmInternalError,
+    CheckErrorKind, VmExecutionError, VmInternalError, check_argument_count,
+    check_arguments_at_least, check_arguments_at_most,
 };
 use crate::vm::representations::{
-    SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
+    CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, SymbolicExpression,
 };
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
     ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value,
 };
-use crate::vm::{eval, ContractName, Environment, LocalContext};
+use crate::vm::{ContractName, Environment, LocalContext, eval};
 
 pub enum PrincipalConstructErrorCode {
     VERSION_BYTE = 0,
@@ -255,7 +255,7 @@ pub fn special_principal_construct(
                 Box::new(TypeSignature::BUFFER_20),
                 Box::new(hash_bytes),
             )
-            .into())
+            .into());
         }
     };
 
@@ -291,7 +291,7 @@ pub fn special_principal_construct(
                     Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
                     Box::new(name),
                 )
-                .into())
+                .into());
             }
         };
 

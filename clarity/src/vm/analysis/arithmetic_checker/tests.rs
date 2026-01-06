@@ -20,18 +20,18 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::ClarityVersion;
+use crate::vm::analysis::ContractAnalysis;
 use crate::vm::analysis::arithmetic_checker::Error::*;
 use crate::vm::analysis::arithmetic_checker::{ArithmeticOnlyChecker, Error};
-use crate::vm::analysis::ContractAnalysis;
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::define::DefineFunctions;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::tooling::mem_type_check;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::variables::NativeVariables;
-use crate::vm::ClarityVersion;
 
 /// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
 /// map would not pass this check).
@@ -63,13 +63,34 @@ fn check_good(contract: &str, version: ClarityVersion, epoch: StacksEpochId) {
 #[apply(test_clarity_versions)]
 fn test_bad_defines(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tests = [
-        ("(define-public (foo) (ok 1))", DefineTypeForbidden(DefineFunctions::PublicFunction)),
-        ("(define-map foo-map ((a uint)) ((b uint))) (define-private (foo) (map-get? foo-map {a: u1}))", DefineTypeForbidden(DefineFunctions::Map)),
-        ("(define-data-var foo-var uint u1) (define-private (foo) (var-get foo-var))", DefineTypeForbidden(DefineFunctions::PersistedVariable)),
-        ("(define-fungible-token tokaroos u500)", DefineTypeForbidden(DefineFunctions::FungibleToken)),
-        ("(define-fungible-token tokaroos)", DefineTypeForbidden(DefineFunctions::FungibleToken)),
-        ("(define-non-fungible-token tokaroos uint)", DefineTypeForbidden(DefineFunctions::NonFungibleToken)),
-        ("(define-trait foo-trait ((foo (uint)) (response uint uint)))", DefineTypeForbidden(DefineFunctions::Trait)),
+        (
+            "(define-public (foo) (ok 1))",
+            DefineTypeForbidden(DefineFunctions::PublicFunction),
+        ),
+        (
+            "(define-map foo-map ((a uint)) ((b uint))) (define-private (foo) (map-get? foo-map {a: u1}))",
+            DefineTypeForbidden(DefineFunctions::Map),
+        ),
+        (
+            "(define-data-var foo-var uint u1) (define-private (foo) (var-get foo-var))",
+            DefineTypeForbidden(DefineFunctions::PersistedVariable),
+        ),
+        (
+            "(define-fungible-token tokaroos u500)",
+            DefineTypeForbidden(DefineFunctions::FungibleToken),
+        ),
+        (
+            "(define-fungible-token tokaroos)",
+            DefineTypeForbidden(DefineFunctions::FungibleToken),
+        ),
+        (
+            "(define-non-fungible-token tokaroos uint)",
+            DefineTypeForbidden(DefineFunctions::NonFungibleToken),
+        ),
+        (
+            "(define-trait foo-trait ((foo (uint)) (response uint uint)))",
+            DefineTypeForbidden(DefineFunctions::Trait),
+        ),
     ];
 
     // Check bad defines for each clarity version

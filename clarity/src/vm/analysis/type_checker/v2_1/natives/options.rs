@@ -19,12 +19,12 @@ use clarity_types::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
 use super::{
-    check_argument_count, check_arguments_at_least, no_type, StaticCheckError,
-    StaticCheckErrorKind, TypeChecker,
+    StaticCheckError, StaticCheckErrorKind, TypeChecker, check_argument_count,
+    check_arguments_at_least, no_type,
 };
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTracker};
+use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime_cost};
 use crate::vm::representations::SymbolicExpression;
 
 pub fn check_special_okay(

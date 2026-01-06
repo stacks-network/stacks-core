@@ -21,14 +21,14 @@ use integer_sqrt::IntegerSquareRoot;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError,
+    CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError, check_argument_count,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
 use crate::vm::version::ClarityVersion;
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{Environment, LocalContext, eval};
 
 struct U128Ops();
 struct I128Ops();
@@ -332,7 +332,7 @@ macro_rules! make_arithmetic_ops {
                         return Err(RuntimeError::Arithmetic(
                             "sqrti must be passed a positive integer".to_string(),
                         )
-                        .into())
+                        .into());
                     }
                 }
             }

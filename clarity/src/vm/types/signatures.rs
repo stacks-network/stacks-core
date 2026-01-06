@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,16 +18,16 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use clarity_types::errors::analysis::{CommonCheckErrorKind, StaticCheckErrorKind};
+pub use clarity_types::types::Value;
 pub use clarity_types::types::signatures::{
     AssetIdentifier, BufferLength, CallableSubtype, ListTypeData, SequenceSubtype, StringSubtype,
     StringUTF8Length, TupleTypeSignature, TypeSignature,
 };
-pub use clarity_types::types::Value;
 use stacks_common::types::StacksEpochId;
 
 use self::TypeSignature::SequenceType;
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
-use crate::vm::costs::{runtime_cost, CostOverflowingMath};
+use crate::vm::costs::{CostOverflowingMath, runtime_cost};
 use crate::vm::errors::{SyntaxBindingError, SyntaxBindingErrorType};
 use crate::vm::representations::{
     ClarityName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
@@ -565,9 +565,9 @@ impl FunctionArg {
     }
 }
 
-use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::CostTracker;
 use crate::vm::ClarityVersion;
+use crate::vm::costs::CostTracker;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
 
 /// Try to parse a list of (name_i, type_i) pairs into Vec<(ClarityName, TypeSignature)>.
 /// On failure, return both the type-check error as well as the index of the symbolic expression which caused
@@ -647,9 +647,8 @@ impl fmt::Display for FunctionArg {
 
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::CheckErrorKind;
     use clarity_types::errors::CheckErrorKind::*;
-    use clarity_types::types::ClarityTypeError;
+    use clarity_types::errors::{CheckErrorKind, ClarityTypeError};
     #[cfg(test)]
     use rstest::rstest;
     #[cfg(test)]
@@ -659,7 +658,7 @@ mod test {
     use super::*;
     use crate::vm::tests::test_clarity_versions;
     use crate::vm::types::QualifiedContractIdentifier;
-    use crate::vm::{execute, ClarityVersion};
+    use crate::vm::{ClarityVersion, execute};
 
     fn fail_parse(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> CheckErrorKind {
         use crate::vm::ast::parse;
@@ -688,7 +687,11 @@ mod test {
         // second_tuple.type_size = k * (130+130)
         // to get a type-size greater than max_value all by itself,
         //   set k = 4033
-        let first_tuple = TypeSignature::from_string("(tuple (a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 bool))", version, epoch);
+        let first_tuple = TypeSignature::from_string(
+            "(tuple (a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 bool))",
+            version,
+            epoch,
+        );
 
         let len = 4033;
         let mut keys = Vec::with_capacity(len);

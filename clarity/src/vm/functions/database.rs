@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,22 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::vm::callables::DefineType;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
+use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, RuntimeError, VmExecutionError,
-    VmInternalError,
+    CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError, check_argument_count,
+    check_arguments_at_least,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, PrincipalData, SequenceData,
     StacksBlockInfoProperty, TenureInfoProperty, TupleData, TypeSignature, Value,
 };
-use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
+use crate::vm::{ClarityVersion, Environment, LocalContext, eval};
 
 switch_on_global_epoch!(special_fetch_variable(
     special_fetch_variable_v200,
@@ -82,7 +82,7 @@ pub fn special_contract_call(
 
     let (contract_identifier, type_returns_constraint) = match &args[0].expr {
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(
-            ref contract_identifier,
+            contract_identifier,
         ))) => {
             // Static dispatch
             (contract_identifier, None)
@@ -93,10 +93,9 @@ pub fn special_contract_call(
                 Some(trait_data) => {
                     // Ensure that contract-call is used for inter-contract calls only
                     if trait_data.contract_identifier == env.contract_context.contract_identifier {
-                        return Err(CheckErrorKind::CircularReference(vec![trait_data
-                            .contract_identifier
-                            .name
-                            .to_string()])
+                        return Err(CheckErrorKind::CircularReference(vec![
+                            trait_data.contract_identifier.name.to_string(),
+                        ])
                         .into());
                     }
 
@@ -461,7 +460,7 @@ pub fn special_at_block(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(x),
             )
-            .into())
+            .into());
         }
     };
 

@@ -12,17 +12,17 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use clarity_types::ClarityName;
 use clarity_types::errors::analysis::StaticCheckErrorKind;
 use clarity_types::types::{
-    BufferLength, ListTypeData, SequenceSubtype, StringSubtype, TypeSignature,
-    MAX_TO_ASCII_BUFFER_LEN,
+    BufferLength, ListTypeData, MAX_TO_ASCII_BUFFER_LEN, SequenceSubtype, StringSubtype,
+    TypeSignature,
 };
-use clarity_types::ClarityName;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::{execute_with_parameters, ClarityVersion};
+use crate::vm::{ClarityVersion, execute_with_parameters};
 
 /// Pass various types to `to-ascii?`
 #[apply(test_clarity_versions)]

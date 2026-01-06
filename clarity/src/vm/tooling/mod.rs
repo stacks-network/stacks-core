@@ -1,9 +1,9 @@
 use stacks_common::types::StacksEpochId;
 
+use super::ClarityVersion;
 use super::analysis::ContractAnalysis;
 use super::types::TypeSignature;
-use super::ClarityVersion;
-use crate::vm::analysis::{run_analysis, StaticCheckError};
+use crate::vm::analysis::{StaticCheckError, run_analysis};
 use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;

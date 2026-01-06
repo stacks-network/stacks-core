@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,21 +17,21 @@
 use stacks_common::types::StacksEpochId;
 
 use super::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most,
-    compute_typecheck_cost, no_type, TypeChecker, TypingContext,
+    TypeChecker, TypingContext, check_argument_count, check_arguments_at_least,
+    check_arguments_at_most, compute_typecheck_cost, no_type,
 };
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTracker};
+use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime_cost};
 use crate::vm::diagnostic::DiagnosableError;
-use crate::vm::functions::{handle_binding_list, NativeFunctions};
+use crate::vm::functions::{NativeFunctions, handle_binding_list};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype,
 };
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
-    FunctionSignature, FunctionType, PrincipalData, StacksBlockInfoProperty, TenureInfoProperty,
-    TupleTypeSignature, TypeSignature, Value, MAX_VALUE_SIZE,
+    FunctionSignature, FunctionType, MAX_VALUE_SIZE, PrincipalData, StacksBlockInfoProperty,
+    TenureInfoProperty, TupleTypeSignature, TypeSignature, Value,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -86,10 +86,10 @@ fn check_special_list_cons(
         if let Some(cur_size) = entries_size {
             entries_size = cur_size.checked_add(checked.size()?);
         }
-        if let Some(cur_size) = entries_size {
-            if cur_size > MAX_VALUE_SIZE {
-                entries_size = None;
-            }
+        if let Some(cur_size) = entries_size
+            && cur_size > MAX_VALUE_SIZE
+        {
+            entries_size = None;
         }
         if entries_size.is_some() {
             result.push(checked);
@@ -477,7 +477,7 @@ fn check_contract_call(
 
     let expected_sig = match &args[0].expr {
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(
-            ref contract_identifier,
+            contract_identifier,
         ))) => {
             // Static dispatch
             let contract_call_function = {
@@ -636,7 +636,7 @@ fn check_contract_call(
         _ => {
             return Err(StaticCheckError::new(
                 StaticCheckErrorKind::ContractCallExpectName,
-            ))
+            ));
         }
     };
 
@@ -660,7 +660,7 @@ fn check_contract_of(
         _ => {
             return Err(StaticCheckError::new(
                 StaticCheckErrorKind::ContractOfExpectsTrait,
-            ))
+            ));
         }
     };
 
@@ -669,7 +669,7 @@ fn check_contract_of(
         _ => {
             return Err(
                 StaticCheckErrorKind::TraitReferenceUnknown(trait_instance.to_string()).into(),
-            )
+            );
         }
     };
 
@@ -1082,8 +1082,8 @@ impl TypedNativeFunction {
                 returns: {
                     /// The return type of `principal-destruct` is a Response, in which the success
                     /// and error types are the same.
-                    fn parse_principal_basic_type(
-                    ) -> Result<TupleTypeSignature, StaticCheckErrorKind> {
+                    fn parse_principal_basic_type()
+                    -> Result<TupleTypeSignature, StaticCheckErrorKind> {
                         TupleTypeSignature::try_from(vec![
                             ("version".into(), TypeSignature::BUFFER_1),
                             ("hash-bytes".into(), TypeSignature::BUFFER_20),

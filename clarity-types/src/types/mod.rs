@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 pub mod serialization;
 pub mod signatures;
 
-use core::error;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::{char, fmt, str};
@@ -37,6 +36,7 @@ pub use self::signatures::{
     AssetIdentifier, BufferLength, ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length,
     TupleTypeSignature, TypeSignature,
 };
+use crate::errors::ClarityTypeError;
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 
 /// Maximum size in bytes allowed for types.
@@ -57,101 +57,6 @@ pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
 pub const MAX_TYPE_DEPTH: u8 = 32;
 /// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
-
-/// Errors originating purely from the Clarity type system layer.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ClarityTypeError {
-    // Size & Depth Invariants
-    /// The constructed value exceeds the maximum allowed Clarity value size.
-    ValueTooLarge,
-    /// The constructed value exceeds the maximum allowed nesting depth.
-    TypeSignatureTooDeep,
-
-    // String & Encoding Errors
-    /// A non-ASCII byte was found in an ASCII string.
-    InvalidAsciiCharacter(u8),
-    /// The provided bytes did not form valid UTF-8.
-    InvalidUtf8Encoding,
-
-    // List, Tuple, & Structural Type Errors
-    /// A list operation failed because element types do not match.
-    ListTypeMismatch,
-    /// An index was out of bounds for a sequence.
-    ValueOutOfBounds,
-    /// A tuple was constructed with duplicate field names.
-    DuplicateTupleField(String),
-    /// Referenced tuple field does not exist in the tuple type.
-    /// The `String` wraps the requested field name, and the `TupleTypeSignature` wraps the tuple’s type.
-    NoSuchTupleField(String, TupleTypeSignature),
-    /// Value does not match the expected type.
-    /// The `Box<TypeSignature>` wraps the expected type, and the `Box<Value>` wraps the invalid value.
-    TypeMismatchValue(Box<TypeSignature>, Box<Value>),
-    /// Expected type does not match the actual type during analysis.
-    /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
-    TypeMismatch(Box<TypeSignature>, Box<TypeSignature>),
-    /// Expected a different response type
-    ResponseTypeMismatch {
-        /// Whether the response type should be an `Ok` response
-        expected_ok: bool,
-    },
-    /// Invalid contract name.
-    /// The `String` represents the offending value.
-    InvalidContractName(String),
-    /// Invalid Clarity name.
-    /// The `String` represents the offending value.
-    InvalidClarityName(String),
-    /// Invalid URL.
-    /// The `String` represents the offending value.
-    InvalidUrlString(String),
-    /// Empty tuple is not allowed in Clarity.
-    EmptyTuplesNotAllowed,
-    /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
-    SupertypeTooLarge,
-    /// Type description is invalid or malformed, preventing proper type-checking.
-    InvalidTypeDescription,
-    /// Sequence element length mismatch
-    SequenceElementArityMismatch { expected: usize, found: usize },
-    /// Expected a sequence value
-    ExpectedSequenceValue,
-
-    // Principal & Identifier Errors
-    /// An invalid version byte was used for a principal.
-    InvalidPrincipalVersion(u8),
-    /// An invalid principal byte length was supplied.
-    InvalidPrincipalLength(usize),
-    /// C32 decode failed
-    InvalidPrincipalEncoding(String),
-    /// An invalid qualified identifier was supplied with a missing '.' separator.
-    QualifiedContractMissingDot,
-    /// An invalid qualified identifier was supplied with a missing issuer.
-    QualifiedContractEmptyIssuer,
-
-    // Type Resolution & Abstract Type Failures
-    /// The value has a valid abstract type, but it cannot be serialized
-    /// into a concrete consensus representation.
-    CouldNotDetermineSerializationType,
-    /// The type signature could not be determined.
-    CouldNotDetermineType,
-
-    /// Type is unsupported in the given epoch
-    UnsupportedTypeInEpoch(Box<TypeSignature>, StacksEpochId),
-    /// Unsupported epoch
-    UnsupportedEpoch(StacksEpochId),
-    /// Something unexpected happened that should not be possible
-    InvariantViolation(String),
-}
-
-impl fmt::Display for ClarityTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
-impl error::Error for ClarityTypeError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {

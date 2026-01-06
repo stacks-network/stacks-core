@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::ClarityTypeError;
 use clarity_types::types::serialization::SerializationError;
-use clarity_types::types::ClarityTypeError;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_argument_count, CheckErrorKind, VmExecutionError, VmInternalError};
+use crate::vm::errors::{CheckErrorKind, VmExecutionError, VmInternalError, check_argument_count};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
@@ -27,7 +27,7 @@ use crate::vm::types::{
     ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, TypeSignatureExt as _,
     UTF8Data, Value,
 };
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{Environment, LocalContext, eval};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EndianDirection {

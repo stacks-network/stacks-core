@@ -22,8 +22,8 @@ use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::ast::parse;
@@ -39,10 +39,10 @@ use crate::vm::types::{
     TypeSignature,
 };
 use crate::vm::{
-    eval, execute as vm_execute, execute_v2 as vm_execute_v2,
+    CallStack, ClarityVersion, ContractContext, CostErrors, Environment, GlobalContext,
+    LocalContext, Value, eval, execute as vm_execute, execute_v2 as vm_execute_v2,
     execute_with_limited_execution_time as vm_execute_with_limited_execution_time,
-    execute_with_parameters, CallStack, ClarityVersion, ContractContext, CostErrors, Environment,
-    GlobalContext, LocalContext, Value,
+    execute_with_parameters,
 };
 
 #[test]
@@ -51,7 +51,8 @@ fn test_doubly_defined_persisted_vars() {
         "(define-non-fungible-token cursor uint) (define-non-fungible-token cursor uint)",
         "(define-fungible-token cursor) (define-fungible-token cursor)",
         "(define-data-var cursor int 0) (define-data-var cursor int 0)",
-        "(define-map cursor { cursor: int } { place: uint }) (define-map cursor { cursor: int } { place: uint })" ];
+        "(define-map cursor { cursor: int } { place: uint }) (define-map cursor { cursor: int } { place: uint })",
+    ];
     for p in tests.iter() {
         assert_eq!(
             vm_execute(p).unwrap_err(),
@@ -141,7 +142,7 @@ fn test_sha512() {
     let expectations = [
         "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e",
         "0b6cbac838dfe7f47ea1bd0df00ec282fdf45510c92161072ccfb84035390c4da743d9c3b954eaa1b0f86fc9861b23cc6c8667ab232c11c686432ebb5c8c3f27",
-        "07e547d9586f6a73f73fbac0435ed76951218fb7d0c8d788a309d785436bbb642e93a252a954f23912547d1e8a3b5ed6e1bfd7097821233fa0538f3db854fee6"
+        "07e547d9586f6a73f73fbac0435ed76951218fb7d0c8d788a309d785436bbb642e93a252a954f23912547d1e8a3b5ed6e1bfd7097821233fa0538f3db854fee6",
     ];
 
     sha512_evals
@@ -332,12 +333,23 @@ fn test_from_consensus_buff_missed_expectations() {
         ("0x0200000004deadbeef", "(string-ascii 8)"),
         ("0x03", "uint"),
         ("0x04", "(optional int)"),
-        ("0x0700ffffffffffffffffffffffffffffffff", "(response uint int)"),
-        ("0x0800ffffffffffffffffffffffffffffffff", "(response int uint)"),
+        (
+            "0x0700ffffffffffffffffffffffffffffffff",
+            "(response uint int)",
+        ),
+        (
+            "0x0800ffffffffffffffffffffffffffffffff",
+            "(response int uint)",
+        ),
         ("0x09", "(response int int)"),
-        ("0x0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
-         "(list 3 int)"),
-        ("0x0c000000020362617a0906666f6f62617203", "{ bat: (optional int), foobar: bool }"),
+        (
+            "0x0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
+            "(list 3 int)",
+        ),
+        (
+            "0x0c000000020362617a0906666f6f62617203",
+            "{ bat: (optional int), foobar: bool }",
+        ),
         ("0xff", "int"),
     ];
 
@@ -365,15 +377,42 @@ fn test_to_from_consensus_buff_vectors() {
         ("0x0200000004deadbeef", "0xdeadbeef", "(buff 8)"),
         ("0x03", "true", "bool"),
         ("0x04", "false", "bool"),
-        ("0x050011deadbeef11ababffff11deadbeef11ababffff", "'S08XXBDYXW8TQAZZZW8XXBDYXW8TQAZZZZ88551S", "principal"),
-        ("0x060011deadbeef11ababffff11deadbeef11ababffff0461626364", "'S08XXBDYXW8TQAZZZW8XXBDYXW8TQAZZZZ88551S.abcd", "principal"),
-        ("0x0700ffffffffffffffffffffffffffffffff", "(ok -1)", "(response int int)"),
-        ("0x0800ffffffffffffffffffffffffffffffff", "(err -1)", "(response int int)"),
+        (
+            "0x050011deadbeef11ababffff11deadbeef11ababffff",
+            "'S08XXBDYXW8TQAZZZW8XXBDYXW8TQAZZZZ88551S",
+            "principal",
+        ),
+        (
+            "0x060011deadbeef11ababffff11deadbeef11ababffff0461626364",
+            "'S08XXBDYXW8TQAZZZW8XXBDYXW8TQAZZZZ88551S.abcd",
+            "principal",
+        ),
+        (
+            "0x0700ffffffffffffffffffffffffffffffff",
+            "(ok -1)",
+            "(response int int)",
+        ),
+        (
+            "0x0800ffffffffffffffffffffffffffffffff",
+            "(err -1)",
+            "(response int int)",
+        ),
         ("0x09", "none", "(optional int)"),
-        ("0x0a00ffffffffffffffffffffffffffffffff", "(some -1)", "(optional int)"),
-        ("0x0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
-         "(list 1 2 3 -4)", "(list 4 int)"),
-        ("0x0c000000020362617a0906666f6f62617203", "{ baz: none, foobar: true }", "{ baz: (optional int), foobar: bool }"),
+        (
+            "0x0a00ffffffffffffffffffffffffffffffff",
+            "(some -1)",
+            "(optional int)",
+        ),
+        (
+            "0x0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
+            "(list 1 2 3 -4)",
+            "(list 4 int)",
+        ),
+        (
+            "0x0c000000020362617a0906666f6f62617203",
+            "{ baz: none, foobar: true }",
+            "{ baz: (optional int), foobar: bool }",
+        ),
     ];
 
     // do `from-consensus-buff?` tests
@@ -441,10 +480,12 @@ fn test_secp256k1() {
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
-        &vec![StacksPublicKey::from_hex(
-            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
-        )
-        .unwrap()],
+        &vec![
+            StacksPublicKey::from_hex(
+                "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+            )
+            .unwrap(),
+        ],
     )
     .unwrap();
     eprintln!("addr from hex {addr:?}");
@@ -480,17 +521,18 @@ fn test_principal_of_fix() {
     // So, we need to test that:
     //   1) In Clarity1, the returned address is always a testnet address.
     //   2) In Clarity2, the returned address is a function of the network type.
-    let principal_of_program =
-        "(unwrap! (principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) 4)";
+    let principal_of_program = "(unwrap! (principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) 4)";
 
     let mainnet_principal = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
-        &vec![StacksPublicKey::from_hex(
-            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
-        )
-        .unwrap()],
+        &vec![
+            StacksPublicKey::from_hex(
+                "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+            )
+            .unwrap(),
+        ],
     )
     .unwrap()
     .into();
@@ -498,10 +540,12 @@ fn test_principal_of_fix() {
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
-        &vec![StacksPublicKey::from_hex(
-            "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
-        )
-        .unwrap()],
+        &vec![
+            StacksPublicKey::from_hex(
+                "03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110",
+            )
+            .unwrap(),
+        ],
     )
     .unwrap()
     .into();
@@ -566,12 +610,10 @@ fn test_secp256k1_errors() {
         "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100)",
         "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04)",
         "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 3)",
-
         "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
         "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
         "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7)",
         "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04 0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)",
-
         "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba77861 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba77861)",
         "(principal-of?)",
     ];
@@ -618,7 +660,8 @@ fn test_principal_equality() {
     let tests = [
         "(is-eq 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(not (is-eq 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR
-                   'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G))"];
+                   'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G))",
+    ];
     let expectations = [Value::Bool(true), Value::Bool(true)];
 
     tests
@@ -1585,7 +1628,8 @@ fn test_bad_lets() {
 fn test_lets() {
     let tests = [
         "(let ((a 1) (b 2)) (+ a b))",
-        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (var-get cursor))"];
+        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set cursor a) (var-set cursor (+ b (var-get cursor))) (var-get cursor))",
+    ];
 
     let expectations = [Value::Int(3), Value::Int(3)];
 

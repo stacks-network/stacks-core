@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{mem_type_check, ContractAnalysis};
+use crate::vm::analysis::{ContractAnalysis, mem_type_check};
 use crate::vm::ast::build_ast;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;

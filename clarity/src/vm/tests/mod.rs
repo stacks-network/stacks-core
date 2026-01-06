@@ -17,9 +17,9 @@
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
 
-pub use super::test_util::*;
 #[cfg(test)]
 use super::ClarityVersion;
+pub use super::test_util::*;
 use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;

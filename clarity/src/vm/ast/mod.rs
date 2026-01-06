@@ -35,12 +35,12 @@ use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
+use crate::vm::ClarityVersion;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostTracker};
+use crate::vm::costs::{CostTracker, runtime_cost};
 use crate::vm::diagnostic::{Diagnostic, Level};
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::ClarityVersion;
 
 /// Legacy function
 #[cfg(any(test, feature = "testing"))]

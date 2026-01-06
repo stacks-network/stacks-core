@@ -16,9 +16,9 @@
 
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
-use crate::vm::ClarityVersion;
 
 #[test]
 fn test_list_types_must_match() {
@@ -34,8 +34,10 @@ fn test_type_error() {
     let snippet = "(+ true 1)";
     let err = mem_type_check(snippet).unwrap_err();
     println!("{}", err.diagnostic);
-    assert!(format!("{}", err.diagnostic)
-        .contains("expecting expression of type 'int' or 'uint', found 'bool'"));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("expecting expression of type 'int' or 'uint', found 'bool'")
+    );
 
     let snippet = "(+ 1 true)";
     let err = mem_type_check(snippet).unwrap_err();
@@ -49,32 +51,42 @@ fn test_type_error() {
 fn test_union_type_error() {
     let snippet = "(hash160 true)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("expecting expression of type '(buff 1048576)', 'uint' or 'int', found 'bool'"));
+    assert!(
+        format!("{}", err.diagnostic).contains(
+            "expecting expression of type '(buff 1048576)', 'uint' or 'int', found 'bool'"
+        )
+    );
 }
 
 #[test]
 fn test_expected_optional_type() {
     let snippet = "(is-none 1)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("expecting expression of type 'optional', found 'int'"));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("expecting expression of type 'optional', found 'int'")
+    );
 }
 
 #[test]
 fn test_expected_response_type() {
     let snippet = "(is-ok 1)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("expecting expression of type 'response', found 'int'"));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("expecting expression of type 'response', found 'int'")
+    );
 }
 
 #[test]
 fn test_could_not_determine_response_ok_type() {
     let snippet = "(unwrap! (err \"error\") 0)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"));
+    assert!(
+        format!("{}", err.diagnostic).contains(
+            "attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"
+        )
+    );
 }
 
 #[test]
@@ -115,24 +127,31 @@ fn test_expected_tuple() {
 fn test_no_such_tuple_field() {
     let snippet = "(get val (tuple (value 100)))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("cannot find field 'val' in tuple '(tuple (value int))'"));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("cannot find field 'val' in tuple '(tuple (value int))'")
+    );
 }
 
 #[test]
 fn test_bad_tuple_construction() {
     let snippet = "(tuple (key 1) (key 2))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("invalid tuple syntax: defining 'key' conflicts with previous value."));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("invalid tuple syntax: defining 'key' conflicts with previous value.")
+    );
 }
 
 #[test]
 fn test_tuple_expects_pairs() {
     let snippet = "(tuple (key 1) (key-with-missing-value))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("invalid syntax binding: Tuple constructor item #2 is not a two-element list."));
+    assert!(
+        format!("{}", err.diagnostic).contains(
+            "invalid syntax binding: Tuple constructor item #2 is not a two-element list."
+        )
+    );
 }
 
 #[test]
@@ -176,8 +195,10 @@ fn test_bad_function_name() {
 fn test_public_function_must_return_response() {
     let snippet = "(define-public (fn) 1)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("public functions must return an expression of type 'response', found 'int'"));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("public functions must return an expression of type 'response', found 'int'")
+    );
 }
 
 #[test]
@@ -191,8 +212,10 @@ fn test_define_variable_bad_signature() {
 fn test_return_types_must_match() {
     let snippet = "(define-private (mismatched) (begin (unwrap! (ok 1) false) 1))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("detected two execution paths, returning two different expression types"));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("detected two execution paths, returning two different expression types")
+    );
 }
 
 #[test]
@@ -233,8 +256,10 @@ fn test_get_block_info_expect_property_name() {
     let snippet = "(get-block-info? 0 1)";
     let err =
         mem_run_analysis(snippet, ClarityVersion::Clarity2, StacksEpochId::latest()).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("missing property name for block info introspection"));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("missing property name for block info introspection")
+    );
 }
 
 #[test]
@@ -242,8 +267,10 @@ fn test_get_stacks_block_info_expect_property_name() {
     let snippet = "(get-stacks-block-info? 0 1)";
     let err =
         mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::latest()).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("missing property name for stacks block info introspection"));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("missing property name for stacks block info introspection")
+    );
 }
 
 #[test]
@@ -251,8 +278,10 @@ fn test_get_tenure_info_expect_property_name() {
     let snippet = "(get-tenure-info? 0 1)";
     let err =
         mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::latest()).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("missing property name for tenure info introspection"));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("missing property name for tenure info introspection")
+    );
 }
 
 #[test]
@@ -304,8 +333,11 @@ fn test_non_function_application() {
 fn test_expected_list_or_buff() {
     let snippet = "(filter not 4)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8'"));
+    assert!(
+        format!("{}", err.diagnostic).contains(
+            "expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8'"
+        )
+    );
 }
 
 #[test]
@@ -357,14 +389,18 @@ fn test_if_arms_must_match() {
 fn test_default_types_must_match() {
     let snippet = "(default-to 1 (some true))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("expression types passed in 'default-to' must match (got 'int' and 'bool')"));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("expression types passed in 'default-to' must match (got 'int' and 'bool')")
+    );
 }
 
 #[test]
 fn test_write_attempt_in_readonly() {
     let snippet = "(define-data-var x int 0) (define-read-only (fn) (var-set x 1))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic)
-        .contains("expecting read-only statements, detected a writing operation"));
+    assert!(
+        format!("{}", err.diagnostic)
+            .contains("expecting read-only statements, detected a writing operation")
+    );
 }

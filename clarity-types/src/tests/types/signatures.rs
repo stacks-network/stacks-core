@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,14 +14,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashSet;
 
+use crate::errors::ClarityTypeError;
 use crate::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    BufferLength, ClarityTypeError, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN,
-    MAX_TYPE_DEPTH, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier,
-    SequenceSubtype, StringSubtype, StringUTF8Length, TraitIdentifier, TupleTypeSignature,
-    WRAPPER_VALUE_SIZE,
+    BufferLength, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
+    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype,
+    StringSubtype, StringUTF8Length, TraitIdentifier, TupleTypeSignature, WRAPPER_VALUE_SIZE,
 };
 
 #[test]

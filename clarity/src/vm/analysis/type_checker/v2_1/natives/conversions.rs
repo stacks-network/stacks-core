@@ -1,13 +1,13 @@
 use clarity_types::errors::analysis::StaticCheckErrorKind;
-use clarity_types::types::{StringSubtype, MAX_TO_ASCII_BUFFER_LEN};
+use clarity_types::types::{MAX_TO_ASCII_BUFFER_LEN, StringSubtype};
 use stacks_common::types::StacksEpochId;
 
 use super::TypeChecker;
+use crate::vm::SymbolicExpression;
+use crate::vm::analysis::StaticCheckError;
 use crate::vm::analysis::read_only_checker::check_argument_count;
 use crate::vm::analysis::type_checker::contexts::TypingContext;
-use crate::vm::analysis::StaticCheckError;
 use crate::vm::types::{BufferLength, SequenceSubtype, TypeSignature, TypeSignatureExt as _};
-use crate::vm::SymbolicExpression;
 
 /// `to-consensus-buff?` admits exactly one argument:
 /// * the Clarity value to serialize

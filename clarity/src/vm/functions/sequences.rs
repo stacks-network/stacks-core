@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,16 +20,16 @@ use clarity_types::types::RetainValuesError;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostOverflowingMath};
+use crate::vm::costs::{CostOverflowingMath, runtime_cost};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, VmExecutionError,
-    VmInternalError,
+    CheckErrorKind, VmExecutionError, VmInternalError, check_argument_count,
+    check_arguments_at_least,
 };
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::signatures::ListTypeData;
 use crate::vm::types::TypeSignature::BoolType;
+use crate::vm::types::signatures::ListTypeData;
 use crate::vm::types::{ListData, SequenceData, TypeSignature, Value};
-use crate::vm::{apply, eval, lookup_function, Environment, LocalContext};
+use crate::vm::{Environment, LocalContext, apply, eval, lookup_function};
 
 pub fn list_cons(
     args: &[SymbolicExpression],
@@ -95,7 +95,7 @@ pub fn special_filter(
             return Err(
                 CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
                     .into(),
-            )
+            );
         }
     };
     Ok(sequence)
@@ -176,7 +176,7 @@ pub fn special_map(
                 return Err(
                     CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
                         .into(),
-                )
+                );
             }
         }
     }
@@ -266,9 +266,7 @@ pub fn special_concat_v200(
     )?;
 
     match (&mut wrapped_seq, other_wrapped_seq) {
-        (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
-            seq.concat(env.epoch(), other_seq)?
-        }
+        (Value::Sequence(seq), Value::Sequence(other_seq)) => seq.concat(env.epoch(), other_seq)?,
         (Value::Sequence(_), other_value) => {
             // The first value is a sequence, but the second is not
             return Err(
@@ -298,7 +296,7 @@ pub fn special_concat_v205(
     let other_wrapped_seq = eval(&args[1], env, context)?;
 
     match (&mut wrapped_seq, other_wrapped_seq) {
-        (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
+        (Value::Sequence(seq), Value::Sequence(other_seq)) => {
             runtime_cost(
                 ClarityCostFunction::Concat,
                 env,
@@ -307,7 +305,7 @@ pub fn special_concat_v205(
 
             seq.concat(env.epoch(), other_seq)?
         }
-        (Value::Sequence(ref mut seq_data), other_value) => {
+        (Value::Sequence(seq_data), other_value) => {
             runtime_cost(ClarityCostFunction::Concat, env, 1)?;
             return Err(CheckErrorKind::TypeValueError(
                 Box::new(seq_data.type_signature()?),
@@ -342,7 +340,7 @@ pub fn special_as_max_len(
                 return Err(
                     CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(&sequence)?))
                         .into(),
-                )
+                );
             }
         };
         if sequence_len > *expected_len {

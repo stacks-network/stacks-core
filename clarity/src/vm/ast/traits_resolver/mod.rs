@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use clarity_types::representations::ClarityName;
 use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
 
+use crate::vm::ClarityVersion;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
 use crate::vm::functions::define::DefineFunctions;
@@ -26,7 +27,6 @@ use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, FieldIdentifier, List, SugaredFieldIdentifier, TraitReference, Tuple,
 };
 use crate::vm::representations::{PreSymbolicExpression, TraitDefinition};
-use crate::vm::ClarityVersion;
 
 pub struct TraitsResolver {}
 

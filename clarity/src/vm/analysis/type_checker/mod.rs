@@ -20,9 +20,9 @@ pub mod v2_1;
 
 use stacks_common::types::StacksEpochId;
 
+use super::AnalysisDatabase;
 use super::errors::{StaticCheckError, StaticCheckErrorKind};
 pub use super::types::{AnalysisPass, ContractAnalysis};
-use super::AnalysisDatabase;
 use crate::vm::costs::CostTracker;
 use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::{ClarityVersion, Value};

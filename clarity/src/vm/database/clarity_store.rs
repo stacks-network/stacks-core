@@ -17,8 +17,9 @@
 #[cfg(feature = "rusqlite")]
 use rusqlite::Connection;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
-use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
+use stacks_common::util::hash::{Sha512Trunc256Sum, hex_bytes, to_hex};
 
+use crate::vm::Value;
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::database::{
@@ -26,7 +27,6 @@ use crate::vm::database::{
 };
 use crate::vm::errors::{VmExecutionError, VmInternalError};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use crate::vm::Value;
 
 pub struct NullBackingStore {}
 

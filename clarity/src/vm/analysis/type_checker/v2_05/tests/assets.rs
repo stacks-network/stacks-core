@@ -16,6 +16,7 @@
 
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::errors::StaticCheckErrorKind;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
@@ -23,7 +24,6 @@ use crate::vm::tooling::mem_type_check;
 use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };
-use crate::vm::ClarityVersion;
 
 fn string_ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(

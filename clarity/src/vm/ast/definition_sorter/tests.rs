@@ -19,6 +19,7 @@ use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
 
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check as run_analysis_helper;
 use crate::vm::ast::definition_sorter::DefinitionSorter;
 use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
@@ -26,7 +27,6 @@ use crate::vm::ast::expression_identifier::ExpressionIdentifier;
 use crate::vm::ast::parser;
 use crate::vm::ast::types::ContractAST;
 use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::ClarityVersion;
 
 #[template]
 #[rstest]

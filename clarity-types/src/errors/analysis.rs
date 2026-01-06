@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,10 +16,10 @@
 use std::{error, fmt};
 
 use crate::diagnostic::{DiagnosableError, Diagnostic};
-use crate::errors::CostErrors;
+use crate::errors::{ClarityTypeError, CostErrors};
 use crate::execution_cost::ExecutionCost;
 use crate::representations::SymbolicExpression;
-use crate::types::{ClarityTypeError, TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
+use crate::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
 
 /// What kind of syntax binding was found to be in error?
 #[derive(Debug, PartialEq, Clone, Copy)]

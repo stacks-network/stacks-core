@@ -5,6 +5,7 @@ use crate::vm::types::{
     ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
     SequenceData, StandardPrincipalData, TupleData, Value,
 };
+use crate::vm::{ClarityVersion, execute_with_parameters};
 #[cfg(test)]
 use crate::vm::{
     errors::CheckErrorKind,
@@ -12,7 +13,6 @@ use crate::vm::{
     types::TypeSignature::PrincipalType,
     types::{ResponseData, TypeSignature},
 };
-use crate::vm::{execute_with_parameters, ClarityVersion};
 
 #[test]
 fn test_simple_is_standard_check_inputs() {

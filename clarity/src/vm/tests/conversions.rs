@@ -30,7 +30,7 @@ use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
     ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
-use crate::vm::{execute_v2, execute_with_parameters, ClarityVersion};
+use crate::vm::{ClarityVersion, execute_v2, execute_with_parameters};
 
 #[test]
 fn test_simple_buff_to_int_le() {

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,36 +23,36 @@ use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
 pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
-use super::contexts::{TypeMap, TypingContext};
 use super::ContractAnalysis;
-pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, StaticCheckError,
-    StaticCheckErrorKind, SyntaxBindingErrorType,
-};
+use super::contexts::{TypeMap, TypingContext};
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::AnalysisDatabase;
+pub use crate::vm::analysis::errors::{
+    StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, check_argument_count,
+    check_arguments_at_least, check_arguments_at_most,
+};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    analysis_typecheck_cost, runtime_cost, CostErrors, CostOverflowingMath, CostTracker,
-    ExecutionCost, LimitedCostTracker,
+    CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
+    analysis_typecheck_cost, runtime_cost,
 };
 use crate::vm::diagnostic::Diagnostic;
-use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
-use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
+use crate::vm::representations::{ClarityName, SymbolicExpression, depth_traverse};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, FunctionSignature,
 };
 use crate::vm::types::{
-    parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, ListData, ListTypeData,
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
-    SequenceSubtype, StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature,
-    TypeSignatureExt as _, Value, MAX_TYPE_DEPTH,
+    FixedFunction, FunctionArg, FunctionType, ListData, ListTypeData, MAX_TYPE_DEPTH, OptionalData,
+    PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData, SequenceSubtype,
+    StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature,
+    TypeSignatureExt as _, Value, parse_name_type_pairs,
 };
 use crate::vm::variables::NativeVariables;
-use crate::vm::ClarityVersion;
 
 #[cfg(test)]
 pub mod tests;
@@ -571,7 +571,7 @@ impl FunctionType {
                 return Err(StaticCheckErrorKind::ExpectsRejectable(
                     "Unexpected function type".into(),
                 )
-                .into())
+                .into());
             }
         };
         check_argument_count(expected_args.len(), func_args)?;
@@ -1144,10 +1144,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
         for exp in contract_analysis.expressions.iter() {
             let mut result_res = self.try_type_check_define(exp, &mut local_context);
-            if let Err(ref mut error) = result_res {
-                if !error.has_expression() {
-                    error.set_expression(exp);
-                }
+            if let Err(ref mut error) = result_res
+                && !error.has_expression()
+            {
+                error.set_expression(exp);
             }
             let result = result_res?;
             if result.is_none() {
@@ -1190,10 +1190,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
         let mut result = self.inner_type_check(expr, context);
 
-        if let Err(ref mut error) = result {
-            if !error.has_expression() {
-                error.set_expression(expr);
-            }
+        if let Err(ref mut error) = result
+            && !error.has_expression()
+        {
+            error.set_expression(expr);
         }
 
         result
@@ -1542,7 +1542,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         expected_type: &TypeSignature,
     ) -> Result<TypeSignature, StaticCheckError> {
         if let (
-            LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
+            LiteralValue(Value::Principal(PrincipalData::Contract(contract_identifier))),
             TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
         ) = (&expr.expr, expected_type)
         {

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,8 +18,9 @@ mod signatures;
 use rstest::rstest;
 use stacks_common::types::StacksEpochId;
 
+use crate::errors::ClarityTypeError;
 use crate::types::{
-    ASCIIData, BuffData, CharType, ClarityTypeError, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
+    ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
     QualifiedContractIdentifier, SequenceData, SequenceSubtype, SequencedValue as _,
     StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature, UTF8Data,
     Value,

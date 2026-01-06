@@ -21,11 +21,11 @@ use super::MemoryEnvironmentGenerator;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 #[cfg(test)]
 use crate::vm::{
+    ContractContext,
     errors::{CheckErrorKind, VmExecutionError},
     tests::{env_factory, execute, symbols_from_values},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
     version::ClarityVersion,
-    ContractContext,
 };
 
 #[apply(test_clarity_versions)]
@@ -631,8 +631,7 @@ fn test_reentrant_dynamic_dispatch(
             (internal-get-1 contract))
         (define-private (internal-get-1 (contract <trait-1>))
             (contract-call? contract get-1 u0))";
-    let target_contract =
-        "(define-public (get-1 (x uint)) (contract-call? .dispatching-contract wrapped-get-1 .target-contract))";
+    let target_contract = "(define-public (get-1 (x uint)) (contract-call? .dispatching-contract wrapped-get-1 .target-contract))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let placeholder_context =

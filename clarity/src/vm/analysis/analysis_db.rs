@@ -20,14 +20,14 @@ use clarity_types::representations::ClarityName;
 use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::ContractAnalysis;
 use crate::vm::database::{
     ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,
 };
-use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::FunctionType;
-use crate::vm::ClarityVersion;
+use crate::vm::types::signatures::FunctionSignature;
 
 pub struct AnalysisDatabase<'a> {
     store: RollbackWrapper<'a>,

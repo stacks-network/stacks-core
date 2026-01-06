@@ -17,8 +17,8 @@
 pub use sqlite::MemoryBackingStore;
 
 pub use self::clarity_db::{
-    BurnStateDB, ClarityDatabase, HeadersDB, StoreType, NULL_BURN_STATE_DB, NULL_HEADER_DB,
-    STORE_CONTRACT_SRC_INTERFACE,
+    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    STORE_CONTRACT_SRC_INTERFACE, StoreType,
 };
 pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};

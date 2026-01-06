@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,17 +17,17 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::clarity_store::SpecialCaseHandler;
 use super::{ClarityBackingStore, ClarityDeserializable};
-use crate::vm::database::clarity_store::{make_contract_hash_key, ContractCommitment};
+use crate::vm::Value;
+use crate::vm::database::clarity_store::{ContractCommitment, make_contract_hash_key};
 use crate::vm::errors::{VmExecutionError, VmInternalError};
 use crate::vm::types::serialization::SerializationError;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
-use crate::vm::Value;
 
 #[cfg(feature = "rollback_value_check")]
 type RollbackValueCheck = String;
@@ -391,11 +391,11 @@ impl RollbackWrapper<'_> {
             VmInternalError::Expect("ERROR: Clarity VM attempted GET on non-nested context.".into())
         })?;
 
-        if self.query_pending_data {
-            if let Some(pending_value) = self.lookup_map.get(key).and_then(|x| x.last()) {
-                // if there's pending data and we're querying pending data, return here
-                return Some(T::deserialize(pending_value)).transpose();
-            }
+        if self.query_pending_data
+            && let Some(pending_value) = self.lookup_map.get(key).and_then(|x| x.last())
+        {
+            // if there's pending data and we're querying pending data, return here
+            return Some(T::deserialize(pending_value)).transpose();
         }
         // otherwise, lookup from store
         self.store
@@ -450,10 +450,10 @@ impl RollbackWrapper<'_> {
             )
         })?;
 
-        if self.query_pending_data {
-            if let Some(x) = self.lookup_map.get(key).and_then(|x| x.last()) {
-                return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
-            }
+        if self.query_pending_data
+            && let Some(x) = self.lookup_map.get(key).and_then(|x| x.last())
+        {
+            return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
         }
         let stored_data = self.store.get_data(key).map_err(|_| {
             SerializationError::DeserializationFailure(

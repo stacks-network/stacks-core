@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,11 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
+use crate::errors::ClarityTypeError;
 use crate::types::serialization::SerializationError;
 use crate::types::{
-    ASCIIData, CharType, ClarityTypeError, MAX_VALUE_SIZE, PrincipalData,
-    QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData, TypeSignature,
-    Value,
+    ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
 fn test_deser_ser(v: Value) {

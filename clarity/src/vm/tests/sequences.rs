@@ -20,11 +20,11 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::errors::{CheckErrorKind, VmExecutionError};
 use crate::vm::tests::test_clarity_versions;
+use crate::vm::types::TypeSignature::{self, BoolType, IntType, SequenceType, UIntType};
 use crate::vm::types::signatures::SequenceSubtype::{self, BufferType, StringType};
 use crate::vm::types::signatures::StringSubtype::ASCII;
-use crate::vm::types::TypeSignature::{self, BoolType, IntType, SequenceType, UIntType};
 use crate::vm::types::{BufferLength, ListTypeData, StringSubtype, StringUTF8Length, Value};
-use crate::vm::{execute, execute_v2, ClarityVersion};
+use crate::vm::{ClarityVersion, execute, execute_v2};
 
 #[test]
 fn test_simple_list_admission() {
@@ -219,8 +219,7 @@ fn test_string_ascii_map() {
 
 #[test]
 fn test_string_utf8_map() {
-    let defines =
-        "(define-private (replace-dog-with-fox (c (string-utf8 1))) (if (is-eq u\"\\u{1F436}\" c) u\"\\u{1F98A}\" c))";
+    let defines = "(define-private (replace-dog-with-fox (c (string-utf8 1))) (if (is-eq u\"\\u{1F436}\" c) u\"\\u{1F98A}\" c))";
     let t1 = format!("{defines} (map replace-dog-with-fox u\"fox \\u{{1F436}}\")");
 
     let expected = Value::list_from(vec![
@@ -288,8 +287,7 @@ fn test_string_ascii_concat() {
 
 #[test]
 fn test_string_utf8_concat() {
-    let test1 =
-        "(concat (concat (concat (concat u\"\\u{1F926}\" u\"\\u{1F3FC}\") u\"\\u{200D}\") u\"\\u{2642}\") u\"\\u{FE0F}\")";
+    let test1 = "(concat (concat (concat (concat u\"\\u{1F926}\" u\"\\u{1F3FC}\") u\"\\u{200D}\") u\"\\u{2642}\") u\"\\u{FE0F}\")";
 
     let expected = Value::string_utf8_from_bytes("🤦🏼‍♂️".into()).unwrap();
 
@@ -1144,9 +1142,11 @@ fn test_list_tuple_admission() {
 
     assert_eq!(expected_type, result_type);
     assert!(not_expected_type != result_type);
-    assert!(result_type
-        .admits(&StacksEpochId::Epoch21, testing_value)
-        .unwrap());
+    assert!(
+        result_type
+            .admits(&StacksEpochId::Epoch21, testing_value)
+            .unwrap()
+    );
 }
 
 #[test]

@@ -17,19 +17,19 @@
 use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_05::{
-    check_argument_count, check_arguments_at_least, StaticCheckError, StaticCheckErrorKind,
-    TypeChecker, TypingContext,
+    StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext, check_argument_count,
+    check_arguments_at_least,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
-pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length};
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
+pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length};
 use crate::vm::types::{FunctionType, TypeSignature, Value};
-use crate::vm::ClarityVersion;
 
 fn get_simple_native_or_user_define(
     function_name: &str,
@@ -263,7 +263,7 @@ pub fn check_special_concat(
                         Box::new(lhs_type.clone()),
                         Box::new(rhs_type.clone()),
                     )
-                    .into())
+                    .into());
                 }
             }
         }

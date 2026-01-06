@@ -15,10 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub use clarity_types::representations::{
-    depth_traverse, ClarityName, ContractName, PreSymbolicExpression, PreSymbolicExpressionType,
-    Span, SymbolicExpression, SymbolicExpressionCommon, SymbolicExpressionType, TraitDefinition,
     CLARITY_NAME_REGEX, CLARITY_NAME_REGEX_STRING, CONTRACT_MAX_NAME_LENGTH,
     CONTRACT_MIN_NAME_LENGTH, CONTRACT_NAME_REGEX, CONTRACT_NAME_REGEX_STRING,
-    CONTRACT_PRINCIPAL_REGEX_STRING, MAX_STRING_LEN, PRINCIPAL_DATA_REGEX_STRING,
-    STANDARD_PRINCIPAL_REGEX_STRING,
+    CONTRACT_PRINCIPAL_REGEX_STRING, ClarityName, ContractName, MAX_STRING_LEN,
+    PRINCIPAL_DATA_REGEX_STRING, PreSymbolicExpression, PreSymbolicExpressionType,
+    STANDARD_PRINCIPAL_REGEX_STRING, Span, SymbolicExpression, SymbolicExpressionCommon,
+    SymbolicExpressionType, TraitDefinition, depth_traverse,
 };
