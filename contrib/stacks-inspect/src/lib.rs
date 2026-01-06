@@ -936,22 +936,46 @@ fn replay_block_nakamoto(
         return Ok(());
     };
 
-    let expected_cost = if block.get_tenure_tx_payload().is_some() {
-        expected_total_tenure_cost
-    } else {
-        let Some(expected_parent_total_tenure_cost) = NakamotoChainState::get_total_tenure_cost_at(
-            stacks_chain_state.db(),
-            &block.header.parent_block_id,
-        )
-        .unwrap() else {
-            println!(
-                "Failed to find cost for parent of block {}",
-                block.header.block_id()
-            );
-            return Ok(());
-        };
-        expected_total_tenure_cost.sub(&expected_parent_total_tenure_cost).expect("FATAL: failed to subtract parent total cost from self total cost in non-tenure-changing block");
-        expected_total_tenure_cost
+    let expected_cost = match block.get_tenure_extend_tx_payload() {
+        // Full Extend: No subtraction needed
+        Some(tc) if tc.cause.is_full_extend() => expected_total_tenure_cost,
+
+        // Partial Extend or None: We need the parent cost.
+        tenure_payload => {
+            let Some(mut parent_cost) = NakamotoChainState::get_total_tenure_cost_at(
+                stacks_chain_state.db(),
+                &block.header.parent_block_id,
+            )
+            .unwrap() else {
+                println!(
+                    "Failed to find cost for parent of block {}",
+                    block.header.block_id()
+                );
+                return Ok(());
+            };
+
+            // If we have a partial extend, zero out that specific field in the parent cost
+            if let Some(payload) = tenure_payload {
+                match payload.cause {
+                    TenureChangeCause::ExtendedReadCount => parent_cost.read_count = 0,
+                    TenureChangeCause::ExtendedReadLength => parent_cost.read_length = 0,
+                    TenureChangeCause::ExtendedRuntime => parent_cost.runtime = 0,
+                    TenureChangeCause::ExtendedWriteCount => parent_cost.write_count = 0,
+                    TenureChangeCause::ExtendedWriteLength => parent_cost.write_length = 0,
+
+                    // These should be caught by the first match arm or are invalid here
+                    TenureChangeCause::BlockFound | TenureChangeCause::Extended => {
+                        panic!("Unexpected tenure change cause: {:?}", payload.cause);
+                    }
+                }
+            }
+
+            expected_total_tenure_cost
+                .sub(&parent_cost)
+                .expect("FATAL: failed to subtract parent total cost from self total cost");
+
+            expected_total_tenure_cost
+        }
     };
 
     let elected_height = sort_db
