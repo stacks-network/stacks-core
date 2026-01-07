@@ -1296,7 +1296,7 @@ impl TrieNodePatch {
                     normalized_new_ptr.back_block = 0;
                     if *old_ptr != normalized_new_ptr {
                         trace!(
-                            "new overwritten ptr: {:?} != {:?}",
+                            "new overwritten ptr (old_ptr != normalized_new_ptr): {:?} != {:?}",
                             &normalized_new_ptr,
                             old_ptr
                         );
@@ -1304,7 +1304,18 @@ impl TrieNodePatch {
                     }
                 } else {
                     if old_ptr != new_ptr {
-                        trace!("new overwritten ptr: {:?} != {:?}", &new_ptr, old_ptr);
+                        trace!(
+                            "new overwritten ptr (old_ptr != new_ptr): {:?} != {:?}",
+                            &new_ptr,
+                            old_ptr
+                        );
+                        ret.push(*new_ptr);
+                    } else if !is_backptr(new_ptr.id()) {
+                        trace!(
+                            "new overwritten ptr (new_ptr not backptr): {:?} != {:?}",
+                            &new_ptr,
+                            old_ptr
+                        );
                         ret.push(*new_ptr);
                     }
                 }
@@ -1313,6 +1324,16 @@ impl TrieNodePatch {
             }
         }
         ret
+    }
+
+    /// Test-only wrapper exposing the private [`TrieNodePatch::make_ptr_diff`] for unit testing
+    #[cfg(test)]
+    pub fn make_ptr_diff_for_test(
+        old_node_ptr: &TriePtr,
+        old_ptrs: &[TriePtr],
+        new_ptrs: &[TriePtr],
+    ) -> Vec<TriePtr> {
+        TrieNodePatch::make_ptr_diff(old_node_ptr, old_ptrs, new_ptrs)
     }
 
     /// Create a patch from one node4 to another
