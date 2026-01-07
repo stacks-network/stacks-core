@@ -602,13 +602,7 @@ fn test_simple_list_concat() {
 
     assert_eq!(
         execute("(concat (list 1) 3)").unwrap_err(),
-        CheckErrorKind::TypeValueError(
-            Box::new(SequenceType(SequenceSubtype::ListType(
-                ListTypeData::new_list(TypeSignature::IntType, 1).unwrap()
-            ))),
-            Box::new(Value::Int(3))
-        )
-        .into()
+        CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::IntType)).into()
     );
 
     assert_eq!(
