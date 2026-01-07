@@ -768,7 +768,37 @@ fn special_let(
     // parse and eval the bindings.
     let bindings = args[0].match_list().ok_or(CheckErrorKind::BadLetSyntax)?;
 
-    runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
+    #[cfg(test)]
+    {
+        let before_cost = env.global_context.cost_track.get_total();
+        eprintln!("[SPECIAL_LET] Before charging let cost: total runtime={}", before_cost.runtime);
+        eprintln!("[SPECIAL_LET] Charging let cost for {} bindings, epoch={:?}", bindings.len(), env.epoch());
+
+        // Compute the cost first to see what it is
+        let computed_cost = env.global_context.cost_track.compute_cost(
+            ClarityCostFunction::Let,
+            &[bindings.len() as u64]
+        );
+        match computed_cost {
+            Ok(cost) => {
+                eprintln!("[SPECIAL_LET] Computed cost: {:?}", cost);
+                runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
+            }
+            Err(e) => {
+                eprintln!("[SPECIAL_LET] ERROR computing cost: {:?}", e);
+                runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
+            }
+        }
+
+        let after_cost = env.global_context.cost_track.get_total();
+        eprintln!("[SPECIAL_LET] After let cost: total runtime={}, delta={}",
+            after_cost.runtime, after_cost.runtime - before_cost.runtime);
+    }
+
+    #[cfg(not(test))]
+    {
+        runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
+    }
 
     // create a new context.
     let mut inner_context = context.extend()?;

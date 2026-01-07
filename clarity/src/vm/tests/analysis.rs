@@ -2,16 +2,25 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+#[cfg(test)]
 use rstest::rstest;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::analysis::{
     build_cost_analysis_tree, static_cost_from_ast, static_cost_tree_from_ast, UserArgumentsContext,
+    CostAnalysisNode, CostExprNode,
 };
 use crate::vm::costs::ExecutionCost;
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ast, ClarityVersion};
+use crate::boot_util::boot_code_id;
+
+#[cfg(test)]
+use stackslib::chainstate::stacks::boot::{
+    BOOT_CODE_COSTS, BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_TESTNET,
+};
 
 #[test]
 fn test_build_cost_analysis_tree_function_definition() {
@@ -175,6 +184,38 @@ fn test_trait_counting() {
     assert_eq!(something_trait_count.1, 10);
 }
 
+/// Helper function to pretty print the cost tree with accumulated costs
+fn print_cost_tree(node: &CostAnalysisNode, depth: usize) {
+    let indent = "  ".repeat(depth);
+    let node_name = match &node.expr {
+        CostExprNode::NativeFunction(nf) => format!("NativeFunction({:?})", nf),
+        CostExprNode::UserFunction(name) => format!("UserFunction({})", name),
+        CostExprNode::UserArgument(name, _) => format!("UserArgument({})", name),
+        CostExprNode::AtomValue(val) => format!("AtomValue({:?})", val),
+        CostExprNode::Atom(name) => format!("Atom({})", name),
+        CostExprNode::FieldIdentifier(fid) => format!("FieldIdentifier({:?})", fid),
+        CostExprNode::TraitReference(name) => format!("TraitReference({})", name),
+    };
+
+    // Calculate accumulated cost including children
+    let mut child_total = 0u64;
+    for child in &node.children {
+        child_total += child.cost.min.runtime;
+        for grandchild in &child.children {
+            child_total += grandchild.cost.min.runtime;
+        }
+    }
+    let total_with_children = node.cost.min.runtime + child_total;
+
+    println!(
+        "{}{} -> node_cost: {}, children_sum: {}, total: {}",
+        indent, node_name, node.cost.min.runtime, child_total, total_with_children
+    );
+    for child in &node.children {
+        print_cost_tree(child, depth + 1);
+    }
+}
+
 /// Helper function to execute a contract function and return the execution cost
 fn execute_contract_function_and_get_cost(
     env: &mut OwnedEnvironment,
@@ -184,38 +225,38 @@ fn execute_contract_function_and_get_cost(
     version: ClarityVersion,
 ) -> ExecutionCost {
     let initial_cost = env.get_cost_total();
+    eprintln!("[EXECUTE_FUNCTION] Initial cost: {:?}", initial_cost);
 
     let sender = PrincipalData::parse_qualified_contract_principal(
         "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sender",
     )
     .unwrap();
 
-    let arg_str = args
-        .iter()
-        .map(|a| format!("u{}", a))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let function_call = format!("({} {})", function_name, arg_str);
+    // Convert u64 arguments to Value::UInt, then to SymbolicExpression::atom_value
+    use crate::vm::types::Value;
+    use crate::vm::representations::SymbolicExpression;
+    let arg_values: Vec<Value> = args.iter().map(|&a| Value::UInt(a as u128)).collect();
+    let arg_exprs: Vec<SymbolicExpression> = arg_values.iter()
+        .map(|v| SymbolicExpression::atom_value(v.clone()))
+        .collect();
 
-    let ast = crate::vm::ast::parse(
-        &QualifiedContractIdentifier::transient(),
-        &function_call,
-        version,
-        StacksEpochId::Epoch21,
-    )
-    .expect("Failed to parse function call");
-
-    if !ast.is_empty() {
-        let _result = env.execute_transaction(
-            sender,
-            None,
-            contract_id.clone(),
-            &function_call,
-            &ast[0..1],
-        );
+    eprintln!("[EXECUTE_FUNCTION] Executing function call: {} with {} args", function_name, arg_exprs.len());
+    let _result = env.execute_transaction(
+        sender,
+        None,
+        contract_id.clone(),
+        function_name,
+        &arg_exprs,
+    );
+    #[cfg(test)]
+    match &_result {
+        Ok((value, _, _)) => eprintln!("[EXECUTE_FUNCTION] Function returned successfully: {:?}", value),
+        Err(e) => eprintln!("[EXECUTE_FUNCTION] Function returned error: {:?}", e),
     }
 
     let final_cost = env.get_cost_total();
+    eprintln!("[EXECUTE_FUNCTION] Final cost: {:?}", final_cost);
+    eprintln!("[EXECUTE_FUNCTION] Cost delta: runtime={}", final_cost.runtime - initial_cost.runtime);
 
     ExecutionCost {
         write_length: final_cost.write_length - initial_cost.write_length,
@@ -276,4 +317,194 @@ fn test_pox_4_costs() {
             function_name
         ));
     }
+}
+
+#[test]
+fn test_contract_call_cost_32() {
+    let src = r#"(define-public (somefunc (a uint))
+  (contract-call? .tokens my-get-token-balance tx-sender))
+"#;
+    let contract_id = QualifiedContractIdentifier::transient();
+    let epoch = StacksEpochId::Epoch32;
+    let clarity_version = ClarityVersion::Clarity3;
+    let ast = crate::vm::ast::build_ast(
+        &contract_id,
+        &src,
+        &mut (),
+        clarity_version,
+        epoch,
+    )
+    .expect("Failed to build AST from contract call test");
+    let cost_map = static_cost_from_ast(&ast, &clarity_version, epoch)
+        .expect("Failed to get static cost analysis for contract call test");
+    let (somefunc_cost, _) = cost_map.get("somefunc").unwrap();
+    assert_eq!(somefunc_cost.min.runtime, 134);
+    assert_eq!(somefunc_cost.max.runtime, 134);
+}
+
+#[test]
+fn test_contract_call_cost_33() {
+    let src = r#"(define-public (somefunc (a uint))
+  (contract-call? .tokens my-get-token-balance tx-sender))
+"#;
+    let contract_id = QualifiedContractIdentifier::transient();
+    let epoch = StacksEpochId::Epoch33;
+    let clarity_version = ClarityVersion::Clarity4;
+    let ast = crate::vm::ast::build_ast(
+        &contract_id,
+        &src,
+        &mut (),
+        clarity_version,
+        epoch,
+    )
+    .expect("Failed to build AST from contract call test");
+    let cost_map = static_cost_from_ast(&ast, &clarity_version, epoch)
+        .expect("Failed to get static cost analysis for contract call test");
+    let (somefunc_cost, _) = cost_map.get("somefunc").unwrap();
+    assert_eq!(somefunc_cost.min.runtime, 134);
+    assert_eq!(somefunc_cost.max.runtime, 134);
+}
+
+// given a contract source, run dynamic cost analysis on pre-determined input
+// arguments, followed by static cost analysis on the same source and confirm
+// that the dynamic cost is between the min/max static cost
+#[test]
+fn test_against_dynamic_cost_analysis() {
+    let src = r#"(define-public (somefunc (a uint))
+    (let ((b 1))
+        (ok (+ a b))
+))
+"#;
+
+    let contract_id = QualifiedContractIdentifier::local("test-contract").unwrap();
+    let epoch = StacksEpochId::Epoch32;
+    let clarity_version = ClarityVersion::Clarity3;
+
+    // Build AST for static cost analysis
+    let ast = ast::build_ast(
+        &contract_id,
+        src,
+        &mut (),
+        clarity_version,
+        epoch,
+    )
+    .expect("Failed to build AST");
+
+    // Run static cost analysis
+    let static_cost_map = static_cost_from_ast(&ast, &clarity_version, epoch)
+        .expect("Failed to get static cost analysis");
+
+    let (static_cost, _) = static_cost_map.get("somefunc")
+        .expect("Function 'somefunc' not found in static cost map");
+
+    // Set up environment for dynamic cost analysis
+    let mut memory_store = MemoryBackingStore::new();
+    let mut db = memory_store.as_clarity_db();
+    db.begin();
+    db.set_clarity_epoch_version(epoch).unwrap();
+    db.commit().unwrap();
+    if epoch.clarity_uses_tip_burn_block() {
+        db.begin();
+        db.set_tenure_height(1).unwrap();
+        db.commit().unwrap();
+    }
+    if epoch.uses_marfed_block_time() {
+        db.begin();
+        db.setup_block_metadata(Some(1)).unwrap();
+        db.commit().unwrap();
+    }
+
+    // Initialize the costs and cost-voting contracts so we can use cost tracking
+    // The cost tracker needs both contracts to be initialized
+    // For epoch 32, we need costs-3 (not just costs)
+    let costs_contract_id = boot_code_id("costs", false);
+    let costs_3_contract_id = boot_code_id("costs-3", false);
+    let cost_voting_contract_id = boot_code_id("cost-voting", false);
+    {
+        // Use a temporary free environment to initialize the contracts
+        let mut temp_env = OwnedEnvironment::new(db, epoch);
+
+        // Initialize costs contract (costs-1, needed as base)
+        temp_env
+            .initialize_versioned_contract(
+                costs_contract_id.clone(),
+                clarity_version,
+                BOOT_CODE_COSTS,
+                None,
+            )
+            .expect("Failed to initialize costs contract");
+
+        // Initialize costs-3 contract (required for epoch 32)
+        temp_env
+            .initialize_versioned_contract(
+                costs_3_contract_id.clone(),
+                clarity_version,
+                BOOT_CODE_COSTS_3,
+                None,
+            )
+            .expect("Failed to initialize costs-3 contract");
+
+        // Initialize cost-voting contract (required for cost tracker to read confirmed-proposal-count)
+        temp_env
+            .initialize_versioned_contract(
+                cost_voting_contract_id.clone(),
+                clarity_version,
+                &BOOT_CODE_COST_VOTING_TESTNET.to_string(),
+                None,
+            )
+            .expect("Failed to initialize cost-voting contract");
+
+        // Extract the database from the environment
+        let (extracted_db, _cost_tracker) = temp_env.destruct()
+            .expect("Failed to extract database from environment");
+        db = extracted_db;
+    }
+
+    // Now create environment with cost tracking enabled
+    let mut owned_env = OwnedEnvironment::new_max_limit(db, epoch, false);
+
+    // Deploy the contract
+    owned_env
+        .initialize_versioned_contract(contract_id.clone(), clarity_version, src, None)
+        .expect("Failed to initialize contract");
+
+    // Run dynamic cost analysis by calling somefunc with a = 1
+    let dynamic_cost = execute_contract_function_and_get_cost(
+        &mut owned_env,
+        &contract_id,
+        "somefunc",
+        &[1],
+        clarity_version,
+    );
+
+    println!("static cost: {:?}", static_cost);
+    println!("dynamic cost: {:?}", dynamic_cost);
+
+    // Get the cost tree to debug and print it with values
+    let cost_trees_with_traits = crate::vm::costs::analysis::static_cost_tree_from_ast(&ast, &clarity_version, epoch)
+        .expect("Failed to get static cost tree");
+    if let Some((cost_tree, _)) = cost_trees_with_traits.get("somefunc") {
+        println!("\n=== Cost Tree for somefunc ===");
+        print_cost_tree(cost_tree, 0);
+    }
+
+    // Verify that dynamic cost runtime is between static cost min and max
+    assert!(
+        static_cost.min.runtime <= static_cost.max.runtime,
+        "Static cost min {} should be <= max {}",
+        static_cost.min.runtime,
+        static_cost.max.runtime
+    );
+    assert!(
+        dynamic_cost.runtime >= static_cost.min.runtime,
+        "Dynamic cost runtime {} should be >= static min runtime {}",
+        dynamic_cost.runtime,
+        static_cost.min.runtime
+    );
+    assert!(
+        dynamic_cost.runtime <= static_cost.max.runtime,
+        "Dynamic cost runtime {} should be <= static max runtime {}",
+        dynamic_cost.runtime,
+        static_cost.max.runtime
+    );
 }
