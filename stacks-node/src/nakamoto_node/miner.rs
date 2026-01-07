@@ -285,6 +285,20 @@ pub struct BlockMinerThread {
     miner_db: MinerDB,
 }
 
+/// Trait for the coordinator's read count extend timestamp check.
+/// This trait is used so that we can unit test the function more easily.
+trait ReadCountCheck {
+    /// Get the timestamp at which at least 70% of the signing power should be
+    /// willing to accept a time-based read-count extension.
+    fn get_read_count_extend_timestamp(&self) -> u64;
+}
+
+impl ReadCountCheck for SignerCoordinator {
+    fn get_read_count_extend_timestamp(&self) -> u64 {
+        SignerCoordinator::get_read_count_extend_timestamp(self)
+    }
+}
+
 impl BlockMinerThread {
     /// Instantiate the miner thread
     pub fn new(
@@ -730,6 +744,13 @@ impl BlockMinerThread {
 
                     thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
                 }
+                Ok(None)
+            }
+            Err(NakamotoNodeError::ParentNotFound) if self.config.node.mock_mining => {
+                info!(
+                    "Mock miner could not load parent tenure info yet. Will try again.";
+                );
+                thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
                 Ok(None)
             }
             Err(e) => {
@@ -1685,9 +1706,9 @@ impl BlockMinerThread {
         Ok(true)
     }
 
-    fn should_read_count_extend(
+    fn should_read_count_extend<C: ReadCountCheck>(
         &self,
-        coordinator: &mut SignerCoordinator,
+        coordinator: &C,
     ) -> Result<bool, NakamotoNodeError> {
         if self.last_block_mined.is_none() {
             // if we haven't mined blocks yet, no tenure extends needed
@@ -1696,9 +1717,9 @@ impl BlockMinerThread {
 
         // Do not extend if we have spent a threshold amount of the
         // read-count budget, since it is not necessary.
-        let usage = self
-            .tenure_budget
-            .proportion_largest_dimension(&self.tenure_cost);
+        let usage =
+            self.tenure_cost.read_count / std::cmp::max(1, self.tenure_budget.read_count / 100);
+
         if usage < self.config.miner.read_count_extend_cost_threshold {
             info!(
                 "Miner: not read-count extending because threshold not reached";
@@ -2025,4 +2046,109 @@ impl ParentStacksBlockInfo {
             parent_tenure: parent_tenure_info,
         })
     }
+}
+
+#[cfg(test)]
+impl ReadCountCheck for () {
+    fn get_read_count_extend_timestamp(&self) -> u64 {
+        // always allow the read count extend
+        0
+    }
+}
+
+#[test]
+fn should_read_count_extend_units() {
+    let (sync_sender, _rcv_1) = std::sync::mpsc::sync_channel(1);
+    let (relay_sender, _rcv_2) = std::sync::mpsc::sync_channel(1);
+    let (_coord_rcv, coord_comms) =
+        stacks::chainstate::coordinator::comm::CoordinatorCommunication::instantiate();
+    let mut miner = BlockMinerThread {
+        config: Config::default(),
+        globals: Globals::new(
+            coord_comms,
+            Arc::new(std::sync::Mutex::new(
+                stacks::chainstate::stacks::miner::MinerStatus::make_ready(10),
+            )),
+            relay_sender,
+            crate::neon::Counters::new(),
+            crate::syncctl::PoxSyncWatchdogComms::new(Arc::new(AtomicBool::new(true))),
+            Arc::new(AtomicBool::new(true)),
+            0,
+            neon_node::LeaderKeyRegistrationState::Inactive,
+        ),
+        keychain: Keychain::default(vec![]),
+        burnchain: Burnchain::regtest("/dev/null"),
+        last_block_mined: Some((ConsensusHash([0; 20]), BlockHeaderHash([0; 32]))),
+        mined_blocks: 1,
+        tenure_cost: ExecutionCost::ZERO,
+        tenure_budget: ExecutionCost::ZERO,
+        registered_key: RegisteredKey {
+            target_block_height: 0,
+            block_height: 0,
+            op_vtxindex: 0,
+            vrf_public_key: stacks::util::vrf::VRFPublicKey::from_private(
+                &stacks::util::vrf::VRFPrivateKey::new(),
+            ),
+            memo: vec![],
+        },
+        burn_election_block: BlockSnapshot::empty(),
+        burn_block: BlockSnapshot::empty(),
+        parent_tenure_id: StacksBlockId([0; 32]),
+        event_dispatcher: EventDispatcher::new(None),
+        reason: MinerReason::Extended {
+            burn_view_consensus_hash: ConsensusHash([0; 20]),
+        },
+        p2p_handle: NetworkHandle::new(sync_sender),
+        signer_set_cache: None,
+        tenure_change_time: Instant::now(),
+        burn_tip_at_start: ConsensusHash([0; 20]),
+        abort_flag: Arc::new(AtomicBool::new(false)),
+        reset_mempool_caches: false,
+        miner_db: MinerDB::open("/tmp/should_read_count_extend_units.db").unwrap(),
+    };
+    miner.config.miner.read_count_extend_cost_threshold = 20;
+
+    miner.tenure_cost = ExecutionCost {
+        write_length: 1000,
+        write_count: 1000,
+        read_length: 1000,
+        read_count: 199,
+        runtime: 1000,
+    };
+
+    miner.tenure_budget = ExecutionCost {
+        write_length: 1000,
+        write_count: 1000,
+        read_length: 1000,
+        read_count: 1000,
+        runtime: 1000,
+    };
+
+    assert_eq!(
+        miner.should_read_count_extend(&()).unwrap(),
+        false,
+        "When read_count is below the configured threshold, we shouldn't try to extend"
+    );
+
+    miner.tenure_cost = ExecutionCost {
+        write_length: 1000,
+        write_count: 1000,
+        read_length: 1000,
+        read_count: 200,
+        runtime: 1000,
+    };
+
+    miner.tenure_budget = ExecutionCost {
+        write_length: 1000,
+        write_count: 1000,
+        read_length: 1000,
+        read_count: 1000,
+        runtime: 1000,
+    };
+
+    assert_eq!(
+        miner.should_read_count_extend(&()).unwrap(),
+        true,
+        "When read_count is at the configured threshhold, we should try to extend"
+    );
 }

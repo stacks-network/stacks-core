@@ -1485,7 +1485,7 @@ The function returns the result of evaluating `expr`.
     example: "
 (define-data-var data int 1)
 (at-block 0x0000000000000000000000000000000000000000000000000000000000000000 block-height) ;; Returns u0
-(at-block (unwrap-panic (get-block-info? id-header-hash u0)) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
+(at-block (unwrap-panic (get-stacks-block-info? id-header-hash u0)) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
 };
 
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {

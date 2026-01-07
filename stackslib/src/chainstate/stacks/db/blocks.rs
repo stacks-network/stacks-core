@@ -157,6 +157,8 @@ pub struct SetupBlockResult<'a, 'b> {
 
 pub struct DummyEventDispatcher;
 
+pub const MAX_RECEIPT_SIZES: u64 = 50 * 1024 * 1024;
+
 impl BlockEventDispatcher for DummyEventDispatcher {
     fn announce_block(
         &self,
@@ -4492,11 +4494,20 @@ impl StacksChainState {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
+        let mut total_size = 0u64;
         for tx in block_txs.iter() {
             let (tx_fee, mut tx_receipt) =
                 StacksChainState::process_transaction(clarity_tx, tx, false, None)?;
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
+            total_size = total_size.saturating_add(tx_receipt.size().ok_or_else(|| {
+                Error::InvalidStacksBlock("Failure calculating tx receipt size".into())
+            })?);
+            if total_size >= MAX_RECEIPT_SIZES {
+                return Err(Error::InvalidStacksBlock(
+                    "Total tx receipt size too large".into(),
+                ));
+            }
             burns = burns
                 .checked_add(tx_receipt.stx_burned)
                 .expect("Burns overflow");
@@ -5857,7 +5868,7 @@ impl StacksChainState {
     /// parent block has been processed.
     /// If it's not known, return None.
     pub fn get_parent_header_info(
-        chainstate_tx: &mut ChainstateTx,
+        chainstate_tx: &ChainstateTx,
         next_staging_block: &StagingBlock,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         let parent_block_header_info = match StacksChainState::get_anchored_block_header_info(
@@ -6055,13 +6066,11 @@ impl StacksChainState {
             &next_staging_block.parent_microblock_hash,
         );
 
-        let parent_header_info = match StacksChainState::get_parent_header_info(
-            &mut chainstate_tx,
-            &next_staging_block,
-        )? {
-            Some(hinfo) => hinfo,
-            None => return Ok((None, None)),
-        };
+        let parent_header_info =
+            match StacksChainState::get_parent_header_info(&chainstate_tx, &next_staging_block)? {
+                Some(hinfo) => hinfo,
+                None => return Ok((None, None)),
+            };
 
         let block = StacksChainState::extract_stacks_block(&next_staging_block)?;
         let block_size = u64::try_from(next_staging_block.block_data.len())

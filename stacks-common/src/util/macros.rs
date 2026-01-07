@@ -426,8 +426,8 @@ macro_rules! impl_array_newtype {
             }
         }
 
+        #[allow(clippy::non_canonical_clone_impl)]
         impl Clone for $thing {
-            #[allow(clippy::non_canonical_clone_impl)]
             fn clone(&self) -> Self {
                 $thing(self.0.clone())
             }

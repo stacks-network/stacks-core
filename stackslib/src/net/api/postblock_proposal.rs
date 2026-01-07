@@ -193,6 +193,9 @@ impl BlockValidateResponse {
 #[cfg(any(test, feature = "testing"))]
 fn fault_injection_validation_delay() {
     let delay = TEST_VALIDATE_DELAY_DURATION_SECS.get();
+    if delay == 0 {
+        return;
+    }
     warn!("Sleeping for {} seconds to simulate slow processing", delay);
     thread::sleep(Duration::from_secs(delay));
 }
@@ -590,7 +593,7 @@ impl NakamotoBlockProposal {
         let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
 
         let block_deadline = Instant::now() + Duration::from_secs(timeout_secs);
-
+        let mut receipts_total = 0u64;
         for (i, tx) in self.block.txs.iter().enumerate() {
             let now = Instant::now();
             if now >= block_deadline {
@@ -609,6 +612,7 @@ impl NakamotoBlockProposal {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 Some(remaining),
+                &mut receipts_total,
             );
             let err = match tx_result {
                 TransactionResult::Success(_) => Ok(()),
@@ -746,6 +750,7 @@ impl NakamotoBlockProposal {
         let mut replay_tenure_tx =
             replay_builder.tenure_begin(&burn_dbconn, &mut replay_miner_tenure_info)?;
 
+        let mut total_receipts = 0;
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
@@ -787,6 +792,7 @@ impl NakamotoBlockProposal {
                     replay_tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
                     None,
+                    &mut total_receipts,
                 );
                 match tx_result {
                     TransactionResult::Skipped(TransactionSkipped { error, .. })
@@ -851,6 +857,7 @@ impl NakamotoBlockProposal {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
+                &mut total_receipts,
             );
         }
 
@@ -865,6 +872,7 @@ impl NakamotoBlockProposal {
                     tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
                     None,
+                    &mut total_receipts,
                 );
                 match tx_result {
                     TransactionResult::Skipped(TransactionSkipped { error, .. })

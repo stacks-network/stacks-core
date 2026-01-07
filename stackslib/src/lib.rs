@@ -69,6 +69,11 @@ pub mod cost_estimates;
 pub mod deps;
 pub mod monitoring;
 
+#[cfg(test)]
+/// Utilities and strategy definitions for proptesting
+///  common stackslib arguments
+pub mod proptest_utils;
+
 // set via _compile-time_ envars
 const GIT_BRANCH_ENV: Option<&'static str> = option_env!("GIT_BRANCH");
 const GIT_COMMIT_ENV: Option<&'static str> = option_env!("GIT_COMMIT");
