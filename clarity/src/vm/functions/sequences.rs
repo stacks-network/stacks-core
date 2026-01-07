@@ -161,7 +161,16 @@ pub fn special_map(
         match sequence {
             Value::Sequence(ref mut sequence_data) => {
                 min_args_len = min_args_len.min(sequence_data.len());
-                for (apply_index, value) in sequence_data.atom_values()?.into_iter().enumerate() {
+                for (apply_index, value) in sequence_data
+                    .atom_values()
+                    .map_err(|_| {
+                        VmInternalError::Expect(
+                            "ERROR: Invalid sequence data successfully constructed".into(),
+                        )
+                    })?
+                    .into_iter()
+                    .enumerate()
+                {
                     if apply_index > min_args_len {
                         break;
                     }

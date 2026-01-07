@@ -543,8 +543,9 @@ impl SequenceData {
 
     /// Retains elements where the predicate returns Ok(true).
     /// Removes elements where it returns Ok(false).
-    /// Propagates the first error returned either by internal operations or the provided predicate.
-    pub fn retain_values<E, F>(&mut self, predicate: &mut F) -> Result<(), RetainValuesError<E>>
+    /// If the predicate or internal value conversion returns an error, the operation
+    /// is aborted and the original sequence is left unmodified. The first error is propagated.
+    pub fn retain_values<E, F>(&mut self, mut predicate: F) -> Result<(), RetainValuesError<E>>
     where
         F: FnMut(Value) -> Result<bool, E>,
     {
@@ -553,12 +554,18 @@ impl SequenceData {
         // is available in rust stable channel (experimental at this point).
         macro_rules! retain_inner {
             ($data:expr, $seq_type:ident) => {{
-                // Removing elements in the middle of a vector is O(n^2) in the worst case scenario.
-                // To avoid this, we must drain and rebuild the vector
-                let mut out = Vec::with_capacity($data.data.len());
-                for item in $data.data.drain(..) {
-                    let v = $seq_type::to_value(&item).map_err(RetainValuesError::Internal)?;
-                    if predicate(v).map_err(RetainValuesError::Predicate)? {
+                let len = $data.data.len();
+                // To maintain relative order, avoid half mutated state on error, build a mask of elements to keep
+                let mut keep_mask = Vec::with_capacity(len);
+                for item in $data.data.iter() {
+                    let value = $seq_type::to_value(item).map_err(RetainValuesError::Internal)?;
+                    let keep = predicate(value).map_err(RetainValuesError::Predicate)?;
+                    keep_mask.push(keep);
+                }
+                // Rebuild vector from keep mask
+                let mut out = Vec::with_capacity(len);
+                for (item, keep) in $data.data.drain(..).zip(keep_mask.into_iter()) {
+                    if keep {
                         out.push(item);
                     }
                 }
@@ -962,7 +969,7 @@ impl Value {
             let expected_item_type = expected_type.get_list_item_type();
 
             for item in &list_data {
-                if !expected_item_type.admits(epoch, item).unwrap_or(false) {
+                if !expected_item_type.admits(epoch, item)? {
                     return Err(ClarityTypeError::ListTypeMismatch);
                 }
             }
@@ -1503,7 +1510,7 @@ impl PrincipalData {
         literal: &str,
     ) -> Result<StandardPrincipalData, ClarityTypeError> {
         let (version, data) = c32::c32_address_decode(literal).map_err(|x| {
-            // This `InvalidPrincipalLiteral` is unreachable in normal Clarity execution.
+            // This `InvalidPrincipalEncoding` is unreachable in normal Clarity execution.
             // - All principal literals are validated by the Clarity lexer *before* reaching `parse_standard_principal`.
             // - The lexer rejects any literal containing characters outside the C32 alphabet.
             // Therefore, only malformed input fed directly into low-level VM entry points can cause this branch to execute.
@@ -1681,7 +1688,7 @@ impl TupleData {
             })?;
 
             // User provided a value that does not match the declared field type
-            if !expected_type.admits(epoch, &value).unwrap_or(false) {
+            if !expected_type.admits(epoch, &value)? {
                 return Err(ClarityTypeError::TypeMismatchValue(
                     Box::new(expected_type.clone()),
                     Box::new(value),
