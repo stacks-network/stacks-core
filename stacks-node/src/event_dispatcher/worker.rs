@@ -31,13 +31,20 @@ use crate::event_dispatcher::db::EventDispatcherDbConnection;
 use crate::event_dispatcher::TEST_EVENT_OBSERVER_SKIP_RETRY;
 use crate::event_dispatcher::{EventDispatcherError, EventRequestData};
 
+#[allow(dead_code)] // NoOp is only used in test configurations
+enum WorkerTask {
+    Payload {
+        /// The id of the payload data in the event observer DB. It must exist.
+        id: i64,
+        /// If true, the HTTP request is only attempted once.
+        disable_retries: bool,
+        /// A value for the HTTP timeout is stored in the DB, but can optionally be overridden.
+        timeout_override: Option<Duration>,
+    },
+    NoOp,
+}
 struct WorkerMessage {
-    /// The id of the payload data in the event observer DB. It must exist.
-    id: i64,
-    /// If true, the HTTP request is only attempted once.
-    disable_retries: bool,
-    /// A value for the HTTP timeout is stored in the DB, but can optionally be overridden.
-    timeout_override: Option<Duration>,
+    task: WorkerTask,
     /// The worker thread will send a message on this channel once it's done with this request.
     completion: Sender<()>,
 }
@@ -149,9 +156,23 @@ impl EventDispatcherWorker {
         let (sender, receiver) = channel();
 
         self.sender.send(WorkerMessage {
-            id,
-            disable_retries,
-            timeout_override,
+            task: WorkerTask::Payload {
+                id,
+                disable_retries,
+                timeout_override,
+            },
+            completion: sender,
+        })?;
+
+        Ok(EventDispatcherResult { receiver })
+    }
+
+    #[cfg(test)]
+    pub fn noop(&self) -> Result<EventDispatcherResult, EventDispatcherError> {
+        let (sender, receiver) = channel();
+
+        self.sender.send(WorkerMessage {
+            task: WorkerTask::NoOp,
             completion: sender,
         })?;
 
@@ -162,15 +183,20 @@ impl EventDispatcherWorker {
         // main loop of the thread -- get message from channel, grab data from DB, send request,
         // delete from DB, acknowledge
         loop {
-            let Ok(WorkerMessage {
+            let Ok(WorkerMessage { task, completion }) = message_rx.recv() else {
+                info!("Event Dispatcher Worker: channel closed, terminating worker thread.");
+                return;
+            };
+
+            let WorkerTask::Payload {
                 id,
                 disable_retries,
                 timeout_override,
-                completion,
-            }) = message_rx.recv()
+            } = task
             else {
-                info!("Event Dispatcher Worker: channel closed, terminating worker thread.");
-                return;
+                // no-op -- just ack and move on
+                let _ = completion.send(());
+                continue;
             };
 
             // This will block forever if we were passed a non-existing ID. Don't do that.

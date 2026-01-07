@@ -8344,6 +8344,8 @@ fn push_boot_receipts() {
     let mut run_loop = neon::RunLoop::new(conf);
     let _chainstate = run_loop.boot_chainstate(&burnchain_config);
 
+    run_loop.get_event_dispatcher().catch_up();
+
     // verify that the event observer got its boot receipts
     let blocks = test_observer::get_blocks();
     assert_eq!(blocks.len(), 1);

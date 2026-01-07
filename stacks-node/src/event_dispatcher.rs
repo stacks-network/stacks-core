@@ -457,6 +457,15 @@ impl EventDispatcher {
         }
     }
 
+    /// Sends a noop task to the worker and waits until its completion is acknowledged.
+    /// This has the effect that all payloads that have been submitted before this point
+    /// are also done, which is a useful thing to wait for in some tests where you want
+    /// to assert on certain event deliveries.
+    #[cfg(test)]
+    pub fn catch_up(&self) {
+        self.worker.noop().unwrap().wait_until_complete();
+    }
+
     pub fn process_burn_block(
         &self,
         burn_block: &BurnchainHeaderHash,
