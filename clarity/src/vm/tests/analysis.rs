@@ -365,20 +365,17 @@ fn test_contract_call_cost_33() {
     assert_eq!(somefunc_cost.max.runtime, 134);
 }
 
-// given a contract source, run dynamic cost analysis on pre-determined input
-// arguments, followed by static cost analysis on the same source and confirm
-// that the dynamic cost is between the min/max static cost
-#[test]
-fn test_against_dynamic_cost_analysis() {
-    let src = r#"(define-public (somefunc (a uint))
-    (let ((b 1))
-        (ok (+ a b))
-))
-"#;
-
+// Helper function to run static and dynamic cost analysis on a contract function
+// Returns Ok(()) if costs are within expected range, Err with message otherwise
+#[cfg(test)]
+fn run_cost_analysis_test(
+    src: &str,
+    function_name: &str,
+    args: &[u64],
+    epoch: StacksEpochId,
+    clarity_version: ClarityVersion,
+) -> Result<(), String> {
     let contract_id = QualifiedContractIdentifier::local("test-contract").unwrap();
-    let epoch = StacksEpochId::Epoch32;
-    let clarity_version = ClarityVersion::Clarity3;
 
     // Build AST for static cost analysis
     let ast = ast::build_ast(
@@ -394,8 +391,8 @@ fn test_against_dynamic_cost_analysis() {
     let static_cost_map = static_cost_from_ast(&ast, &clarity_version, epoch)
         .expect("Failed to get static cost analysis");
 
-    let (static_cost, _) = static_cost_map.get("somefunc")
-        .expect("Function 'somefunc' not found in static cost map");
+    let (static_cost, _) = static_cost_map.get(function_name)
+        .expect(&format!("Function '{}' not found in static cost map", function_name));
 
     // Set up environment for dynamic cost analysis
     let mut memory_store = MemoryBackingStore::new();
@@ -468,43 +465,101 @@ fn test_against_dynamic_cost_analysis() {
         .initialize_versioned_contract(contract_id.clone(), clarity_version, src, None)
         .expect("Failed to initialize contract");
 
-    // Run dynamic cost analysis by calling somefunc with a = 1
+    // Run dynamic cost analysis
     let dynamic_cost = execute_contract_function_and_get_cost(
         &mut owned_env,
         &contract_id,
-        "somefunc",
-        &[1],
+        function_name,
+        args,
         clarity_version,
     );
 
+    println!("\n=== Cost Analysis for {} ===", function_name);
     println!("static cost: {:?}", static_cost);
     println!("dynamic cost: {:?}", dynamic_cost);
 
     // Get the cost tree to debug and print it with values
     let cost_trees_with_traits = crate::vm::costs::analysis::static_cost_tree_from_ast(&ast, &clarity_version, epoch)
         .expect("Failed to get static cost tree");
-    if let Some((cost_tree, _)) = cost_trees_with_traits.get("somefunc") {
-        println!("\n=== Cost Tree for somefunc ===");
+    if let Some((cost_tree, _)) = cost_trees_with_traits.get(function_name) {
+        println!("\n=== Cost Tree for {} ===", function_name);
         print_cost_tree(cost_tree, 0);
     }
 
     // Verify that dynamic cost runtime is between static cost min and max
-    assert!(
-        static_cost.min.runtime <= static_cost.max.runtime,
-        "Static cost min {} should be <= max {}",
-        static_cost.min.runtime,
-        static_cost.max.runtime
-    );
-    assert!(
-        dynamic_cost.runtime >= static_cost.min.runtime,
-        "Dynamic cost runtime {} should be >= static min runtime {}",
-        dynamic_cost.runtime,
-        static_cost.min.runtime
-    );
-    assert!(
-        dynamic_cost.runtime <= static_cost.max.runtime,
-        "Dynamic cost runtime {} should be <= static max runtime {}",
-        dynamic_cost.runtime,
-        static_cost.max.runtime
-    );
+    if static_cost.min.runtime > static_cost.max.runtime {
+        return Err(format!(
+            "Static cost min {} should be <= max {}",
+            static_cost.min.runtime,
+            static_cost.max.runtime
+        ));
+    }
+
+    if dynamic_cost.runtime < static_cost.min.runtime {
+        return Err(format!(
+            "Dynamic cost runtime {} is LESS than static min runtime {}",
+            dynamic_cost.runtime,
+            static_cost.min.runtime
+        ));
+    }
+
+    if dynamic_cost.runtime > static_cost.max.runtime {
+        return Err(format!(
+            "Dynamic cost runtime {} is MORE than static max runtime {}",
+            dynamic_cost.runtime,
+            static_cost.max.runtime
+        ));
+    }
+
+    Ok(())
+}
+
+// given a contract source, run dynamic cost analysis on pre-determined input
+// arguments, followed by static cost analysis on the same source and confirm
+// that the dynamic cost is between the min/max static cost
+#[test]
+fn test_against_dynamic_cost_analysis() {
+    let epoch = StacksEpochId::Epoch32;
+    let clarity_version = ClarityVersion::Clarity3;
+
+    // Define test cases as (source, function_name, args)
+    let test_cases: Vec<(&str, &str, &[u64])> = vec![
+        (
+            r#"(define-public (somefunc (a uint))
+    (let ((b 1))
+        (ok (+ a b))
+))
+"#,
+            "somefunc",
+            &[1],
+        ),
+        (
+            r#"(define-public (simple-ok)
+    (ok true)
+)
+"#,
+            "simple-ok",
+            &[],
+        ),
+    ];
+
+    let mut failures = Vec::new();
+    for (src, function_name, args) in test_cases {
+        println!("\n\n=== Running test case: {} ===", function_name);
+        match run_cost_analysis_test(src, function_name, args, epoch, clarity_version) {
+            Ok(()) => println!("✓ Test case {} passed", function_name),
+            Err(e) => {
+                eprintln!("✗ Test case {} failed: {}", function_name, e);
+                failures.push((function_name, e));
+            }
+        }
+    }
+
+    if !failures.is_empty() {
+        let error_msg = failures.iter()
+            .map(|(name, err)| format!("{}: {}", name, err))
+            .collect::<Vec<_>>()
+            .join("\n");
+        panic!("{} test case(s) failed:\n{}", failures.len(), error_msg);
+    }
 }
