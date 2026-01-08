@@ -145,12 +145,12 @@ impl From<SyntaxBindingError> for StaticAnalysisError {
     }
 }
 
-/// Converts a [`SyntaxBindingError`] into a [`SharedAnalysisError`].
+/// Converts a [`SyntaxBindingError`] into a [`CommonCheckErrorKind`].
 /// Used for propagating binding errors from [`crate::vm::functions::handle_binding_list`],
 /// which is utilized in both static and runtime analysis to ensure consistent error handling.
-impl From<SyntaxBindingError> for SharedAnalysisError {
+impl From<SyntaxBindingError> for CommonCheckErrorKind {
     fn from(e: SyntaxBindingError) -> Self {
-        SharedAnalysisError::BadSyntaxBinding(e)
+        CommonCheckErrorKind::BadSyntaxBinding(e)
     }
 }
 
@@ -168,7 +168,7 @@ impl From<SyntaxBindingError> for SharedAnalysisError {
 /// and do not pass through this enum. Only error cases that can possibly arise from a shared
 /// validation flow will appear here.
 #[derive(Debug, PartialEq)]
-pub enum SharedAnalysisError {
+pub enum CommonCheckErrorKind {
     // Cost checker errors
     /// Arithmetic overflow in cost computation during type-checking, exceeding the maximum threshold.
     CostOverflow,
@@ -909,8 +909,8 @@ impl StaticAnalysisErrorReport {
     }
 }
 
-impl From<(SharedAnalysisError, &SymbolicExpression)> for StaticAnalysisErrorReport {
-    fn from(e: (SharedAnalysisError, &SymbolicExpression)) -> Self {
+impl From<(CommonCheckErrorKind, &SymbolicExpression)> for StaticAnalysisErrorReport {
+    fn from(e: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         Self::with_expression(e.0.into(), e.1)
     }
 }
@@ -921,19 +921,19 @@ impl From<(SyntaxBindingError, &SymbolicExpression)> for StaticAnalysisErrorRepo
     }
 }
 
-impl From<(SharedAnalysisError, &SymbolicExpression)> for SharedAnalysisError {
-    fn from(e: (SharedAnalysisError, &SymbolicExpression)) -> Self {
+impl From<(CommonCheckErrorKind, &SymbolicExpression)> for CommonCheckErrorKind {
+    fn from(e: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         e.0
     }
 }
 
-impl From<(SharedAnalysisError, &SymbolicExpression)> for RuntimeAnalysisError {
-    fn from(e: (SharedAnalysisError, &SymbolicExpression)) -> Self {
+impl From<(CommonCheckErrorKind, &SymbolicExpression)> for RuntimeAnalysisError {
+    fn from(e: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         e.0.into()
     }
 }
 
-impl fmt::Display for SharedAnalysisError {
+impl fmt::Display for CommonCheckErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
@@ -1013,28 +1013,30 @@ impl From<CostErrors> for RuntimeAnalysisError {
     }
 }
 
-impl From<CostErrors> for SharedAnalysisError {
+impl From<CostErrors> for CommonCheckErrorKind {
     fn from(err: CostErrors) -> Self {
         match err {
-            CostErrors::CostOverflow => SharedAnalysisError::CostOverflow,
-            CostErrors::CostBalanceExceeded(a, b) => SharedAnalysisError::CostBalanceExceeded(a, b),
+            CostErrors::CostOverflow => CommonCheckErrorKind::CostOverflow,
+            CostErrors::CostBalanceExceeded(a, b) => {
+                CommonCheckErrorKind::CostBalanceExceeded(a, b)
+            }
             CostErrors::MemoryBalanceExceeded(a, b) => {
-                SharedAnalysisError::MemoryBalanceExceeded(a, b)
+                CommonCheckErrorKind::MemoryBalanceExceeded(a, b)
             }
-            CostErrors::CostComputationFailed(s) => SharedAnalysisError::CostComputationFailed(s),
+            CostErrors::CostComputationFailed(s) => CommonCheckErrorKind::CostComputationFailed(s),
             CostErrors::CostContractLoadFailure => {
-                SharedAnalysisError::CostComputationFailed("Failed to load cost contract".into())
+                CommonCheckErrorKind::CostComputationFailed("Failed to load cost contract".into())
             }
-            CostErrors::InterpreterFailure => SharedAnalysisError::Expects(
+            CostErrors::InterpreterFailure => CommonCheckErrorKind::Expects(
                 "Unexpected interpreter failure in cost computation".into(),
             ),
-            CostErrors::Expect(s) => SharedAnalysisError::Expects(s),
-            CostErrors::ExecutionTimeExpired => SharedAnalysisError::ExecutionTimeExpired,
+            CostErrors::Expect(s) => CommonCheckErrorKind::Expects(s),
+            CostErrors::ExecutionTimeExpired => CommonCheckErrorKind::ExecutionTimeExpired,
         }
     }
 }
 
-impl error::Error for SharedAnalysisError {
+impl error::Error for CommonCheckErrorKind {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
@@ -1058,142 +1060,146 @@ impl From<StaticAnalysisError> for StaticAnalysisErrorReport {
     }
 }
 
-impl From<SharedAnalysisError> for StaticAnalysisErrorReport {
-    fn from(err: SharedAnalysisError) -> Self {
+impl From<CommonCheckErrorKind> for StaticAnalysisErrorReport {
+    fn from(err: CommonCheckErrorKind) -> Self {
         StaticAnalysisErrorReport::new(StaticAnalysisError::from(err))
     }
 }
 
-impl From<SharedAnalysisError> for RuntimeAnalysisError {
-    fn from(err: SharedAnalysisError) -> Self {
+impl From<CommonCheckErrorKind> for RuntimeAnalysisError {
+    fn from(err: CommonCheckErrorKind) -> Self {
         match err {
-            SharedAnalysisError::CostOverflow => RuntimeAnalysisError::CostOverflow,
-            SharedAnalysisError::CostBalanceExceeded(a, b) => {
+            CommonCheckErrorKind::CostOverflow => RuntimeAnalysisError::CostOverflow,
+            CommonCheckErrorKind::CostBalanceExceeded(a, b) => {
                 RuntimeAnalysisError::CostBalanceExceeded(a, b)
             }
-            SharedAnalysisError::MemoryBalanceExceeded(a, b) => {
+            CommonCheckErrorKind::MemoryBalanceExceeded(a, b) => {
                 RuntimeAnalysisError::MemoryBalanceExceeded(a, b)
             }
-            SharedAnalysisError::CostComputationFailed(s) => {
+            CommonCheckErrorKind::CostComputationFailed(s) => {
                 RuntimeAnalysisError::CostComputationFailed(s)
             }
-            SharedAnalysisError::ExecutionTimeExpired => RuntimeAnalysisError::ExecutionTimeExpired,
-            SharedAnalysisError::IncorrectArgumentCount(expected, args) => {
+            CommonCheckErrorKind::ExecutionTimeExpired => {
+                RuntimeAnalysisError::ExecutionTimeExpired
+            }
+            CommonCheckErrorKind::IncorrectArgumentCount(expected, args) => {
                 RuntimeAnalysisError::IncorrectArgumentCount(expected, args)
             }
-            SharedAnalysisError::RequiresAtLeastArguments(expected, args) => {
+            CommonCheckErrorKind::RequiresAtLeastArguments(expected, args) => {
                 RuntimeAnalysisError::RequiresAtLeastArguments(expected, args)
             }
-            SharedAnalysisError::RequiresAtMostArguments(expected, args) => {
+            CommonCheckErrorKind::RequiresAtMostArguments(expected, args) => {
                 RuntimeAnalysisError::RequiresAtMostArguments(expected, args)
             }
-            SharedAnalysisError::TooManyFunctionParameters(found, allowed) => {
+            CommonCheckErrorKind::TooManyFunctionParameters(found, allowed) => {
                 RuntimeAnalysisError::TooManyFunctionParameters(found, allowed)
             }
-            SharedAnalysisError::ExpectedName => RuntimeAnalysisError::ExpectedName,
-            SharedAnalysisError::DefineFunctionBadSignature => {
+            CommonCheckErrorKind::ExpectedName => RuntimeAnalysisError::ExpectedName,
+            CommonCheckErrorKind::DefineFunctionBadSignature => {
                 RuntimeAnalysisError::DefineFunctionBadSignature
             }
-            SharedAnalysisError::ExpectedTraitIdentifier => {
+            CommonCheckErrorKind::ExpectedTraitIdentifier => {
                 RuntimeAnalysisError::ExpectedTraitIdentifier
             }
-            SharedAnalysisError::Expects(s) => RuntimeAnalysisError::Expects(s),
-            SharedAnalysisError::CouldNotDetermineType => {
+            CommonCheckErrorKind::Expects(s) => RuntimeAnalysisError::Expects(s),
+            CommonCheckErrorKind::CouldNotDetermineType => {
                 RuntimeAnalysisError::CouldNotDetermineType
             }
-            SharedAnalysisError::ValueTooLarge => RuntimeAnalysisError::ValueTooLarge,
-            SharedAnalysisError::TypeSignatureTooDeep => RuntimeAnalysisError::TypeSignatureTooDeep,
-            SharedAnalysisError::DefineTraitDuplicateMethod(s) => {
+            CommonCheckErrorKind::ValueTooLarge => RuntimeAnalysisError::ValueTooLarge,
+            CommonCheckErrorKind::TypeSignatureTooDeep => {
+                RuntimeAnalysisError::TypeSignatureTooDeep
+            }
+            CommonCheckErrorKind::DefineTraitDuplicateMethod(s) => {
                 RuntimeAnalysisError::DefineTraitDuplicateMethod(s)
             }
-            SharedAnalysisError::TraitTooManyMethods(found, allowed) => {
+            CommonCheckErrorKind::TraitTooManyMethods(found, allowed) => {
                 RuntimeAnalysisError::TraitTooManyMethods(found, allowed)
             }
-            SharedAnalysisError::DefineTraitBadSignature => {
+            CommonCheckErrorKind::DefineTraitBadSignature => {
                 RuntimeAnalysisError::DefineTraitBadSignature
             }
-            SharedAnalysisError::InvalidTypeDescription => {
+            CommonCheckErrorKind::InvalidTypeDescription => {
                 RuntimeAnalysisError::InvalidTypeDescription
             }
-            SharedAnalysisError::SupertypeTooLarge => RuntimeAnalysisError::SupertypeTooLarge,
-            SharedAnalysisError::TypeError(a, b) => RuntimeAnalysisError::TypeError(a, b),
-            SharedAnalysisError::BadSyntaxBinding(e) => RuntimeAnalysisError::BadSyntaxBinding(e),
-            SharedAnalysisError::ValueOutOfBounds => RuntimeAnalysisError::ValueOutOfBounds,
-            SharedAnalysisError::EmptyTuplesNotAllowed => {
+            CommonCheckErrorKind::SupertypeTooLarge => RuntimeAnalysisError::SupertypeTooLarge,
+            CommonCheckErrorKind::TypeError(a, b) => RuntimeAnalysisError::TypeError(a, b),
+            CommonCheckErrorKind::BadSyntaxBinding(e) => RuntimeAnalysisError::BadSyntaxBinding(e),
+            CommonCheckErrorKind::ValueOutOfBounds => RuntimeAnalysisError::ValueOutOfBounds,
+            CommonCheckErrorKind::EmptyTuplesNotAllowed => {
                 RuntimeAnalysisError::EmptyTuplesNotAllowed
             }
-            SharedAnalysisError::NameAlreadyUsed(name) => {
+            CommonCheckErrorKind::NameAlreadyUsed(name) => {
                 RuntimeAnalysisError::NameAlreadyUsed(name)
             }
-            SharedAnalysisError::UnknownTypeName(name) => {
+            CommonCheckErrorKind::UnknownTypeName(name) => {
                 RuntimeAnalysisError::UnknownTypeName(name)
             }
         }
     }
 }
 
-impl From<SharedAnalysisError> for StaticAnalysisError {
-    fn from(err: SharedAnalysisError) -> Self {
+impl From<CommonCheckErrorKind> for StaticAnalysisError {
+    fn from(err: CommonCheckErrorKind) -> Self {
         match err {
-            SharedAnalysisError::CostOverflow => StaticAnalysisError::CostOverflow,
-            SharedAnalysisError::CostBalanceExceeded(a, b) => {
+            CommonCheckErrorKind::CostOverflow => StaticAnalysisError::CostOverflow,
+            CommonCheckErrorKind::CostBalanceExceeded(a, b) => {
                 StaticAnalysisError::CostBalanceExceeded(a, b)
             }
-            SharedAnalysisError::MemoryBalanceExceeded(a, b) => {
+            CommonCheckErrorKind::MemoryBalanceExceeded(a, b) => {
                 StaticAnalysisError::MemoryBalanceExceeded(a, b)
             }
-            SharedAnalysisError::CostComputationFailed(s) => {
+            CommonCheckErrorKind::CostComputationFailed(s) => {
                 StaticAnalysisError::CostComputationFailed(s)
             }
-            SharedAnalysisError::ExecutionTimeExpired => StaticAnalysisError::ExecutionTimeExpired,
-            SharedAnalysisError::IncorrectArgumentCount(expected, args) => {
+            CommonCheckErrorKind::ExecutionTimeExpired => StaticAnalysisError::ExecutionTimeExpired,
+            CommonCheckErrorKind::IncorrectArgumentCount(expected, args) => {
                 StaticAnalysisError::IncorrectArgumentCount(expected, args)
             }
-            SharedAnalysisError::RequiresAtLeastArguments(expected, args) => {
+            CommonCheckErrorKind::RequiresAtLeastArguments(expected, args) => {
                 StaticAnalysisError::RequiresAtLeastArguments(expected, args)
             }
-            SharedAnalysisError::RequiresAtMostArguments(expected, args) => {
+            CommonCheckErrorKind::RequiresAtMostArguments(expected, args) => {
                 StaticAnalysisError::RequiresAtMostArguments(expected, args)
             }
-            SharedAnalysisError::TooManyFunctionParameters(found, allowed) => {
+            CommonCheckErrorKind::TooManyFunctionParameters(found, allowed) => {
                 StaticAnalysisError::TooManyFunctionParameters(found, allowed)
             }
-            SharedAnalysisError::ExpectedName => StaticAnalysisError::ExpectedName,
-            SharedAnalysisError::DefineFunctionBadSignature => {
+            CommonCheckErrorKind::ExpectedName => StaticAnalysisError::ExpectedName,
+            CommonCheckErrorKind::DefineFunctionBadSignature => {
                 StaticAnalysisError::DefineFunctionBadSignature
             }
-            SharedAnalysisError::ExpectedTraitIdentifier => {
+            CommonCheckErrorKind::ExpectedTraitIdentifier => {
                 StaticAnalysisError::ExpectedTraitIdentifier
             }
-            SharedAnalysisError::Expects(s) => StaticAnalysisError::Expects(s),
-            SharedAnalysisError::CouldNotDetermineType => {
+            CommonCheckErrorKind::Expects(s) => StaticAnalysisError::Expects(s),
+            CommonCheckErrorKind::CouldNotDetermineType => {
                 StaticAnalysisError::CouldNotDetermineType
             }
-            SharedAnalysisError::ValueTooLarge => StaticAnalysisError::ValueTooLarge,
-            SharedAnalysisError::TypeSignatureTooDeep => StaticAnalysisError::TypeSignatureTooDeep,
-            SharedAnalysisError::DefineTraitDuplicateMethod(s) => {
+            CommonCheckErrorKind::ValueTooLarge => StaticAnalysisError::ValueTooLarge,
+            CommonCheckErrorKind::TypeSignatureTooDeep => StaticAnalysisError::TypeSignatureTooDeep,
+            CommonCheckErrorKind::DefineTraitDuplicateMethod(s) => {
                 StaticAnalysisError::DefineTraitDuplicateMethod(s)
             }
-            SharedAnalysisError::DefineTraitBadSignature => {
+            CommonCheckErrorKind::DefineTraitBadSignature => {
                 StaticAnalysisError::DefineTraitBadSignature
             }
-            SharedAnalysisError::TraitTooManyMethods(found, allowed) => {
+            CommonCheckErrorKind::TraitTooManyMethods(found, allowed) => {
                 StaticAnalysisError::TraitTooManyMethods(found, allowed)
             }
-            SharedAnalysisError::InvalidTypeDescription => {
+            CommonCheckErrorKind::InvalidTypeDescription => {
                 StaticAnalysisError::InvalidTypeDescription
             }
-            SharedAnalysisError::SupertypeTooLarge => StaticAnalysisError::SupertypeTooLarge,
-            SharedAnalysisError::TypeError(a, b) => StaticAnalysisError::TypeError(a, b),
-            SharedAnalysisError::BadSyntaxBinding(e) => StaticAnalysisError::BadSyntaxBinding(e),
-            SharedAnalysisError::ValueOutOfBounds => StaticAnalysisError::ValueOutOfBounds,
-            SharedAnalysisError::EmptyTuplesNotAllowed => {
+            CommonCheckErrorKind::SupertypeTooLarge => StaticAnalysisError::SupertypeTooLarge,
+            CommonCheckErrorKind::TypeError(a, b) => StaticAnalysisError::TypeError(a, b),
+            CommonCheckErrorKind::BadSyntaxBinding(e) => StaticAnalysisError::BadSyntaxBinding(e),
+            CommonCheckErrorKind::ValueOutOfBounds => StaticAnalysisError::ValueOutOfBounds,
+            CommonCheckErrorKind::EmptyTuplesNotAllowed => {
                 StaticAnalysisError::EmptyTuplesNotAllowed
             }
-            SharedAnalysisError::NameAlreadyUsed(name) => {
+            CommonCheckErrorKind::NameAlreadyUsed(name) => {
                 StaticAnalysisError::NameAlreadyUsed(name)
             }
-            SharedAnalysisError::UnknownTypeName(name) => {
+            CommonCheckErrorKind::UnknownTypeName(name) => {
                 StaticAnalysisError::UnknownTypeName(name)
             }
         }
@@ -1209,9 +1215,9 @@ impl From<StaticAnalysisError> for String {
     }
 }
 
-pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), SharedAnalysisError> {
+pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), CommonCheckErrorKind> {
     if args.len() != expected {
-        Err(SharedAnalysisError::IncorrectArgumentCount(
+        Err(CommonCheckErrorKind::IncorrectArgumentCount(
             expected,
             args.len(),
         ))
@@ -1220,9 +1226,12 @@ pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), Shared
     }
 }
 
-pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), SharedAnalysisError> {
+pub fn check_arguments_at_least<T>(
+    expected: usize,
+    args: &[T],
+) -> Result<(), CommonCheckErrorKind> {
     if args.len() < expected {
-        Err(SharedAnalysisError::RequiresAtLeastArguments(
+        Err(CommonCheckErrorKind::RequiresAtLeastArguments(
             expected,
             args.len(),
         ))
@@ -1231,9 +1240,9 @@ pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), Sh
     }
 }
 
-pub fn check_arguments_at_most<T>(expected: usize, args: &[T]) -> Result<(), SharedAnalysisError> {
+pub fn check_arguments_at_most<T>(expected: usize, args: &[T]) -> Result<(), CommonCheckErrorKind> {
     if args.len() > expected {
-        Err(SharedAnalysisError::RequiresAtMostArguments(
+        Err(CommonCheckErrorKind::RequiresAtMostArguments(
             expected,
             args.len(),
         ))

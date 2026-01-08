@@ -36,7 +36,7 @@ pub use self::signatures::{
     AssetIdentifier, BufferLength, ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length,
     TupleTypeSignature, TypeSignature,
 };
-use crate::errors::analysis::SharedAnalysisError;
+use crate::errors::analysis::CommonCheckErrorKind;
 use crate::errors::{RuntimeAnalysisError, RuntimeError, VmExecutionError, VmInternalError};
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 
@@ -712,7 +712,7 @@ impl fmt::Display for UTF8Data {
 }
 
 pub trait SequencedValue<T> {
-    fn type_signature(&self) -> std::result::Result<TypeSignature, SharedAnalysisError>;
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind>;
 
     fn items(&self) -> &Vec<T>;
 
@@ -737,7 +737,7 @@ impl SequencedValue<Value> for ListData {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, SharedAnalysisError> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         Ok(TypeSignature::SequenceType(SequenceSubtype::ListType(
             self.type_signature.clone(),
         )))
@@ -757,9 +757,9 @@ impl SequencedValue<u8> for BuffData {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, SharedAnalysisError> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
-            SharedAnalysisError::Expects(
+            CommonCheckErrorKind::Expects(
                 "ERROR: Too large of a buffer successfully constructed.".into(),
             )
         })?;
@@ -782,9 +782,9 @@ impl SequencedValue<u8> for ASCIIData {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, SharedAnalysisError> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
-            SharedAnalysisError::Expects(
+            CommonCheckErrorKind::Expects(
                 "ERROR: Too large of a buffer successfully constructed.".into(),
             )
         })?;
@@ -810,9 +810,9 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, SharedAnalysisError> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         let str_len = StringUTF8Length::try_from(self.data.len()).map_err(|_| {
-            SharedAnalysisError::Expects(
+            CommonCheckErrorKind::Expects(
                 "ERROR: Too large of a buffer successfully constructed.".into(),
             )
         })?;
@@ -830,19 +830,19 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
 }
 
 impl OptionalData {
-    pub fn type_signature(&self) -> std::result::Result<TypeSignature, SharedAnalysisError> {
+    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         let type_result = match self.data {
             Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(v)?),
             None => TypeSignature::new_option(TypeSignature::NoType),
         };
         type_result.map_err(|_| {
-            SharedAnalysisError::Expects("Should not have constructed too large of a type.".into())
+            CommonCheckErrorKind::Expects("Should not have constructed too large of a type.".into())
         })
     }
 }
 
 impl ResponseData {
-    pub fn type_signature(&self) -> std::result::Result<TypeSignature, SharedAnalysisError> {
+    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         let type_result = match self.committed {
             true => TypeSignature::new_response(
                 TypeSignature::type_of(&self.data)?,
@@ -854,7 +854,7 @@ impl ResponseData {
             ),
         };
         type_result.map_err(|_| {
-            SharedAnalysisError::Expects("Should not have constructed too large of a type.".into())
+            CommonCheckErrorKind::Expects("Should not have constructed too large of a type.".into())
         })
     }
 }

@@ -21,7 +21,7 @@ pub mod lexer;
 use std::{error, fmt};
 
 pub use analysis::{
-    RuntimeAnalysisError, SharedAnalysisError, StaticAnalysisError, StaticAnalysisErrorReport,
+    CommonCheckErrorKind, RuntimeAnalysisError, StaticAnalysisError, StaticAnalysisErrorReport,
 };
 pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
@@ -291,8 +291,8 @@ impl From<RuntimeError> for VmExecutionError {
     }
 }
 
-impl From<SharedAnalysisError> for VmExecutionError {
-    fn from(err: SharedAnalysisError) -> Self {
+impl From<CommonCheckErrorKind> for VmExecutionError {
+    fn from(err: CommonCheckErrorKind) -> Self {
         VmExecutionError::RuntimeCheck(err.into())
     }
 }
@@ -303,8 +303,8 @@ impl From<RuntimeAnalysisError> for VmExecutionError {
     }
 }
 
-impl From<(SharedAnalysisError, &SymbolicExpression)> for VmExecutionError {
-    fn from(err: (SharedAnalysisError, &SymbolicExpression)) -> Self {
+impl From<(CommonCheckErrorKind, &SymbolicExpression)> for VmExecutionError {
+    fn from(err: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         VmExecutionError::RuntimeCheck(err.0.into())
     }
 }
