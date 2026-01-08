@@ -5873,7 +5873,7 @@ impl StacksChainState {
     /// parent block has been processed.
     /// If it's not known, return None.
     pub fn get_parent_header_info(
-        chainstate_tx: &mut ChainstateTx,
+        chainstate_tx: &ChainstateTx,
         next_staging_block: &StagingBlock,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         let parent_block_header_info = match StacksChainState::get_anchored_block_header_info(
@@ -6071,13 +6071,11 @@ impl StacksChainState {
             &next_staging_block.parent_microblock_hash,
         );
 
-        let parent_header_info = match StacksChainState::get_parent_header_info(
-            &mut chainstate_tx,
-            &next_staging_block,
-        )? {
-            Some(hinfo) => hinfo,
-            None => return Ok((None, None)),
-        };
+        let parent_header_info =
+            match StacksChainState::get_parent_header_info(&chainstate_tx, &next_staging_block)? {
+                Some(hinfo) => hinfo,
+                None => return Ok((None, None)),
+            };
 
         let block = StacksChainState::extract_stacks_block(&next_staging_block)?;
         let block_size = u64::try_from(next_staging_block.block_data.len())
