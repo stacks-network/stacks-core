@@ -17,9 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use super::{check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypingContext};
-use crate::vm::analysis::errors::{
-    StaticCheckErrorKind, StaticCheckError, SyntaxBindingErrorType,
-};
+use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
 use crate::vm::diagnostic::DiagnosableError;
@@ -120,7 +118,10 @@ fn inner_handle_tuple_get(
     let return_type = tuple_type_sig
         .field_type(field_to_get)
         .ok_or(StaticCheckError::new(
-            StaticCheckErrorKind::NoSuchTupleField(field_to_get.to_string(), tuple_type_sig.clone()),
+            StaticCheckErrorKind::NoSuchTupleField(
+                field_to_get.to_string(),
+                tuple_type_sig.clone(),
+            ),
         ))?
         .clone();
     Ok(return_type)
@@ -224,9 +225,9 @@ fn check_special_let(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
-    let binding_list = args[0].match_list().ok_or(StaticCheckError::new(
-        StaticCheckErrorKind::BadLetSyntax,
-    ))?;
+    let binding_list = args[0]
+        .match_list()
+        .ok_or(StaticCheckError::new(StaticCheckErrorKind::BadLetSyntax))?;
 
     let mut out_context = context.extend()?;
 
@@ -267,9 +268,9 @@ fn check_special_fetch_var(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(1, args)?;
 
-    let var_name = args[0].match_atom().ok_or(StaticCheckError::new(
-        StaticCheckErrorKind::BadMapName,
-    ))?;
+    let var_name = args[0]
+        .match_atom()
+        .ok_or(StaticCheckError::new(StaticCheckErrorKind::BadMapName))?;
 
     let value_type = checker
         .contract_context
@@ -315,12 +316,10 @@ fn check_special_set_var(
     analysis_typecheck_cost(&mut checker.cost_track, &value_type, expected_value_type)?;
 
     if !expected_value_type.admits_type(&StacksEpochId::Epoch2_05, &value_type)? {
-        Err(StaticCheckError::new(
-            StaticCheckErrorKind::TypeError(
-                Box::new(expected_value_type.clone()),
-                Box::new(value_type),
-            ),
-        ))
+        Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
+            Box::new(expected_value_type.clone()),
+            Box::new(value_type),
+        )))
     } else {
         Ok(TypeSignature::BoolType)
     }

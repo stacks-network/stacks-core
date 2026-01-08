@@ -162,7 +162,8 @@ fn test_get_block_info_eval_v210() {
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::StaticCheck(static_check_error)) = res {
-                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *static_check_error.err {
+                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *static_check_error.err
+                {
                     assert_eq!(name, "block-reward");
                 } else {
                     panic!("Bad analysis error: {static_check_error:?}");
@@ -183,7 +184,8 @@ fn test_get_block_info_eval_v210() {
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::StaticCheck(static_check_error)) = res {
-                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *static_check_error.err {
+                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *static_check_error.err
+                {
                     assert_eq!(name, "block-reward");
                 } else {
                     panic!("Bad analysis error: {static_check_error:?}");

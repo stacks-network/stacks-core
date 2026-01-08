@@ -16,7 +16,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::vm::analysis::errors::{StaticCheckErrorKind, StaticCheckError};
+use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::is_reserved_word;
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::representations::ClarityName;
@@ -169,9 +169,9 @@ impl ContractContext {
 
     pub fn check_name_used(&self, name: &str) -> Result<(), StaticCheckError> {
         if is_reserved_word(name, self.clarity_version) {
-            return Err(StaticCheckError::new(
-                StaticCheckErrorKind::ReservedWord(name.to_string()),
-            ));
+            return Err(StaticCheckError::new(StaticCheckErrorKind::ReservedWord(
+                name.to_string(),
+            )));
         }
 
         if self.variable_types.contains_key(name)

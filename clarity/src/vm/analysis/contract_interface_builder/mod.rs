@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::analysis::{StaticCheckErrorKind, StaticCheckError};
+use crate::vm::analysis::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,

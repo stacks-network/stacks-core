@@ -18,7 +18,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use crate::vm::analysis::type_checker::v2_05::{
-    check_argument_count, check_arguments_at_least, StaticCheckErrorKind, StaticCheckError,
+    check_argument_count, check_arguments_at_least, StaticCheckError, StaticCheckErrorKind,
     TypeChecker, TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -44,10 +44,10 @@ fn get_simple_native_or_user_define(
         {
             Ok(function_type)
         } else {
-            Err(
-                StaticCheckErrorKind::IllegalOrUnknownFunctionApplication(function_name.to_string())
-                    .into(),
+            Err(StaticCheckErrorKind::IllegalOrUnknownFunctionApplication(
+                function_name.to_string(),
             )
+            .into())
         }
     } else {
         checker.get_function_type(function_name).ok_or(

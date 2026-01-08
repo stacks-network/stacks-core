@@ -557,7 +557,8 @@ fn test_dynamic_dispatch_mismatched_args(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::BadTraitImplementation(_, _)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::BadTraitImplementation(_, _)) => {
+            }
             _ => panic!("{err_result:?}"),
         }
     }

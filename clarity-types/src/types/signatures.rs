@@ -22,7 +22,7 @@ use std::{cmp, fmt};
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
-use crate::errors::analysis::{RuntimeCheckErrorKind, CommonCheckErrorKind, StaticCheckErrorKind};
+use crate::errors::analysis::{CommonCheckErrorKind, RuntimeCheckErrorKind, StaticCheckErrorKind};
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
     CharType, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,

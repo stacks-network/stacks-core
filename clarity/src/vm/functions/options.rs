@@ -162,7 +162,9 @@ fn special_match_opt(
     let bind_name = args[0]
         .match_atom()
         .ok_or_else(|| {
-            RuntimeCheckErrorKind::BadMatchOptionSyntax(Box::new(RuntimeCheckErrorKind::ExpectedName))
+            RuntimeCheckErrorKind::BadMatchOptionSyntax(Box::new(
+                RuntimeCheckErrorKind::ExpectedName,
+            ))
         })?
         .clone();
     let some_branch = &args[1];

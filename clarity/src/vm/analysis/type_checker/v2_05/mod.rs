@@ -27,7 +27,7 @@ pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 use super::contexts::{TypeMap, TypingContext};
 use super::ContractAnalysis;
 pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, StaticCheckErrorKind, StaticCheckError,
+    check_argument_count, check_arguments_at_least, StaticCheckError, StaticCheckErrorKind,
     SyntaxBindingErrorType,
 };
 use crate::vm::analysis::AnalysisDatabase;
@@ -198,9 +198,12 @@ impl FunctionType {
                 if self == &FunctionType::ArithmeticBinary {
                     check_argument_count(2, args)?;
                 }
-                let (first, rest) = args
-                    .split_first()
-                    .ok_or(StaticCheckErrorKind::RequiresAtLeastArguments(1, args.len()))?;
+                let (first, rest) =
+                    args.split_first()
+                        .ok_or(StaticCheckErrorKind::RequiresAtLeastArguments(
+                            1,
+                            args.len(),
+                        ))?;
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
                 let return_type = match first {
                     TypeSignature::IntType => Ok(TypeSignature::IntType),
@@ -323,9 +326,7 @@ fn trait_type_size(
     Ok(total_size)
 }
 
-fn type_reserved_variable(
-    variable_name: &str,
-) -> Result<Option<TypeSignature>, StaticCheckError> {
+fn type_reserved_variable(variable_name: &str) -> Result<Option<TypeSignature>, StaticCheckError> {
     if let Some(variable) =
         NativeVariables::lookup_by_name_at_version(variable_name, &ClarityVersion::Clarity1)
     {
@@ -421,10 +422,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    pub fn run(
-        &mut self,
-        contract_analysis: &ContractAnalysis,
-    ) -> Result<(), StaticCheckError> {
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), StaticCheckError> {
         // charge for the eventual storage cost of the analysis --
         //  it is linear in the size of the AST.
         let mut size: u64 = 0;
@@ -864,8 +862,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         trait_name: &ClarityName,
         function_types: &[SymbolicExpression],
         _context: &mut TypingContext,
-    ) -> Result<(ClarityName, BTreeMap<ClarityName, FunctionSignature>), StaticCheckError>
-    {
+    ) -> Result<(ClarityName, BTreeMap<ClarityName, FunctionSignature>), StaticCheckError> {
         let trait_signature = TypeSignature::parse_trait_type_repr(
             function_types,
             &mut (),

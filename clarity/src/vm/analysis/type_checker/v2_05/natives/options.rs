@@ -19,8 +19,8 @@ use clarity_types::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_checker::v2_05::{
-    check_argument_count, check_arguments_at_least, no_type, StaticCheckErrorKind,
-    StaticCheckError, TypeChecker, TypingContext,
+    check_argument_count, check_arguments_at_least, no_type, StaticCheckError,
+    StaticCheckErrorKind, TypeChecker, TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
@@ -368,14 +368,18 @@ fn check_special_match_resp(
     let ok_bind_name = args[0]
         .match_atom()
         .ok_or_else(|| {
-            StaticCheckErrorKind::BadMatchResponseSyntax(Box::new(StaticCheckErrorKind::ExpectedName))
+            StaticCheckErrorKind::BadMatchResponseSyntax(Box::new(
+                StaticCheckErrorKind::ExpectedName,
+            ))
         })?
         .clone();
     let ok_branch = &args[1];
     let err_bind_name = args[2]
         .match_atom()
         .ok_or_else(|| {
-            StaticCheckErrorKind::BadMatchResponseSyntax(Box::new(StaticCheckErrorKind::ExpectedName))
+            StaticCheckErrorKind::BadMatchResponseSyntax(Box::new(
+                StaticCheckErrorKind::ExpectedName,
+            ))
         })?
         .clone();
     let err_branch = &args[3];

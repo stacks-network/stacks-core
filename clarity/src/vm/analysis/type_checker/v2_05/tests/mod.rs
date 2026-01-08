@@ -16,9 +16,7 @@
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{
-    StaticCheckErrorKind, StaticCheckError, SyntaxBindingError,
-};
+use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrorKind;
@@ -372,7 +370,9 @@ fn test_destructuring_opts() {
         ),
         (
             "(match (some 1) 2 (+ 1 1) (+ 3 4))",
-            StaticCheckErrorKind::BadMatchOptionSyntax(Box::new(StaticCheckErrorKind::ExpectedName)),
+            StaticCheckErrorKind::BadMatchOptionSyntax(Box::new(
+                StaticCheckErrorKind::ExpectedName,
+            )),
         ),
         (
             "(match)",
