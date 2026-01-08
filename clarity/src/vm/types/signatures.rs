@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use clarity_types::errors::analysis::{CommonCheckErrorKind, StaticAnalysisError};
+use clarity_types::errors::analysis::{CommonCheckErrorKind, StaticCheckErrorKind};
 pub use clarity_types::types::signatures::{
     AssetIdentifier, BufferLength, CallableSubtype, ListTypeData, SequenceSubtype, StringSubtype,
     StringUTF8Length, TupleTypeSignature, TypeSignature,
@@ -504,7 +504,7 @@ impl TypeSignatureExt for TypeSignature {
 }
 
 impl FixedFunction {
-    pub fn total_type_size(&self) -> Result<u64, StaticAnalysisError> {
+    pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
         let mut function_type_size = u64::from(self.returns.type_size()?);
         for arg in self.args.iter() {
             function_type_size =
@@ -515,12 +515,12 @@ impl FixedFunction {
 }
 
 impl FunctionSignature {
-    pub fn total_type_size(&self) -> Result<u64, StaticAnalysisError> {
+    pub fn total_type_size(&self) -> Result<u64, StaticCheckErrorKind> {
         let mut function_type_size = u64::from(self.returns.type_size()?);
         for arg in self.args.iter() {
             function_type_size = function_type_size
                 .cost_overflow_add(u64::from(arg.type_size()?))
-                .map_err(|_| StaticAnalysisError::CostOverflow)?;
+                .map_err(|_| StaticCheckErrorKind::CostOverflow)?;
         }
         Ok(function_type_size)
     }

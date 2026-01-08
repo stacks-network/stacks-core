@@ -29,7 +29,7 @@ pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
 pub use self::errors::{
-    RuntimeAnalysisError, CommonCheckErrorKind, StaticAnalysisError, StaticAnalysisErrorReport,
+    RuntimeAnalysisError, CommonCheckErrorKind, StaticCheckErrorKind, StaticAnalysisErrorReport,
 };
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
@@ -57,7 +57,7 @@ pub fn mem_type_check(
 ) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticAnalysisErrorReport> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
-        .map_err(|e| StaticAnalysisError::Expects(format!("Failed to build AST: {e}")))?
+        .map_err(|e| StaticCheckErrorKind::Expects(format!("Failed to build AST: {e}")))?
         .expressions;
 
     let mut marf = MemoryBackingStore::new();
@@ -79,9 +79,9 @@ pub fn mem_type_check(
             let first_type =
                 x.type_map
                     .as_ref()
-                    .ok_or_else(|| StaticAnalysisError::Expects("Should be non-empty".into()))?
+                    .ok_or_else(|| StaticCheckErrorKind::Expects("Should be non-empty".into()))?
                     .get_type_expected(x.expressions.last().ok_or_else(|| {
-                        StaticAnalysisError::Expects("Should be non-empty".into())
+                        StaticCheckErrorKind::Expects("Should be non-empty".into())
                     })?)
                     .cloned();
             Ok((first_type, x))
@@ -152,7 +152,7 @@ pub fn run_analysis(
                 TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db, build_type_map)
             }
             StacksEpochId::Epoch10 => {
-                return Err(StaticAnalysisError::Expects(
+                return Err(StaticCheckErrorKind::Expects(
                     "Epoch 1.0 is not a valid epoch for analysis".into(),
                 )
                 .into())

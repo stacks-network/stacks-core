@@ -24,7 +24,7 @@ use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{
     mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, ContractAnalysis,
-    StaticAnalysisError, StaticAnalysisErrorReport,
+    StaticAnalysisErrorReport, StaticCheckErrorKind,
 };
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
@@ -493,7 +493,7 @@ fn test_names_tokens_contracts_bad(#[case] version: ClarityVersion, #[case] epoc
     let err = db
         .execute(|db| type_check(&names_contract_id, &mut names_contract, db, true))
         .unwrap_err();
-    assert!(matches!(*err.err, StaticAnalysisError::TypeError(_, _)));
+    assert!(matches!(*err.err, StaticCheckErrorKind::TypeError(_, _)));
 }
 
 #[test]
@@ -534,12 +534,12 @@ fn test_bad_map_usage() {
 
     for contract in tests.iter() {
         let err = mem_type_check(contract).unwrap_err();
-        assert!(matches!(*err.err, StaticAnalysisError::TypeError(_, _)));
+        assert!(matches!(*err.err, StaticCheckErrorKind::TypeError(_, _)));
     }
 
     assert!(matches!(
         *mem_type_check(unhandled_option).unwrap_err().err,
-        StaticAnalysisError::UnionTypeError(_, _)
+        StaticCheckErrorKind::UnionTypeError(_, _)
     ));
 }
 
@@ -628,7 +628,7 @@ fn test_expects() {
         eprintln!("unmatched_return_types returned StaticAnalysisError: {err}");
         assert!(matches!(
             *err.err,
-            StaticAnalysisError::ReturnTypesMustMatch(_, _)
+            StaticCheckErrorKind::ReturnTypesMustMatch(_, _)
         ));
     }
 
@@ -636,21 +636,21 @@ fn test_expects() {
     eprintln!("bad_default_types returned StaticAnalysisError: {err}");
     assert!(matches!(
         *err.err,
-        StaticAnalysisError::DefaultTypesMustMatch(_, _)
+        StaticCheckErrorKind::DefaultTypesMustMatch(_, _)
     ));
 
     let err = mem_type_check(notype_response_type).unwrap_err();
     eprintln!("notype_response_type returned StaticAnalysisError: {err}");
     assert!(matches!(
         *err.err,
-        StaticAnalysisError::CouldNotDetermineResponseErrType
+        StaticCheckErrorKind::CouldNotDetermineResponseErrType
     ));
 
     let err = mem_type_check(notype_response_type_2).unwrap_err();
     eprintln!("notype_response_type_2 returned StaticAnalysisError: {err}");
     assert!(matches!(
         *err.err,
-        StaticAnalysisError::CouldNotDetermineResponseOkType
+        StaticCheckErrorKind::CouldNotDetermineResponseOkType
     ));
 }
 
@@ -686,7 +686,7 @@ fn test_trait_to_compatible_trait() {
     mem_type_check(trait_to_compatible_trait).unwrap();
     let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
@@ -713,7 +713,7 @@ fn test_bad_principal_to_trait() {
 
     let err = mem_type_check(bad_principal_to_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::PrincipalType,
@@ -726,7 +726,7 @@ fn test_bad_principal_to_trait() {
     };
     let err = mem_type_check_v1(bad_principal_to_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::PrincipalType,
@@ -755,7 +755,7 @@ fn test_bad_other_trait() {
 
     let err = mem_type_check(bad_other_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IncompatibleTrait(expected, actual) => {
+        StaticCheckErrorKind::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(actual.name.as_str(), "trait-1");
         }
@@ -763,7 +763,7 @@ fn test_bad_other_trait() {
     };
     let err = mem_type_check_v1(bad_other_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, actual) => match (&*expected, &*actual) {
+        StaticCheckErrorKind::TypeError(expected, actual) => match (&*expected, &*actual) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
@@ -796,7 +796,7 @@ fn test_embedded_trait() {
     mem_type_check(embedded_trait).unwrap();
     let err = mem_type_check_v1(embedded_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TraitReferenceUnknown(name) => {
+        StaticCheckErrorKind::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "contract");
         }
         _ => panic!("Unexpected error: {err:?}"),
@@ -826,7 +826,7 @@ fn test_embedded_trait_compatible() {
     mem_type_check(embedded_trait_compatible).unwrap();
     let err = mem_type_check_v1(embedded_trait_compatible).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TraitReferenceUnknown(name) => {
+        StaticCheckErrorKind::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "contract");
         }
         _ => panic!("Unexpected error: {err:?}"),
@@ -859,7 +859,7 @@ fn test_bad_embedded_trait() {
 
     let err = mem_type_check(bad_embedded_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IncompatibleTrait(expected, actual) => {
+        StaticCheckErrorKind::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-12");
             assert_eq!(actual.name.as_str(), "trait-1");
         }
@@ -867,7 +867,7 @@ fn test_bad_embedded_trait() {
     };
     let err = mem_type_check_v1(bad_embedded_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TraitReferenceUnknown(name) => {
+        StaticCheckErrorKind::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "contract");
         }
         _ => panic!("Unexpected error: {err:?}"),
@@ -889,7 +889,7 @@ fn test_let_trait() {
     mem_type_check(let_trait).unwrap();
     let err = mem_type_check_v1(let_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TraitReferenceUnknown(name) => {
+        StaticCheckErrorKind::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "t1");
         }
         _ => panic!("Unexpected error: {err:?}"),
@@ -915,7 +915,7 @@ fn test_let3_trait() {
     mem_type_check(let3_trait).unwrap();
     let err = mem_type_check_v1(let3_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TraitReferenceUnknown(name) => {
+        StaticCheckErrorKind::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "t3");
         }
         _ => panic!("Unexpected error: {err:?}"),
@@ -970,7 +970,7 @@ fn test_let3_compound_trait_call() {
     mem_type_check(let3_compound_trait_call).unwrap();
     let err = mem_type_check_v1(let3_compound_trait_call).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TraitReferenceUnknown(name) => {
+        StaticCheckErrorKind::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "t4");
         }
         _ => panic!("Unexpected error: {err:?}"),
@@ -994,7 +994,7 @@ fn test_trait_args_differ() {
 
     let err = mem_type_check(trait_args_differ).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IncompatibleTrait(expected, actual) => {
+        StaticCheckErrorKind::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(actual.name.as_str(), "trait-1");
         }
@@ -1002,7 +1002,7 @@ fn test_trait_args_differ() {
     };
     let err = mem_type_check_v1(trait_args_differ).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
@@ -1032,7 +1032,7 @@ fn test_trait_arg_counts_differ1() {
 
     let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IncompatibleTrait(expected, found) => {
+        StaticCheckErrorKind::IncompatibleTrait(expected, found) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(found.name.as_str(), "trait-1");
         }
@@ -1040,7 +1040,7 @@ fn test_trait_arg_counts_differ1() {
     };
     let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
@@ -1070,7 +1070,7 @@ fn test_trait_arg_counts_differ2() {
 
     let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IncompatibleTrait(expected, found) => {
+        StaticCheckErrorKind::IncompatibleTrait(expected, found) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(found.name.as_str(), "trait-1");
         }
@@ -1078,7 +1078,7 @@ fn test_trait_arg_counts_differ2() {
     };
     let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
@@ -1108,7 +1108,7 @@ fn test_trait_ret_ty_differ() {
 
     let err = mem_type_check(trait_ret_ty_differ).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IncompatibleTrait(expected, actual) => {
+        StaticCheckErrorKind::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(actual.name.as_str(), "trait-1");
         }
@@ -1116,7 +1116,7 @@ fn test_trait_ret_ty_differ() {
     };
     let err = mem_type_check_v1(trait_ret_ty_differ).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
@@ -1154,7 +1154,7 @@ fn test_trait_with_compatible_trait_arg() {
     mem_type_check(trait_with_compatible_trait_arg).unwrap();
     let err = mem_type_check_v1(trait_with_compatible_trait_arg).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
@@ -1191,7 +1191,7 @@ fn test_trait_with_bad_trait_arg() {
 
     let err = mem_type_check(trait_with_bad_trait_arg).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IncompatibleTrait(expected, actual) => {
+        StaticCheckErrorKind::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-b");
             assert_eq!(actual.name.as_str(), "trait-a");
         }
@@ -1199,7 +1199,7 @@ fn test_trait_with_bad_trait_arg() {
     };
     let err = mem_type_check_v1(trait_with_bad_trait_arg).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
@@ -1237,7 +1237,7 @@ fn test_trait_with_superset_trait_arg() {
 
     let err = mem_type_check(trait_with_superset_trait_arg).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IncompatibleTrait(expected, actual) => {
+        StaticCheckErrorKind::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-b");
             assert_eq!(actual.name.as_str(), "trait-a");
         }
@@ -1247,7 +1247,7 @@ fn test_trait_with_superset_trait_arg() {
     let err = mem_type_check_v1(trait_with_superset_trait_arg).unwrap_err();
 
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
@@ -1286,7 +1286,7 @@ fn test_trait_with_subset_trait_arg() {
     mem_type_check(trait_with_subset_trait_arg).unwrap();
     let err = mem_type_check_v1(trait_with_subset_trait_arg).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
@@ -1310,7 +1310,7 @@ fn test_trait_with_duplicate_method() {
 
     let err = mem_type_check(trait_with_duplicate_method).unwrap_err();
     match *err.err {
-        StaticAnalysisError::DefineTraitDuplicateMethod(method_name) => {
+        StaticCheckErrorKind::DefineTraitDuplicateMethod(method_name) => {
             assert_eq!(method_name.as_str(), "foo");
         }
         _ => panic!("Unexpected error: {err:?}"),
@@ -1339,7 +1339,7 @@ fn test_trait_to_subtrait_and_back() {
 
     let err = mem_type_check(trait_to_subtrait_and_back).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IncompatibleTrait(expected, actual) => {
+        StaticCheckErrorKind::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(actual.name.as_str(), "trait-1");
         }
@@ -1347,7 +1347,7 @@ fn test_trait_to_subtrait_and_back() {
     };
     let err = mem_type_check_v1(trait_to_subtrait_and_back).unwrap_err();
     match *err.err {
-        StaticAnalysisError::TypeError(expected, found) => match (&*expected, &*found) {
+        StaticCheckErrorKind::TypeError(expected, found) => match (&*expected, &*found) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                 TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
@@ -1394,7 +1394,7 @@ fn test_if_branches_with_incompatible_trait_types() {
     )";
     let err = mem_type_check(if_branches_with_incompatible_trait_types).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
+        StaticCheckErrorKind::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
                 TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
@@ -1408,7 +1408,7 @@ fn test_if_branches_with_incompatible_trait_types() {
     };
     let err = mem_type_check_v1(if_branches_with_incompatible_trait_types).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
+        StaticCheckErrorKind::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
                 TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
@@ -1440,7 +1440,7 @@ fn test_if_branches_with_compatible_trait_types() {
 
     let err = mem_type_check(if_branches_with_compatible_trait_types).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
+        StaticCheckErrorKind::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
                 TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
@@ -1454,7 +1454,7 @@ fn test_if_branches_with_compatible_trait_types() {
     };
     let err = mem_type_check_v1(if_branches_with_compatible_trait_types).unwrap_err();
     match *err.err {
-        StaticAnalysisError::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
+        StaticCheckErrorKind::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
             (
                 TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
                 TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
@@ -1514,7 +1514,7 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
         Err(StaticAnalysisErrorReport { err, .. }) if version < ClarityVersion::Clarity2 => {
             match *err {
-                StaticAnalysisError::TraitMethodUnknown(trait_name, function) => {
+                StaticCheckErrorKind::TraitMethodUnknown(trait_name, function) => {
                     assert_eq!(trait_name.as_str(), "a");
                     assert_eq!(function.as_str(), "do-it");
                 }
@@ -3400,7 +3400,7 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         (
             "(contract-hash? 123)",
             "int type",
-            Err(StaticAnalysisError::TypeError(
+            Err(StaticCheckErrorKind::TypeError(
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::IntType),
             )),
@@ -3408,7 +3408,7 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         (
             "(contract-hash? u123)",
             "uint type",
-            Err(StaticAnalysisError::TypeError(
+            Err(StaticCheckErrorKind::TypeError(
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::UIntType),
             )),
@@ -3416,7 +3416,7 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         (
             "(contract-hash? true)",
             "bool type",
-            Err(StaticAnalysisError::TypeError(
+            Err(StaticCheckErrorKind::TypeError(
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::BoolType),
             )),
@@ -3424,7 +3424,7 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         (
             "(contract-hash? 0x1234)",
             "buffer type",
-            Err(StaticAnalysisError::TypeError(
+            Err(StaticCheckErrorKind::TypeError(
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::SequenceType(SequenceSubtype::BufferType(
                     BufferLength::try_from(2u32).unwrap(),
@@ -3434,7 +3434,7 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         (
             "(contract-hash? \"60 percent of the time, it works every time\")",
             "ascii string",
-            Err(StaticAnalysisError::TypeError(
+            Err(StaticCheckErrorKind::TypeError(
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::SequenceType(SequenceSubtype::StringType(
                     StringSubtype::ASCII(BufferLength::try_from(43u32).unwrap()),
@@ -3444,7 +3444,7 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         (
             "(contract-hash? u\"I am serious, and don't call me Shirley.\")",
             "utf8 string",
-            Err(StaticAnalysisError::TypeError(
+            Err(StaticCheckErrorKind::TypeError(
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::SequenceType(SequenceSubtype::StringType(
                     StringSubtype::UTF8(StringUTF8Length::try_from(40u32).unwrap()),
@@ -3454,7 +3454,7 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         (
             "(contract-hash? (list 1 2 3))",
             "list type",
-            Err(StaticAnalysisError::TypeError(
+            Err(StaticCheckErrorKind::TypeError(
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::SequenceType(SequenceSubtype::ListType(
                     ListTypeData::new_list(TypeSignature::IntType, 3).unwrap(),
@@ -3464,7 +3464,7 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         (
             "(contract-hash? { a: 1, b: u2 })",
             "tuple type",
-            Err(StaticAnalysisError::TypeError(
+            Err(StaticCheckErrorKind::TypeError(
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::TupleType(
                     vec![
@@ -3479,7 +3479,7 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         (
             "(contract-hash? (some u789))",
             "optional type",
-            Err(StaticAnalysisError::TypeError(
+            Err(StaticCheckErrorKind::TypeError(
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::new_option(TypeSignature::UIntType).unwrap()),
             )),
@@ -3487,7 +3487,7 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         (
             "(contract-hash? (ok true))",
             "response type",
-            Err(StaticAnalysisError::TypeError(
+            Err(StaticCheckErrorKind::TypeError(
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(
                     TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
@@ -3504,7 +3504,7 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         let expected = if version >= ClarityVersion::Clarity4 {
             clarity4_expected
         } else {
-            &Err(StaticAnalysisError::UnknownFunction(
+            &Err(StaticCheckErrorKind::UnknownFunction(
                 "contract-hash?".to_string(),
             ))
         };

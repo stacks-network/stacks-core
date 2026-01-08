@@ -20,7 +20,7 @@ use clarity_types::representations::ClarityName;
 use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{StaticAnalysisError, StaticAnalysisErrorReport};
+use crate::vm::analysis::errors::{StaticCheckErrorKind, StaticAnalysisErrorReport};
 use crate::vm::analysis::type_checker::ContractAnalysis;
 use crate::vm::database::{
     ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,
@@ -46,16 +46,16 @@ impl<'a> AnalysisDatabase<'a> {
     pub fn execute<F, T, E>(&mut self, f: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self) -> Result<T, E>,
-        E: From<StaticAnalysisError>,
+        E: From<StaticCheckErrorKind>,
     {
         self.begin();
         let result = f(self).or_else(|e| {
             self.roll_back()
-                .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")))?;
+                .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")))?;
             Err(e)
         })?;
         self.commit()
-            .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")))?;
+            .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")))?;
         Ok(result)
     }
 
@@ -66,13 +66,13 @@ impl<'a> AnalysisDatabase<'a> {
     pub fn commit(&mut self) -> Result<(), StaticAnalysisErrorReport> {
         self.store
             .commit()
-            .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")).into())
+            .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into())
     }
 
     pub fn roll_back(&mut self) -> Result<(), StaticAnalysisErrorReport> {
         self.store
             .rollback()
-            .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")).into())
+            .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into())
     }
 
     pub fn storage_key() -> &'static str {
@@ -108,7 +108,7 @@ impl<'a> AnalysisDatabase<'a> {
             .flatten()
             .map(|x| {
                 ContractAnalysis::deserialize(&x).map_err(|_| {
-                    StaticAnalysisError::Expects("Bad data deserialized from DB".into()).into()
+                    StaticCheckErrorKind::Expects("Bad data deserialized from DB".into()).into()
                 })
             })
             .transpose()
@@ -128,7 +128,7 @@ impl<'a> AnalysisDatabase<'a> {
             .flatten()
             .map(|x| {
                 ContractAnalysis::deserialize(&x).map_err(|_| {
-                    StaticAnalysisError::Expects("Bad data deserialized from DB".into())
+                    StaticCheckErrorKind::Expects("Bad data deserialized from DB".into())
                 })
             })
             .transpose()?
@@ -145,7 +145,7 @@ impl<'a> AnalysisDatabase<'a> {
     ) -> Result<(), StaticAnalysisErrorReport> {
         let key = AnalysisDatabase::storage_key();
         if self.store.has_metadata_entry(contract_identifier, key) {
-            return Err(StaticAnalysisError::ContractAlreadyExists(
+            return Err(StaticCheckErrorKind::ContractAlreadyExists(
                 contract_identifier.to_string(),
             )
             .into());
@@ -153,7 +153,7 @@ impl<'a> AnalysisDatabase<'a> {
 
         self.store
             .insert_metadata(contract_identifier, key, &contract.serialize())
-            .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")))?;
+            .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")))?;
         Ok(())
     }
 
@@ -167,7 +167,7 @@ impl<'a> AnalysisDatabase<'a> {
         //         charges based on the function type size.
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
-            .ok_or(StaticAnalysisError::NoSuchContract(
+            .ok_or(StaticCheckErrorKind::NoSuchContract(
                 contract_identifier.to_string(),
             ))?;
         Ok(contract.clarity_version)
@@ -185,7 +185,7 @@ impl<'a> AnalysisDatabase<'a> {
         //         charges based on the function type size.
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
-            .ok_or(StaticAnalysisError::NoSuchContract(
+            .ok_or(StaticCheckErrorKind::NoSuchContract(
                 contract_identifier.to_string(),
             ))?;
         Ok(contract
@@ -205,7 +205,7 @@ impl<'a> AnalysisDatabase<'a> {
         //         charges based on the function type size.
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
-            .ok_or(StaticAnalysisError::NoSuchContract(
+            .ok_or(StaticCheckErrorKind::NoSuchContract(
                 contract_identifier.to_string(),
             ))?;
         Ok(contract
@@ -225,7 +225,7 @@ impl<'a> AnalysisDatabase<'a> {
         //         charges based on the function type size.
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
-            .ok_or(StaticAnalysisError::NoSuchContract(
+            .ok_or(StaticCheckErrorKind::NoSuchContract(
                 contract_identifier.to_string(),
             ))?;
         Ok(contract.get_defined_trait(trait_name).map(|trait_map| {
@@ -242,7 +242,7 @@ impl<'a> AnalysisDatabase<'a> {
     ) -> Result<BTreeSet<TraitIdentifier>, StaticAnalysisErrorReport> {
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
-            .ok_or(StaticAnalysisError::NoSuchContract(
+            .ok_or(StaticCheckErrorKind::NoSuchContract(
                 contract_identifier.to_string(),
             ))?;
         Ok(contract.implemented_traits)

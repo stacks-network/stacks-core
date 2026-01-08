@@ -24,7 +24,7 @@ use crate::vm::{
     analysis::type_checker::v2_1::tests::contracts::type_check_version,
     ast::parse,
     database::MemoryBackingStore,
-    errors::{RuntimeAnalysisError, StaticAnalysisError, VmExecutionError},
+    errors::{RuntimeAnalysisError, StaticCheckErrorKind, VmExecutionError},
     tests::{tl_env_factory, TopLevelMemoryEnvironmentGenerator},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
     ClarityVersion, ContractContext,
@@ -53,7 +53,7 @@ fn test_block_height(
     if version >= ClarityVersion::Clarity3 {
         let err = analysis.unwrap_err();
         assert_eq!(
-            StaticAnalysisError::UndefinedVariable("block-height".to_string()),
+            StaticCheckErrorKind::UndefinedVariable("block-height".to_string()),
             *err.err
         );
     } else {
@@ -112,7 +112,7 @@ fn test_stacks_block_height(
     if version < ClarityVersion::Clarity3 {
         let err = analysis.unwrap_err();
         assert_eq!(
-            StaticAnalysisError::UndefinedVariable("stacks-block-height".to_string()),
+            StaticCheckErrorKind::UndefinedVariable("stacks-block-height".to_string()),
             *err.err
         );
     } else {
@@ -171,7 +171,7 @@ fn test_tenure_height(
     if version < ClarityVersion::Clarity3 {
         let err = analysis.unwrap_err();
         assert_eq!(
-            StaticAnalysisError::UndefinedVariable("tenure-height".to_string()),
+            StaticCheckErrorKind::UndefinedVariable("tenure-height".to_string()),
             *err.err
         );
     } else {
@@ -210,7 +210,7 @@ fn test_tenure_height(
 #[cfg(test)]
 #[derive(Debug, PartialEq)]
 enum ExpectedContractError {
-    Analysis(StaticAnalysisError),
+    Analysis(StaticCheckErrorKind),
     Initialization(RuntimeAnalysisError),
     Runtime(RuntimeAnalysisError),
 }
@@ -336,7 +336,7 @@ fn reuse_block_height(
             ),
             (
                 |version, _| version >= ClarityVersion::Clarity3,
-                ExpectedContractError::Analysis(StaticAnalysisError::ReservedWord(
+                ExpectedContractError::Analysis(StaticCheckErrorKind::ReservedWord(
                     "block-height".to_string(),
                 )),
             ),
@@ -365,7 +365,7 @@ fn reuse_block_height(
             ),
             (
                 |version, _| version >= ClarityVersion::Clarity3,
-                ExpectedContractError::Analysis(StaticAnalysisError::ReservedWord(
+                ExpectedContractError::Analysis(StaticCheckErrorKind::ReservedWord(
                     "block-height".to_string(),
                 )),
             ),
@@ -395,7 +395,7 @@ fn reuse_block_height(
             ),
             (
                 |version, _| version >= ClarityVersion::Clarity3,
-                ExpectedContractError::Analysis(StaticAnalysisError::ReservedWord(
+                ExpectedContractError::Analysis(StaticCheckErrorKind::ReservedWord(
                     "block-height".to_string(),
                 )),
             ),
@@ -428,7 +428,7 @@ fn reuse_block_height(
             ),
             (
                 |version, _| version >= ClarityVersion::Clarity3,
-                ExpectedContractError::Analysis(StaticAnalysisError::ReservedWord(
+                ExpectedContractError::Analysis(StaticCheckErrorKind::ReservedWord(
                     "block-height".to_string(),
                 )),
             ),
@@ -455,7 +455,7 @@ fn reuse_block_height(
             ),
             (
                 |version, _| version >= ClarityVersion::Clarity3,
-                ExpectedContractError::Analysis(StaticAnalysisError::ReservedWord(
+                ExpectedContractError::Analysis(StaticCheckErrorKind::ReservedWord(
                     "block-height".to_string(),
                 )),
             ),
@@ -482,7 +482,7 @@ fn reuse_block_height(
             ),
             (
                 |version, _| version >= ClarityVersion::Clarity3,
-                ExpectedContractError::Analysis(StaticAnalysisError::ReservedWord(
+                ExpectedContractError::Analysis(StaticCheckErrorKind::ReservedWord(
                     "block-height".to_string(),
                 )),
             ),
@@ -509,7 +509,7 @@ fn reuse_block_height(
             ),
             (
                 |version, _| version >= ClarityVersion::Clarity3,
-                ExpectedContractError::Analysis(StaticAnalysisError::ReservedWord(
+                ExpectedContractError::Analysis(StaticCheckErrorKind::ReservedWord(
                     "block-height".to_string(),
                 )),
             ),
@@ -551,7 +551,7 @@ fn reuse_block_height(
             ),
             (
                 |version, _| version >= ClarityVersion::Clarity3,
-                ExpectedContractError::Analysis(StaticAnalysisError::ReservedWord(
+                ExpectedContractError::Analysis(StaticCheckErrorKind::ReservedWord(
                     "block-height".to_string(),
                 )),
             ),
@@ -578,7 +578,7 @@ fn reuse_block_height(
             ),
             (
                 |version, _| version >= ClarityVersion::Clarity3,
-                ExpectedContractError::Analysis(StaticAnalysisError::ReservedWord(
+                ExpectedContractError::Analysis(StaticCheckErrorKind::ReservedWord(
                     "block-height".to_string(),
                 )),
             ),
@@ -605,7 +605,7 @@ fn reuse_block_height(
             ),
             (
                 |version, _| version >= ClarityVersion::Clarity3,
-                ExpectedContractError::Analysis(StaticAnalysisError::ReservedWord(
+                ExpectedContractError::Analysis(StaticCheckErrorKind::ReservedWord(
                     "block-height".to_string(),
                 )),
             ),
@@ -632,7 +632,7 @@ fn reuse_block_height(
             ),
             (
                 |version, _| version >= ClarityVersion::Clarity3,
-                ExpectedContractError::Analysis(StaticAnalysisError::ReservedWord(
+                ExpectedContractError::Analysis(StaticCheckErrorKind::ReservedWord(
                     "block-height".to_string(),
                 )),
             ),
@@ -1176,7 +1176,7 @@ fn test_block_time(
     if version < ClarityVersion::Clarity4 {
         let err = analysis.unwrap_err();
         assert_eq!(
-            StaticAnalysisError::UndefinedVariable("stacks-block-time".to_string()),
+            StaticCheckErrorKind::UndefinedVariable("stacks-block-time".to_string()),
             *err.err
         );
     } else {
@@ -1303,7 +1303,7 @@ fn test_current_contract(
     if version < ClarityVersion::Clarity4 {
         let err = analysis.unwrap_err();
         assert_eq!(
-            StaticAnalysisError::UndefinedVariable("current-contract".to_string()),
+            StaticCheckErrorKind::UndefinedVariable("current-contract".to_string()),
             *err.err
         );
     } else {

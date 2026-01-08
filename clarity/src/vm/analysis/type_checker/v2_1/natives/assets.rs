@@ -18,7 +18,7 @@ use stacks_common::consts::TOKEN_TRANSFER_MEMO_LENGTH;
 
 use super::{TypeChecker, TypingContext};
 use crate::vm::analysis::errors::{
-    check_argument_count, StaticAnalysisError, StaticAnalysisErrorReport,
+    check_argument_count, StaticCheckErrorKind, StaticAnalysisErrorReport,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -34,13 +34,13 @@ pub fn check_special_get_owner(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadTokenName)?;
+        .ok_or(StaticCheckErrorKind::BadTokenName)?;
 
     let expected_asset_type = checker
         .contract_context
         .get_nft_type(asset_name)
         .cloned()
-        .ok_or_else(|| StaticAnalysisError::NoSuchNFT(asset_name.to_string()))?;
+        .ok_or_else(|| StaticCheckErrorKind::NoSuchNFT(asset_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
@@ -64,10 +64,10 @@ pub fn check_special_get_balance(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadTokenName)?;
+        .ok_or(StaticCheckErrorKind::BadTokenName)?;
 
     if !checker.contract_context.ft_exists(asset_name) {
-        return Err(StaticAnalysisError::NoSuchFT(asset_name.to_string()).into());
+        return Err(StaticCheckErrorKind::NoSuchFT(asset_name.to_string()).into());
     }
 
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
@@ -87,13 +87,13 @@ pub fn check_special_mint_asset(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadTokenName)?;
+        .ok_or(StaticCheckErrorKind::BadTokenName)?;
 
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     let expected_asset_type = checker
         .contract_context
         .get_nft_type(asset_name)
-        .ok_or(StaticAnalysisError::NoSuchNFT(asset_name.to_string()))?
+        .ok_or(StaticCheckErrorKind::NoSuchNFT(asset_name.to_string()))?
         .clone(); // this clone shouldn't be strictly necessary, but to use `type_check_expects` with this, it would have to be.
 
     runtime_cost(
@@ -120,7 +120,7 @@ pub fn check_special_mint_token(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadTokenName)?;
+        .ok_or(StaticCheckErrorKind::BadTokenName)?;
 
     let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
@@ -131,7 +131,7 @@ pub fn check_special_mint_token(
     checker.type_check_expects(&args[2], context, &expected_owner_type)?;
 
     if !checker.contract_context.ft_exists(asset_name) {
-        return Err(StaticAnalysisError::NoSuchFT(asset_name.to_string()).into());
+        return Err(StaticCheckErrorKind::NoSuchFT(asset_name.to_string()).into());
     }
 
     Ok(TypeSignature::ResponseType(Box::new((
@@ -149,13 +149,13 @@ pub fn check_special_transfer_asset(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadTokenName)?;
+        .ok_or(StaticCheckErrorKind::BadTokenName)?;
 
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     let expected_asset_type = checker
         .contract_context
         .get_nft_type(token_name)
-        .ok_or(StaticAnalysisError::NoSuchNFT(token_name.to_string()))?
+        .ok_or(StaticCheckErrorKind::NoSuchNFT(token_name.to_string()))?
         .clone();
 
     runtime_cost(
@@ -183,7 +183,7 @@ pub fn check_special_transfer_token(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadTokenName)?;
+        .ok_or(StaticCheckErrorKind::BadTokenName)?;
 
     let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
@@ -195,7 +195,7 @@ pub fn check_special_transfer_token(
     checker.type_check_expects(&args[3], context, &expected_owner_type)?; // recipient
 
     if !checker.contract_context.ft_exists(token_name) {
-        return Err(StaticAnalysisError::NoSuchFT(token_name.to_string()).into());
+        return Err(StaticCheckErrorKind::NoSuchFT(token_name.to_string()).into());
     }
 
     Ok(TypeSignature::ResponseType(Box::new((
@@ -239,7 +239,7 @@ pub fn check_special_stx_transfer_memo(
     let to_type: TypeSignature = TypeSignature::PrincipalType;
     let memo_type: TypeSignature = TypeSignature::SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(TOKEN_TRANSFER_MEMO_LENGTH as u32)
-            .map_err(|_| StaticAnalysisError::Expects("Bad constructor".into()))?,
+            .map_err(|_| StaticCheckErrorKind::Expects("Bad constructor".into()))?,
     ));
 
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 0)?;
@@ -264,10 +264,10 @@ pub fn check_special_get_token_supply(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadTokenName)?;
+        .ok_or(StaticCheckErrorKind::BadTokenName)?;
 
     if !checker.contract_context.ft_exists(asset_name) {
-        return Err(StaticAnalysisError::NoSuchFT(asset_name.to_string()).into());
+        return Err(StaticCheckErrorKind::NoSuchFT(asset_name.to_string()).into());
     }
 
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 1)?;
@@ -284,13 +284,13 @@ pub fn check_special_burn_asset(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadTokenName)?;
+        .ok_or(StaticCheckErrorKind::BadTokenName)?;
 
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     let expected_asset_type = checker
         .contract_context
         .get_nft_type(asset_name)
-        .ok_or(StaticAnalysisError::NoSuchNFT(asset_name.to_string()))?
+        .ok_or(StaticCheckErrorKind::NoSuchNFT(asset_name.to_string()))?
         .clone(); // this clone shouldn't be strictly necessary, but to use `type_check_expects` with this, it would have to be.
 
     runtime_cost(
@@ -317,7 +317,7 @@ pub fn check_special_burn_token(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadTokenName)?;
+        .ok_or(StaticCheckErrorKind::BadTokenName)?;
 
     let expected_amount: TypeSignature = TypeSignature::UIntType;
     let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
@@ -328,7 +328,7 @@ pub fn check_special_burn_token(
     checker.type_check_expects(&args[2], context, &expected_owner_type)?;
 
     if !checker.contract_context.ft_exists(asset_name) {
-        return Err(StaticAnalysisError::NoSuchFT(asset_name.to_string()).into());
+        return Err(StaticCheckErrorKind::NoSuchFT(asset_name.to_string()).into());
     }
 
     Ok(TypeSignature::ResponseType(Box::new((

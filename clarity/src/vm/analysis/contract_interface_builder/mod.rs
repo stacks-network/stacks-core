@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::analysis::{StaticAnalysisError, StaticAnalysisErrorReport};
+use crate::vm::analysis::{StaticCheckErrorKind, StaticAnalysisErrorReport};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,
@@ -278,7 +278,7 @@ impl ContractInterfaceFunction {
                             FunctionType::Fixed(FixedFunction { returns, .. }) => {
                                 ContractInterfaceAtomType::from_type_signature(returns)
                             }
-                            _ => return Err(StaticAnalysisError::Expects(
+                            _ => return Err(StaticCheckErrorKind::Expects(
                                 "Contract functions should only have fixed function return types!"
                                     .into(),
                             )
@@ -290,7 +290,7 @@ impl ContractInterfaceFunction {
                             ContractInterfaceFunctionArg::from_function_args(args)
                         }
                         _ => {
-                            return Err(StaticAnalysisError::Expects(
+                            return Err(StaticCheckErrorKind::Expects(
                                 "Contract functions should only have fixed function arguments!"
                                     .into(),
                             )
@@ -402,7 +402,7 @@ impl ContractInterface {
 
     pub fn serialize(&self) -> Result<String, StaticAnalysisErrorReport> {
         serde_json::to_string(self).map_err(|_| {
-            StaticAnalysisError::Expects("Failed to serialize contract interface".into()).into()
+            StaticCheckErrorKind::Expects("Failed to serialize contract interface".into()).into()
         })
     }
 }

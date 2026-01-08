@@ -21,7 +21,7 @@ pub mod lexer;
 use std::{error, fmt};
 
 pub use analysis::{
-    CommonCheckErrorKind, RuntimeAnalysisError, StaticAnalysisError, StaticAnalysisErrorReport,
+    CommonCheckErrorKind, RuntimeAnalysisError, StaticCheckErrorKind, StaticAnalysisErrorReport,
 };
 pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;

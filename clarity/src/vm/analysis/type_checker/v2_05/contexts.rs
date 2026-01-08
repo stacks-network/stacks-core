@@ -16,7 +16,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::vm::analysis::errors::{StaticAnalysisError, StaticAnalysisErrorReport};
+use crate::vm::analysis::errors::{StaticCheckErrorKind, StaticAnalysisErrorReport};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::representations::ClarityName;
 use crate::vm::types::signatures::FunctionSignature;
@@ -68,7 +68,7 @@ impl ContractContext {
             || self.map_types.contains_key(name)
         {
             Err(StaticAnalysisErrorReport::new(
-                StaticAnalysisError::NameAlreadyUsed(name.to_string()),
+                StaticCheckErrorKind::NameAlreadyUsed(name.to_string()),
             ))
         } else {
             Ok(())

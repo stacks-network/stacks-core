@@ -3,7 +3,7 @@ use std::fmt;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{
-    AnalysisDatabase, ContractAnalysis, RuntimeAnalysisError, StaticAnalysisError,
+    AnalysisDatabase, ContractAnalysis, RuntimeAnalysisError, StaticCheckErrorKind,
     StaticAnalysisErrorReport,
 };
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
@@ -82,14 +82,14 @@ impl std::error::Error for ClarityError {
 impl From<StaticAnalysisErrorReport> for ClarityError {
     fn from(e: StaticAnalysisErrorReport) -> Self {
         match *e.err {
-            StaticAnalysisError::CostOverflow => {
+            StaticCheckErrorKind::CostOverflow => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            StaticAnalysisError::CostBalanceExceeded(a, b) => ClarityError::CostError(a, b),
-            StaticAnalysisError::MemoryBalanceExceeded(_a, _b) => {
+            StaticCheckErrorKind::CostBalanceExceeded(a, b) => ClarityError::CostError(a, b),
+            StaticCheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            StaticAnalysisError::ExecutionTimeExpired => {
+            StaticCheckErrorKind::ExecutionTimeExpired => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => ClarityError::StaticCheck(e),
@@ -300,13 +300,13 @@ pub trait TransactionConnection: ClarityConnection {
                 Ok(_) => {
                     let result = db
                         .commit()
-                        .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")).into());
+                        .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into());
                     (cost_tracker, result)
                 }
                 Err(e) => {
                     let result = db
                         .roll_back()
-                        .map_err(|e| StaticAnalysisError::Expects(format!("{e:?}")).into());
+                        .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into());
                     if result.is_err() {
                         (cost_tracker, result)
                     } else {

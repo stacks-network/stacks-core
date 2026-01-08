@@ -22,7 +22,7 @@ use std::{cmp, fmt};
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
-use crate::errors::analysis::{RuntimeAnalysisError, CommonCheckErrorKind, StaticAnalysisError};
+use crate::errors::analysis::{RuntimeAnalysisError, CommonCheckErrorKind, StaticCheckErrorKind};
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
     CharType, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
@@ -702,7 +702,7 @@ impl TypeSignature {
     /// Concretize the type. The input to this method may include
     /// `ListUnionType` and the `CallableType` variant for a `principal.
     /// This method turns these "temporary" types into actual types.
-    pub fn concretize(&self) -> Result<TypeSignature, StaticAnalysisError> {
+    pub fn concretize(&self) -> Result<TypeSignature, StaticCheckErrorKind> {
         match self {
             ListUnionType(types) => {
                 let mut is_trait = None;
@@ -711,7 +711,7 @@ impl TypeSignature {
                     match partial {
                         CallableSubtype::Principal(_) => {
                             if is_trait.is_some() {
-                                return Err(StaticAnalysisError::TypeError(
+                                return Err(StaticCheckErrorKind::TypeError(
                                     Box::new(TypeSignature::CallableType(partial.clone())),
                                     Box::new(TypeSignature::PrincipalType),
                                 ));
@@ -721,7 +721,7 @@ impl TypeSignature {
                         }
                         CallableSubtype::Trait(t) => {
                             if is_principal {
-                                return Err(StaticAnalysisError::TypeError(
+                                return Err(StaticCheckErrorKind::TypeError(
                                     Box::new(TypeSignature::PrincipalType),
                                     Box::new(TypeSignature::CallableType(partial.clone())),
                                 ));
@@ -1310,12 +1310,12 @@ impl TypeSignature {
         Ok(out)
     }
 
-    pub fn literal_type_of(x: &Value) -> Result<TypeSignature, StaticAnalysisError> {
+    pub fn literal_type_of(x: &Value) -> Result<TypeSignature, StaticCheckErrorKind> {
         match x {
             Value::Principal(PrincipalData::Contract(contract_id)) => Ok(CallableType(
                 CallableSubtype::Principal(contract_id.clone()),
             )),
-            _ => Self::type_of(x).map_err(StaticAnalysisError::from),
+            _ => Self::type_of(x).map_err(StaticCheckErrorKind::from),
         }
     }
 

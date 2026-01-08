@@ -19,7 +19,7 @@ use clarity_types::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
 use super::{
-    check_argument_count, check_arguments_at_least, no_type, StaticAnalysisError,
+    check_argument_count, check_arguments_at_least, no_type, StaticCheckErrorKind,
     StaticAnalysisErrorReport, TypeChecker,
 };
 use crate::vm::analysis::type_checker::contexts::TypingContext;
@@ -83,7 +83,7 @@ pub fn check_special_is_response(
     if let TypeSignature::ResponseType(_types) = input {
         Ok(TypeSignature::BoolType)
     } else {
-        Err(StaticAnalysisError::ExpectedResponseType(Box::new(input.clone())).into())
+        Err(StaticCheckErrorKind::ExpectedResponseType(Box::new(input.clone())).into())
     }
 }
 
@@ -101,7 +101,7 @@ pub fn check_special_is_optional(
     if let TypeSignature::OptionalType(_type) = input {
         Ok(TypeSignature::BoolType)
     } else {
-        Err(StaticAnalysisError::ExpectedOptionalType(Box::new(input.clone())).into())
+        Err(StaticCheckErrorKind::ExpectedOptionalType(Box::new(input.clone())).into())
     }
 }
 
@@ -121,7 +121,7 @@ pub fn check_special_default_to(
         let contained_type = *input_type;
         TypeSignature::least_supertype(&StacksEpochId::Epoch21, &default, &contained_type).map_err(
             |_| {
-                StaticAnalysisError::DefaultTypesMustMatch(
+                StaticCheckErrorKind::DefaultTypesMustMatch(
                     Box::new(default),
                     Box::new(contained_type),
                 )
@@ -129,7 +129,7 @@ pub fn check_special_default_to(
             },
         )
     } else {
-        Err(StaticAnalysisError::ExpectedOptionalType(Box::new(input)).into())
+        Err(StaticCheckErrorKind::ExpectedOptionalType(Box::new(input)).into())
     }
 }
 
@@ -157,7 +157,7 @@ fn inner_unwrap(
     match input {
         TypeSignature::OptionalType(input_type) => {
             if input_type.is_no_type() {
-                Err(StaticAnalysisError::CouldNotDetermineResponseOkType.into())
+                Err(StaticCheckErrorKind::CouldNotDetermineResponseOkType.into())
             } else {
                 Ok(*input_type)
             }
@@ -165,12 +165,12 @@ fn inner_unwrap(
         TypeSignature::ResponseType(response_type) => {
             let ok_type = response_type.0;
             if ok_type.is_no_type() {
-                Err(StaticAnalysisError::CouldNotDetermineResponseOkType.into())
+                Err(StaticCheckErrorKind::CouldNotDetermineResponseOkType.into())
             } else {
                 Ok(ok_type)
             }
         }
-        _ => Err(StaticAnalysisError::ExpectedOptionalOrResponseType(Box::new(input)).into()),
+        _ => Err(StaticCheckErrorKind::ExpectedOptionalOrResponseType(Box::new(input)).into()),
     }
 }
 
@@ -183,12 +183,12 @@ fn inner_unwrap_err(
     if let TypeSignature::ResponseType(response_type) = input {
         let err_type = response_type.1;
         if err_type.is_no_type() {
-            Err(StaticAnalysisError::CouldNotDetermineResponseErrType.into())
+            Err(StaticCheckErrorKind::CouldNotDetermineResponseErrType.into())
         } else {
             Ok(err_type)
         }
     } else {
-        Err(StaticAnalysisError::ExpectedResponseType(Box::new(input)).into())
+        Err(StaticCheckErrorKind::ExpectedResponseType(Box::new(input)).into())
     }
 }
 
@@ -236,7 +236,7 @@ pub fn check_special_try_ret(
     match input {
         TypeSignature::OptionalType(input_type) => {
             if input_type.is_no_type() {
-                Err(StaticAnalysisError::CouldNotDetermineResponseOkType.into())
+                Err(StaticCheckErrorKind::CouldNotDetermineResponseOkType.into())
             } else {
                 checker.track_return_type(TypeSignature::new_option(TypeSignature::NoType)?)?;
                 Ok(*input_type)
@@ -245,9 +245,9 @@ pub fn check_special_try_ret(
         TypeSignature::ResponseType(response_type) => {
             let (ok_type, err_type) = *response_type;
             if ok_type.is_no_type() {
-                Err(StaticAnalysisError::CouldNotDetermineResponseOkType.into())
+                Err(StaticCheckErrorKind::CouldNotDetermineResponseOkType.into())
             } else if err_type.is_no_type() {
-                Err(StaticAnalysisError::CouldNotDetermineResponseErrType.into())
+                Err(StaticCheckErrorKind::CouldNotDetermineResponseErrType.into())
             } else {
                 checker.track_return_type(TypeSignature::new_response(
                     TypeSignature::NoType,
@@ -256,7 +256,7 @@ pub fn check_special_try_ret(
                 Ok(ok_type)
             }
         }
-        _ => Err(StaticAnalysisError::ExpectedOptionalOrResponseType(Box::new(input)).into()),
+        _ => Err(StaticCheckErrorKind::ExpectedOptionalOrResponseType(Box::new(input)).into()),
     }
 }
 
@@ -309,7 +309,7 @@ fn eval_with_new_binding(
     checker.contract_context.check_name_used(&bind_name)?;
 
     if inner_context.lookup_variable_type(&bind_name).is_some() {
-        return Err(StaticAnalysisError::NameAlreadyUsed(bind_name.into()).into());
+        return Err(StaticCheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
     }
 
     inner_context.add_variable_type(bind_name, bind_type, checker.clarity_version);
@@ -328,22 +328,22 @@ fn check_special_match_opt(
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
     if args.len() != 3 {
-        Err(StaticAnalysisError::BadMatchOptionSyntax(Box::new(
-            StaticAnalysisError::IncorrectArgumentCount(4, args.len() + 1),
+        Err(StaticCheckErrorKind::BadMatchOptionSyntax(Box::new(
+            StaticCheckErrorKind::IncorrectArgumentCount(4, args.len() + 1),
         )))?;
     }
 
     let bind_name = args[0]
         .match_atom()
         .ok_or_else(|| {
-            StaticAnalysisError::BadMatchOptionSyntax(Box::new(StaticAnalysisError::ExpectedName))
+            StaticCheckErrorKind::BadMatchOptionSyntax(Box::new(StaticCheckErrorKind::ExpectedName))
         })?
         .clone();
     let some_branch = &args[1];
     let none_branch = &args[2];
 
     if option_type.is_no_type() {
-        return Err(StaticAnalysisError::CouldNotDetermineMatchTypes.into());
+        return Err(StaticCheckErrorKind::CouldNotDetermineMatchTypes.into());
     }
 
     let some_branch_type =
@@ -358,7 +358,7 @@ fn check_special_match_opt(
         &none_branch_type,
     )
     .map_err(|_| {
-        StaticAnalysisError::MatchArmsMustMatch(
+        StaticCheckErrorKind::MatchArmsMustMatch(
             Box::new(some_branch_type),
             Box::new(none_branch_type),
         )
@@ -373,22 +373,22 @@ fn check_special_match_resp(
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
     if args.len() != 4 {
-        Err(StaticAnalysisError::BadMatchResponseSyntax(Box::new(
-            StaticAnalysisError::IncorrectArgumentCount(5, args.len() + 1),
+        Err(StaticCheckErrorKind::BadMatchResponseSyntax(Box::new(
+            StaticCheckErrorKind::IncorrectArgumentCount(5, args.len() + 1),
         )))?;
     }
 
     let ok_bind_name = args[0]
         .match_atom()
         .ok_or_else(|| {
-            StaticAnalysisError::BadMatchResponseSyntax(Box::new(StaticAnalysisError::ExpectedName))
+            StaticCheckErrorKind::BadMatchResponseSyntax(Box::new(StaticCheckErrorKind::ExpectedName))
         })?
         .clone();
     let ok_branch = &args[1];
     let err_bind_name = args[2]
         .match_atom()
         .ok_or_else(|| {
-            StaticAnalysisError::BadMatchResponseSyntax(Box::new(StaticAnalysisError::ExpectedName))
+            StaticCheckErrorKind::BadMatchResponseSyntax(Box::new(StaticCheckErrorKind::ExpectedName))
         })?
         .clone();
     let err_branch = &args[3];
@@ -396,7 +396,7 @@ fn check_special_match_resp(
     let (ok_type, err_type) = resp_type;
 
     if ok_type.is_no_type() || err_type.is_no_type() {
-        return Err(StaticAnalysisError::CouldNotDetermineMatchTypes.into());
+        return Err(StaticCheckErrorKind::CouldNotDetermineMatchTypes.into());
     }
 
     let ok_branch_type = eval_with_new_binding(ok_branch, ok_bind_name, ok_type, checker, context)?;
@@ -407,7 +407,7 @@ fn check_special_match_resp(
 
     TypeSignature::least_supertype(&StacksEpochId::Epoch21, &ok_branch_type, &err_branch_type)
         .map_err(|_| {
-            StaticAnalysisError::MatchArmsMustMatch(
+            StaticCheckErrorKind::MatchArmsMustMatch(
                 Box::new(ok_branch_type),
                 Box::new(err_branch_type),
             )
@@ -431,6 +431,6 @@ pub fn check_special_match(
         TypeSignature::ResponseType(resp_type) => {
             check_special_match_resp(*resp_type, checker, &args[1..], context)
         }
-        _ => Err(StaticAnalysisError::BadMatchInput(Box::new(input)).into()),
+        _ => Err(StaticCheckErrorKind::BadMatchInput(Box::new(input)).into()),
     }
 }

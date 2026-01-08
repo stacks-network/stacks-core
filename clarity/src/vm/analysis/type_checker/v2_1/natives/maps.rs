@@ -17,7 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_checker::v2_1::{
-    check_arguments_at_least, StaticAnalysisError, StaticAnalysisErrorReport, TypeChecker,
+    check_arguments_at_least, StaticCheckErrorKind, StaticAnalysisErrorReport, TypeChecker,
     TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -34,14 +34,14 @@ pub fn check_special_fetch_entry(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadMapName)?;
+        .ok_or(StaticCheckErrorKind::BadMapName)?;
 
     let key_type = checker.type_check(&args[1], context)?;
 
     let (expected_key_type, value_type) = checker
         .contract_context
         .get_map_type(map_name)
-        .ok_or(StaticAnalysisError::NoSuchMap(map_name.to_string()))?;
+        .ok_or(StaticCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
@@ -59,7 +59,7 @@ pub fn check_special_fetch_entry(
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
         Err(StaticAnalysisErrorReport::new(
-            StaticAnalysisError::TypeError(Box::new(expected_key_type.clone()), Box::new(key_type)),
+            StaticCheckErrorKind::TypeError(Box::new(expected_key_type.clone()), Box::new(key_type)),
         ))
     } else {
         Ok(option_type)
@@ -75,14 +75,14 @@ pub fn check_special_delete_entry(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadMapName)?;
+        .ok_or(StaticCheckErrorKind::BadMapName)?;
 
     let key_type = checker.type_check(&args[1], context)?;
 
     let (expected_key_type, _) = checker
         .contract_context
         .get_map_type(map_name)
-        .ok_or(StaticAnalysisError::NoSuchMap(map_name.to_string()))?;
+        .ok_or(StaticCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
@@ -93,7 +93,7 @@ pub fn check_special_delete_entry(
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
         Err(StaticAnalysisErrorReport::new(
-            StaticAnalysisError::TypeError(Box::new(expected_key_type.clone()), Box::new(key_type)),
+            StaticCheckErrorKind::TypeError(Box::new(expected_key_type.clone()), Box::new(key_type)),
         ))
     } else {
         Ok(TypeSignature::BoolType)
@@ -109,7 +109,7 @@ fn check_set_or_insert_entry(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(StaticAnalysisError::BadMapName)?;
+        .ok_or(StaticCheckErrorKind::BadMapName)?;
 
     let key_type = checker.type_check(&args[1], context)?;
     let value_type = checker.type_check(&args[2], context)?;
@@ -117,7 +117,7 @@ fn check_set_or_insert_entry(
     let (expected_key_type, expected_value_type) = checker
         .contract_context
         .get_map_type(map_name)
-        .ok_or(StaticAnalysisError::NoSuchMap(map_name.to_string()))?;
+        .ok_or(StaticCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
@@ -135,11 +135,11 @@ fn check_set_or_insert_entry(
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
         Err(StaticAnalysisErrorReport::new(
-            StaticAnalysisError::TypeError(Box::new(expected_key_type.clone()), Box::new(key_type)),
+            StaticCheckErrorKind::TypeError(Box::new(expected_key_type.clone()), Box::new(key_type)),
         ))
     } else if !expected_value_type.admits_type(&StacksEpochId::Epoch21, &value_type)? {
         Err(StaticAnalysisErrorReport::new(
-            StaticAnalysisError::TypeError(
+            StaticCheckErrorKind::TypeError(
                 Box::new(expected_value_type.clone()),
                 Box::new(value_type),
             ),

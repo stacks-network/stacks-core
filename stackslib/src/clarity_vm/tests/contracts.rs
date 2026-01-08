@@ -16,7 +16,7 @@
 
 use clarity::types::StacksEpochId;
 use clarity::vm::clarity::ClarityError;
-use clarity::vm::errors::{RuntimeAnalysisError, StaticAnalysisError, VmExecutionError};
+use clarity::vm::errors::{RuntimeAnalysisError, StaticCheckErrorKind, VmExecutionError};
 use clarity::vm::types::SequenceData::Buffer;
 use clarity::vm::types::{
     BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
@@ -49,7 +49,7 @@ fn test_get_burn_block_info_eval() {
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticAnalysisError::UnknownFunction(func_name) = *analysis_report.err {
+                if let StaticCheckErrorKind::UnknownFunction(func_name) = *analysis_report.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
                     panic!("Bad analysis error: {analysis_report:?}");
@@ -70,7 +70,7 @@ fn test_get_burn_block_info_eval() {
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticAnalysisError::UnknownFunction(func_name) = *analysis_report.err {
+                if let StaticCheckErrorKind::UnknownFunction(func_name) = *analysis_report.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
                     panic!("Bad analysis error: {analysis_report:?}");
@@ -162,7 +162,7 @@ fn test_get_block_info_eval_v210() {
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticAnalysisError::NoSuchBlockInfoProperty(name) = *analysis_report.err {
+                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *analysis_report.err {
                     assert_eq!(name, "block-reward");
                 } else {
                     panic!("Bad analysis error: {analysis_report:?}");
@@ -183,7 +183,7 @@ fn test_get_block_info_eval_v210() {
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticAnalysisError::NoSuchBlockInfoProperty(name) = *analysis_report.err {
+                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *analysis_report.err {
                     assert_eq!(name, "block-reward");
                 } else {
                     panic!("Bad analysis error: {analysis_report:?}");
@@ -345,7 +345,7 @@ fn trait_invocation_205_with_stored_principal() {
             .unwrap_err();
         match error {
             ClarityError::StaticCheck(ref e) => match *e.err {
-                StaticAnalysisError::TypeError(..) => (),
+                StaticCheckErrorKind::TypeError(..) => (),
                 _ => panic!("Unexpected error: {error:?}"),
             },
             _ => panic!("Unexpected error: {error:?}"),
@@ -876,7 +876,7 @@ fn test_block_heights() {
                 contract_clarity3,
             );
             if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticAnalysisError::UndefinedVariable(var_name) = *analysis_report.err {
+                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *analysis_report.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
                     panic!("Bad analysis error: {analysis_report:?}");
@@ -910,7 +910,7 @@ fn test_block_heights() {
                 contract_clarity3,
             );
             if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticAnalysisError::UndefinedVariable(var_name) = *analysis_report.err {
+                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *analysis_report.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
                     panic!("Bad analysis error: {analysis_report:?}");
@@ -926,7 +926,7 @@ fn test_block_heights() {
                 contract_clarity1,
             );
             if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticAnalysisError::UndefinedVariable(var_name) = *analysis_report.err {
+                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *analysis_report.err {
                     assert_eq!(var_name, "block-height");
                 } else {
                     panic!("Bad analysis error: {analysis_report:?}");

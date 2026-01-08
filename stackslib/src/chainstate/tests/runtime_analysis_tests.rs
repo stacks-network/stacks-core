@@ -893,7 +893,7 @@ fn runtime_analysis_error_kind_contract_call_expect_name_ccall() {
 ///     `CallableContract` value and the runtime rejects it with the union type error.
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 4 and later.
-///     Clarity 1, 2, 3 will return a [`StaticAnalysisError::UnknownFunction`].
+///     Clarity 1, 2, 3 will return a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn runtime_analysis_error_kind_union_type_value_error_cdeploy() {
     let contract_1 = SetupContract::new(
@@ -924,7 +924,7 @@ fn runtime_analysis_error_kind_union_type_value_error_cdeploy() {
 ///     `CallableContract` value and the runtime rejects it with the union type error.
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 4 and later.
-///     Clarity 1, 2, 3 will return a [`StaticAnalysisError::UnknownFunction`].
+///     Clarity 1, 2, 3 will return a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn runtime_analysis_error_kind_union_type_value_error_ccall() {
     let contract_1 = SetupContract::new(
