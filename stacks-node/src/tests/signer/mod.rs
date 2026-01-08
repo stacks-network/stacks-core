@@ -1719,10 +1719,12 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
     /// Restart the first `n` signers with a new supported protocol version.
     /// Restarts in reverse index order so removals/insertions don't shift upcoming indices.
+    /// Waits for all signers to re-register after restarts.
     pub fn restart_first_n_signers_with_supported_version(&mut self, n: usize, version: u64) {
         for idx in (0..n).rev() {
             self.restart_signer_with_supported_version(idx, version);
         }
+        self.wait_for_registered();
     }
 }
 

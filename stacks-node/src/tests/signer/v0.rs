@@ -18189,103 +18189,36 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     );
 }
 
-/// Tests that signers are able to upgrade or downgrade their active protocol version numbers based on
-/// the majority of other signers current local supported version numbers
-#[test]
-#[ignore]
-fn rollover_signer_protocol_version() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-    let num_signers = 5;
-
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
-    signer_test.boot_to_epoch_3();
-
-    let conf = signer_test.running_nodes.conf.clone();
-
-    let burnchain = conf.get_burnchain();
-    let sortdb = burnchain.open_sortition_db(true).unwrap();
-
-    let all_signers = signer_test.signer_test_pks();
-    info!(
-        "------------------------- Miner Tenure Starts and Mines Block N-------------------------"
-    );
+fn mine_burn_block_and_confirm_signer_rollover(
+    signer_test: &mut SignerTest<SpawnedSigner>,
+    expected_versions: &[(StacksAddress, u64)],
+) {
     test_observer::clear();
-    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
-
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let burn_consensus_hash = tip.consensus_hash;
-    let burn_height = tip.block_height;
-
-    info!("------------------------- Confirm Miner is the Active Miner in Update and All Signers Are Using Protocol Number {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------");
-    // Verify that signers first sent a bitcoin block update
-    wait_for_state_machine_update(
-        60,
-        &burn_consensus_hash,
-        burn_height,
-        None,
-        &signer_test.signer_addresses_versions(),
-    )
-    .expect("Timed out waiting for signers to send a state update for block N");
-
-    test_observer::clear();
-    let downgraded_version = SUPPORTED_SIGNER_PROTOCOL_VERSION.saturating_sub(1);
-    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 20 Percent of Signers -------------------------");
-    // 20% of 5 is 1 signer (integer math)
-    let downgrade_20_percent = num_signers * 2 / 10;
-    signer_test
-        .restart_first_n_signers_with_supported_version(downgrade_20_percent, downgraded_version);
-
-    info!("------------------------- Confirm Signers Still Manage to Sign a Stacks Block With Misaligned Version Numbers -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
-
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let burn_consensus_hash = tip.consensus_hash;
-    let burn_height = tip.block_height;
-
-    // Active version should remain the same (majority still supports SUPPORTED_SIGNER_PROTOCOL_VERSION)
-    wait_for_state_machine_update(
-        60,
-        &burn_consensus_hash,
-        burn_height,
-        None,
-        &signer_test.signer_addresses_versions(),
-    )
-    .expect("Timed out waiting for signers to send their downgraded state update for block N+1");
-
-    test_observer::clear();
-    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 70 Percent of Signers -------------------------");
-    // Not strictly necessary, but makes it easier to logic out if miner doesn't send a proposal until signers are on same page...
     TEST_MINE_SKIP.set(true);
-    let downgrade_70_percent = (num_signers * 7 + 9) / 10;
-    signer_test
-        .restart_first_n_signers_with_supported_version(downgrade_70_percent, downgraded_version);
-    signer_test.wait_for_registered();
-
-    info!("------------------------- Confirm Signers Sent Downgraded State Machine Updates -------------------------");
-    // Cannot use any built in functions that call mine_nakamoto_block since it expects signer updates matching the majority version and we are manually messing with these versions
+    info!("------------------------- Mine Bitcoin Block -------------------------");
     signer_test.mine_bitcoin_block();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let burn_consensus_hash = tip.consensus_hash;
-    let burn_height = tip.block_height;
-    // Now the majority supported version should be downgraded_version, so expect everyone to *negotiate* to it.
-    let downgraded_versions: Vec<_> = signer_test
-        .signer_addresses_versions()
-        .into_iter()
-        .map(|(address, _)| (address, downgraded_version))
-        .collect();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(
+        signer_test
+            .running_nodes
+            .conf
+            .get_burnchain()
+            .open_sortition_db(true)
+            .unwrap()
+            .conn(),
+    )
+    .unwrap();
     wait_for_state_machine_update(
         60,
-        &burn_consensus_hash,
-        burn_height,
+        &tip.consensus_hash,
+        tip.block_height,
         None,
-        &downgraded_versions,
+        &expected_versions,
     )
-    .expect("Timed out waiting for signers to send their state update for block N+2");
-
+    .expect("Timed out waiting for signers to send their state updates after a bitcoin block");
     let info = signer_test.get_peer_info();
-    info!("------------------------- Confirm Signers Sign The Block After Complete Downgraded Version Number -------------------------");
+    info!(
+        "------------------------- Mine Tenure Change Stacks Transaction -------------------------"
+    );
     TEST_MINE_SKIP.set(false);
     let expected_miner = StacksPublicKey::from_private(
         &signer_test
@@ -18296,21 +18229,153 @@ fn rollover_signer_protocol_version() {
             .clone()
             .unwrap(),
     );
-    let block = wait_for_block_pushed_by_miner_key(60, info.stacks_tip_height + 1, &expected_miner)
-        .expect("Failed to mine block after downgraded version number.");
-    // Expect ALL signers even after downgrade to approve the proposed blocks
-    wait_for_block_acceptance_from_signers(30, &block.header.signer_signature_hash(), &all_signers)
-        .expect("Failed to confirm all signers accepted last block");
 
-    info!("------------------------- Reset All Signers to {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------");
-    // Bring everyone back up (restart all signers with the upgraded supported version)
+    let block = wait_for_block_pushed_by_miner_key(60, info.stacks_tip_height + 1, &expected_miner)
+        .expect("Failed to mine block after upgraded version number.");
+    wait_for_block_acceptance_from_signers(
+        30,
+        &block.header.signer_signature_hash(),
+        &signer_test.signer_test_pks(),
+    )
+    .expect("Failed to confirm all signers accepted block");
+}
+
+/// Tests that signers negotiate their **active** signer protocol version based on the
+/// **majority of locally supported** signer protocol versions.
+///
+/// Scenario (10 signers):
+/// 1) Baseline: all signers start on `SUPPORTED_SIGNER_PROTOCOL_VERSION` and can sign blocks.
+/// 2) Downgrade 30%: non-blocking minority downgraded. Stays at `SUPPORTED_SIGNER_PROTOCOL_VERSION`.
+/// 3) Downgrade 40%: blocking minority downgraded. Downgrades to `SUPPORTED_SIGNER_PROTOCOL_VERSION - 1`.
+/// 4) Upgrade 70%: majority upgraded. Upgrades back to `SUPPORTED_SIGNER_PROTOCOL_VERSION`.
+#[test]
+#[ignore]
+fn downgrade_signer_protocol_version() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    // To make the math easier, use 10 signers
+    let num_signers: usize = 10;
+
+    // Integer percent helper (e.g. 30 => 3 when num_signers=10)
+    fn pct(num_signers: usize, percent: usize) -> usize {
+        (num_signers * percent) / 100
+    }
+
+    // Boot with the most recent supported version
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    signer_test.boot_to_epoch_3();
+
+    info!(
+        "------------------------- Confirm miner tenure continues and all signers use protocol {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------"
+    );
+    let versions = signer_test.signer_addresses_versions();
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &versions);
+
+    let downgraded_version = SUPPORTED_SIGNER_PROTOCOL_VERSION.saturating_sub(1);
+    let downgraded_versions = signer_test
+        .signer_addresses_versions()
+        .into_iter()
+        .map(|(addr, _)| (addr, downgraded_version))
+        .collect::<Vec<_>>();
+    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 30 Percent of Signers -------------------------");
+    // Since only 30 percent downgraded. Active protocol version should stay the same
+    signer_test
+        .restart_first_n_signers_with_supported_version(pct(num_signers, 30), downgraded_version);
+    let versions = signer_test.signer_addresses_versions();
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &versions);
+    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 40 Percent of Signers -------------------------");
+    // A blocking minority has downgraded, so expect everyone to negotiate to downgraded_version.
+    signer_test
+        .restart_first_n_signers_with_supported_version(pct(num_signers, 40), downgraded_version);
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &downgraded_versions);
+
+    info!("------------------------- Upgrade Signer Versions to {SUPPORTED_SIGNER_PROTOCOL_VERSION} for 70 Percent of Signers -------------------------");
+    signer_test.restart_first_n_signers_with_supported_version(
+        pct(num_signers, 70),
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    );
+    let versions = signer_test.signer_addresses_versions();
+    // A majority of signers have upgraded, expect everyone to negotiate back to the supported version.
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &versions);
+    signer_test.shutdown();
+}
+
+/// Tests the latest activation rollover behavior across different activation
+/// percentages, ensuring that block signing continues as old signers can still communicate with new signers.
+///
+/// Scenario (10 signers):
+/// 1) 30% activated: non-blocking minority activated.
+/// 2) 40% activated: blocking minority activated .
+/// 3) 60% activated: blocking minority unactivated.
+/// 4) 70% activated: non-blocking minority unactivated.
+/// 5) 100% activated: all signers activated.
+#[test]
+#[ignore]
+fn rollover_signer_protocol_version() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // To make the math easier, use 10 signers
+    let num_signers: usize = 10;
+
+    // Integer percent helper (e.g. 30 => 3 when num_signers=10)
+    fn pct(num_signers: usize, percent: usize) -> usize {
+        (num_signers * percent) / 100
+    }
+
+    let old_version = SUPPORTED_SIGNER_PROTOCOL_VERSION.saturating_sub(1);
+    // Start with 30% of signers activated
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |signer_config| {
+            // 30% of 10 is 3 signers
+            let activated_signers = pct(num_signers, 30) as u16;
+
+            // signer_nmb in [0, num_signers-1]
+            let signer_nmb = signer_config.endpoint.port() % num_signers as u16;
+
+            let signer_version = if signer_nmb < activated_signers {
+                SUPPORTED_SIGNER_PROTOCOL_VERSION
+            } else {
+                old_version
+            };
+
+            signer_config.supported_signer_protocol_version = signer_version;
+        },
+        |_| {},
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+
+    let old_versions: Vec<_> = signer_test
+        .signer_addresses_versions()
+        .into_iter()
+        .map(|(address, _)| (address, old_version))
+        .collect();
+
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &old_versions);
+
+    for percent in [40, 60, 70] {
+        info!("------------------------- Upgrade to {SUPPORTED_SIGNER_PROTOCOL_VERSION} for {percent}% of signers -------------------------");
+        signer_test.restart_first_n_signers_with_supported_version(
+            pct(num_signers, percent),
+            SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        );
+        mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &old_versions);
+    }
+
+    info!("------------------------- Upgrade to {SUPPORTED_SIGNER_PROTOCOL_VERSION} for 100% of signers -------------------------");
     signer_test.restart_first_n_signers_with_supported_version(
         num_signers,
         SUPPORTED_SIGNER_PROTOCOL_VERSION,
     );
-    test_observer::clear();
-    info!("------------------------- Confirm Signers Sign The Block After Upgraded Version Number -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
+    let new_versions = signer_test.signer_addresses_versions();
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &new_versions);
 
     signer_test.shutdown();
 }
