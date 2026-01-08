@@ -59,12 +59,12 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
     _ = match variant {
         CostOverflow => Unreachable_ExpectLike, // Should exceed u64
         CostBalanceExceeded(_, _) => Tested(vec![
-            runtime_analysis_error_cost_balance_exceeded_cdeploy,
-            runtime_analysis_error_cost_balance_exceeded_ccall
+            runtime_check_error_cost_balance_exceeded_cdeploy,
+            runtime_check_error_cost_balance_exceeded_ccall
         ]),
         MemoryBalanceExceeded(_, _) => Tested(vec![
-            runtime_analysis_error_memory_balance_exceeded_cdeploy,
-            runtime_analysis_error_memory_balance_exceeded_ccall
+            runtime_check_error_memory_balance_exceeded_cdeploy,
+            runtime_check_error_memory_balance_exceeded_ccall
         ]),
         CostComputationFailed(_) => Unreachable_ExpectLike,
         ExecutionTimeExpired => Unreachable_Functionally(
@@ -75,13 +75,13 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
              is NoTracking. Execution time limits are only enforced in RPC API calls
              and miner-local transaction filtering."),
         ValueTooLarge => Tested(vec![
-            runtime_analysis_error_kind_value_too_large_cdeploy,
-            runtime_analysis_error_kind_value_too_large_ccall
+            runtime_check_error_kind_value_too_large_cdeploy,
+            runtime_check_error_kind_value_too_large_ccall
         ]),
         ValueOutOfBounds => todo!(),
         TypeSignatureTooDeep => Tested(vec![
-            runtime_analysis_error_kind_type_signature_too_deep_cdeploy,
-            runtime_analysis_error_kind_type_signature_too_deep_ccall
+            runtime_check_error_kind_type_signature_too_deep_cdeploy,
+            runtime_check_error_kind_type_signature_too_deep_ccall
         ]),
         ExpectedName => Unreachable_Functionally(
             "Every place in the runtime where ExpectedName is raised comes from a direct
@@ -104,14 +104,14 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             "Both the analyzer and the runtime examine the exact same match AST slice.
              The static pass invokes check_special_match, which enforces the 2 argument
              structure and the input type before any code is accepted."),
-        ListTypesMustMatch => Tested(vec![runtime_analysis_error_kind_list_types_must_match_cdeploy]),
+        ListTypesMustMatch => Tested(vec![runtime_check_error_kind_list_types_must_match_cdeploy]),
         TypeError(_, _) => Tested(vec![
-            runtime_analysis_error_kind_type_error_cdeploy,
-            runtime_analysis_error_kind_type_error_ccall
+            runtime_check_error_kind_type_error_cdeploy,
+            runtime_check_error_kind_type_error_ccall
         ]),
         TypeValueError(_, _) => Tested(vec![
-            runtime_analysis_error_kind_type_value_error_cdeploy,
-            runtime_analysis_error_kind_type_value_error_ccall
+            runtime_check_error_kind_type_value_error_cdeploy,
+            runtime_check_error_kind_type_value_error_ccall
         ]),
         InvalidTypeDescription => Unreachable_Functionally(
             "Every invalid type literal is parsed both by the analyzer and by the runtime.
@@ -126,8 +126,8 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
              `FunctionArgSignature::Union(IntType, UIntType)` and the
              `TypeSignature::admits_type` checks in `type_checker::check_function_arg_signature`)"),
         UnionTypeValueError(_, _) => Tested(vec![
-            runtime_analysis_error_kind_union_type_value_error_cdeploy,
-            runtime_analysis_error_kind_union_type_value_error_ccall
+            runtime_check_error_kind_union_type_value_error_cdeploy,
+            runtime_check_error_kind_union_type_value_error_ccall
         ]),
         ExpectedOptionalValue(_) => Unreachable_Functionally(
             "Every optional primitive (`is-some`, `default-to`, `unwrap!`, etc.)
@@ -145,10 +145,10 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
              There is no runtime path where a plain value reaches `native_try_ret` or the
              option/response matchers"),
         ExpectedContractPrincipalValue(_) => Tested(vec![
-            runtime_analysis_error_kind_expected_contract_principal_value_cdeploy,
-            runtime_analysis_error_kind_expected_contract_principal_value_ccall
+            runtime_check_error_kind_expected_contract_principal_value_cdeploy,
+            runtime_check_error_kind_expected_contract_principal_value_ccall
         ]),
-        CouldNotDetermineType => Tested(vec![runtime_analysis_error_kind_could_not_determine_type_ccall]),
+        CouldNotDetermineType => Tested(vec![runtime_check_error_kind_could_not_determine_type_ccall]),
         BadTokenName => Unreachable_Functionally(
             "Asset natives call `match_atom()` on their token arg during analysis."),
         NoSuchNFT(_) => Unreachable_Functionally(
@@ -192,18 +192,18 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)"),
         NoSuchDataVariable(_) => Unreachable_Functionally(
             "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)"),
-        ReturnTypesMustMatch(_, _) => Tested(vec![runtime_analysis_error_kind_return_types_must_match_ccall]),
-        CircularReference(_) => Tested(vec![runtime_analysis_error_kind_circular_reference_ccall]), // Possible only during contract call. On contract deploy checked during parsing.
-        NoSuchContract(_) => Tested(vec![runtime_analysis_error_kind_no_such_contract_ccall]),
-        NoSuchPublicFunction(_, _) => Tested(vec![runtime_analysis_error_kind_no_such_public_function_ccall]),
+        ReturnTypesMustMatch(_, _) => Tested(vec![runtime_check_error_kind_return_types_must_match_ccall]),
+        CircularReference(_) => Tested(vec![runtime_check_error_kind_circular_reference_ccall]), // Possible only during contract call. On contract deploy checked during parsing.
+        NoSuchContract(_) => Tested(vec![runtime_check_error_kind_no_such_contract_ccall]),
+        NoSuchPublicFunction(_, _) => Tested(vec![runtime_check_error_kind_no_such_public_function_ccall]),
         PublicFunctionNotReadOnly(_, _) => Unreachable_Functionally("Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped."),
         ContractAlreadyExists(_) => Unreachable_Functionally(
             "Contracts can only be created via SmartContract deployment transactions. \
              The runtime never performs contract installation or replacement.",
         ),
         ContractCallExpectName => Tested(vec![
-            runtime_analysis_error_kind_contract_call_expect_name_cdeploy,
-            runtime_analysis_error_kind_contract_call_expect_name_ccall
+            runtime_check_error_kind_contract_call_expect_name_cdeploy,
+            runtime_check_error_kind_contract_call_expect_name_ccall
         ]),
         NoSuchBurnBlockInfoProperty(_) => Unreachable_Functionally(
             "Burn block info property names are validated during static analysis; \
@@ -226,8 +226,8 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
              non-atom arguments are rejected during static analysis.",
         ),
         NameAlreadyUsed(_) => Tested(vec![
-            runtime_analysis_error_kind_name_already_used_cdeploy,
-            runtime_analysis_error_kind_name_already_used_ccall
+            runtime_check_error_kind_name_already_used_cdeploy,
+            runtime_check_error_kind_name_already_used_ccall
         ]),
         NonFunctionApplication => Unreachable_Functionally(
             "Malformed function applications are syntactically rejected by the parser \
@@ -249,7 +249,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             "Binding syntax errors are detected during parsing and analysis; \
              runtime never re-parses bindings.",
         ),
-        UndefinedFunction(_) => Tested(vec![runtime_analysis_error_kind_undefined_function_ccall]),
+        UndefinedFunction(_) => Tested(vec![runtime_check_error_kind_undefined_function_ccall]),
         UndefinedVariable(_) => Unreachable_Functionally(
             "All variable references are resolved during static analysis; \
              undefined variables cannot appear in executable code.",
@@ -263,7 +263,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
              calls with too many arguments cannot reach execution.",
         ),
         IncorrectArgumentCount(_, _) => {
-            Tested(vec![runtime_analysis_error_kind_incorrect_argument_count_ccall])
+            Tested(vec![runtime_check_error_kind_incorrect_argument_count_ccall])
         }
         TooManyFunctionParameters(_, _) => Unreachable_Functionally(
             "Trait function parameter limits are enforced during trait parsing at deploy time; \
@@ -325,7 +325,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
 ///   the read-count limit in [`BLOCK_LIMIT_MAINNET_21`].
 /// Outcome: block rejected.
 #[test]
-fn runtime_analysis_error_cost_balance_exceeded_cdeploy() {
+fn runtime_check_error_cost_balance_exceeded_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "cost-balance-exceeded",
         contract_code: &format!("
@@ -344,7 +344,7 @@ fn runtime_analysis_error_cost_balance_exceeded_cdeploy() {
 ///   to it in a top-level `is-eq` expression, which exhausts the 100MB memory limit during initialization.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_memory_balance_exceeded_cdeploy() {
+fn runtime_check_error_memory_balance_exceeded_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "test-exceeds",
         contract_code: &{
@@ -379,7 +379,7 @@ fn runtime_analysis_error_memory_balance_exceeded_cdeploy() {
 ///   to it in a top-level `is-eq` expression, which exhausts the 100MB memory limit during contract call.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_memory_balance_exceeded_ccall() {
+fn runtime_check_error_memory_balance_exceeded_ccall() {
     contract_call_consensus_test!(
         contract_name: "memory-test-contract",
         contract_code: &{
@@ -424,7 +424,7 @@ fn runtime_analysis_error_memory_balance_exceeded_ccall() {
 ///   the read-count limit in [`BLOCK_LIMIT_MAINNET_21`].
 /// Outcome: block rejected.
 #[test]
-fn runtime_analysis_error_cost_balance_exceeded_ccall() {
+fn runtime_check_error_cost_balance_exceeded_ccall() {
     contract_call_consensus_test!(
         contract_name: "cost-balance-exceeded",
         contract_code: &format!("
@@ -444,7 +444,7 @@ fn runtime_analysis_error_cost_balance_exceeded_ccall() {
 /// Caused by: Attempted to invoke a private function from outside the contract.
 /// Outcome: block accepted
 #[test]
-fn runtime_analysis_error_kind_no_such_public_function_ccall() {
+fn runtime_check_error_kind_no_such_public_function_ccall() {
     contract_call_consensus_test!(
         contract_name: "target-contract",
         contract_code: "(define-private (get-one) (ok u1))",
@@ -457,7 +457,7 @@ fn runtime_analysis_error_kind_no_such_public_function_ccall() {
 /// Caused by: name is already used by a standard clarity function.
 /// Outcome: block rejected.
 #[test]
-fn runtime_analysis_error_kind_name_already_used_cdeploy() {
+fn runtime_check_error_kind_name_already_used_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "name-already-used",
         contract_code: "(define-private (ft-get-supply) 1)",
@@ -470,7 +470,7 @@ fn runtime_analysis_error_kind_name_already_used_cdeploy() {
 ///     function executes, so the runtime raises `NameAlreadyUsed`.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_name_already_used_ccall() {
+fn runtime_check_error_kind_name_already_used_ccall() {
     contract_call_consensus_test!(
         contract_name: "name-already-used",
         contract_code: "
@@ -488,7 +488,7 @@ fn runtime_analysis_error_kind_name_already_used_ccall() {
 ///   at runtime when `Value::some` detects the oversized payload.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_value_too_large_cdeploy() {
+fn runtime_check_error_kind_value_too_large_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "value-too-large",
         contract_code: r#"
@@ -537,7 +537,7 @@ fn runtime_analysis_error_kind_value_too_large_cdeploy() {
 ///   at runtime when `Value::some` detects the oversized payload.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_value_too_large_ccall() {
+fn runtime_check_error_kind_value_too_large_ccall() {
     contract_call_consensus_test!(
         contract_name: "value-too-large",
         contract_code: r#"
@@ -588,7 +588,7 @@ fn runtime_analysis_error_kind_value_too_large_ccall() {
 ///   The runtime wraps stored entries in an optional, pushing the depth past the limit.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_type_signature_too_deep_cdeploy() {
+fn runtime_check_error_kind_type_signature_too_deep_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "type-depth-runtime",
         contract_code: &{
@@ -630,7 +630,7 @@ fn runtime_analysis_error_kind_type_signature_too_deep_cdeploy() {
 ///   The runtime wraps stored entries in an optional, pushing the depth past the limit.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_type_signature_too_deep_ccall() {
+fn runtime_check_error_kind_type_signature_too_deep_ccall() {
     contract_call_consensus_test!(
         contract_name: "type-depth-runtime",
         contract_code: &{
@@ -676,7 +676,7 @@ fn runtime_analysis_error_kind_type_signature_too_deep_ccall() {
 /// runtime `TypeError(UIntType, OptionalType(NoType))`.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_type_error_cdeploy() {
+fn runtime_check_error_kind_type_error_cdeploy() {
     let contract_1 = SetupContract::new(
         "pool-trait",
         "
@@ -732,7 +732,7 @@ fn runtime_analysis_error_kind_type_error_cdeploy() {
 /// runtime `TypeError(UIntType, OptionalType(NoType))`.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_type_error_ccall() {
+fn runtime_check_error_kind_type_error_ccall() {
     let contract_1 = SetupContract::new(
         "pool-trait",
         "
@@ -787,7 +787,7 @@ fn runtime_analysis_error_kind_type_error_ccall() {
 /// Caused by: passing a value of the wrong type to a function.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_type_value_error_cdeploy() {
+fn runtime_check_error_kind_type_value_error_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "check-error-kind",
         // `as-max-len?` widens `0x` to type `(buff 33)` even though it contains 0 bytes.
@@ -801,7 +801,7 @@ fn runtime_analysis_error_kind_type_value_error_cdeploy() {
 /// Caused by: passing a value of the wrong type to a function.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_type_value_error_ccall() {
+fn runtime_check_error_kind_type_value_error_ccall() {
     contract_call_consensus_test!(
         contract_name: "check-error-kind",
         contract_code: "(define-public (trigger-error (x uint)) (ok true))",
@@ -818,7 +818,7 @@ fn runtime_analysis_error_kind_type_value_error_ccall() {
 /// Note: This test only works for Clarity 2 and later.
 ///     Clarity 1 will not be able to upload contract-3.
 #[test]
-fn runtime_analysis_error_kind_contract_call_expect_name_cdeploy() {
+fn runtime_check_error_kind_contract_call_expect_name_cdeploy() {
     let contract_1 = SetupContract::new(
         "contract-1",
         "(define-trait simple-trait (
@@ -854,7 +854,7 @@ fn runtime_analysis_error_kind_contract_call_expect_name_cdeploy() {
 /// Note: This test only works for Clarity 2 and later.
 ///     Clarity 1 will not be able to upload contract-3.
 #[test]
-fn runtime_analysis_error_kind_contract_call_expect_name_ccall() {
+fn runtime_check_error_kind_contract_call_expect_name_ccall() {
     let contract_1 = SetupContract::new(
         "contract-1",
         "(define-trait simple-trait (
@@ -895,7 +895,7 @@ fn runtime_analysis_error_kind_contract_call_expect_name_ccall() {
 /// Note: This test only works for Clarity 4 and later.
 ///     Clarity 1, 2, 3 will return a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
-fn runtime_analysis_error_kind_union_type_value_error_cdeploy() {
+fn runtime_check_error_kind_union_type_value_error_cdeploy() {
     let contract_1 = SetupContract::new(
         "contract-1",
         "(define-public (dummy)
@@ -926,7 +926,7 @@ fn runtime_analysis_error_kind_union_type_value_error_cdeploy() {
 /// Note: This test only works for Clarity 4 and later.
 ///     Clarity 1, 2, 3 will return a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
-fn runtime_analysis_error_kind_union_type_value_error_ccall() {
+fn runtime_check_error_kind_union_type_value_error_ccall() {
     let contract_1 = SetupContract::new(
         "contract-1",
         "(define-public (dummy)
@@ -959,7 +959,7 @@ fn runtime_analysis_error_kind_union_type_value_error_ccall() {
 /// Outcome: block accepted.
 /// Note: The error is only triggered since Clarity 2. In Clarity 1 the tx is valid and accepted.
 #[test]
-fn runtime_analysis_error_kind_list_types_must_match_cdeploy() {
+fn runtime_check_error_kind_list_types_must_match_cdeploy() {
     let contract_1 = SetupContract::new(
         "contract-1",
         "
@@ -1023,7 +1023,7 @@ fn runtime_analysis_error_kind_list_types_must_match_cdeploy() {
 ///     conform to the trait specification.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_return_types_must_match_ccall() {
+fn runtime_check_error_kind_return_types_must_match_ccall() {
     let trait_contract = SetupContract::new(
         "trait-contract",
         "(define-trait simple-trait (
@@ -1056,7 +1056,7 @@ fn runtime_analysis_error_kind_return_types_must_match_ccall() {
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 4 and later. 'as-contract?' is not supported in earlier versions.
 #[test]
-fn runtime_analysis_error_kind_expected_contract_principal_value_cdeploy() {
+fn runtime_check_error_kind_expected_contract_principal_value_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "contract",
         contract_code: r#"
@@ -1073,7 +1073,7 @@ fn runtime_analysis_error_kind_expected_contract_principal_value_cdeploy() {
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 4 and later. 'as-contract?' is not supported in earlier versions.
 #[test]
-fn runtime_analysis_error_kind_expected_contract_principal_value_ccall() {
+fn runtime_check_error_kind_expected_contract_principal_value_ccall() {
     contract_call_consensus_test!(
         contract_name: "contract",
         contract_code: r#"
@@ -1092,7 +1092,7 @@ fn runtime_analysis_error_kind_expected_contract_principal_value_ccall() {
 /// Caused by: invoking a public function name that is not defined in the contract.
 /// Outcome: block accepted (transaction aborts with the runtime error).
 #[test]
-fn runtime_analysis_error_kind_undefined_function_ccall() {
+fn runtime_check_error_kind_undefined_function_ccall() {
     contract_call_consensus_test!(
         contract_name: "undef-fn-call",
         contract_code: "
@@ -1107,7 +1107,7 @@ fn runtime_analysis_error_kind_undefined_function_ccall() {
 /// Caused by: calling a contract that does not exist.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_no_such_contract_ccall() {
+fn runtime_check_error_kind_no_such_contract_ccall() {
     let mut nonce = 0;
 
     let mut epochs_blocks = HashMap::new();
@@ -1139,7 +1139,7 @@ fn runtime_analysis_error_kind_no_such_contract_ccall() {
 /// Outcome: block accepted.
 /// Note: This test only works in Clarity 2 deployed in Epoch 2.3.
 #[test]
-fn runtime_analysis_error_kind_could_not_determine_type_ccall() {
+fn runtime_check_error_kind_could_not_determine_type_ccall() {
     let trait_contract = SetupContract::new(
         "contract-traits",
         "
@@ -1193,7 +1193,7 @@ fn runtime_analysis_error_kind_could_not_determine_type_ccall() {
 /// Caused by: circular reference forcing a contract calling itself using a contract call.
 /// Outcome: block accepted
 #[test]
-fn runtime_analysis_error_kind_circular_reference_ccall() {
+fn runtime_check_error_kind_circular_reference_ccall() {
     let trait_contract = SetupContract::new(
         "trait-contract",
         "(define-trait trait-1 (
@@ -1232,7 +1232,7 @@ fn runtime_analysis_error_kind_circular_reference_ccall() {
 /// Caused by: passing the wrong number of arguments to a function.
 /// Outcome: block accepted.
 #[test]
-fn runtime_analysis_error_kind_incorrect_argument_count_ccall() {
+fn runtime_check_error_kind_incorrect_argument_count_ccall() {
     contract_call_consensus_test!(
         contract_name: "check-error-kind",
         contract_code: "(define-public (trigger-error (x uint)) (ok true))",
