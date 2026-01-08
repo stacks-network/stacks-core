@@ -82,7 +82,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns successfully iff this function is read-only correct.
     ///
     /// # Errors
-    /// - `StaticAnalysisError::WriteAttemptedInReadOnly`
+    /// - `StaticCheckErrorKind::WriteAttemptedInReadOnly`
     /// - Contract parsing errors
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), StaticCheckError> {
         // Iterate over all the top-level statements in a contract.
@@ -106,7 +106,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns successfully iff this function is read-only correct.
     ///
     /// # Errors
-    /// - StaticAnalysisError::WriteAttemptedInReadOnly
+    /// - StaticCheckErrorKind::WriteAttemptedInReadOnly
     /// - Contract parsing errors
     fn check_top_level_expression(
         &mut self,

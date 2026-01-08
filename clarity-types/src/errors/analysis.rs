@@ -136,7 +136,7 @@ impl SyntaxBindingError {
     }
 }
 
-/// Converts a [`SyntaxBindingError`] into a [`StaticAnalysisError`].
+/// Converts a [`SyntaxBindingError`] into a [`StaticCheckErrorKind`].
 /// Used for propagating binding errors from
 /// [`crate::vm::analysis::read_only_checker::ReadOnlyChecker::check_each_expression_is_read_only`]
 impl From<SyntaxBindingError> for StaticCheckErrorKind {
@@ -297,10 +297,10 @@ pub enum StaticCheckErrorKind {
 
     // Match expression errors
     /// Invalid syntax in an `option` match expression.
-    /// The `Box<StaticAnalysisError>` wraps the underlying error causing the syntax issue.
+    /// The `Box<StaticCheckErrorKind>` wraps the underlying error causing the syntax issue.
     BadMatchOptionSyntax(Box<StaticCheckErrorKind>),
     /// Invalid syntax in a `response` match expression.
-    /// The `Box<StaticAnalysisError>` wraps the underlying error causing the syntax issue.
+    /// The `Box<StaticCheckErrorKind>` wraps the underlying error causing the syntax issue.
     BadMatchResponseSyntax(Box<StaticCheckErrorKind>),
     /// Input to a `match` expression does not conform to the expected type (e.g., `Option` or `Response`).
     /// The `Box<TypeSignature>` wraps the actual type of the provided input.
@@ -845,7 +845,7 @@ pub enum RuntimeCheckErrorKind {
 #[derive(Debug, PartialEq)]
 /// A complete static analysis error, combining the error with diagnostic information.
 ///
-/// This struct wraps a [`StaticAnalysisError`] variant with its source location
+/// This struct wraps a [`StaticCheckErrorKind`] variant with its source location
 /// (like line and column numbers) and the code expression that caused the error.
 /// It provides the full context needed to report a clear, actionable error to a
 /// developer during contract deployment.

@@ -20,9 +20,7 @@ use super::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most,
     compute_typecheck_cost, no_type, TypeChecker, TypingContext,
 };
-use crate::vm::analysis::errors::{
-    StaticCheckErrorKind, StaticCheckError, SyntaxBindingErrorType,
-};
+use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTracker};
 use crate::vm::diagnostic::DiagnosableError;
@@ -162,7 +160,10 @@ fn inner_handle_tuple_get(
     let return_type = tuple_type_sig
         .field_type(field_to_get)
         .ok_or(StaticCheckError::new(
-            StaticCheckErrorKind::NoSuchTupleField(field_to_get.to_string(), tuple_type_sig.clone()),
+            StaticCheckErrorKind::NoSuchTupleField(
+                field_to_get.to_string(),
+                tuple_type_sig.clone(),
+            ),
         ))?
         .clone();
     Ok(return_type)
@@ -285,9 +286,9 @@ fn check_special_let(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
-    let binding_list = args[0].match_list().ok_or(StaticCheckError::new(
-        StaticCheckErrorKind::BadLetSyntax,
-    ))?;
+    let binding_list = args[0]
+        .match_list()
+        .ok_or(StaticCheckError::new(StaticCheckErrorKind::BadLetSyntax))?;
 
     let mut out_context = context.extend()?;
 
@@ -340,9 +341,9 @@ fn check_special_fetch_var(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(1, args)?;
 
-    let var_name = args[0].match_atom().ok_or(StaticCheckError::new(
-        StaticCheckErrorKind::BadMapName,
-    ))?;
+    let var_name = args[0]
+        .match_atom()
+        .ok_or(StaticCheckError::new(StaticCheckErrorKind::BadMapName))?;
 
     let value_type = checker
         .contract_context
@@ -388,12 +389,10 @@ fn check_special_set_var(
     analysis_typecheck_cost(&mut checker.cost_track, &value_type, expected_value_type)?;
 
     if !expected_value_type.admits_type(&StacksEpochId::Epoch21, &value_type)? {
-        Err(StaticCheckError::new(
-            StaticCheckErrorKind::TypeError(
-                Box::new(expected_value_type.clone()),
-                Box::new(value_type),
-            ),
-        ))
+        Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
+            Box::new(expected_value_type.clone()),
+            Box::new(value_type),
+        )))
     } else {
         Ok(TypeSignature::BoolType)
     }
@@ -797,8 +796,8 @@ fn check_get_block_info(
 }
 
 // # Errors
-// - `StaticAnalysisError::GetBurnBlockInfoExpectPropertyName` when `args[0]` is not a valid `ClarityName`.
-// - `StaticAnalysisError::NoSuchBlockInfoProperty` when `args[0]` does not name a `BurnBlockInfoProperty`.
+// - `StaticCheckErrorKind::GetBurnBlockInfoExpectPropertyName` when `args[0]` is not a valid `ClarityName`.
+// - `StaticCheckErrorKind::NoSuchBlockInfoProperty` when `args[0]` does not name a `BurnBlockInfoProperty`.
 fn check_get_burn_block_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -810,11 +809,10 @@ fn check_get_burn_block_info(
         StaticCheckErrorKind::GetBurnBlockInfoExpectPropertyName,
     ))?;
 
-    let block_info_prop = BurnBlockInfoProperty::lookup_by_name(block_info_prop_str).ok_or(
-        StaticCheckError::new(StaticCheckErrorKind::NoSuchBlockInfoProperty(
-            block_info_prop_str.to_string(),
-        )),
-    )?;
+    let block_info_prop =
+        BurnBlockInfoProperty::lookup_by_name(block_info_prop_str).ok_or(StaticCheckError::new(
+            StaticCheckErrorKind::NoSuchBlockInfoProperty(block_info_prop_str.to_string()),
+        ))?;
 
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 
@@ -858,11 +856,10 @@ fn check_get_tenure_info(
         StaticCheckErrorKind::GetTenureInfoExpectPropertyName,
     ))?;
 
-    let block_info_prop = TenureInfoProperty::lookup_by_name(block_info_prop_str).ok_or(
-        StaticCheckError::new(StaticCheckErrorKind::NoSuchTenureInfoProperty(
-            block_info_prop_str.to_string(),
-        )),
-    )?;
+    let block_info_prop =
+        TenureInfoProperty::lookup_by_name(block_info_prop_str).ok_or(StaticCheckError::new(
+            StaticCheckErrorKind::NoSuchTenureInfoProperty(block_info_prop_str.to_string()),
+        ))?;
 
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 

@@ -662,7 +662,7 @@ fn test_expects() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        eprintln!("unmatched_return_types returned StaticAnalysisError: {err}");
+        eprintln!("unmatched_return_types returned StaticCheckErrorKind: {err}");
         assert!(matches!(
             *err.err,
             StaticCheckErrorKind::ReturnTypesMustMatch(_, _)
@@ -675,7 +675,7 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("bad_default_types returned StaticAnalysisError: {err}");
+    eprintln!("bad_default_types returned StaticCheckErrorKind: {err}");
     assert!(matches!(
         *err.err,
         StaticCheckErrorKind::DefaultTypesMustMatch(_, _)
@@ -687,7 +687,7 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("notype_response_type returned StaticAnalysisError: {err}");
+    eprintln!("notype_response_type returned StaticCheckErrorKind: {err}");
     assert!(matches!(
         *err.err,
         StaticCheckErrorKind::CouldNotDetermineResponseErrType
@@ -699,7 +699,7 @@ fn test_expects() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    eprintln!("notype_response_type_2 returned StaticAnalysisError: {err}");
+    eprintln!("notype_response_type_2 returned StaticCheckErrorKind: {err}");
     assert!(matches!(
         *err.err,
         StaticCheckErrorKind::CouldNotDetermineResponseOkType
