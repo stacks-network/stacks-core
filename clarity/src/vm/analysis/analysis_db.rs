@@ -103,7 +103,7 @@ impl<'a> AnalysisDatabase<'a> {
         self.store
             .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
-            //    the analysis will propagate that as a StaticAnalysisDiagnostic anyways.
+            //    the analysis will propagate that as a StaticCheckError anyways.
             .ok()
             .flatten()
             .map(|x| {
@@ -123,7 +123,7 @@ impl<'a> AnalysisDatabase<'a> {
             .store
             .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
-            //    the analysis will propagate that as a StaticAnalysisDiagnostic anyways.
+            //    the analysis will propagate that as a StaticCheckError anyways.
             .ok()
             .flatten()
             .map(|x| {

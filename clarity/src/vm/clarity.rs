@@ -21,7 +21,7 @@ use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpressi
 #[derive(Debug)]
 pub enum ClarityError {
     /// Error during static type-checking or semantic analysis.
-    /// The `StaticAnalysisDiagnostic` wraps the specific type-checking error, including diagnostic details.
+    /// The `StaticCheckError` wraps the specific type-checking error, including diagnostic details.
     StaticCheck(StaticCheckError),
     /// Error during lexical or syntactic parsing.
     /// The `ParseError` wraps the specific parsing error, such as invalid syntax or tokens.
@@ -111,7 +111,7 @@ impl From<StaticCheckError> for ClarityError {
 ///   Instead, they remain wrapped in `ClarityError::Interpreter(VmExecutionError::Unchecked(RuntimeCheckErrorKind::MemoryBalanceExceeded))`,
 ///   which causes the transaction to fail, but still be included in the block.
 ///
-/// - This behavior differs from direct conversions of [`StaticAnalysisDiagnostic`] and [`ParseError`] to [`ClarityError`],
+/// - This behavior differs from direct conversions of [`StaticCheckError`] and [`ParseError`] to [`ClarityError`],
 ///   where [`RuntimeCheckErrorKind::MemoryBalanceExceeded`] is converted to [`ClarityError::CostError`],
 ///   during contract analysis.
 ///
