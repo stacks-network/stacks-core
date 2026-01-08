@@ -185,8 +185,8 @@ fn convo_send_recv(sender: &mut ConversationHttp, receiver: &mut ConversationHtt
         let all_relays_flushed =
             receiver.num_pending_outbound() == 0 && sender.num_pending_outbound() == 0;
 
-        let nw = sender.send(&mut pipe_write).unwrap();
-        let nr = receiver.recv(&mut pipe_read).unwrap();
+        let nw = sender.send(&mut pipe_write).expect("Invalid send");
+        let nr = receiver.recv(&mut pipe_read).expect("Invalid receive");
 
         debug!(
             "test_rpc: all_relays_flushed = {} ({},{}), nr = {}, nw = {}",

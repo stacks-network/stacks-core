@@ -15,7 +15,9 @@
 
 use std::collections::HashMap;
 
+use clarity_types::errors::RuntimeError;
 use clarity_types::types::{AssetIdentifier, PrincipalData, StandardPrincipalData};
+use clarity_types::ClarityName;
 
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
@@ -135,7 +137,12 @@ fn eval_allowance(
             };
 
             let asset_name = eval(&rest[1], env, context)?;
-            let asset_name = asset_name.expect_string_ascii()?.as_str().into();
+            let asset_name = match ClarityName::try_from(asset_name.expect_string_ascii()?) {
+                Ok(name) => name,
+                Err(_) => {
+                    return Err(RuntimeError::BadTokenName(rest[1].to_string()).into());
+                }
+            };
 
             let asset = AssetIdentifier {
                 contract_identifier,
@@ -165,7 +172,12 @@ fn eval_allowance(
             };
 
             let asset_name = eval(&rest[1], env, context)?;
-            let asset_name = asset_name.expect_string_ascii()?.as_str().into();
+            let asset_name = match ClarityName::try_from(asset_name.expect_string_ascii()?) {
+                Ok(name) => name,
+                Err(_) => {
+                    return Err(RuntimeError::BadTokenName(rest[1].to_string()).into());
+                }
+            };
 
             let asset = AssetIdentifier {
                 contract_identifier,

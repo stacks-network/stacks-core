@@ -190,6 +190,8 @@ pub enum RuntimeError {
     PoxAlreadyLocked,
     /// Block time unavailable during execution.
     BlockTimeNotAvailable,
+    /// A Clarity string used as a token name for a post-condition is not a valid Clarity name.
+    BadTokenName(String),
 }
 
 #[derive(Debug, PartialEq)]
