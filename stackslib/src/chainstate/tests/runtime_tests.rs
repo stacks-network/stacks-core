@@ -575,7 +575,7 @@ fn arithmetic_pow_neg_ccall() {
 /// Error: [`RuntimeError::Arithmetic`]
 /// Caused by: calling nlogn with n = 0
 /// Outcome: block accepted at deploy time.
-/// Note: Returns a [`clarity::vm::analysis::RuntimeAnalysisError::CostComputationFailed`] which wrapps the underlying [`RuntimeError::Arithmetic`] error.
+/// Note: Returns a [`clarity::vm::analysis::RuntimeCheckErrorKind::CostComputationFailed`] which wrapps the underlying [`RuntimeError::Arithmetic`] error.
 #[test]
 fn arithmetic_zero_n_log_n_cdeploy() {
     contract_deploy_consensus_test!(
@@ -589,7 +589,7 @@ fn arithmetic_zero_n_log_n_cdeploy() {
 /// Error: [`RuntimeError::Arithmetic`]
 /// Caused by: calling nlogn with n = 0
 /// Outcome: block accepted at call time.
-/// Note: Returns a [`clarity::vm::analysis::RuntimeAnalysisError::CostComputationFailed`] which wrapps the underlying [`RuntimeError::Arithmetic`] error.
+/// Note: Returns a [`clarity::vm::analysis::RuntimeCheckErrorKind::CostComputationFailed`] which wrapps the underlying [`RuntimeError::Arithmetic`] error.
 #[test]
 fn arithmetic_zero_n_log_n_ccall() {
     contract_call_consensus_test!(

@@ -16,7 +16,7 @@
 use crate::vm::types::{TupleData, Value};
 #[cfg(test)]
 use crate::vm::{
-    errors::{EarlyReturnError, RuntimeAnalysisError, SyntaxBindingError},
+    errors::{EarlyReturnError, RuntimeCheckErrorKind, SyntaxBindingError},
     types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
 };
 use crate::vm::{execute, ClarityName, VmExecutionError};
@@ -474,7 +474,7 @@ fn datamap_errors() {
     for program in tests.iter() {
         assert_eq!(
             execute(program).unwrap_err(),
-            RuntimeAnalysisError::NoSuchMap("non-existent".to_string()).into()
+            RuntimeCheckErrorKind::NoSuchMap("non-existent".to_string()).into()
         );
     }
 }
@@ -496,7 +496,7 @@ fn lists_system_2() {
     matches!(
         execute(test),
         Err(VmExecutionError::RuntimeCheck(
-            RuntimeAnalysisError::TypeError(_, _)
+            RuntimeCheckErrorKind::TypeError(_, _)
         ))
     );
 }
@@ -563,7 +563,7 @@ fn lists_system() {
         assert!(matches!(
             test,
             Err(VmExecutionError::RuntimeCheck(
-                RuntimeAnalysisError::TypeValueError(_, _)
+                RuntimeCheckErrorKind::TypeValueError(_, _)
             ))
         ));
     }
@@ -627,7 +627,9 @@ fn tuples_system() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(_, _))) => true,
+            Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(_, _))) => {
+                true
+            }
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -648,12 +650,12 @@ fn bad_define_maps() {
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
     let expected: Vec<VmExecutionError> = vec![
-        RuntimeAnalysisError::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0))
+        RuntimeCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0))
             .into(),
-        RuntimeAnalysisError::UnknownTypeName("contents".to_string()).into(),
-        RuntimeAnalysisError::ExpectedName.into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(3, 4).into(),
-        RuntimeAnalysisError::InvalidTypeDescription.into(),
+        RuntimeCheckErrorKind::UnknownTypeName("contents".to_string()).into(),
+        RuntimeCheckErrorKind::ExpectedName.into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 4).into(),
+        RuntimeCheckErrorKind::InvalidTypeDescription.into(),
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
@@ -673,15 +675,15 @@ fn bad_tuples() {
         "(get 1234 (tuple (name 1)))",
     ];
     let expected = vec![
-        RuntimeAnalysisError::NameAlreadyUsed("name".into()),
-        RuntimeAnalysisError::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(0)),
-        RuntimeAnalysisError::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(1)),
-        RuntimeAnalysisError::NoSuchTupleField(
+        RuntimeCheckErrorKind::NameAlreadyUsed("name".into()),
+        RuntimeCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(0)),
+        RuntimeCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(1)),
+        RuntimeCheckErrorKind::NoSuchTupleField(
             "value".into(),
             TupleTypeSignature::try_from(vec![("name".into(), TypeSignature::IntType)]).unwrap(),
         ),
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 3),
-        RuntimeAnalysisError::ExpectedName,
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3),
+        RuntimeCheckErrorKind::ExpectedName,
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
@@ -774,7 +776,9 @@ fn test_non_tuple_map_get_set() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(_, _))) => true,
+            Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(_, _))) => {
+                true
+            }
             _ => {
                 println!("{:?}", execute(test));
                 false

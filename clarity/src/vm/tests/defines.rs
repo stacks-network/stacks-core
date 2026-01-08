@@ -21,7 +21,7 @@ use rstest_reuse::{self, *};
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::errors::{RuntimeAnalysisError, VmExecutionError};
+use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError};
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
@@ -32,7 +32,7 @@ use crate::vm::{
     {execute, ClarityVersion},
 };
 
-fn assert_eq_err(e1: RuntimeAnalysisError, e2: VmExecutionError) {
+fn assert_eq_err(e1: RuntimeCheckErrorKind, e2: VmExecutionError) {
     let e1: VmExecutionError = e1.into();
     assert_eq!(e1, e2)
 }
@@ -51,7 +51,7 @@ fn test_defines() {
 
     assert_eq!(
         execute(tests).unwrap_err(),
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 3).into()
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3).into()
     );
 
     let tests = "1";
@@ -70,7 +70,7 @@ fn test_accept_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpo
     let expectations: &[Result<_, VmExecutionError>] = &[
         Ok(Some(Value::Int(0))),
         Ok(Some(Value::Int(10))),
-        Err(RuntimeAnalysisError::TypeValueError(
+        Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::from_string("(optional int)", version, epoch)),
             Box::new(Value::some(Value::Bool(true)).unwrap()),
         )
@@ -84,7 +84,7 @@ fn test_accept_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpo
     let bad_defun = "(define-private (f (b (optional int int))) (* 10 (default-to 0 b)))";
     assert_eq!(
         execute(bad_defun).unwrap_err(),
-        RuntimeAnalysisError::InvalidTypeDescription.into()
+        RuntimeCheckErrorKind::InvalidTypeDescription.into()
     );
 }
 
@@ -101,19 +101,19 @@ fn test_bad_define_names() {
          (+ foo foo)";
 
     assert_eq_err(
-        RuntimeAnalysisError::NameAlreadyUsed("tx-sender".to_string()),
+        RuntimeCheckErrorKind::NameAlreadyUsed("tx-sender".to_string()),
         execute(test0).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::NameAlreadyUsed("*".to_string()),
+        RuntimeCheckErrorKind::NameAlreadyUsed("*".to_string()),
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::ExpectedName,
+        RuntimeCheckErrorKind::ExpectedName,
         execute(test2).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::NameAlreadyUsed("foo".to_string()),
+        RuntimeCheckErrorKind::NameAlreadyUsed("foo".to_string()),
         execute(test3).unwrap_err(),
     );
 }
@@ -129,20 +129,20 @@ fn test_unwrap_ret() {
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(test0));
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1),
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::ExpectedOptionalOrResponseValue(Box::new(Value::Int(1))),
+        RuntimeCheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(Value::Int(1))),
         execute(test2).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::ExpectedResponseValue(Box::new(Value::Int(1))),
+        RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(Value::Int(1))),
         execute(test3).unwrap_err(),
     );
     assert_eq!(Ok(Some(Value::Int(1))), execute(test4));
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1),
         execute(test5).unwrap_err(),
     );
 }
@@ -158,15 +158,15 @@ fn test_define_read_only() {
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(test0));
     assert_eq_err(
-        RuntimeAnalysisError::WriteAttemptedInReadOnly,
+        RuntimeCheckErrorKind::WriteAttemptedInReadOnly,
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::WriteAttemptedInReadOnly,
+        RuntimeCheckErrorKind::WriteAttemptedInReadOnly,
         execute(test2).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::WriteAttemptedInReadOnly,
+        RuntimeCheckErrorKind::WriteAttemptedInReadOnly,
         execute(test3).unwrap_err(),
     );
 }
@@ -219,19 +219,19 @@ fn test_recursive_panic(#[case] version: ClarityVersion, #[case] epoch: StacksEp
 #[test]
 fn test_bad_variables() {
     let test0 = "(+ a 1)";
-    let expected = RuntimeAnalysisError::UndefinedVariable("a".to_string());
+    let expected = RuntimeCheckErrorKind::UndefinedVariable("a".to_string());
     assert_eq_err(expected, execute(test0).unwrap_err());
 
     let test1 = "(foo 2 1)";
-    let expected = RuntimeAnalysisError::UndefinedFunction("foo".to_string());
+    let expected = RuntimeCheckErrorKind::UndefinedFunction("foo".to_string());
     assert_eq_err(expected, execute(test1).unwrap_err());
 
     let test2 = "((lambda (x y) 1) 2 1)";
-    let expected = RuntimeAnalysisError::BadFunctionName;
+    let expected = RuntimeCheckErrorKind::BadFunctionName;
     assert_eq_err(expected, execute(test2).unwrap_err());
 
     let test4 = "()";
-    let expected = RuntimeAnalysisError::NonFunctionApplication;
+    let expected = RuntimeCheckErrorKind::NonFunctionApplication;
     assert_eq_err(expected, execute(test4).unwrap_err());
 }
 
@@ -255,19 +255,19 @@ fn test_variable_shadowing() {
         "#;
 
     assert_eq_err(
-        RuntimeAnalysisError::NameAlreadyUsed("cursor".to_string()),
+        RuntimeCheckErrorKind::NameAlreadyUsed("cursor".to_string()),
         execute(test0).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::NameAlreadyUsed("cursor".to_string()),
+        RuntimeCheckErrorKind::NameAlreadyUsed("cursor".to_string()),
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::NameAlreadyUsed("cursor".to_string()),
+        RuntimeCheckErrorKind::NameAlreadyUsed("cursor".to_string()),
         execute(test2).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::NameAlreadyUsed("cursor".to_string()),
+        RuntimeCheckErrorKind::NameAlreadyUsed("cursor".to_string()),
         execute(test3).unwrap_err(),
     );
 }
@@ -275,7 +275,7 @@ fn test_variable_shadowing() {
 #[test]
 fn test_define_parse_panic() {
     let tests = "(define-private () 1)";
-    let expected = RuntimeAnalysisError::DefineFunctionBadSignature;
+    let expected = RuntimeCheckErrorKind::DefineFunctionBadSignature;
     assert_eq_err(expected, execute(tests).unwrap_err());
 }
 
@@ -283,7 +283,7 @@ fn test_define_parse_panic() {
 fn test_define_parse_panic_2() {
     let tests = "(define-private (a b (d)) 1)";
     assert_eq_err(
-        RuntimeAnalysisError::BadSyntaxBinding(SyntaxBindingError::eval_binding_not_list(0)),
+        RuntimeCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::eval_binding_not_list(0)),
         execute(tests).unwrap_err(),
     );
 }
@@ -296,16 +296,16 @@ fn test_define_constant_arg_count() {
     let test3 = "(define-constant foo u2 u3)";
 
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 0),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 0),
         execute(test0).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1),
         execute(test1).unwrap_err(),
     );
     execute(test2).unwrap();
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 3),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3),
         execute(test3).unwrap_err(),
     );
 }
@@ -318,16 +318,16 @@ fn test_define_private_arg_count() {
     let test3 = "(define-private (foo) u2 u3)";
 
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 0),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 0),
         execute(test0).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1),
         execute(test1).unwrap_err(),
     );
     execute(test2).unwrap();
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 3),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3),
         execute(test3).unwrap_err(),
     );
 }
@@ -340,16 +340,16 @@ fn test_define_public_arg_count() {
     let test3 = "(define-public (foo) (ok u2) u3)";
 
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 0),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 0),
         execute(test0).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1),
         execute(test1).unwrap_err(),
     );
     execute(test2).unwrap();
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 3),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3),
         execute(test3).unwrap_err(),
     );
 }
@@ -362,16 +362,16 @@ fn test_define_read_only_arg_count() {
     let test3 = "(define-read-only (foo) u2 u3)";
 
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 0),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 0),
         execute(test0).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1),
         execute(test1).unwrap_err(),
     );
     execute(test2).unwrap();
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 3),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3),
         execute(test3).unwrap_err(),
     );
 }
@@ -385,20 +385,20 @@ fn test_define_map_arg_count() {
     let test4 = "(define-map foo uint uint uint)";
 
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(3, 0),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 0),
         execute(test0).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(3, 1),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 1),
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(3, 2),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2),
         execute(test2).unwrap_err(),
     );
     execute(test3).unwrap();
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(3, 4),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 4),
         execute(test4).unwrap_err(),
     );
 }
@@ -412,20 +412,20 @@ fn test_define_data_var_arg_count() {
     let test4 = "(define-data-var foo uint u3 u4)";
 
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(3, 0),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 0),
         execute(test0).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(3, 1),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 1),
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(3, 2),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2),
         execute(test2).unwrap_err(),
     );
     execute(test3).unwrap();
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(3, 4),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 4),
         execute(test4).unwrap_err(),
     );
 }
@@ -438,13 +438,13 @@ fn test_define_fungible_token_arg_count() {
     let test3 = "(define-fungible-token foo u2 u3)";
 
     assert_eq_err(
-        RuntimeAnalysisError::RequiresAtLeastArguments(1, 0),
+        RuntimeCheckErrorKind::RequiresAtLeastArguments(1, 0),
         execute(test0).unwrap_err(),
     );
     execute(test1).unwrap();
     execute(test2).unwrap();
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 3),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 3),
         execute(test3).unwrap_err(),
     );
 }
@@ -457,16 +457,16 @@ fn test_define_non_fungible_token_arg_count() {
     let test3 = "(define-non-fungible-token foo uint uint)";
 
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 0),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 0),
         execute(test0).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1),
         execute(test1).unwrap_err(),
     );
     execute(test2).unwrap();
     assert_eq_err(
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 3),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3),
         execute(test3).unwrap_err(),
     );
 }

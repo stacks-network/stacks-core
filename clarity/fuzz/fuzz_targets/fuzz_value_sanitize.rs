@@ -19,7 +19,7 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use clarity::vm::analysis::RuntimeAnalysisError;
+use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::signatures::SequenceSubtype;
 use clarity::vm::types::{
@@ -131,9 +131,9 @@ impl arbitrary::Arbitrary<'_> for FuzzClarityValue {
     }
 }
 
-pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, RuntimeAnalysisError> {
+pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, RuntimeCheckErrorKind> {
     match me {
-        TypeSignature::NoType => Err(RuntimeAnalysisError::CouldNotDetermineType),
+        TypeSignature::NoType => Err(RuntimeCheckErrorKind::CouldNotDetermineType),
         TypeSignature::IntType => match x {
             ClarityValue::Int(_) => Ok(true),
             _ => Ok(false),
@@ -251,7 +251,7 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Runti
         }
         TypeSignature::CallableType(_)
         | TypeSignature::ListUnionType(_)
-        | TypeSignature::TraitReferenceType(_) => Err(RuntimeAnalysisError::TraitReferenceUnknown(
+        | TypeSignature::TraitReferenceType(_) => Err(RuntimeCheckErrorKind::TraitReferenceUnknown(
             "Unknown trait reference".into(),
         )),
     }

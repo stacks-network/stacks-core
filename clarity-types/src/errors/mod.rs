@@ -21,7 +21,7 @@ pub mod lexer;
 use std::{error, fmt};
 
 pub use analysis::{
-    CommonCheckErrorKind, RuntimeAnalysisError, StaticCheckErrorKind, StaticAnalysisErrorReport,
+    CommonCheckErrorKind, RuntimeCheckErrorKind, StaticCheckErrorKind, StaticAnalysisErrorReport,
 };
 pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
@@ -53,8 +53,8 @@ pub struct IncomparableError<T> {
 #[derive(Debug)]
 pub enum VmExecutionError {
     /// Type-checking errors caught during runtime analysis.
-    /// The `RuntimeAnalysisError` wraps the specific type-checking error encountered at runtime.
-    RuntimeCheck(RuntimeAnalysisError),
+    /// The `RuntimeCheckErrorKind` wraps the specific type-checking error encountered at runtime.
+    RuntimeCheck(RuntimeCheckErrorKind),
     /// A critical, unrecoverable bug within the VM's internal logic.
     ///
     /// The presence of this error indicates a violation of one of the VM's
@@ -280,7 +280,7 @@ impl From<CostErrors> for VmExecutionError {
             CostErrors::Expect(s) => VmExecutionError::from(VmInternalError::Expect(format!(
                 "Interpreter failure during cost calculation: {s}"
             ))),
-            other_err => VmExecutionError::from(RuntimeAnalysisError::from(other_err)),
+            other_err => VmExecutionError::from(RuntimeCheckErrorKind::from(other_err)),
         }
     }
 }
@@ -297,8 +297,8 @@ impl From<CommonCheckErrorKind> for VmExecutionError {
     }
 }
 
-impl From<RuntimeAnalysisError> for VmExecutionError {
-    fn from(err: RuntimeAnalysisError) -> Self {
+impl From<RuntimeCheckErrorKind> for VmExecutionError {
+    fn from(err: RuntimeCheckErrorKind) -> Self {
         VmExecutionError::RuntimeCheck(err)
     }
 }

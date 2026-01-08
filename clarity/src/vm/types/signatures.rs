@@ -646,8 +646,8 @@ impl fmt::Display for FunctionArg {
 
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::RuntimeAnalysisError;
-    use clarity_types::errors::RuntimeAnalysisError::*;
+    use clarity_types::errors::RuntimeCheckErrorKind;
+    use clarity_types::errors::RuntimeCheckErrorKind::*;
     #[cfg(test)]
     use rstest::rstest;
     #[cfg(test)]
@@ -663,7 +663,7 @@ mod test {
         val: &str,
         version: ClarityVersion,
         epoch: StacksEpochId,
-    ) -> RuntimeAnalysisError {
+    ) -> RuntimeCheckErrorKind {
         use crate::vm::ast::parse;
         let expr = &parse(
             &QualifiedContractIdentifier::transient(),

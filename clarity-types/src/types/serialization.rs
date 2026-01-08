@@ -24,7 +24,7 @@ use stacks_common::util::retry::BoundReader;
 
 use super::{ListTypeData, TupleTypeSignature};
 use crate::errors::{
-    IncomparableError, RuntimeAnalysisError, StaticCheckErrorKind, VmInternalError,
+    IncomparableError, RuntimeCheckErrorKind, StaticCheckErrorKind, VmInternalError,
 };
 use crate::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::types::{
@@ -35,14 +35,14 @@ use crate::types::{
 
 /// Errors that may occur in serialization or deserialization
 /// If deserialization failed because the described type is a bad type and
-///   a RuntimeAnalysisError is thrown, it gets wrapped in BadTypeError.
+///   a RuntimeCheckErrorKind is thrown, it gets wrapped in BadTypeError.
 /// Any IOErrrors from the supplied buffer will manifest as IOError variants,
 ///   except for EOF -- if the deserialization code experiences an EOF, it is caught
 ///   and rethrown as DeserializationError
 #[derive(Debug, PartialEq)]
 pub enum SerializationError {
     IOError(IncomparableError<std::io::Error>),
-    BadTypeError(RuntimeAnalysisError),
+    BadTypeError(RuntimeCheckErrorKind),
     DeserializationError(String),
     DeserializeExpected(Box<TypeSignature>),
     LeftoverBytesInDeserialization,
@@ -124,8 +124,8 @@ impl From<&str> for SerializationError {
     }
 }
 
-impl From<RuntimeAnalysisError> for SerializationError {
-    fn from(e: RuntimeAnalysisError) -> Self {
+impl From<RuntimeCheckErrorKind> for SerializationError {
+    fn from(e: RuntimeCheckErrorKind) -> Self {
         SerializationError::BadTypeError(e)
     }
 }
@@ -585,7 +585,7 @@ impl Value {
                 UNSANITIZED_DEPTH_CHECK
             };
             if stack.len() > depth_check {
-                return Err(RuntimeAnalysisError::TypeSignatureTooDeep.into());
+                return Err(RuntimeCheckErrorKind::TypeSignatureTooDeep.into());
             }
 
             #[allow(clippy::expect_used)]
@@ -615,7 +615,7 @@ impl Value {
                     let mut buffer_len = [0; 4];
                     r.read_exact(&mut buffer_len)?;
                     let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))
-                        .map_err(RuntimeAnalysisError::from)?;
+                        .map_err(RuntimeCheckErrorKind::from)?;
                     if let Some(x) = &expected_type {
                         let passed_test = match x {
                             TypeSignature::SequenceType(SequenceSubtype::BufferType(
@@ -847,7 +847,7 @@ impl Value {
                     let mut buffer_len = [0; 4];
                     r.read_exact(&mut buffer_len)?;
                     let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))
-                        .map_err(RuntimeAnalysisError::from)?;
+                        .map_err(RuntimeCheckErrorKind::from)?;
 
                     if let Some(x) = &expected_type {
                         let passed_test = match x {
@@ -873,7 +873,7 @@ impl Value {
                     let mut total_len = [0; 4];
                     r.read_exact(&mut total_len)?;
                     let total_len = BufferLength::try_from(u32::from_be_bytes(total_len))
-                        .map_err(RuntimeAnalysisError::from)?;
+                        .map_err(RuntimeCheckErrorKind::from)?;
 
                     let mut data: Vec<u8> = vec![0; u32::from(total_len) as usize];
 

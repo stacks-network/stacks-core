@@ -28,7 +28,7 @@ pub use clarity_types::types::{
 };
 
 pub use self::std_principals::StandardPrincipalData;
-use crate::vm::errors::RuntimeAnalysisError;
+use crate::vm::errors::RuntimeCheckErrorKind;
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
@@ -89,7 +89,7 @@ impl BlockInfoProperty {
 }
 
 impl BurnBlockInfoProperty {
-    pub fn type_result(&self) -> std::result::Result<TypeSignature, RuntimeAnalysisError> {
+    pub fn type_result(&self) -> std::result::Result<TypeSignature, RuntimeCheckErrorKind> {
         use self::BurnBlockInfoProperty::*;
         let result = match self {
             HeaderHash => TypeSignature::BUFFER_32,
@@ -103,7 +103,7 @@ impl BurnBlockInfoProperty {
                                 ("hashbytes".into(), TypeSignature::BUFFER_32),
                             ])
                             .map_err(|_| {
-                                RuntimeAnalysisError::Expects(
+                                RuntimeCheckErrorKind::Expects(
                                     "FATAL: bad type signature for pox addr".into(),
                                 )
                             })?,
@@ -111,13 +111,13 @@ impl BurnBlockInfoProperty {
                         2,
                     )
                     .map_err(|_| {
-                        RuntimeAnalysisError::Expects("FATAL: bad list type signature".into())
+                        RuntimeCheckErrorKind::Expects("FATAL: bad list type signature".into())
                     })?,
                 ),
                 ("payout".into(), TypeSignature::UIntType),
             ])
             .map_err(|_| {
-                RuntimeAnalysisError::Expects("FATAL: bad type signature for pox addr".into())
+                RuntimeCheckErrorKind::Expects("FATAL: bad type signature for pox addr".into())
             })?
             .into(),
         };

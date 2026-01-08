@@ -37,7 +37,7 @@ pub use self::signatures::{
     TupleTypeSignature, TypeSignature,
 };
 use crate::errors::analysis::CommonCheckErrorKind;
-use crate::errors::{RuntimeAnalysisError, RuntimeError, VmExecutionError, VmInternalError};
+use crate::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 
 /// Maximum size in bytes allowed for types.
@@ -420,7 +420,7 @@ impl SequenceData {
             }
         }
         if index >= seq_length {
-            return Err(RuntimeAnalysisError::ValueOutOfBounds.into());
+            return Err(RuntimeCheckErrorKind::ValueOutOfBounds.into());
         }
 
         let new_seq_data = match (self, element) {
@@ -431,7 +431,7 @@ impl SequenceData {
             (SequenceData::List(mut data), elem) => {
                 let entry_type = data.type_signature.get_list_item_type();
                 if !entry_type.admits(epoch, &elem)? {
-                    return Err(RuntimeAnalysisError::ListTypesMustMatch.into());
+                    return Err(RuntimeCheckErrorKind::ListTypesMustMatch.into());
                 }
                 data.data[index] = elem;
                 SequenceData::List(data)
@@ -450,7 +450,7 @@ impl SequenceData {
                 data.data[index] = elem.data.swap_remove(0);
                 SequenceData::String(CharType::UTF8(data))
             }
-            _ => return Err(RuntimeAnalysisError::ListTypesMustMatch.into()),
+            _ => return Err(RuntimeCheckErrorKind::ListTypesMustMatch.into()),
         };
 
         Value::some(Value::Sequence(new_seq_data))
@@ -471,7 +471,7 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(RuntimeAnalysisError::TypeValueError(
+                    Err(RuntimeCheckErrorKind::TypeValueError(
                         Box::new(TypeSignature::BUFFER_MIN),
                         Box::new(to_find),
                     )
@@ -500,7 +500,7 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(RuntimeAnalysisError::TypeValueError(
+                    Err(RuntimeCheckErrorKind::TypeValueError(
                         Box::new(TypeSignature::STRING_ASCII_MIN),
                         Box::new(to_find),
                     )
@@ -521,7 +521,7 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(RuntimeAnalysisError::TypeValueError(
+                    Err(RuntimeCheckErrorKind::TypeValueError(
                         Box::new(TypeSignature::STRING_UTF8_MIN),
                         Box::new(to_find),
                     )
@@ -876,9 +876,9 @@ pub const NONE: Value = Value::Optional(OptionalData { data: None });
 impl Value {
     pub fn some(data: Value) -> Result<Value, VmExecutionError> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
-            Err(RuntimeAnalysisError::ValueTooLarge.into())
+            Err(RuntimeCheckErrorKind::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
-            Err(RuntimeAnalysisError::TypeSignatureTooDeep.into())
+            Err(RuntimeCheckErrorKind::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Optional(OptionalData {
                 data: Some(Box::new(data)),
@@ -913,9 +913,9 @@ impl Value {
 
     pub fn okay(data: Value) -> Result<Value, VmExecutionError> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
-            Err(RuntimeAnalysisError::ValueTooLarge.into())
+            Err(RuntimeCheckErrorKind::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
-            Err(RuntimeAnalysisError::TypeSignatureTooDeep.into())
+            Err(RuntimeCheckErrorKind::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Response(ResponseData {
                 committed: true,
@@ -926,9 +926,9 @@ impl Value {
 
     pub fn error(data: Value) -> Result<Value, VmExecutionError> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
-            Err(RuntimeAnalysisError::ValueTooLarge.into())
+            Err(RuntimeCheckErrorKind::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
-            Err(RuntimeAnalysisError::TypeSignatureTooDeep.into())
+            Err(RuntimeCheckErrorKind::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Response(ResponseData {
                 committed: false,
@@ -1007,7 +1007,7 @@ impl Value {
                     .map(|(value, _did_sanitize)| value)
             })
             .collect();
-        let list_data = list_data_opt.ok_or_else(|| RuntimeAnalysisError::ListTypesMustMatch)?;
+        let list_data = list_data_opt.ok_or_else(|| RuntimeCheckErrorKind::ListTypesMustMatch)?;
         Ok(Value::Sequence(SequenceData::List(ListData {
             data: list_data,
             type_signature: type_sig,
@@ -1015,7 +1015,7 @@ impl Value {
     }
 
     /// # Errors
-    /// - RuntimeAnalysisError::ValueTooLarge if `buff_data` is too large.
+    /// - RuntimeCheckErrorKind::ValueTooLarge if `buff_data` is too large.
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value, VmExecutionError> {
         // check the buffer size
         BufferLength::try_from(buff_data.len())?;
@@ -1035,7 +1035,7 @@ impl Value {
 
         for b in bytes.iter() {
             if !b.is_ascii_alphanumeric() && !b.is_ascii_punctuation() && !b.is_ascii_whitespace() {
-                return Err(RuntimeAnalysisError::InvalidCharactersDetected.into());
+                return Err(RuntimeCheckErrorKind::InvalidCharactersDetected.into());
             }
         }
         // construct the string
@@ -1062,9 +1062,9 @@ impl Value {
                     // This first InvalidUTF8Encoding is logically unreachable: the escape regex rejects non-hex digits,
                     // so from_str_radix only sees valid hex and never errors here.
                     let u = u32::from_str_radix(&scalar_value, 16)
-                        .map_err(|_| RuntimeAnalysisError::InvalidUTF8Encoding)?;
+                        .map_err(|_| RuntimeCheckErrorKind::InvalidUTF8Encoding)?;
                     let c = char::from_u32(u)
-                        .ok_or_else(|| RuntimeAnalysisError::InvalidUTF8Encoding)?;
+                        .ok_or_else(|| RuntimeCheckErrorKind::InvalidUTF8Encoding)?;
                     let mut encoded_char: Vec<u8> = vec![0; c.len_utf8()];
                     c.encode_utf8(&mut encoded_char[..]);
                     encoded_char
@@ -1091,7 +1091,7 @@ impl Value {
     pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value, VmExecutionError> {
         let validated_utf8_str = match str::from_utf8(&bytes) {
             Ok(string) => string,
-            _ => return Err(RuntimeAnalysisError::InvalidCharactersDetected.into()),
+            _ => return Err(RuntimeCheckErrorKind::InvalidCharactersDetected.into()),
         };
         let data = validated_utf8_str
             .chars()
@@ -1317,7 +1317,7 @@ impl ListData {
         let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
         for item in other_seq.data.into_iter() {
             let (item, _) = Value::sanitize_value(epoch, &entry_type, item)
-                .ok_or_else(|| RuntimeAnalysisError::ListTypesMustMatch)?;
+                .ok_or_else(|| RuntimeCheckErrorKind::ListTypesMustMatch)?;
             self.data.push(item);
         }
 
@@ -1611,7 +1611,7 @@ impl TupleData {
             match entry {
                 Entry::Vacant(e) => e.insert(type_info),
                 Entry::Occupied(_) => {
-                    return Err(RuntimeAnalysisError::NameAlreadyUsed(name.into()).into());
+                    return Err(RuntimeCheckErrorKind::NameAlreadyUsed(name.into()).into());
                 }
             };
             data_map.insert(name, value);
@@ -1642,14 +1642,14 @@ impl TupleData {
 
     pub fn get(&self, name: &str) -> Result<&Value, VmExecutionError> {
         self.data_map.get(name).ok_or_else(|| {
-            RuntimeAnalysisError::NoSuchTupleField(name.to_string(), self.type_signature.clone())
+            RuntimeCheckErrorKind::NoSuchTupleField(name.to_string(), self.type_signature.clone())
                 .into()
         })
     }
 
     pub fn get_owned(mut self, name: &str) -> Result<Value, VmExecutionError> {
         self.data_map.remove(name).ok_or_else(|| {
-            RuntimeAnalysisError::NoSuchTupleField(name.to_string(), self.type_signature.clone())
+            RuntimeCheckErrorKind::NoSuchTupleField(name.to_string(), self.type_signature.clone())
                 .into()
         })
     }

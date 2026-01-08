@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use clarity::types::Address;
-use clarity::vm::analysis::RuntimeAnalysisError;
+use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::clarity::{ClarityError, TransactionConnection};
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
@@ -1359,7 +1359,7 @@ impl StacksChainState {
         // there hasn't yet been a Stacks block.
         match result {
             Err(Error::ClarityError(ClarityError::Interpreter(
-                VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NoSuchContract(_)),
+                VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchContract(_)),
             ))) => {
                 warn!("Reward cycle attempted to calculate rewards before the PoX contract was instantiated");
                 return Ok(vec![]);

@@ -7,7 +7,7 @@ use crate::vm::types::{
 };
 #[cfg(test)]
 use crate::vm::{
-    errors::RuntimeAnalysisError,
+    errors::RuntimeCheckErrorKind,
     functions::principals::PrincipalConstructErrorCode,
     types::TypeSignature::PrincipalType,
     types::{ResponseData, TypeSignature},
@@ -25,7 +25,7 @@ fn test_simple_is_standard_check_inputs() {
             true
         )
         .unwrap_err(),
-        RuntimeAnalysisError::TypeValueError(Box::new(PrincipalType), Box::new(Value::UInt(10)),)
+        RuntimeCheckErrorKind::TypeValueError(Box::new(PrincipalType), Box::new(Value::UInt(10)),)
             .into()
     );
 }
@@ -899,14 +899,14 @@ fn test_principal_construct_version_byte_future() {
 }
 
 #[test]
-// Test cases where the wrong type should be a `RuntimeAnalysisError` error, because it should have been
+// Test cases where the wrong type should be a `RuntimeCheckErrorKind` error, because it should have been
 // caught by the type checker.
-fn test_principal_construct_runtime_analysis_errors() {
+fn test_principal_construct_runtime_check_errors() {
     // The version bytes 0x5904934 are invalid. Should have been caught by type checker so use
-    // `RuntimeAnalysisError`.
+    // `RuntimeCheckErrorKind`.
     let input = r#"(principal-construct? 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
-        Err(RuntimeAnalysisError::TypeValueError(
+        Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_1),
             Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("590493").unwrap()
@@ -922,10 +922,10 @@ fn test_principal_construct_runtime_analysis_errors() {
     );
 
     // u22 is not a byte buffer, so is invalid. Should have been caught by type checker so use
-    // `RuntimeAnalysisError`.
+    // `RuntimeCheckErrorKind`.
     let input = r#"(principal-construct? u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
-        Err(RuntimeAnalysisError::TypeValueError(
+        Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_1),
             Box::new(Value::UInt(22)),
         )
@@ -938,7 +938,7 @@ fn test_principal_construct_runtime_analysis_errors() {
         )
     );
 
-    // Hash key part is too large, should have length 20. This is a `RuntimeAnalysisError` error because it
+    // Hash key part is too large, should have length 20. This is a `RuntimeCheckErrorKind` error because it
     // should have been caught by the type checker.
     let input = r#"(principal-construct? 0x16 0x010203040506070809101112131415161718192021)"#;
     assert_eq!(
@@ -949,7 +949,7 @@ fn test_principal_construct_runtime_analysis_errors() {
             false
         )
         .unwrap_err(),
-        RuntimeAnalysisError::TypeValueError(
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_20),
             Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
@@ -961,7 +961,7 @@ fn test_principal_construct_runtime_analysis_errors() {
     // Name is too long, which should have been caught by the type-checker
     let input = r#"(principal-construct? 0x16 0x0102030405060708091011121314151617181920 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")"#;
     assert_eq!(
-        Err(RuntimeAnalysisError::TypeValueError(
+        Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {

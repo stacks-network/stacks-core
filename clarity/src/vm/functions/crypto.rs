@@ -25,7 +25,7 @@ use stacks_common::util::secp256r1::secp256r1_verify;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, RuntimeAnalysisError, VmExecutionError, VmInternalError,
+    check_argument_count, RuntimeCheckErrorKind, VmExecutionError, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value};
@@ -38,7 +38,7 @@ macro_rules! native_hash_func {
                 Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::Sequence(SequenceData::Buffer(value)) => Ok(value.data),
-                _ => Err(RuntimeAnalysisError::UnionTypeValueError(
+                _ => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                     vec![
                         TypeSignature::IntType,
                         TypeSignature::UIntType,
@@ -106,7 +106,7 @@ pub fn special_principal_of(
     let pub_key = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
-                return Err(RuntimeAnalysisError::TypeValueError(
+                return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_33),
                     Box::new(param0),
                 )
@@ -115,7 +115,7 @@ pub fn special_principal_of(
             data
         }
         _ => {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
                 Box::new(param0),
             )
@@ -154,7 +154,7 @@ pub fn special_secp256k1_recover(
     let message = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
-                return Err(RuntimeAnalysisError::TypeValueError(
+                return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_32),
                     Box::new(param0),
                 )
@@ -163,7 +163,7 @@ pub fn special_secp256k1_recover(
             data
         }
         _ => {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(param0),
             )
@@ -175,7 +175,7 @@ pub fn special_secp256k1_recover(
     let signature = match param1 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
-                return Err(RuntimeAnalysisError::TypeValueError(
+                return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_65),
                     Box::new(param1),
                 )
@@ -187,7 +187,7 @@ pub fn special_secp256k1_recover(
             data
         }
         _ => {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_65),
                 Box::new(param1),
             )
@@ -220,7 +220,7 @@ pub fn special_secp256k1_verify(
     let message = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
-                return Err(RuntimeAnalysisError::TypeValueError(
+                return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_32),
                     Box::new(param0),
                 )
@@ -229,7 +229,7 @@ pub fn special_secp256k1_verify(
             data
         }
         _ => {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(param0),
             )
@@ -241,7 +241,7 @@ pub fn special_secp256k1_verify(
     let signature = match param1 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
-                return Err(RuntimeAnalysisError::TypeValueError(
+                return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_65),
                     Box::new(param1),
                 )
@@ -256,7 +256,7 @@ pub fn special_secp256k1_verify(
             data
         }
         _ => {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_65),
                 Box::new(param1),
             )
@@ -268,7 +268,7 @@ pub fn special_secp256k1_verify(
     let pubkey = match param2 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
-                return Err(RuntimeAnalysisError::TypeValueError(
+                return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_33),
                     Box::new(param2),
                 )
@@ -277,7 +277,7 @@ pub fn special_secp256k1_verify(
             data
         }
         _ => {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
                 Box::new(param2),
             )
@@ -303,12 +303,12 @@ pub fn special_secp256r1_verify(
 
     let arg0 = args
         .first()
-        .ok_or(RuntimeAnalysisError::IncorrectArgumentCount(0, 3))?;
+        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(0, 3))?;
     let message_value = eval(arg0, env, context)?;
     let message = match message_value {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
-                return Err(RuntimeAnalysisError::TypeValueError(
+                return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_32),
                     Box::new(message_value),
                 )
@@ -317,7 +317,7 @@ pub fn special_secp256r1_verify(
             data
         }
         _ => {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(message_value),
             )
@@ -327,12 +327,12 @@ pub fn special_secp256r1_verify(
 
     let arg1 = args
         .get(1)
-        .ok_or(RuntimeAnalysisError::IncorrectArgumentCount(1, 3))?;
+        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 3))?;
     let signature_value = eval(arg1, env, context)?;
     let signature = match signature_value {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 64 {
-                return Err(RuntimeAnalysisError::TypeValueError(
+                return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_64),
                     Box::new(signature_value),
                 )
@@ -344,7 +344,7 @@ pub fn special_secp256r1_verify(
             data
         }
         _ => {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_64),
                 Box::new(signature_value),
             )
@@ -354,12 +354,12 @@ pub fn special_secp256r1_verify(
 
     let arg2 = args
         .get(2)
-        .ok_or(RuntimeAnalysisError::IncorrectArgumentCount(2, 3))?;
+        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3))?;
     let pubkey_value = eval(arg2, env, context)?;
     let pubkey = match pubkey_value {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
-                return Err(RuntimeAnalysisError::TypeValueError(
+                return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_33),
                     Box::new(pubkey_value),
                 )
@@ -368,7 +368,7 @@ pub fn special_secp256r1_verify(
             data
         }
         _ => {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
                 Box::new(pubkey_value),
             )

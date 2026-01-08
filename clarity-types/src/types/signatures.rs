@@ -22,7 +22,7 @@ use std::{cmp, fmt};
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
-use crate::errors::analysis::{RuntimeAnalysisError, CommonCheckErrorKind, StaticCheckErrorKind};
+use crate::errors::analysis::{RuntimeCheckErrorKind, CommonCheckErrorKind, StaticCheckErrorKind};
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
     CharType, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
@@ -1322,7 +1322,7 @@ impl TypeSignature {
     // Checks if resulting type signature is of valid size.
     pub fn construct_parent_list_type(
         args: &[Value],
-    ) -> Result<ListTypeData, RuntimeAnalysisError> {
+    ) -> Result<ListTypeData, RuntimeCheckErrorKind> {
         let children_types: Result<Vec<_>, _> = args.iter().map(TypeSignature::type_of).collect();
         Ok(TypeSignature::parent_list_type(&children_types?)?)
     }
@@ -1499,9 +1499,9 @@ impl TupleTypeSignature {
         }
     }
 
-    pub fn size(&self) -> Result<u32, RuntimeAnalysisError> {
+    pub fn size(&self) -> Result<u32, RuntimeCheckErrorKind> {
         self.inner_size()?.ok_or_else(|| {
-            RuntimeAnalysisError::Expects("size() overflowed on a constructed type.".into())
+            RuntimeCheckErrorKind::Expects("size() overflowed on a constructed type.".into())
         })
     }
 

@@ -21,7 +21,7 @@ use clarity_types::types::{PrincipalData, Value};
 use stacks_common::types::StacksEpochId;
 
 pub use super::errors::{
-    check_argument_count, check_arguments_at_least, RuntimeAnalysisError, StaticCheckErrorKind,
+    check_argument_count, check_arguments_at_least, RuntimeCheckErrorKind, StaticCheckErrorKind,
     StaticAnalysisErrorReport, SyntaxBindingError,
 };
 use super::AnalysisDatabase;
@@ -574,9 +574,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns `true` iff the function application is read-only.
     ///
     /// # Errors
-    /// - `RuntimeAnalysisError::NonFunctionApplication` if there is no first expression, or if the first
+    /// - `RuntimeCheckErrorKind::NonFunctionApplication` if there is no first expression, or if the first
     ///   expression is not a `ClarityName`.
-    /// - `RuntimeAnalysisError::UnknownFunction` if the first expression does not name a known function.
+    /// - `RuntimeCheckErrorKind::UnknownFunction` if the first expression does not name a known function.
     fn check_expression_application_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],

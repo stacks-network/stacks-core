@@ -20,7 +20,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::VmExecutionError;
 use crate::errors::analysis::CommonCheckErrorKind;
-use crate::errors::{RuntimeAnalysisError, RuntimeError, VmInternalError};
+use crate::errors::{RuntimeCheckErrorKind, RuntimeError, VmInternalError};
 use crate::types::{
     ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
     QualifiedContractIdentifier, SequenceData, SequencedValue as _, StandardPrincipalData,
@@ -44,7 +44,7 @@ fn test_constructors() {
 
     assert_eq!(
         Value::buff_from(vec![0; (MAX_VALUE_SIZE + 1) as usize]),
-        Err(RuntimeAnalysisError::ValueTooLarge.into())
+        Err(RuntimeCheckErrorKind::ValueTooLarge.into())
     );
 
     // Test that wrappers (okay, error, some)
@@ -53,17 +53,17 @@ fn test_constructors() {
     //   isn't causing the error).
     assert_eq!(
         Value::okay(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-        Err(RuntimeAnalysisError::ValueTooLarge.into())
+        Err(RuntimeCheckErrorKind::ValueTooLarge.into())
     );
 
     assert_eq!(
         Value::error(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-        Err(RuntimeAnalysisError::ValueTooLarge.into())
+        Err(RuntimeCheckErrorKind::ValueTooLarge.into())
     );
 
     assert_eq!(
         Value::some(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-        Err(RuntimeAnalysisError::ValueTooLarge.into())
+        Err(RuntimeCheckErrorKind::ValueTooLarge.into())
     );
 
     // Test that the depth limit is correctly enforced:
@@ -87,24 +87,24 @@ fn test_constructors() {
     let inner_value = cons().unwrap();
     assert_eq!(
         TupleData::from_data(vec![("a".into(), inner_value.clone())]),
-        Err(RuntimeAnalysisError::TypeSignatureTooDeep.into())
+        Err(RuntimeCheckErrorKind::TypeSignatureTooDeep.into())
     );
 
     assert_eq!(
         Value::list_from(vec![inner_value.clone()]),
-        Err(RuntimeAnalysisError::TypeSignatureTooDeep.into())
+        Err(RuntimeCheckErrorKind::TypeSignatureTooDeep.into())
     );
     assert_eq!(
         Value::okay(inner_value.clone()),
-        Err(RuntimeAnalysisError::TypeSignatureTooDeep.into())
+        Err(RuntimeCheckErrorKind::TypeSignatureTooDeep.into())
     );
     assert_eq!(
         Value::error(inner_value.clone()),
-        Err(RuntimeAnalysisError::TypeSignatureTooDeep.into())
+        Err(RuntimeCheckErrorKind::TypeSignatureTooDeep.into())
     );
     assert_eq!(
         Value::some(inner_value),
-        Err(RuntimeAnalysisError::TypeSignatureTooDeep.into())
+        Err(RuntimeCheckErrorKind::TypeSignatureTooDeep.into())
     );
 
     if std::env::var("CIRCLE_TESTING") == Ok("1".to_string()) {
@@ -116,7 +116,7 @@ fn test_constructors() {
     if (u32::MAX as usize) < usize::MAX {
         assert_eq!(
             Value::buff_from(vec![0; (u32::MAX as usize) + 10]),
-            Err(RuntimeAnalysisError::ValueTooLarge.into())
+            Err(RuntimeCheckErrorKind::ValueTooLarge.into())
         );
     }
 }
@@ -597,7 +597,7 @@ fn invalid_utf8_encoding_from_oob_unicode_escape() {
     let err = Value::string_utf8_from_string_utf8_literal(bad_utf8_literal).unwrap_err();
     assert!(matches!(
         err,
-        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::InvalidUTF8Encoding)
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::InvalidUTF8Encoding)
     ));
 }
 
@@ -613,7 +613,7 @@ fn invalid_string_ascii_from_bytes() {
 
     assert!(matches!(
         err,
-        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::InvalidCharactersDetected)
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::InvalidCharactersDetected)
     ));
 }
 
@@ -626,6 +626,6 @@ fn invalid_utf8_string_from_bytes() {
 
     assert!(matches!(
         err,
-        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::InvalidCharactersDetected)
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::InvalidCharactersDetected)
     ));
 }

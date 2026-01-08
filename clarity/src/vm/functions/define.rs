@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CommonCheckErrorKind, RuntimeAnalysisError,
+    check_argument_count, check_arguments_at_least, CommonCheckErrorKind, RuntimeCheckErrorKind,
     SyntaxBindingErrorType, VmExecutionError,
 };
 use crate::vm::eval;
@@ -113,7 +113,7 @@ fn check_legal_define(
     contract_context: &ContractContext,
 ) -> Result<(), VmExecutionError> {
     if contract_context.is_name_used(name) {
-        Err(RuntimeAnalysisError::NameAlreadyUsed(name.to_string()).into())
+        Err(RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()).into())
     } else {
         Ok(())
     }
@@ -139,15 +139,15 @@ fn handle_define_function(
 ) -> Result<DefineResult, VmExecutionError> {
     let (function_symbol, arg_symbols) = signature
         .split_first()
-        .ok_or(RuntimeAnalysisError::DefineFunctionBadSignature)?;
+        .ok_or(RuntimeCheckErrorKind::DefineFunctionBadSignature)?;
 
     let function_name = function_symbol
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     check_legal_define(function_name, env.contract_context)?;
 
-    let arguments = parse_name_type_pairs::<_, RuntimeAnalysisError>(
+    let arguments = parse_name_type_pairs::<_, RuntimeCheckErrorKind>(
         *env.epoch(),
         arg_symbols,
         SyntaxBindingErrorType::Eval,
@@ -220,7 +220,7 @@ fn handle_define_fungible_token(
                 Some(total_supply_int),
             ))
         } else {
-            Err(RuntimeAnalysisError::TypeValueError(
+            Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
                 Box::new(total_supply_value),
             )
@@ -477,7 +477,7 @@ pub fn evaluate_define(
 
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::RuntimeAnalysisError;
+    use clarity_types::errors::RuntimeCheckErrorKind;
     use clarity_types::representations::SymbolicExpression;
     use clarity_types::types::QualifiedContractIdentifier;
     use clarity_types::{Value, VmExecutionError};
@@ -536,7 +536,7 @@ mod test {
         assert!(matches!(
             result,
             Err(VmExecutionError::RuntimeCheck(
-                RuntimeAnalysisError::BadSyntaxBinding(_)
+                RuntimeCheckErrorKind::BadSyntaxBinding(_)
             ))
         ));
     }
@@ -595,7 +595,7 @@ mod test {
         assert!(matches!(
             result,
             Err(VmExecutionError::RuntimeCheck(
-                RuntimeAnalysisError::TooManyFunctionParameters(found, max)
+                RuntimeCheckErrorKind::TooManyFunctionParameters(found, max)
             ))
         ));
     }

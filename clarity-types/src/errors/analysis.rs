@@ -574,7 +574,7 @@ pub enum StaticCheckErrorKind {
 /// - Failures based on runtime arguments or state changes.
 /// - Value-level type mismatches.
 #[derive(Debug, PartialEq)]
-pub enum RuntimeAnalysisError {
+pub enum RuntimeCheckErrorKind {
     // Cost checker errors
     /// Arithmetic overflow in cost computation during type-checking, exceeding the maximum threshold.
     CostOverflow,
@@ -610,11 +610,11 @@ pub enum RuntimeAnalysisError {
 
     // Match expression errors
     /// Invalid syntax in an `option` match expression.
-    /// The `Box<RuntimeAnalysisError>` wraps the underlying error causing the syntax issue.
-    BadMatchOptionSyntax(Box<RuntimeAnalysisError>),
+    /// The `Box<RuntimeCheckErrorKind>` wraps the underlying error causing the syntax issue.
+    BadMatchOptionSyntax(Box<RuntimeCheckErrorKind>),
     /// Invalid syntax in a `response` match expression.
-    /// The `Box<RuntimeAnalysisError>` wraps the underlying error causing the syntax issue.
-    BadMatchResponseSyntax(Box<RuntimeAnalysisError>),
+    /// The `Box<RuntimeCheckErrorKind>` wraps the underlying error causing the syntax issue.
+    BadMatchResponseSyntax(Box<RuntimeCheckErrorKind>),
     /// Input to a `match` expression does not conform to the expected type (e.g., `Option` or `Response`).
     /// The `Box<TypeSignature>` wraps the actual type of the provided input.
     BadMatchInput(Box<TypeSignature>),
@@ -858,12 +858,12 @@ pub struct StaticAnalysisErrorReport {
     pub diagnostic: Diagnostic,
 }
 
-impl RuntimeAnalysisError {
+impl RuntimeCheckErrorKind {
     /// This check indicates that the transaction should be rejected.
     pub fn rejectable(&self) -> bool {
         matches!(
             self,
-            RuntimeAnalysisError::SupertypeTooLarge | RuntimeAnalysisError::Expects(_)
+            RuntimeCheckErrorKind::SupertypeTooLarge | RuntimeCheckErrorKind::Expects(_)
         )
     }
 }
@@ -927,7 +927,7 @@ impl From<(CommonCheckErrorKind, &SymbolicExpression)> for CommonCheckErrorKind 
     }
 }
 
-impl From<(CommonCheckErrorKind, &SymbolicExpression)> for RuntimeAnalysisError {
+impl From<(CommonCheckErrorKind, &SymbolicExpression)> for RuntimeCheckErrorKind {
     fn from(e: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         e.0.into()
     }
@@ -939,7 +939,7 @@ impl fmt::Display for CommonCheckErrorKind {
     }
 }
 
-impl fmt::Display for RuntimeAnalysisError {
+impl fmt::Display for RuntimeCheckErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
@@ -992,25 +992,25 @@ impl From<CostErrors> for StaticCheckErrorKind {
     }
 }
 
-impl From<CostErrors> for RuntimeAnalysisError {
+impl From<CostErrors> for RuntimeCheckErrorKind {
     fn from(err: CostErrors) -> Self {
         match err {
-            CostErrors::CostOverflow => RuntimeAnalysisError::CostOverflow,
+            CostErrors::CostOverflow => RuntimeCheckErrorKind::CostOverflow,
             CostErrors::CostBalanceExceeded(a, b) => {
-                RuntimeAnalysisError::CostBalanceExceeded(a, b)
+                RuntimeCheckErrorKind::CostBalanceExceeded(a, b)
             }
             CostErrors::MemoryBalanceExceeded(a, b) => {
-                RuntimeAnalysisError::MemoryBalanceExceeded(a, b)
+                RuntimeCheckErrorKind::MemoryBalanceExceeded(a, b)
             }
-            CostErrors::CostComputationFailed(s) => RuntimeAnalysisError::CostComputationFailed(s),
+            CostErrors::CostComputationFailed(s) => RuntimeCheckErrorKind::CostComputationFailed(s),
             CostErrors::CostContractLoadFailure => {
-                RuntimeAnalysisError::CostComputationFailed("Failed to load cost contract".into())
+                RuntimeCheckErrorKind::CostComputationFailed("Failed to load cost contract".into())
             }
-            CostErrors::InterpreterFailure => RuntimeAnalysisError::Expects(
+            CostErrors::InterpreterFailure => RuntimeCheckErrorKind::Expects(
                 "Unexpected interpreter failure in cost computation".into(),
             ),
-            CostErrors::Expect(s) => RuntimeAnalysisError::Expects(s),
-            CostErrors::ExecutionTimeExpired => RuntimeAnalysisError::ExecutionTimeExpired,
+            CostErrors::Expect(s) => RuntimeCheckErrorKind::Expects(s),
+            CostErrors::ExecutionTimeExpired => RuntimeCheckErrorKind::ExecutionTimeExpired,
         }
     }
 }
@@ -1050,7 +1050,7 @@ impl error::Error for StaticAnalysisErrorReport {
     }
 }
 
-impl error::Error for RuntimeAnalysisError {
+impl error::Error for RuntimeCheckErrorKind {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
@@ -1068,73 +1068,73 @@ impl From<CommonCheckErrorKind> for StaticAnalysisErrorReport {
     }
 }
 
-impl From<CommonCheckErrorKind> for RuntimeAnalysisError {
+impl From<CommonCheckErrorKind> for RuntimeCheckErrorKind {
     fn from(err: CommonCheckErrorKind) -> Self {
         match err {
-            CommonCheckErrorKind::CostOverflow => RuntimeAnalysisError::CostOverflow,
+            CommonCheckErrorKind::CostOverflow => RuntimeCheckErrorKind::CostOverflow,
             CommonCheckErrorKind::CostBalanceExceeded(a, b) => {
-                RuntimeAnalysisError::CostBalanceExceeded(a, b)
+                RuntimeCheckErrorKind::CostBalanceExceeded(a, b)
             }
             CommonCheckErrorKind::MemoryBalanceExceeded(a, b) => {
-                RuntimeAnalysisError::MemoryBalanceExceeded(a, b)
+                RuntimeCheckErrorKind::MemoryBalanceExceeded(a, b)
             }
             CommonCheckErrorKind::CostComputationFailed(s) => {
-                RuntimeAnalysisError::CostComputationFailed(s)
+                RuntimeCheckErrorKind::CostComputationFailed(s)
             }
             CommonCheckErrorKind::ExecutionTimeExpired => {
-                RuntimeAnalysisError::ExecutionTimeExpired
+                RuntimeCheckErrorKind::ExecutionTimeExpired
             }
             CommonCheckErrorKind::IncorrectArgumentCount(expected, args) => {
-                RuntimeAnalysisError::IncorrectArgumentCount(expected, args)
+                RuntimeCheckErrorKind::IncorrectArgumentCount(expected, args)
             }
             CommonCheckErrorKind::RequiresAtLeastArguments(expected, args) => {
-                RuntimeAnalysisError::RequiresAtLeastArguments(expected, args)
+                RuntimeCheckErrorKind::RequiresAtLeastArguments(expected, args)
             }
             CommonCheckErrorKind::RequiresAtMostArguments(expected, args) => {
-                RuntimeAnalysisError::RequiresAtMostArguments(expected, args)
+                RuntimeCheckErrorKind::RequiresAtMostArguments(expected, args)
             }
             CommonCheckErrorKind::TooManyFunctionParameters(found, allowed) => {
-                RuntimeAnalysisError::TooManyFunctionParameters(found, allowed)
+                RuntimeCheckErrorKind::TooManyFunctionParameters(found, allowed)
             }
-            CommonCheckErrorKind::ExpectedName => RuntimeAnalysisError::ExpectedName,
+            CommonCheckErrorKind::ExpectedName => RuntimeCheckErrorKind::ExpectedName,
             CommonCheckErrorKind::DefineFunctionBadSignature => {
-                RuntimeAnalysisError::DefineFunctionBadSignature
+                RuntimeCheckErrorKind::DefineFunctionBadSignature
             }
             CommonCheckErrorKind::ExpectedTraitIdentifier => {
-                RuntimeAnalysisError::ExpectedTraitIdentifier
+                RuntimeCheckErrorKind::ExpectedTraitIdentifier
             }
-            CommonCheckErrorKind::Expects(s) => RuntimeAnalysisError::Expects(s),
+            CommonCheckErrorKind::Expects(s) => RuntimeCheckErrorKind::Expects(s),
             CommonCheckErrorKind::CouldNotDetermineType => {
-                RuntimeAnalysisError::CouldNotDetermineType
+                RuntimeCheckErrorKind::CouldNotDetermineType
             }
-            CommonCheckErrorKind::ValueTooLarge => RuntimeAnalysisError::ValueTooLarge,
+            CommonCheckErrorKind::ValueTooLarge => RuntimeCheckErrorKind::ValueTooLarge,
             CommonCheckErrorKind::TypeSignatureTooDeep => {
-                RuntimeAnalysisError::TypeSignatureTooDeep
+                RuntimeCheckErrorKind::TypeSignatureTooDeep
             }
             CommonCheckErrorKind::DefineTraitDuplicateMethod(s) => {
-                RuntimeAnalysisError::DefineTraitDuplicateMethod(s)
+                RuntimeCheckErrorKind::DefineTraitDuplicateMethod(s)
             }
             CommonCheckErrorKind::TraitTooManyMethods(found, allowed) => {
-                RuntimeAnalysisError::TraitTooManyMethods(found, allowed)
+                RuntimeCheckErrorKind::TraitTooManyMethods(found, allowed)
             }
             CommonCheckErrorKind::DefineTraitBadSignature => {
-                RuntimeAnalysisError::DefineTraitBadSignature
+                RuntimeCheckErrorKind::DefineTraitBadSignature
             }
             CommonCheckErrorKind::InvalidTypeDescription => {
-                RuntimeAnalysisError::InvalidTypeDescription
+                RuntimeCheckErrorKind::InvalidTypeDescription
             }
-            CommonCheckErrorKind::SupertypeTooLarge => RuntimeAnalysisError::SupertypeTooLarge,
-            CommonCheckErrorKind::TypeError(a, b) => RuntimeAnalysisError::TypeError(a, b),
-            CommonCheckErrorKind::BadSyntaxBinding(e) => RuntimeAnalysisError::BadSyntaxBinding(e),
-            CommonCheckErrorKind::ValueOutOfBounds => RuntimeAnalysisError::ValueOutOfBounds,
+            CommonCheckErrorKind::SupertypeTooLarge => RuntimeCheckErrorKind::SupertypeTooLarge,
+            CommonCheckErrorKind::TypeError(a, b) => RuntimeCheckErrorKind::TypeError(a, b),
+            CommonCheckErrorKind::BadSyntaxBinding(e) => RuntimeCheckErrorKind::BadSyntaxBinding(e),
+            CommonCheckErrorKind::ValueOutOfBounds => RuntimeCheckErrorKind::ValueOutOfBounds,
             CommonCheckErrorKind::EmptyTuplesNotAllowed => {
-                RuntimeAnalysisError::EmptyTuplesNotAllowed
+                RuntimeCheckErrorKind::EmptyTuplesNotAllowed
             }
             CommonCheckErrorKind::NameAlreadyUsed(name) => {
-                RuntimeAnalysisError::NameAlreadyUsed(name)
+                RuntimeCheckErrorKind::NameAlreadyUsed(name)
             }
             CommonCheckErrorKind::UnknownTypeName(name) => {
-                RuntimeAnalysisError::UnknownTypeName(name)
+                RuntimeCheckErrorKind::UnknownTypeName(name)
             }
         }
     }

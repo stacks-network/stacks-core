@@ -22,7 +22,7 @@ use crate::vm::callables::DefineType;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, RuntimeAnalysisError, RuntimeError,
+    check_argument_count, check_arguments_at_least, RuntimeCheckErrorKind, RuntimeError,
     VmExecutionError, VmInternalError,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
@@ -71,7 +71,7 @@ pub fn special_contract_call(
 
     let function_name = args[1]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
     let rest_args_slice = &args[2..];
     let rest_args_len = rest_args_slice.len();
     let mut rest_args = Vec::with_capacity(rest_args_len);
@@ -95,7 +95,7 @@ pub fn special_contract_call(
                 Some(trait_data) => {
                     // Ensure that contract-call is used for inter-contract calls only
                     if trait_data.contract_identifier == env.contract_context.contract_identifier {
-                        return Err(RuntimeAnalysisError::CircularReference(vec![trait_data
+                        return Err(RuntimeCheckErrorKind::CircularReference(vec![trait_data
                             .contract_identifier
                             .name
                             .to_string()])
@@ -107,7 +107,7 @@ pub fn special_contract_call(
                         .database
                         .get_contract(&trait_data.contract_identifier)
                         .map_err(|_e| {
-                            RuntimeAnalysisError::NoSuchContract(
+                            RuntimeCheckErrorKind::NoSuchContract(
                                 trait_data.contract_identifier.to_string(),
                             )
                         })?;
@@ -118,7 +118,7 @@ pub fn special_contract_call(
                     let trait_identifier = trait_data
                         .trait_identifier
                         .as_ref()
-                        .ok_or(RuntimeAnalysisError::ExpectedTraitIdentifier)?;
+                        .ok_or(RuntimeCheckErrorKind::ExpectedTraitIdentifier)?;
 
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
@@ -135,7 +135,7 @@ pub fn special_contract_call(
                             .database
                             .get_contract(&trait_identifier.contract_identifier)
                             .map_err(|_e| {
-                                RuntimeAnalysisError::NoSuchContract(
+                                RuntimeCheckErrorKind::NoSuchContract(
                                     trait_identifier.contract_identifier.to_string(),
                                 )
                             })?;
@@ -145,7 +145,7 @@ pub fn special_contract_call(
                         // Retrieve the function that will be invoked
                         let function_to_check = contract_context_to_check
                             .lookup_function(function_name)
-                            .ok_or(RuntimeAnalysisError::BadTraitImplementation(
+                            .ok_or(RuntimeCheckErrorKind::BadTraitImplementation(
                                 trait_name.clone(),
                                 function_name.to_string(),
                             ))?;
@@ -153,13 +153,13 @@ pub fn special_contract_call(
                         // Check read/write compatibility
                         if env.global_context.is_read_only() {
                             return Err(
-                                RuntimeAnalysisError::TraitBasedContractCallInReadOnly.into()
+                                RuntimeCheckErrorKind::TraitBasedContractCallInReadOnly.into()
                             );
                         }
 
                         // Check visibility
                         if function_to_check.define_type == DefineType::Private {
-                            return Err(RuntimeAnalysisError::NoSuchPublicFunction(
+                            return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(
                                 trait_data.contract_identifier.to_string(),
                                 function_name.to_string(),
                             )
@@ -175,11 +175,11 @@ pub fn special_contract_call(
                         // Retrieve the expected method signature
                         let constraining_trait = contract_context_defining_trait
                             .lookup_trait_definition(&trait_name)
-                            .ok_or(RuntimeAnalysisError::TraitReferenceUnknown(
+                            .ok_or(RuntimeCheckErrorKind::TraitReferenceUnknown(
                                 trait_name.clone(),
                             ))?;
                         let expected_sig = constraining_trait.get(function_name).ok_or(
-                            RuntimeAnalysisError::TraitMethodUnknown(
+                            RuntimeCheckErrorKind::TraitMethodUnknown(
                                 trait_name,
                                 function_name.to_string(),
                             ),
@@ -190,10 +190,10 @@ pub fn special_contract_call(
                         )
                     }
                 }
-                _ => return Err(RuntimeAnalysisError::ContractCallExpectName.into()),
+                _ => return Err(RuntimeCheckErrorKind::ContractCallExpectName.into()),
             }
         }
-        _ => return Err(RuntimeAnalysisError::ContractCallExpectName.into()),
+        _ => return Err(RuntimeCheckErrorKind::ContractCallExpectName.into()),
     };
 
     let contract_principal = env.contract_context.contract_identifier.clone().into();
@@ -214,14 +214,14 @@ pub fn special_contract_call(
     // sanitize contract-call outputs in epochs >= 2.4
     let result_type = TypeSignature::type_of(&result)?;
     let (result, _) = Value::sanitize_value(env.epoch(), &result_type, result)
-        .ok_or_else(|| RuntimeAnalysisError::CouldNotDetermineType)?;
+        .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
     if let Some(returns_type_signature) = type_returns_constraint {
         let actual_returns = TypeSignature::type_of(&result)?;
         if !returns_type_signature.admits_type(env.epoch(), &actual_returns)? {
-            return Err(RuntimeAnalysisError::ReturnTypesMustMatch(
+            return Err(RuntimeCheckErrorKind::ReturnTypesMustMatch(
                 Box::new(returns_type_signature),
                 Box::new(actual_returns),
             )
@@ -241,12 +241,12 @@ pub fn special_fetch_variable_v200(
 
     let var_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
     let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
-        RuntimeAnalysisError::NoSuchDataVariable(var_name.to_string()),
+        RuntimeCheckErrorKind::NoSuchDataVariable(var_name.to_string()),
     )?;
 
     runtime_cost(
@@ -272,12 +272,12 @@ pub fn special_fetch_variable_v205(
 
     let var_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
     let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
-        RuntimeAnalysisError::NoSuchDataVariable(var_name.to_string()),
+        RuntimeCheckErrorKind::NoSuchDataVariable(var_name.to_string()),
     )?;
 
     let epoch = *env.epoch();
@@ -302,7 +302,7 @@ pub fn special_set_variable_v200(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(RuntimeAnalysisError::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
@@ -311,12 +311,12 @@ pub fn special_set_variable_v200(
 
     let var_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
     let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
-        RuntimeAnalysisError::NoSuchDataVariable(var_name.to_string()),
+        RuntimeCheckErrorKind::NoSuchDataVariable(var_name.to_string()),
     )?;
 
     runtime_cost(
@@ -342,7 +342,7 @@ pub fn special_set_variable_v205(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(RuntimeAnalysisError::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
@@ -351,12 +351,12 @@ pub fn special_set_variable_v205(
 
     let var_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
     let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
-        RuntimeAnalysisError::NoSuchDataVariable(var_name.to_string()),
+        RuntimeCheckErrorKind::NoSuchDataVariable(var_name.to_string()),
     )?;
 
     let epoch = *env.epoch();
@@ -386,7 +386,7 @@ pub fn special_fetch_entry_v200(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let key = eval(&args[1], env, context)?;
 
@@ -396,7 +396,7 @@ pub fn special_fetch_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeAnalysisError::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::FetchEntry,
@@ -421,7 +421,7 @@ pub fn special_fetch_entry_v205(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let key = eval(&args[1], env, context)?;
 
@@ -431,7 +431,7 @@ pub fn special_fetch_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeAnalysisError::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -467,7 +467,7 @@ pub fn special_at_block(
             }
         }
         x => {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(x),
             )
@@ -488,7 +488,7 @@ pub fn special_set_entry_v200(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(RuntimeAnalysisError::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -499,7 +499,7 @@ pub fn special_set_entry_v200(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -507,7 +507,7 @@ pub fn special_set_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeAnalysisError::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
@@ -533,7 +533,7 @@ pub fn special_set_entry_v205(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(RuntimeAnalysisError::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -544,7 +544,7 @@ pub fn special_set_entry_v205(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -552,7 +552,7 @@ pub fn special_set_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeAnalysisError::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -578,7 +578,7 @@ pub fn special_insert_entry_v200(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(RuntimeAnalysisError::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -589,7 +589,7 @@ pub fn special_insert_entry_v200(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -597,7 +597,7 @@ pub fn special_insert_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeAnalysisError::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
@@ -624,7 +624,7 @@ pub fn special_insert_entry_v205(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(RuntimeAnalysisError::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -635,7 +635,7 @@ pub fn special_insert_entry_v205(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -643,7 +643,7 @@ pub fn special_insert_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeAnalysisError::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -669,7 +669,7 @@ pub fn special_delete_entry_v200(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(RuntimeAnalysisError::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
@@ -678,7 +678,7 @@ pub fn special_delete_entry_v200(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -686,7 +686,7 @@ pub fn special_delete_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeAnalysisError::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
@@ -711,7 +711,7 @@ pub fn special_delete_entry_v205(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(RuntimeAnalysisError::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
@@ -720,7 +720,7 @@ pub fn special_delete_entry_v205(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -728,7 +728,7 @@ pub fn special_delete_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeAnalysisError::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -762,10 +762,10 @@ pub fn special_delete_entry_v205(
 /// - `block-reward` returns the block reward for the block at `block-height`
 ///
 /// # Errors:
-/// - RuntimeAnalysisError::IncorrectArgumentCount if there aren't 2 arguments.
-/// - RuntimeAnalysisError::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - RuntimeAnalysisError::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
-/// - RuntimeAnalysisError::TypeValueError if `args[1]` isn't a `uint`.
+/// - RuntimeCheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
+/// - RuntimeCheckErrorKind::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - RuntimeCheckErrorKind::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
+/// - RuntimeCheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -779,18 +779,18 @@ pub fn special_get_block_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::GetBlockInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName)?;
 
     let version = env.contract_context.get_clarity_version();
 
     let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(property_name, version)
-        .ok_or(RuntimeAnalysisError::GetBlockInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName)?;
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(RuntimeAnalysisError::TypeValueError(
+        x => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(x),
         )),
@@ -914,10 +914,10 @@ pub fn special_get_block_info(
 /// - `pox_addrs` returns the list of PoX addresses paid out at `burn_block_height`
 ///
 /// # Errors:
-/// - RuntimeAnalysisError::IncorrectArgumentCount if there aren't 2 arguments.
-/// - RuntimeAnalysisError::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - RuntimeAnalysisError::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
-/// - RuntimeAnalysisError::TypeValueError if `args[1]` isn't a `uint`.
+/// - RuntimeCheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
+/// - RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - RuntimeCheckErrorKind::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
+/// - RuntimeCheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_burn_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -930,10 +930,10 @@ pub fn special_get_burn_block_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::GetBlockInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName)?;
 
     let block_info_prop = BurnBlockInfoProperty::lookup_by_name(property_name).ok_or(
-        RuntimeAnalysisError::NoSuchBurnBlockInfoProperty(property_name.to_string()),
+        RuntimeCheckErrorKind::NoSuchBurnBlockInfoProperty(property_name.to_string()),
     )?;
 
     // Handle the block-height input arg clause.
@@ -941,7 +941,7 @@ pub fn special_get_burn_block_info(
     let height_value = match height_eval {
         Value::UInt(result) => result,
         x => {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
                 Box::new(x),
             )
@@ -1015,10 +1015,10 @@ pub fn special_get_burn_block_info(
 /// - `time` returns the block time at `block-height`
 ///
 /// # Errors:
-/// - RuntimeAnalysisError::IncorrectArgumentCount if there aren't 2 arguments.
-/// - RuntimeAnalysisError::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - RuntimeAnalysisError::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
-/// - RuntimeAnalysisError::TypeValueError if `args[1]` isn't a `uint`.
+/// - RuntimeCheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
+/// - RuntimeCheckErrorKind::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - RuntimeCheckErrorKind::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
+/// - RuntimeCheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_stacks_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -1032,17 +1032,17 @@ pub fn special_get_stacks_block_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::GetStacksBlockInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetStacksBlockInfoExpectPropertyName)?;
 
     let block_info_prop = StacksBlockInfoProperty::lookup_by_name(property_name).ok_or(
-        RuntimeAnalysisError::NoSuchStacksBlockInfoProperty(property_name.to_string()),
+        RuntimeCheckErrorKind::NoSuchStacksBlockInfoProperty(property_name.to_string()),
     )?;
 
     // Handle the block-height input arg.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(RuntimeAnalysisError::TypeValueError(
+        x => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(x),
         )),
@@ -1097,10 +1097,10 @@ pub fn special_get_stacks_block_info(
 /// - `block-reward` returns the block reward for the tenure of which `block-height` is a part
 ///
 /// # Errors:
-/// - RuntimeAnalysisError::IncorrectArgumentCount if there aren't 2 arguments.
-/// - RuntimeAnalysisError::GetTenureInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - RuntimeAnalysisError::NoSuchTenureInfoProperty if `args[0]` isn't a TenureInfoProperty.
-/// - RuntimeAnalysisError::TypeValueError if `args[1]` isn't a `uint`.
+/// - RuntimeCheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
+/// - RuntimeCheckErrorKind::GetTenureInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - RuntimeCheckErrorKind::NoSuchTenureInfoProperty if `args[0]` isn't a TenureInfoProperty.
+/// - RuntimeCheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_tenure_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -1114,16 +1114,16 @@ pub fn special_get_tenure_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(RuntimeAnalysisError::GetTenureInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetTenureInfoExpectPropertyName)?;
 
     let block_info_prop = TenureInfoProperty::lookup_by_name(property_name)
-        .ok_or(RuntimeAnalysisError::GetTenureInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetTenureInfoExpectPropertyName)?;
 
     // Handle the block-height input arg.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(RuntimeAnalysisError::TypeValueError(
+        x => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(x),
         )),
@@ -1207,7 +1207,7 @@ pub fn special_contract_hash(
     check_argument_count(1, args)?;
     let contract_expr = args
         .first()
-        .ok_or(RuntimeAnalysisError::IncorrectArgumentCount(1, 0))?;
+        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0))?;
     let contract_value = eval(contract_expr, env, context)?;
     let contract_identifier = match contract_value {
         Value::Principal(PrincipalData::Standard(_)) => {
@@ -1216,9 +1216,9 @@ pub fn special_contract_hash(
         }
         Value::Principal(PrincipalData::Contract(contract_identifier)) => contract_identifier,
         _ => {
-            // If the value is not a principal, we return a RuntimeAnalysisError.
+            // If the value is not a principal, we return a RuntimeCheckErrorKind.
             return Err(
-                RuntimeAnalysisError::ExpectedContractPrincipalValue(Box::new(contract_value))
+                RuntimeCheckErrorKind::ExpectedContractPrincipalValue(Box::new(contract_value))
                     .into(),
             );
         }

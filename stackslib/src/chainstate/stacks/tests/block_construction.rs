@@ -3992,9 +3992,9 @@ fn test_is_tx_problematic() {
                     expected_txids.push(contract_call_spends_too_much_tx.txid());
 
                     // for tenure_id == 4:
-                    // make a contract that, when called, will result in a RuntimeAnalysisError at
+                    // make a contract that, when called, will result in a RuntimeCheckErrorKind at
                     // runtime
-                    let runtime_analysis_error_trait =
+                    let runtime_check_error_trait =
                         "
                         (define-trait foo
                             (
@@ -4003,7 +4003,7 @@ fn test_is_tx_problematic() {
                         )
                         ".to_string();
 
-                    let runtime_analysis_error_impl =
+                    let runtime_check_error_impl =
                         "
                         (impl-trait .foo.foo)
 
@@ -4012,7 +4012,7 @@ fn test_is_tx_problematic() {
                         )
                         ".to_string();
 
-                    let runtime_analysis_error = format!(
+                    let runtime_check_error = format!(
                         "
                         (use-trait trait .foo.foo)
 
@@ -4022,7 +4022,7 @@ fn test_is_tx_problematic() {
                           (ok (var-set mutex (not (var-get mutex))))
                         )
 
-                        ;; triggers analysis_error at runtime because <trait> gets coerced
+                        ;; triggers RuntimeCheckErrorKind because <trait> gets coerced
                         ;; into a principal when `internal` is called.
                         (define-public (test (ref <trait>))
                             (ok (internal (if (var-get mutex)
@@ -4031,7 +4031,7 @@ fn test_is_tx_problematic() {
                             )))
                         )
 
-                        ;; triggers a analysis_error at runtime because the code in
+                        ;; triggers a RuntimeCheckErrorKind at runtime because the code in
                         ;; `at-block` is buggy
                         (define-public (test-past (ref <trait>))
                             (at-block 0x{} (test ref))
@@ -4042,35 +4042,35 @@ fn test_is_tx_problematic() {
                         &last_block.clone().unwrap()
                     );
 
-                    let runtime_analysis_error_trait_tx = make_user_contract_publish(
+                    let runtime_check_error_trait_tx = make_user_contract_publish(
                         &privks_expensive[tenure_id],
                         1,
-                        (2 * runtime_analysis_error_trait.len()) as u64,
+                        (2 * runtime_check_error_trait.len()) as u64,
                         "foo",
-                        &runtime_analysis_error_trait
+                        &runtime_check_error_trait
                     );
 
-                    let runtime_analysis_error_impl_tx = make_user_contract_publish(
+                    let runtime_check_error_impl_tx = make_user_contract_publish(
                         &privks_expensive[tenure_id],
                         2,
-                        (2 * runtime_analysis_error_impl.len()) as u64,
+                        (2 * runtime_check_error_impl.len()) as u64,
                         "foo-impl",
-                        &runtime_analysis_error_impl
+                        &runtime_check_error_impl
                     );
 
-                    let runtime_analysis_error_tx = make_user_contract_publish(
+                    let runtime_check_error_tx = make_user_contract_publish(
                         &privks_expensive[tenure_id],
                         3,
-                        (2 * runtime_analysis_error.len()) as u64,
+                        (2 * runtime_check_error.len()) as u64,
                         "trait-runtime-analysis-error",
-                        &runtime_analysis_error
+                        &runtime_check_error
                     );
 
-                    expected_txids.push(runtime_analysis_error_trait_tx.txid());
-                    expected_txids.push(runtime_analysis_error_impl_tx.txid());
-                    expected_txids.push(runtime_analysis_error_tx.txid());
+                    expected_txids.push(runtime_check_error_trait_tx.txid());
+                    expected_txids.push(runtime_check_error_impl_tx.txid());
+                    expected_txids.push(runtime_check_error_tx.txid());
 
-                    for tx in &[&contract_call_spends_too_much_tx, &runtime_analysis_error_trait_tx, &runtime_analysis_error_impl_tx, &runtime_analysis_error_tx] {
+                    for tx in &[&contract_call_spends_too_much_tx, &runtime_check_error_trait_tx, &runtime_check_error_impl_tx, &runtime_check_error_tx] {
                         mempool
                             .submit(
                                 chainstate,
@@ -4164,7 +4164,7 @@ fn test_is_tx_problematic() {
 
                 if tenure_id == 4 {
                     // call trait-runtime-analysis-error.test and verify that it's flagged as problematic
-                    let runtime_analysis_error_problematic = make_user_contract_call(
+                    let runtime_check_error_problematic = make_user_contract_call(
                         &privks_expensive[tenure_id],
                         0,
                         2000,
@@ -4189,24 +4189,24 @@ fn test_is_tx_problematic() {
                         block_builder,
                         chainstate,
                         &sortdb.index_handle_at_tip(),
-                        vec![coinbase_tx.clone(), runtime_analysis_error_problematic.clone()]
+                        vec![coinbase_tx.clone(), runtime_check_error_problematic.clone()]
                     );
 
                     if let Err(ChainstateError::ProblematicTransaction(ref txid)) = &err {
-                        assert_eq!(txid, &runtime_analysis_error_problematic.txid());
+                        assert_eq!(txid, &runtime_check_error_problematic.txid());
                     }
                     else {
                         panic!("Did not get Error::ProblematicTransaction, but got {:?}", &err);
                     }
 
-                    problematic_txids.push(runtime_analysis_error_problematic.txid());
+                    problematic_txids.push(runtime_check_error_problematic.txid());
                     mempool
                         .submit(
                             chainstate,
                             sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
-                            &runtime_analysis_error_problematic,
+                            &runtime_check_error_problematic,
                             None,
                             &ExecutionCost::max_value(),
                             &StacksEpochId::Epoch2_05,
@@ -4216,7 +4216,7 @@ fn test_is_tx_problematic() {
 
                 if tenure_id == 5 {
                     // call trait-runtime-analysis-error.test-past and verify that it's flagged as problematic
-                    let runtime_analysis_error_problematic = make_user_contract_call(
+                    let runtime_check_error_problematic = make_user_contract_call(
                         &privks_expensive[tenure_id],
                         0,
                         2000,
@@ -4241,22 +4241,22 @@ fn test_is_tx_problematic() {
                         block_builder,
                         chainstate,
                         &sortdb.index_handle_at_tip(),
-                        vec![coinbase_tx.clone(), runtime_analysis_error_problematic.clone()]
+                        vec![coinbase_tx.clone(), runtime_check_error_problematic.clone()]
                     ) {
-                        assert_eq!(txid, runtime_analysis_error_problematic.txid());
+                        assert_eq!(txid, runtime_check_error_problematic.txid());
                     }
                     else {
                         panic!("Did not get Error::ProblematicTransaction");
                     }
 
-                    problematic_txids.push(runtime_analysis_error_problematic.txid());
+                    problematic_txids.push(runtime_check_error_problematic.txid());
                     mempool
                         .submit(
                             chainstate,
                                 sortdb,
                             &parent_consensus_hash,
                             &parent_header_hash,
-                            &runtime_analysis_error_problematic,
+                            &runtime_check_error_problematic,
                             None,
                             &ExecutionCost::max_value(),
                             &StacksEpochId::Epoch2_05,

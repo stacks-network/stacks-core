@@ -36,7 +36,7 @@ use crate::vm::database::structures::{
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance, STXBalanceSnapshot,
 };
 use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
-use crate::vm::errors::{RuntimeAnalysisError, RuntimeError, VmExecutionError, VmInternalError};
+use crate::vm::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 use crate::vm::representations::ClarityName;
 use crate::vm::types::serialization::NONE_SERIALIZATION_LEN;
 use crate::vm::types::{
@@ -553,7 +553,7 @@ impl<'a> ClarityDatabase<'a> {
 
             let (sanitized_value, did_sanitize) =
                 Value::sanitize_value(epoch, &TypeSignature::type_of(&value)?, value)
-                    .ok_or_else(|| RuntimeAnalysisError::CouldNotDetermineType)?;
+                    .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
             // if data needed to be sanitized *charge* for the unsanitized cost
             if did_sanitize {
                 pre_sanitized_size = Some(value_size);
@@ -1496,7 +1496,7 @@ fn map_no_contract_as_none<T>(
     res: Result<Option<T>, VmExecutionError>,
 ) -> Result<Option<T>, VmExecutionError> {
     res.or_else(|e| match e {
-        VmExecutionError::RuntimeCheck(RuntimeAnalysisError::NoSuchContract(_)) => Ok(None),
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchContract(_)) => Ok(None),
         x => Err(x),
     })
 }
@@ -1524,7 +1524,7 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeAnalysisError::NoSuchDataVariable(variable_name.to_string()).into())
+            .ok_or(RuntimeCheckErrorKind::NoSuchDataVariable(variable_name.to_string()).into())
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -1558,7 +1558,7 @@ impl ClarityDatabase<'_> {
             .value_type
             .admits(&self.get_clarity_epoch_version()?, &value)?
         {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(variable_descriptor.value_type.clone()),
                 Box::new(value),
             )
@@ -1665,7 +1665,7 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeAnalysisError::NoSuchMap(map_name.to_string()).into())
+            .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()).into())
     }
 
     pub fn make_key_for_data_map_entry(
@@ -1717,7 +1717,7 @@ impl ClarityDatabase<'_> {
             .key_type
             .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 Box::new(key_value.clone()),
             )
@@ -1748,7 +1748,7 @@ impl ClarityDatabase<'_> {
             .key_type
             .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 Box::new(key_value.clone()),
             )
@@ -1891,7 +1891,7 @@ impl ClarityDatabase<'_> {
             .key_type
             .admits(&self.get_clarity_epoch_version()?, &key_value)?
         {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 Box::new(key_value),
             )
@@ -1901,7 +1901,7 @@ impl ClarityDatabase<'_> {
             .value_type
             .admits(&self.get_clarity_epoch_version()?, &value)?
         {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.value_type.clone()),
                 Box::new(value),
             )
@@ -1950,7 +1950,7 @@ impl ClarityDatabase<'_> {
             .key_type
             .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 Box::new(key_value.clone()),
             )
@@ -2021,7 +2021,7 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeAnalysisError::NoSuchFT(token_name.to_string()).into())
+            .ok_or(RuntimeCheckErrorKind::NoSuchFT(token_name.to_string()).into())
     }
 
     pub fn create_non_fungible_token(
@@ -2047,7 +2047,7 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeAnalysisError::NoSuchNFT(token_name.to_string()).into())
+            .ok_or(RuntimeCheckErrorKind::NoSuchNFT(token_name.to_string()).into())
     }
 
     pub fn checked_increase_token_supply(
@@ -2172,7 +2172,7 @@ impl ClarityDatabase<'_> {
         key_type: &TypeSignature,
     ) -> Result<PrincipalData, VmExecutionError> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),
             )
@@ -2225,7 +2225,7 @@ impl ClarityDatabase<'_> {
         epoch: &StacksEpochId,
     ) -> Result<(), VmExecutionError> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),
             )
@@ -2254,7 +2254,7 @@ impl ClarityDatabase<'_> {
         epoch: &StacksEpochId,
     ) -> Result<(), VmExecutionError> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
-            return Err(RuntimeAnalysisError::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),
             )

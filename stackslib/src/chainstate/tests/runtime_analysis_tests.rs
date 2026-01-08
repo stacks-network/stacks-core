@@ -13,13 +13,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! This module contains consensus tests related to Clarity RuntimeAnalysisError errors that happens during runtime analysis.
+//! This module contains consensus tests related to Clarity RuntimeCheckErrorKind errors that happens during runtime analysis.
 
 use std::collections::HashMap;
 
 use clarity::types::StacksEpochId;
 #[allow(unused_imports)]
-use clarity::vm::analysis::RuntimeAnalysisError;
+use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DEPTH};
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
 
@@ -30,7 +30,7 @@ use crate::chainstate::tests::consensus::{
 use crate::core::test_util::to_addr;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 
-/// Generates a coverage classification report for a specific [`RuntimeAnalysisError`] variant.
+/// Generates a coverage classification report for a specific [`RuntimeCheckErrorKind`] variant.
 ///
 /// This method exists purely for **documentation and tracking purposes**.
 /// It helps maintainers understand which error variants have been:
@@ -39,7 +39,7 @@ use crate::core::BLOCK_LIMIT_MAINNET_21;
 /// - ⚙️ **Ignored** — not tested on purpose. (e.g. parser v1 related errors).
 /// - 🚫 **Unreachable** — not testable from consensus test side for reasons.
 #[allow(dead_code)]
-fn variant_coverage_report(variant: RuntimeAnalysisError) {
+fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
     enum VariantCoverage {
         // Cannot occur through valid execution. The string is to explain the reason.
         Unreachable_Functionally(&'static str),
@@ -53,7 +53,7 @@ fn variant_coverage_report(variant: RuntimeAnalysisError) {
         Tested(Vec<fn()>),
     }
 
-    use RuntimeAnalysisError::*;
+    use RuntimeCheckErrorKind::*;
     use VariantCoverage::*;
 
     _ = match variant {
@@ -318,7 +318,7 @@ fn variant_coverage_report(variant: RuntimeAnalysisError) {
     };
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::CostBalanceExceeded`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::CostBalanceExceeded`]
 /// Caused by: exceeding the cost analysis budget during contract initialization.
 ///   The contract repeatedly performs `var-get` lookups on a data variable,
 ///   forcing the type checker to fetch the variable enough times to exceed
@@ -338,7 +338,7 @@ fn runtime_analysis_error_cost_balance_exceeded_cdeploy() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::MemoryBalanceExceeded`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::MemoryBalanceExceeded`]
 /// Caused by: This test creates a contract that successfully passes analysis but fails during initialization
 ///   The contract defines large buffer constants (buff-20 = 1MB) and then creates many references
 ///   to it in a top-level `is-eq` expression, which exhausts the 100MB memory limit during initialization.
@@ -373,7 +373,7 @@ fn runtime_analysis_error_memory_balance_exceeded_cdeploy() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::MemoryBalanceExceeded`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::MemoryBalanceExceeded`]
 /// Caused by: This test creates a contract that successfully passes analysis but fails during contract call.
 ///   The contract defines large buffer constants (buff-20 = 1MB) and then creates many references
 ///   to it in a top-level `is-eq` expression, which exhausts the 100MB memory limit during contract call.
@@ -417,7 +417,7 @@ fn runtime_analysis_error_memory_balance_exceeded_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::CostBalanceExceeded`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::CostBalanceExceeded`]
 /// Caused by: exceeding the cost analysis budget during contract initialization.
 ///   The contract repeatedly performs `var-get` lookups on a data variable,
 ///   forcing the type checker to fetch the variable enough times to exceed
@@ -440,7 +440,7 @@ fn runtime_analysis_error_cost_balance_exceeded_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::NoSuchPublicFunction`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::NoSuchPublicFunction`]
 /// Caused by: Attempted to invoke a private function from outside the contract.
 /// Outcome: block accepted
 #[test]
@@ -453,7 +453,7 @@ fn runtime_analysis_error_kind_no_such_public_function_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::NameAlreadyUsed`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::NameAlreadyUsed`]
 /// Caused by: name is already used by a standard clarity function.
 /// Outcome: block rejected.
 #[test]
@@ -464,7 +464,7 @@ fn runtime_analysis_error_kind_name_already_used_cdeploy() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::NameAlreadyUsed`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::NameAlreadyUsed`]
 /// Caused by: a `let` binding attempts to shadow the reserved keyword `stacks-block-height`.
 ///     The analyzer accepts the contract, but binding happens only when the public
 ///     function executes, so the runtime raises `NameAlreadyUsed`.
@@ -482,7 +482,7 @@ fn runtime_analysis_error_kind_name_already_used_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::ValueTooLarge`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ValueTooLarge`]
 /// Caused by: `(as-max-len? …)` wraps a buffer whose serialized size plus the optional wrapper
 ///   exceeds `MAX_VALUE_SIZE`. Static analysis allows this construction, but initialization fails
 ///   at runtime when `Value::some` detects the oversized payload.
@@ -531,7 +531,7 @@ fn runtime_analysis_error_kind_value_too_large_cdeploy() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::ValueTooLarge`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ValueTooLarge`]
 /// Caused by: `(as-max-len? …)` wraps a buffer whose serialized size plus the optional wrapper
 ///   exceeds `MAX_VALUE_SIZE`. Static analysis allows this construction, but initialization fails
 ///   at runtime when `Value::some` detects the oversized payload.
@@ -583,7 +583,7 @@ fn runtime_analysis_error_kind_value_too_large_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::TypeSignatureTooDeep`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeSignatureTooDeep`]
 /// Caused by: inserting into a map whose value type already has depth `MAX_TYPE_DEPTH`.
 ///   The runtime wraps stored entries in an optional, pushing the depth past the limit.
 /// Outcome: block accepted.
@@ -625,7 +625,7 @@ fn runtime_analysis_error_kind_type_signature_too_deep_cdeploy() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::TypeSignatureTooDeep`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeSignatureTooDeep`]
 /// Caused by: inserting into a map whose value type already has depth `MAX_TYPE_DEPTH`.
 ///   The runtime wraps stored entries in an optional, pushing the depth past the limit.
 /// Outcome: block accepted.
@@ -669,7 +669,7 @@ fn runtime_analysis_error_kind_type_signature_too_deep_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::TypeError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeError`]
 /// Caused by: `(at-block … (ok (var-get zero)))` returns `none` when evaluated at
 /// a block where the contract state doesn't exist yet. The code immediately feeds
 /// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
@@ -725,7 +725,7 @@ fn runtime_analysis_error_kind_type_error_cdeploy() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::TypeError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeError`]
 /// Caused by: `(at-block … (ok (var-get zero)))` returns `none` when evaluated at
 /// a block where the contract state doesn't exist yet. The code immediately feeds
 /// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
@@ -783,7 +783,7 @@ fn runtime_analysis_error_kind_type_error_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::TypeValueError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeValueError`]
 /// Caused by: passing a value of the wrong type to a function.
 /// Outcome: block accepted.
 #[test]
@@ -792,12 +792,12 @@ fn runtime_analysis_error_kind_type_value_error_cdeploy() {
         contract_name: "check-error-kind",
         // `as-max-len?` widens `0x` to type `(buff 33)` even though it contains 0 bytes.
         // This passes the analyzer but fails at runtime when `principal-of` enforces
-        // the exact length, raising `RuntimeAnalysisError::TypeValueError`.
+        // the exact length, raising `RuntimeCheckErrorKind::TypeValueError`.
         contract_code: "(principal-of? (unwrap-panic (as-max-len? 0x u33)))",
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::TypeValueError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeValueError`]
 /// Caused by: passing a value of the wrong type to a function.
 /// Outcome: block accepted.
 #[test]
@@ -810,7 +810,7 @@ fn runtime_analysis_error_kind_type_value_error_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::ContractCallExpectName`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ContractCallExpectName`]
 /// Caused by: the trait reference is stored as a constant, so the runtime never
 ///     binds it in `LocalContext::callable_contracts` and `special_contract_call`
 ///     cannot resolve the callee.
@@ -846,7 +846,7 @@ fn runtime_analysis_error_kind_contract_call_expect_name_cdeploy() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::ContractCallExpectName`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ContractCallExpectName`]
 /// Caused by: the trait reference is stored as a constant, so the runtime never
 ///     binds it in `LocalContext::callable_contracts` and `special_contract_call`
 ///     cannot resolve the callee.
@@ -887,7 +887,7 @@ fn runtime_analysis_error_kind_contract_call_expect_name_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::UnionTypeValueError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::UnionTypeValueError`]
 /// Caused by: evaluating `to-ascii?` with a `(contract <trait-1>)` argument while the contract
 ///     is being initialized. The static analysis accepts the form, but the runtime encounters a
 ///     `CallableContract` value and the runtime rejects it with the union type error.
@@ -918,7 +918,7 @@ fn runtime_analysis_error_kind_union_type_value_error_cdeploy() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::UnionTypeValueError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::UnionTypeValueError`]
 /// Caused by: executing `to-ascii?` inside a public function with a `(contract <trait-1>)`
 ///     argument. Deployment succeeds, but calling `trigger-runtime-error` binds a
 ///     `CallableContract` value and the runtime rejects it with the union type error.
@@ -952,7 +952,7 @@ fn runtime_analysis_error_kind_union_type_value_error_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::ListTypesMustMatch`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ListTypesMustMatch`]
 /// Caused by: Contract initialization creates a constant list that mixes callable values
 ///     implementing different traits (`trait-a` vs `trait-b`). Runtime sanitization tries to
 ///     coerce that mixed list into a single entry type and fails with `ListTypesMustMatch`.
@@ -1018,7 +1018,7 @@ fn runtime_analysis_error_kind_list_types_must_match_cdeploy() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::ReturnTypesMustMatch`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ReturnTypesMustMatch`]
 /// Caused by: dynamic dispatch through a trait argument returns a value whose type does not
 ///     conform to the trait specification.
 /// Outcome: block accepted.
@@ -1051,7 +1051,7 @@ fn runtime_analysis_error_kind_return_types_must_match_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::ExpectedContractPrincipalValue`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ExpectedContractPrincipalValue`]
 /// Caused by: Supplying tx-sender to with-ft inside as-contract? forces eval_allowance to inspect a standard principal
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 4 and later. 'as-contract?' is not supported in earlier versions.
@@ -1068,7 +1068,7 @@ fn runtime_analysis_error_kind_expected_contract_principal_value_cdeploy() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::ExpectedContractPrincipalValue`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ExpectedContractPrincipalValue`]
 /// Caused by: Supplying tx-sender to with-ft inside as-contract? forces eval_allowance to inspect a standard principal
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 4 and later. 'as-contract?' is not supported in earlier versions.
@@ -1088,7 +1088,7 @@ fn runtime_analysis_error_kind_expected_contract_principal_value_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::UndefinedFunction`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::UndefinedFunction`]
 /// Caused by: invoking a public function name that is not defined in the contract.
 /// Outcome: block accepted (transaction aborts with the runtime error).
 #[test]
@@ -1103,7 +1103,7 @@ fn runtime_analysis_error_kind_undefined_function_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::NoSuchContract`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::NoSuchContract`]
 /// Caused by: calling a contract that does not exist.
 /// Outcome: block accepted.
 #[test]
@@ -1132,7 +1132,7 @@ fn runtime_analysis_error_kind_no_such_contract_ccall() {
     insta::assert_ron_snapshot!(result);
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::CouldNotDetermineType`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::CouldNotDetermineType`]
 /// Caused by: reading a constant that was created in a pre-2.4 epoch without
 ///     value sanitization. The constant stores a mixed list of callable
 ///     references which cannot be sanitized once sanitization is enforced.
@@ -1189,7 +1189,7 @@ fn runtime_analysis_error_kind_could_not_determine_type_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::CircularReference`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::CircularReference`]
 /// Caused by: circular reference forcing a contract calling itself using a contract call.
 /// Outcome: block accepted
 #[test]
@@ -1228,7 +1228,7 @@ fn runtime_analysis_error_kind_circular_reference_ccall() {
     );
 }
 
-/// RuntimeAnalysisError: [`RuntimeAnalysisError::IncorrectArgumentCount`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::IncorrectArgumentCount`]
 /// Caused by: passing the wrong number of arguments to a function.
 /// Outcome: block accepted.
 #[test]
@@ -1241,7 +1241,7 @@ fn runtime_analysis_error_kind_incorrect_argument_count_ccall() {
     );
 }
 
-/// Error: [`RuntimeAnalysisError::BadTraitImplementation`]
+/// Error: [`RuntimeCheckErrorKind::BadTraitImplementation`]
 /// Caused by: Dynamic trait dispatch to a concrete contract that has the function,
 /// but with a mismatched argument type (int instead of uint)
 /// Outcome: Block accepted
@@ -1283,10 +1283,10 @@ fn bad_trait_implementation_mismatched_args() {
     );
 }
 
-/// Error: [`RuntimeAnalysisError::InvalidCharactersDetected`]
+/// Error: [`RuntimeCheckErrorKind::InvalidCharactersDetected`]
 /// Caused by: deserializing an invalid ascii string using `from-consensus-buf` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
 /// Outcome: Block accepted
-/// Note: [`RuntimeAnalysisError::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
+/// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
 #[test]
 fn invalid_characters_detected_invalid_ascii() {
@@ -1302,10 +1302,10 @@ fn invalid_characters_detected_invalid_ascii() {
     );
 }
 
-/// Error: [`RuntimeAnalysisError::InvalidCharactersDetected`]
+/// Error: [`RuntimeCheckErrorKind::InvalidCharactersDetected`]
 /// Caused by: deserializing an invalid utf8 string using `from-consensus-buf` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
 /// Outcome: Block accepted
-/// Note: [`RuntimeAnalysisError::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
+/// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
 #[test]
 fn invalid_characters_detected_invalid_utf8() {

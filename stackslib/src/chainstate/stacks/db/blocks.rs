@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{cmp, fs, io};
 
-pub use clarity::vm::analysis::errors::{RuntimeAnalysisError, StaticAnalysisErrorReport};
+pub use clarity::vm::analysis::errors::{RuntimeCheckErrorKind, StaticAnalysisErrorReport};
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::BurnStateDB;

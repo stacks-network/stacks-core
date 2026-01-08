@@ -18,7 +18,7 @@ use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_arguments_at_least, EarlyReturnError, RuntimeAnalysisError, RuntimeError,
+    check_arguments_at_least, EarlyReturnError, RuntimeCheckErrorKind, RuntimeError,
     VmExecutionError, VmInternalError,
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
@@ -37,7 +37,7 @@ fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>, VmExecutionError> {
         }
         _ => {
             return Err(
-                RuntimeAnalysisError::ExpectedOptionalOrResponseValue(Box::new(to_unwrap)).into(),
+                RuntimeCheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(to_unwrap)).into(),
             )
         }
     };
@@ -54,7 +54,7 @@ fn inner_unwrap_err(to_unwrap: Value) -> Result<Option<Value>, VmExecutionError>
                 None
             }
         }
-        _ => return Err(RuntimeAnalysisError::ExpectedResponseValue(Box::new(to_unwrap)).into()),
+        _ => return Err(RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(to_unwrap)).into()),
     };
 
     Ok(result)
@@ -106,7 +106,7 @@ pub fn native_try_ret(input: Value) -> Result<Value, VmExecutionError> {
                 Err(EarlyReturnError::UnwrapFailed(Box::new(short_return_val)).into())
             }
         }
-        _ => Err(RuntimeAnalysisError::ExpectedOptionalOrResponseValue(Box::new(input)).into()),
+        _ => Err(RuntimeCheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(input)).into()),
     }
 }
 
@@ -122,7 +122,7 @@ fn eval_with_new_binding(
         || env.contract_context.lookup_function(&bind_name).is_some()
         || inner_context.lookup_variable(&bind_name).is_some()
     {
-        return Err(RuntimeAnalysisError::NameAlreadyUsed(bind_name.into()).into());
+        return Err(RuntimeCheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
     }
 
     let memory_use = bind_value.get_memory_use()?;
@@ -154,15 +154,15 @@ fn special_match_opt(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if args.len() != 3 {
-        Err(RuntimeAnalysisError::BadMatchOptionSyntax(Box::new(
-            RuntimeAnalysisError::IncorrectArgumentCount(4, args.len() + 1),
+        Err(RuntimeCheckErrorKind::BadMatchOptionSyntax(Box::new(
+            RuntimeCheckErrorKind::IncorrectArgumentCount(4, args.len() + 1),
         )))?;
     }
 
     let bind_name = args[0]
         .match_atom()
         .ok_or_else(|| {
-            RuntimeAnalysisError::BadMatchOptionSyntax(Box::new(RuntimeAnalysisError::ExpectedName))
+            RuntimeCheckErrorKind::BadMatchOptionSyntax(Box::new(RuntimeCheckErrorKind::ExpectedName))
         })?
         .clone();
     let some_branch = &args[1];
@@ -181,16 +181,16 @@ fn special_match_resp(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if args.len() != 4 {
-        Err(RuntimeAnalysisError::BadMatchResponseSyntax(Box::new(
-            RuntimeAnalysisError::IncorrectArgumentCount(5, args.len() + 1),
+        Err(RuntimeCheckErrorKind::BadMatchResponseSyntax(Box::new(
+            RuntimeCheckErrorKind::IncorrectArgumentCount(5, args.len() + 1),
         )))?;
     }
 
     let ok_bind_name = args[0]
         .match_atom()
         .ok_or_else(|| {
-            RuntimeAnalysisError::BadMatchResponseSyntax(Box::new(
-                RuntimeAnalysisError::ExpectedName,
+            RuntimeCheckErrorKind::BadMatchResponseSyntax(Box::new(
+                RuntimeCheckErrorKind::ExpectedName,
             ))
         })?
         .clone();
@@ -198,8 +198,8 @@ fn special_match_resp(
     let err_bind_name = args[2]
         .match_atom()
         .ok_or_else(|| {
-            RuntimeAnalysisError::BadMatchResponseSyntax(Box::new(
-                RuntimeAnalysisError::ExpectedName,
+            RuntimeCheckErrorKind::BadMatchResponseSyntax(Box::new(
+                RuntimeCheckErrorKind::ExpectedName,
             ))
         })?
         .clone();
@@ -227,7 +227,7 @@ pub fn special_match(
         Value::Response(data) => special_match_resp(data, &args[1..], env, context),
         Value::Optional(data) => special_match_opt(data, &args[1..], env, context),
         _ => Err(
-            RuntimeAnalysisError::BadMatchInput(Box::new(TypeSignature::type_of(&input)?)).into(),
+            RuntimeCheckErrorKind::BadMatchInput(Box::new(TypeSignature::type_of(&input)?)).into(),
         ),
     }
 }
@@ -239,14 +239,14 @@ pub fn native_some(input: Value) -> Result<Value, VmExecutionError> {
 fn is_some(input: Value) -> Result<bool, VmExecutionError> {
     match input {
         Value::Optional(ref data) => Ok(data.data.is_some()),
-        _ => Err(RuntimeAnalysisError::ExpectedOptionalValue(Box::new(input)).into()),
+        _ => Err(RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(input)).into()),
     }
 }
 
 fn is_okay(input: Value) -> Result<bool, VmExecutionError> {
     match input {
         Value::Response(data) => Ok(data.committed),
-        _ => Err(RuntimeAnalysisError::ExpectedResponseValue(Box::new(input)).into()),
+        _ => Err(RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(input)).into()),
     }
 }
 
@@ -280,6 +280,6 @@ pub fn native_default_to(default: Value, input: Value) -> Result<Value, VmExecut
             Some(data) => Ok(*data),
             None => Ok(default),
         },
-        _ => Err(RuntimeAnalysisError::ExpectedOptionalValue(Box::new(input)).into()),
+        _ => Err(RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(input)).into()),
     }
 }

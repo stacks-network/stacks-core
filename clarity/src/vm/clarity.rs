@@ -3,8 +3,8 @@ use std::fmt;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{
-    AnalysisDatabase, ContractAnalysis, RuntimeAnalysisError, StaticCheckErrorKind,
-    StaticAnalysisErrorReport,
+    AnalysisDatabase, ContractAnalysis, RuntimeCheckErrorKind, StaticAnalysisErrorReport,
+    StaticCheckErrorKind,
 };
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::ast::ContractAST;
@@ -106,13 +106,13 @@ impl From<StaticAnalysisErrorReport> for ClarityError {
 ///
 /// # Notes
 ///
-/// - [`RuntimeAnalysisError::MemoryBalanceExceeded`] and [`RuntimeAnalysisError::CostComputationFailed`]
+/// - [`RuntimeCheckErrorKind::MemoryBalanceExceeded`] and [`RuntimeCheckErrorKind::CostComputationFailed`]
 ///   are intentionally not converted to [`ClarityError::CostError`].
-///   Instead, they remain wrapped in `ClarityError::Interpreter(VmExecutionError::Unchecked(RuntimeAnalysisError::MemoryBalanceExceeded))`,
+///   Instead, they remain wrapped in `ClarityError::Interpreter(VmExecutionError::Unchecked(RuntimeCheckErrorKind::MemoryBalanceExceeded))`,
 ///   which causes the transaction to fail, but still be included in the block.
 ///
 /// - This behavior differs from direct conversions of [`StaticAnalysisDiagnostic`] and [`ParseError`] to [`ClarityError`],
-///   where [`RuntimeAnalysisError::MemoryBalanceExceeded`] is converted to [`ClarityError::CostError`],
+///   where [`RuntimeCheckErrorKind::MemoryBalanceExceeded`] is converted to [`ClarityError::CostError`],
 ///   during contract analysis.
 ///
 ///   As a result:
@@ -122,13 +122,13 @@ impl From<StaticAnalysisErrorReport> for ClarityError {
 impl From<VmExecutionError> for ClarityError {
     fn from(e: VmExecutionError) -> Self {
         match &e {
-            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::CostBalanceExceeded(a, b)) => {
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CostBalanceExceeded(a, b)) => {
                 ClarityError::CostError(a.clone(), b.clone())
             }
-            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::CostOverflow) => {
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CostOverflow) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::ExecutionTimeExpired) => {
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExecutionTimeExpired) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => ClarityError::Interpreter(e),

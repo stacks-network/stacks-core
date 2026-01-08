@@ -854,11 +854,11 @@ impl NakamotoBootPlan {
                     for (receipt, tx) in stacks_receipts.iter().zip(block.txs.iter()) {
                         // transactions processed in the same order
                         assert_eq!(receipt.transaction.txid(), tx.txid());
-                        // no RuntimeAnalysisError
+                        // no RuntimeCheckErrorKind
                         if !ignore_transaction_errors {
                             assert!(
                                 receipt.vm_error.is_none(),
-                                "Receipt had a RuntimeAnalysisError: {receipt:?}"
+                                "Receipt had a RuntimeCheckErrorKind: {receipt:?}"
                             );
                             // transaction was not aborted post-hoc
                             assert!(!receipt.post_condition_aborted);

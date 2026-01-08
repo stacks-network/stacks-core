@@ -16,7 +16,7 @@
 
 use clarity::types::StacksEpochId;
 use clarity::vm::clarity::ClarityError;
-use clarity::vm::errors::{RuntimeAnalysisError, StaticCheckErrorKind, VmExecutionError};
+use clarity::vm::errors::{RuntimeCheckErrorKind, StaticCheckErrorKind, VmExecutionError};
 use clarity::vm::types::SequenceData::Buffer;
 use clarity::vm::types::{
     BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
@@ -438,7 +438,7 @@ fn trait_invocation_cross_epoch() {
                 )
                 .unwrap_err();
 
-            if let ClarityError::Interpreter(VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(trait_ref_type, value))) = error {
+            if let ClarityError::Interpreter(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(trait_ref_type, value))) = error {
                 assert!(matches!(*trait_ref_type, TypeSignature::TraitReferenceType(_)));
             } else {
                 panic!("Expected an Interpreter(RuntimeCheck(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
@@ -462,7 +462,7 @@ fn trait_invocation_cross_epoch() {
                 )
                 .unwrap_err();
 
-            if let ClarityError::Interpreter(VmExecutionError::RuntimeCheck(RuntimeAnalysisError::TypeValueError(trait_ref_type, value))) = error {
+            if let ClarityError::Interpreter(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(trait_ref_type, value))) = error {
                 assert!(matches!(*trait_ref_type, TypeSignature::TraitReferenceType(_)));
             } else {
                 panic!("Expected an Interpreter(RuntimeCheck(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");

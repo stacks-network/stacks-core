@@ -19,7 +19,7 @@
 
 use std::convert::TryFrom;
 
-use clarity_types::errors::{EarlyReturnError, RuntimeAnalysisError, VmExecutionError};
+use clarity_types::errors::{EarlyReturnError, RuntimeCheckErrorKind, VmExecutionError};
 use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
@@ -1661,7 +1661,7 @@ fn restrict_assets_too_many_allowances() {
             .join(" ")
     );
     let max_allowances_err = VmExecutionError::RuntimeCheck(
-        RuntimeAnalysisError::TooManyAllowances(MAX_ALLOWANCES, MAX_ALLOWANCES + 1),
+        RuntimeCheckErrorKind::TooManyAllowances(MAX_ALLOWANCES, MAX_ALLOWANCES + 1),
     );
     let err = execute(&snippet).expect_err("execution passed unexpectedly");
     assert_eq!(err, max_allowances_err);
@@ -1676,7 +1676,7 @@ fn expected_allowance_expr_error() {
     let snippet = "(restrict-assets? tx-sender ((bad-fn u1)) true)";
 
     let expected_error = VmExecutionError::RuntimeCheck(
-        RuntimeAnalysisError::ExpectedAllowanceExpr("bad-fn".to_string()),
+        RuntimeCheckErrorKind::ExpectedAllowanceExpr("bad-fn".to_string()),
     );
 
     // Execute and verify that the error is raised
@@ -1694,7 +1694,7 @@ fn expected_allowance_expr_error_unhandled_native() {
     let snippet = "(restrict-assets? tx-sender ((tx-sender u1)) true)";
 
     let expected_error = VmExecutionError::RuntimeCheck(
-        RuntimeAnalysisError::ExpectedAllowanceExpr("tx-sender".to_string()),
+        RuntimeCheckErrorKind::ExpectedAllowanceExpr("tx-sender".to_string()),
     );
 
     let err = execute(snippet).expect_err("execution passed unexpectedly");
@@ -1708,7 +1708,7 @@ fn expected_allowance_expr_error_unhandled_native() {
 fn allowance_expr_not_allowed() {
     let snippet = "(with-stx u1)";
 
-    let expected = VmExecutionError::RuntimeCheck(RuntimeAnalysisError::AllowanceExprNotAllowed);
+    let expected = VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::AllowanceExprNotAllowed);
 
     let err = execute(snippet).expect_err("execution unexpectedly succeeded");
 
@@ -1728,7 +1728,7 @@ fn restrict_assets_expected_list_of_allowances() {
     "#;
 
     let expected_error = VmExecutionError::RuntimeCheck(
-        RuntimeAnalysisError::ExpectedListOfAllowances("restrict-assets?".into(), 2),
+        RuntimeCheckErrorKind::ExpectedListOfAllowances("restrict-assets?".into(), 2),
     );
 
     let err = execute(snippet).expect_err("execution passed unexpectedly");
@@ -1749,7 +1749,7 @@ fn as_contract_expected_list_of_allowances() {
 
     // The argument is `u42` (not a list), so we expect this error
     let expected_error = VmExecutionError::RuntimeCheck(
-        RuntimeAnalysisError::ExpectedListOfAllowances("as-contract?".to_string(), 1),
+        RuntimeCheckErrorKind::ExpectedListOfAllowances("as-contract?".to_string(), 1),
     );
 
     let err = execute(snippet).expect_err("execution passed unexpectedly");

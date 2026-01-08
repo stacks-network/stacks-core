@@ -21,7 +21,7 @@ use super::MemoryEnvironmentGenerator;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 #[cfg(test)]
 use crate::vm::{
-    errors::{RuntimeAnalysisError, VmExecutionError},
+    errors::{RuntimeCheckErrorKind, VmExecutionError},
     tests::{env_factory, execute, symbols_from_values},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
     version::ClarityVersion,
@@ -242,7 +242,7 @@ fn test_dynamic_dispatch_intra_contract_call(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::CircularReference(_)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CircularReference(_)) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -557,7 +557,7 @@ fn test_dynamic_dispatch_mismatched_args(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::BadTraitImplementation(_, _)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::BadTraitImplementation(_, _)) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -612,7 +612,7 @@ fn test_dynamic_dispatch_mismatched_returned(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::ReturnTypesMustMatch(_, _)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ReturnTypesMustMatch(_, _)) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -670,7 +670,7 @@ fn test_reentrant_dynamic_dispatch(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::RuntimeCheck(RuntimeAnalysisError::CircularReference(_)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CircularReference(_)) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -726,7 +726,7 @@ fn test_readwrite_dynamic_dispatch(
             .unwrap_err();
         match err_result {
             VmExecutionError::RuntimeCheck(
-                RuntimeAnalysisError::TraitBasedContractCallInReadOnly,
+                RuntimeCheckErrorKind::TraitBasedContractCallInReadOnly,
             ) => {}
             _ => panic!("{err_result:?}"),
         }
@@ -783,7 +783,7 @@ fn test_readwrite_violation_dynamic_dispatch(
             .unwrap_err();
         match err_result {
             VmExecutionError::RuntimeCheck(
-                RuntimeAnalysisError::TraitBasedContractCallInReadOnly,
+                RuntimeCheckErrorKind::TraitBasedContractCallInReadOnly,
             ) => {}
             _ => panic!("{err_result:?}"),
         }

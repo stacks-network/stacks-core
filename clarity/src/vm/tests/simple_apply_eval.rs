@@ -31,7 +31,7 @@ use crate::vm::callables::DefinedFunction;
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::{EarlyReturnError, RuntimeAnalysisError, RuntimeError, VmExecutionError};
+use crate::vm::errors::{EarlyReturnError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError};
 use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
 use crate::vm::types::{
@@ -55,7 +55,7 @@ fn test_doubly_defined_persisted_vars() {
     for p in tests.iter() {
         assert_eq!(
             vm_execute(p).unwrap_err(),
-            RuntimeAnalysisError::NameAlreadyUsed("cursor".into()).into()
+            RuntimeCheckErrorKind::NameAlreadyUsed("cursor".into()).into()
         );
     }
 }
@@ -577,18 +577,18 @@ fn test_secp256k1_errors() {
     ];
 
     let expectations: &[VmExecutionError] = &[
-        RuntimeAnalysisError::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        RuntimeAnalysisError::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })))).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 3).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })))).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3).into(),
 
-        RuntimeAnalysisError::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        RuntimeAnalysisError::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })))).into(),
-        RuntimeAnalysisError::TypeValueError(Box::new(TypeSignature::BUFFER_33), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })))).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(3, 2).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })))).into(),
+        RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_33), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })))).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2).into(),
 
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 0).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into(),
     ];
 
     for (program, expectation) in secp256k1_evals.iter().zip(expectations.iter()) {
@@ -874,7 +874,7 @@ fn test_sequence_comparisons_clarity1() {
         "(<= \"baa\" \"aaa\")",
     ];
     let error_expectations: &[VmExecutionError] = &[
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -883,7 +883,7 @@ fn test_sequence_comparisons_clarity1() {
             )))),
         )
         .into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -892,7 +892,7 @@ fn test_sequence_comparisons_clarity1() {
             )))),
         )
         .into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -901,7 +901,7 @@ fn test_sequence_comparisons_clarity1() {
             )))),
         )
         .into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -985,12 +985,12 @@ fn test_sequence_comparisons_mismatched_types() {
     // Tests that comparing objects of different types results in an error in Clarity1.
     let error_tests = ["(> 0 u1)", "(< 0 u1)"];
     let v1_error_expectations: &[VmExecutionError] = &[
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Int(0)),
         )
         .into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Int(0)),
         )
@@ -1006,7 +1006,7 @@ fn test_sequence_comparisons_mismatched_types() {
         });
 
     let v2_error_expectations: &[VmExecutionError] = &[
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1017,7 +1017,7 @@ fn test_sequence_comparisons_mismatched_types() {
             Box::new(Value::Int(0)),
         )
         .into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1040,7 +1040,7 @@ fn test_sequence_comparisons_mismatched_types() {
     // Tests that comparing objects of different types results in an error in Clarity2.
     let error_tests = ["(> \"baa\" u\"aaa\")", "(> \"baa\" 0x0001)"];
     let error_expectations: &[VmExecutionError] = &[
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1055,7 +1055,7 @@ fn test_sequence_comparisons_mismatched_types() {
             )))),
         )
         .into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1109,8 +1109,8 @@ fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch:
     ];
 
     let expectations: &[VmExecutionError] = &[
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1).into(),
-        RuntimeAnalysisError::TypeValueError(
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::IntType),
             Box::new(Value::Bool(true)),
         )
@@ -1121,22 +1121,22 @@ fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch:
         RuntimeError::ArithmeticOverflow.into(),
         RuntimeError::ArithmeticOverflow.into(),
         RuntimeError::ArithmeticUnderflow.into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 0).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 0).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 0).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeError::Arithmetic("sqrti must be passed a positive integer".to_string()).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 0).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeError::Arithmetic("log2 must be passed a positive integer".to_string()).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
         RuntimeError::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())
             .into(),
         RuntimeError::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())
             .into(),
-        RuntimeAnalysisError::TypeError(
+        RuntimeCheckErrorKind::TypeError(
             Box::new(TypeSignature::from_string("bool", version, epoch)),
             Box::new(TypeSignature::from_string("int", version, epoch)),
         )
@@ -1162,12 +1162,12 @@ fn test_unsigned_arithmetic() {
     let expectations: &[VmExecutionError] = &[
         RuntimeError::ArithmeticUnderflow.into(),
         RuntimeError::ArithmeticUnderflow.into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::UInt(10)),
         )
         .into(),
-        RuntimeAnalysisError::TypeValueError(
+        RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(Value::Int(80)),
         )
@@ -1202,21 +1202,21 @@ fn test_options_errors() {
     ];
 
     let expectations: &[VmExecutionError] = &[
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 3).into(),
-        RuntimeAnalysisError::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
-        RuntimeAnalysisError::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
-        RuntimeAnalysisError::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3).into(),
+        RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
+        RuntimeCheckErrorKind::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
+        RuntimeCheckErrorKind::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1240,16 +1240,16 @@ fn test_stx_ops_errors() {
     ];
 
     let expectations: &[VmExecutionError] = &[
-        RuntimeAnalysisError::IncorrectArgumentCount(3, 2).into(),
-        RuntimeAnalysisError::BadTransferSTXArguments.into(),
-        RuntimeAnalysisError::BadTransferSTXArguments.into(),
-        RuntimeAnalysisError::BadTransferSTXArguments.into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(4, 3).into(),
-        RuntimeAnalysisError::BadTransferSTXArguments.into(),
-        RuntimeAnalysisError::BadTransferSTXArguments.into(),
-        RuntimeAnalysisError::BadTransferSTXArguments.into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(2, 1).into(),
-        RuntimeAnalysisError::BadTransferSTXArguments.into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2).into(),
+        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
+        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
+        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(4, 3).into(),
+        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
+        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
+        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1420,7 +1420,7 @@ fn test_option_destructs() {
     let expectations: &[Result<Value, VmExecutionError>] = &[
         Ok(Value::Int(1)),
         Ok(Value::Int(1)),
-        Err(RuntimeAnalysisError::ExpectedResponseValue(Box::new(
+        Err(RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(
             Value::some(Value::Int(2)).unwrap(),
         ))
         .into()),
@@ -1436,14 +1436,14 @@ fn test_option_destructs() {
         Ok(Value::Int(9)),
         Ok(Value::Int(2)),
         Ok(Value::Int(8)),
-        Err(RuntimeAnalysisError::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
-        Err(RuntimeAnalysisError::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
+        Err(RuntimeCheckErrorKind::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
+        Err(RuntimeCheckErrorKind::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
         Err(EarlyReturnError::UnwrapFailed(Box::new(Value::error(Value::UInt(1)).unwrap())).into()),
         Ok(Value::Int(3)),
         Err(EarlyReturnError::UnwrapFailed(Box::new(Value::none())).into()),
         Ok(Value::Bool(true)),
-        Err(RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into()),
-        Err(RuntimeAnalysisError::ExpectedOptionalOrResponseValue(Box::new(Value::Int(1))).into()),
+        Err(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into()),
+        Err(RuntimeCheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(Value::Int(1))).into()),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1467,10 +1467,10 @@ fn test_hash_errors() {
     ];
 
     let expectations: &[VmExecutionError] = &[
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1479,7 +1479,7 @@ fn test_hash_errors() {
             Box::new(Value::Bool(true)),
         )
         .into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1488,7 +1488,7 @@ fn test_hash_errors() {
             Box::new(Value::Bool(true)),
         )
         .into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1497,7 +1497,7 @@ fn test_hash_errors() {
             Box::new(Value::Bool(true)),
         )
         .into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1506,8 +1506,8 @@ fn test_hash_errors() {
             Box::new(Value::Bool(true)),
         )
         .into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
-        RuntimeAnalysisError::UnionTypeValueError(
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1516,7 +1516,7 @@ fn test_hash_errors() {
             Box::new(Value::Bool(true)),
         )
         .into(),
-        RuntimeAnalysisError::IncorrectArgumentCount(1, 2).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1568,12 +1568,12 @@ fn test_bad_lets() {
     ];
 
     let expectations: &[VmExecutionError] = &[
-        RuntimeAnalysisError::NameAlreadyUsed("tx-sender".to_string()).into(),
-        RuntimeAnalysisError::NameAlreadyUsed("*".to_string()).into(),
-        RuntimeAnalysisError::NameAlreadyUsed("a".to_string()).into(),
-        RuntimeAnalysisError::NoSuchDataVariable("cursor".to_string()).into(),
-        RuntimeAnalysisError::NameAlreadyUsed("true".to_string()).into(),
-        RuntimeAnalysisError::NameAlreadyUsed("false".to_string()).into(),
+        RuntimeCheckErrorKind::NameAlreadyUsed("tx-sender".to_string()).into(),
+        RuntimeCheckErrorKind::NameAlreadyUsed("*".to_string()).into(),
+        RuntimeCheckErrorKind::NameAlreadyUsed("a".to_string()).into(),
+        RuntimeCheckErrorKind::NoSuchDataVariable("cursor".to_string()).into(),
+        RuntimeCheckErrorKind::NameAlreadyUsed("true".to_string()).into(),
+        RuntimeCheckErrorKind::NameAlreadyUsed("false".to_string()).into(),
     ];
 
     tests
