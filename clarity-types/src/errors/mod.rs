@@ -17,6 +17,8 @@ pub mod analysis;
 pub mod ast;
 pub mod cost;
 pub mod lexer;
+#[cfg(test)]
+mod tests;
 
 use std::{error, fmt};
 
