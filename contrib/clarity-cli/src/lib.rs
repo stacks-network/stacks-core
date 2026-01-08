@@ -27,7 +27,7 @@ use clarity::vm::coverage::CoverageReporter;
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
 };
-use clarity::vm::errors::{RuntimeError, StaticAnalysisErrorReport, VmExecutionError};
+use clarity::vm::errors::{RuntimeError, StaticCheckError, VmExecutionError};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{
     ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
@@ -201,7 +201,7 @@ fn run_analysis_free<C: ClarityStorage>(
     save_contract: bool,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<ContractAnalysis, Box<(StaticAnalysisErrorReport, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
     analysis::run_analysis(
         contract_identifier,
         expressions,
@@ -223,7 +223,7 @@ fn run_analysis<C: ClarityStorage>(
     save_contract: bool,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<ContractAnalysis, Box<(StaticAnalysisErrorReport, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
     let mainnet = header_db.is_mainnet();
     let cost_track = LimitedCostTracker::new(
         mainnet,

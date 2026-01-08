@@ -21,7 +21,7 @@ use super::{
     compute_typecheck_cost, no_type, TypeChecker, TypingContext,
 };
 use crate::vm::analysis::errors::{
-    StaticCheckErrorKind, StaticAnalysisErrorReport, SyntaxBindingErrorType,
+    StaticCheckErrorKind, StaticCheckError, SyntaxBindingErrorType,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTracker};
@@ -56,7 +56,7 @@ pub struct SpecialNativeFunction(
         &mut TypeChecker,
         &[SymbolicExpression],
         &TypingContext,
-    ) -> Result<TypeSignature, StaticAnalysisErrorReport>,
+    ) -> Result<TypeSignature, StaticCheckError>,
 );
 pub struct SimpleNativeFunction(pub FunctionType);
 
@@ -64,7 +64,7 @@ fn check_special_list_cons(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     let mut result = Vec::with_capacity(args.len());
     let mut entries_size: Option<u32> = Some(0);
     let mut costs = Vec::with_capacity(args.len());
@@ -114,7 +114,7 @@ fn check_special_print(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(1, args)?;
     checker.type_check(&args[0], context)
 }
@@ -123,7 +123,7 @@ fn check_special_as_contract(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(1, args)?;
     checker.type_check(&args[0], context)
 }
@@ -132,7 +132,7 @@ fn check_special_at_block(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
     checker.type_check(&args[1], context)
@@ -142,7 +142,7 @@ fn check_special_begin(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(1, args)?;
 
     checker.type_check_consecutive_statements(args, context)
@@ -152,7 +152,7 @@ fn inner_handle_tuple_get(
     tuple_type_sig: &TupleTypeSignature,
     field_to_get: &str,
     checker: &mut TypeChecker,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     runtime_cost(
         ClarityCostFunction::AnalysisCheckTupleGet,
         checker,
@@ -161,7 +161,7 @@ fn inner_handle_tuple_get(
 
     let return_type = tuple_type_sig
         .field_type(field_to_get)
-        .ok_or(StaticAnalysisErrorReport::new(
+        .ok_or(StaticCheckError::new(
             StaticCheckErrorKind::NoSuchTupleField(field_to_get.to_string(), tuple_type_sig.clone()),
         ))?
         .clone();
@@ -172,7 +172,7 @@ fn check_special_get(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
 
     let field_to_get = args[0]
@@ -200,7 +200,7 @@ fn check_special_merge(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
 
     let res = checker.type_check(&args[0], context)?;
@@ -228,7 +228,7 @@ pub fn check_special_tuple_cons(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(1, args)?;
 
     let mut tuple_type_data = Vec::with_capacity(args.len());
@@ -282,10 +282,10 @@ fn check_special_let(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
-    let binding_list = args[0].match_list().ok_or(StaticAnalysisErrorReport::new(
+    let binding_list = args[0].match_list().ok_or(StaticCheckError::new(
         StaticCheckErrorKind::BadLetSyntax,
     ))?;
 
@@ -300,7 +300,7 @@ fn check_special_let(
         |var_name, var_sexp| {
             checker.contract_context.check_name_used(var_name)?;
             if out_context.lookup_variable_type(var_name).is_some() {
-                return Err(StaticAnalysisErrorReport::new(
+                return Err(StaticCheckError::new(
                     StaticCheckErrorKind::NameAlreadyUsed(var_name.to_string()),
                 ));
             }
@@ -337,17 +337,17 @@ fn check_special_fetch_var(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     _context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(1, args)?;
 
-    let var_name = args[0].match_atom().ok_or(StaticAnalysisErrorReport::new(
+    let var_name = args[0].match_atom().ok_or(StaticCheckError::new(
         StaticCheckErrorKind::BadMapName,
     ))?;
 
     let value_type = checker
         .contract_context
         .get_persisted_variable_type(var_name)
-        .ok_or(StaticAnalysisErrorReport::new(
+        .ok_or(StaticCheckError::new(
             StaticCheckErrorKind::NoSuchDataVariable(var_name.to_string()),
         ))?;
 
@@ -364,7 +364,7 @@ fn check_special_set_var(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
     let var_name = args[0]
@@ -388,7 +388,7 @@ fn check_special_set_var(
     analysis_typecheck_cost(&mut checker.cost_track, &value_type, expected_value_type)?;
 
     if !expected_value_type.admits_type(&StacksEpochId::Epoch21, &value_type)? {
-        Err(StaticAnalysisErrorReport::new(
+        Err(StaticCheckError::new(
             StaticCheckErrorKind::TypeError(
                 Box::new(expected_value_type.clone()),
                 Box::new(value_type),
@@ -403,7 +403,7 @@ fn check_special_equals(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(1, args)?;
 
     let mut arg_type = None;
@@ -444,7 +444,7 @@ fn check_special_if(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
 
     checker.type_check_expects(&args[0], context, &TypeSignature::BoolType)?;
@@ -469,10 +469,10 @@ fn check_contract_call(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
-    let func_name = args[1].match_atom().ok_or(StaticAnalysisErrorReport::new(
+    let func_name = args[1].match_atom().ok_or(StaticCheckError::new(
         StaticCheckErrorKind::ContractCallExpectName,
     ))?;
     checker.type_map.set_type(&args[1], no_type())?;
@@ -498,7 +498,7 @@ fn check_contract_call(
                 {
                     Ok(function)
                 } else {
-                    Err(StaticAnalysisErrorReport::new(
+                    Err(StaticCheckError::new(
                         StaticCheckErrorKind::NoSuchPublicFunction(
                             contract_identifier.to_string(),
                             func_name.to_string(),
@@ -574,7 +574,7 @@ fn check_contract_call(
                             {
                                 Ok(function)
                             } else {
-                                Err(StaticAnalysisErrorReport::new(
+                                Err(StaticCheckError::new(
                                     StaticCheckErrorKind::NoSuchPublicFunction(
                                         contract_identifier.to_string(),
                                         func_name.to_string(),
@@ -636,7 +636,7 @@ fn check_contract_call(
             }
         }
         _ => {
-            return Err(StaticAnalysisErrorReport::new(
+            return Err(StaticCheckError::new(
                 StaticCheckErrorKind::ContractCallExpectName,
             ))
         }
@@ -654,13 +654,13 @@ fn check_contract_of(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(1, args)?;
 
     let trait_instance = match &args[0].expr {
         SymbolicExpressionType::Atom(trait_instance) => trait_instance,
         _ => {
-            return Err(StaticAnalysisErrorReport::new(
+            return Err(StaticCheckError::new(
                 StaticCheckErrorKind::ContractOfExpectsTrait,
             ))
         }
@@ -689,7 +689,7 @@ fn check_principal_of(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(1, args)?;
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_33)?;
     Ok(
@@ -708,7 +708,7 @@ fn check_principal_construct(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
     check_arguments_at_most(3, args)?;
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_1)?;
@@ -740,7 +740,7 @@ fn check_secp256k1_recover(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
     checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_65)?;
@@ -754,7 +754,7 @@ fn check_secp256k1_verify(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
     checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_65)?;
@@ -766,7 +766,7 @@ fn check_secp256r1_verify(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
     checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_64)?;
@@ -778,16 +778,16 @@ fn check_get_block_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
-    let block_info_prop_str = args[0].match_atom().ok_or(StaticAnalysisErrorReport::new(
+    let block_info_prop_str = args[0].match_atom().ok_or(StaticCheckError::new(
         StaticCheckErrorKind::GetBlockInfoExpectPropertyName,
     ))?;
 
     let block_info_prop =
         BlockInfoProperty::lookup_by_name_at_version(block_info_prop_str, &checker.clarity_version)
-            .ok_or(StaticAnalysisErrorReport::new(
+            .ok_or(StaticCheckError::new(
                 StaticCheckErrorKind::NoSuchBlockInfoProperty(block_info_prop_str.to_string()),
             ))?;
 
@@ -803,15 +803,15 @@ fn check_get_burn_block_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
 
-    let block_info_prop_str = args[0].match_atom().ok_or(StaticAnalysisErrorReport::new(
+    let block_info_prop_str = args[0].match_atom().ok_or(StaticCheckError::new(
         StaticCheckErrorKind::GetBurnBlockInfoExpectPropertyName,
     ))?;
 
     let block_info_prop = BurnBlockInfoProperty::lookup_by_name(block_info_prop_str).ok_or(
-        StaticAnalysisErrorReport::new(StaticCheckErrorKind::NoSuchBlockInfoProperty(
+        StaticCheckError::new(StaticCheckErrorKind::NoSuchBlockInfoProperty(
             block_info_prop_str.to_string(),
         )),
     )?;
@@ -829,15 +829,15 @@ fn check_get_stacks_block_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
 
-    let block_info_prop_str = args[0].match_atom().ok_or(StaticAnalysisErrorReport::new(
+    let block_info_prop_str = args[0].match_atom().ok_or(StaticCheckError::new(
         StaticCheckErrorKind::GetStacksBlockInfoExpectPropertyName,
     ))?;
 
     let block_info_prop = StacksBlockInfoProperty::lookup_by_name(block_info_prop_str).ok_or(
-        StaticAnalysisErrorReport::new(StaticCheckErrorKind::NoSuchStacksBlockInfoProperty(
+        StaticCheckError::new(StaticCheckErrorKind::NoSuchStacksBlockInfoProperty(
             block_info_prop_str.to_string(),
         )),
     )?;
@@ -851,15 +851,15 @@ fn check_get_tenure_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
 
-    let block_info_prop_str = args[0].match_atom().ok_or(StaticAnalysisErrorReport::new(
+    let block_info_prop_str = args[0].match_atom().ok_or(StaticCheckError::new(
         StaticCheckErrorKind::GetTenureInfoExpectPropertyName,
     ))?;
 
     let block_info_prop = TenureInfoProperty::lookup_by_name(block_info_prop_str).ok_or(
-        StaticAnalysisErrorReport::new(StaticCheckErrorKind::NoSuchTenureInfoProperty(
+        StaticCheckError::new(StaticCheckErrorKind::NoSuchTenureInfoProperty(
             block_info_prop_str.to_string(),
         )),
     )?;
@@ -875,7 +875,7 @@ impl TypedNativeFunction {
         checker: &mut TypeChecker,
         args: &[SymbolicExpression],
         context: &TypingContext,
-    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         use self::TypedNativeFunction::{Simple, Special};
         match self {
             Special(SpecialNativeFunction(check)) => check(checker, args, context),

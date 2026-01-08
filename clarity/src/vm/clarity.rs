@@ -3,7 +3,7 @@ use std::fmt;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{
-    AnalysisDatabase, ContractAnalysis, RuntimeCheckErrorKind, StaticAnalysisErrorReport,
+    AnalysisDatabase, ContractAnalysis, RuntimeCheckErrorKind, StaticCheckError,
     StaticCheckErrorKind,
 };
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
@@ -22,7 +22,7 @@ use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpressi
 pub enum ClarityError {
     /// Error during static type-checking or semantic analysis.
     /// The `StaticAnalysisDiagnostic` wraps the specific type-checking error, including diagnostic details.
-    StaticCheck(StaticAnalysisErrorReport),
+    StaticCheck(StaticCheckError),
     /// Error during lexical or syntactic parsing.
     /// The `ParseError` wraps the specific parsing error, such as invalid syntax or tokens.
     Parse(ParseError),
@@ -79,8 +79,8 @@ impl std::error::Error for ClarityError {
     }
 }
 
-impl From<StaticAnalysisErrorReport> for ClarityError {
-    fn from(e: StaticAnalysisErrorReport) -> Self {
+impl From<StaticCheckError> for ClarityError {
+    fn from(e: StaticCheckError) -> Self {
         match *e.err {
             StaticCheckErrorKind::CostOverflow => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
@@ -292,7 +292,7 @@ pub trait TransactionConnection: ClarityConnection {
         &mut self,
         identifier: &QualifiedContractIdentifier,
         contract_analysis: &ContractAnalysis,
-    ) -> Result<(), StaticAnalysisErrorReport> {
+    ) -> Result<(), StaticCheckError> {
         self.with_analysis_db(|db, cost_tracker| {
             db.begin();
             let result = db.insert_contract(identifier, contract_analysis);

@@ -16,7 +16,7 @@
 
 use super::{TypeChecker, TypingContext};
 use crate::vm::analysis::errors::{
-    check_argument_count, StaticCheckErrorKind, StaticAnalysisErrorReport,
+    check_argument_count, StaticCheckErrorKind, StaticCheckError,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -27,7 +27,7 @@ pub fn check_special_get_owner(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
 
     let asset_name = args[0]
@@ -57,7 +57,7 @@ pub fn check_special_get_balance(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
 
     let asset_name = args[0]
@@ -80,7 +80,7 @@ pub fn check_special_mint_asset(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
 
     let asset_name = args[0]
@@ -113,7 +113,7 @@ pub fn check_special_mint_token(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
 
     let asset_name = args[0]
@@ -142,7 +142,7 @@ pub fn check_special_transfer_asset(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(4, args)?;
 
     let token_name = args[0]
@@ -176,7 +176,7 @@ pub fn check_special_transfer_token(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(4, args)?;
 
     let token_name = args[0]
@@ -206,7 +206,7 @@ pub fn check_special_get_token_supply(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     _context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(1, args)?;
 
     let asset_name = args[0]
@@ -226,7 +226,7 @@ pub fn check_special_burn_asset(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
 
     let asset_name = args[0]
@@ -259,7 +259,7 @@ pub fn check_special_burn_token(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
 
     let asset_name = args[0]

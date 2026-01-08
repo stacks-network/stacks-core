@@ -16,7 +16,7 @@
 use clarity_types::errors::analysis::{
     check_argument_count, check_arguments_at_least, StaticCheckErrorKind,
 };
-use clarity_types::errors::StaticAnalysisErrorReport;
+use clarity_types::errors::StaticCheckError;
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::{SequenceSubtype, TypeSignature};
 
@@ -37,7 +37,7 @@ pub fn check_restrict_assets(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(3, args)?;
 
     let asset_owner = args
@@ -96,7 +96,7 @@ pub fn check_as_contract(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
     let allowance_list = args
@@ -153,7 +153,7 @@ pub fn check_allowance_err(
     _checker: &mut TypeChecker,
     _args: &[SymbolicExpression],
     _context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     Err(StaticCheckErrorKind::AllowanceExprNotAllowed.into())
 }
 
@@ -163,7 +163,7 @@ pub fn check_allowance(
     checker: &mut TypeChecker,
     allowance: &SymbolicExpression,
     context: &TypingContext,
-) -> Result<bool, StaticAnalysisErrorReport> {
+) -> Result<bool, StaticCheckError> {
     let list = allowance
         .match_list()
         .ok_or(StaticCheckErrorKind::ExpectedListApplication)?;
@@ -197,7 +197,7 @@ fn check_allowance_with_stx(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<bool, StaticAnalysisErrorReport> {
+) -> Result<bool, StaticCheckError> {
     check_argument_count(1, args)?;
 
     checker.type_check_expects(
@@ -216,7 +216,7 @@ fn check_allowance_with_ft(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<bool, StaticAnalysisErrorReport> {
+) -> Result<bool, StaticCheckError> {
     check_argument_count(3, args)?;
 
     checker.type_check_expects(
@@ -247,7 +247,7 @@ fn check_allowance_with_nft(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<bool, StaticAnalysisErrorReport> {
+) -> Result<bool, StaticCheckError> {
     check_argument_count(3, args)?;
 
     checker.type_check_expects(
@@ -289,7 +289,7 @@ fn check_allowance_with_stacking(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<bool, StaticAnalysisErrorReport> {
+) -> Result<bool, StaticCheckError> {
     check_argument_count(1, args)?;
 
     checker.type_check_expects(
@@ -308,7 +308,7 @@ fn check_allowance_all(
     _checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     _context: &TypingContext,
-) -> Result<bool, StaticAnalysisErrorReport> {
+) -> Result<bool, StaticCheckError> {
     check_argument_count(0, args)?;
 
     Ok(true)

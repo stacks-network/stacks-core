@@ -48,11 +48,11 @@ fn test_get_burn_block_info_eval() {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
-            if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticCheckErrorKind::UnknownFunction(func_name) = *analysis_report.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::UnknownFunction(func_name) = *static_check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
-                    panic!("Bad analysis error: {analysis_report:?}");
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
                 panic!("Bad analysis result: {res:?}");
@@ -69,11 +69,11 @@ fn test_get_burn_block_info_eval() {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
-            if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticCheckErrorKind::UnknownFunction(func_name) = *analysis_report.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::UnknownFunction(func_name) = *static_check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
-                    panic!("Bad analysis error: {analysis_report:?}");
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
                 panic!("Bad analysis result: {res:?}");
@@ -161,11 +161,11 @@ fn test_get_block_info_eval_v210() {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
-            if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *analysis_report.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *static_check_error.err {
                     assert_eq!(name, "block-reward");
                 } else {
-                    panic!("Bad analysis error: {analysis_report:?}");
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
                 panic!("Bad analysis result: {res:?}");
@@ -182,11 +182,11 @@ fn test_get_block_info_eval_v210() {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
                 clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
-            if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *analysis_report.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::NoSuchBlockInfoProperty(name) = *static_check_error.err {
                     assert_eq!(name, "block-reward");
                 } else {
-                    panic!("Bad analysis error: {analysis_report:?}");
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
                 panic!("Bad analysis result: {res:?}");
@@ -875,11 +875,11 @@ fn test_block_heights() {
                 ClarityVersion::Clarity1,
                 contract_clarity3,
             );
-            if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *analysis_report.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *static_check_error.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
-                    panic!("Bad analysis error: {analysis_report:?}");
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
                 panic!("Bad analysis result: {res:?}");
@@ -909,11 +909,11 @@ fn test_block_heights() {
                 ClarityVersion::Clarity2,
                 contract_clarity3,
             );
-            if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *analysis_report.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *static_check_error.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
-                    panic!("Bad analysis error: {analysis_report:?}");
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
                 panic!("Bad analysis result: {res:?}");
@@ -925,11 +925,11 @@ fn test_block_heights() {
                 ClarityVersion::Clarity3,
                 contract_clarity1,
             );
-            if let Err(ClarityError::StaticCheck(analysis_report)) = res {
-                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *analysis_report.err {
+            if let Err(ClarityError::StaticCheck(static_check_error)) = res {
+                if let StaticCheckErrorKind::UndefinedVariable(var_name) = *static_check_error.err {
                     assert_eq!(var_name, "block-height");
                 } else {
-                    panic!("Bad analysis error: {analysis_report:?}");
+                    panic!("Bad analysis error: {static_check_error:?}");
                 }
             } else {
                 panic!("Bad analysis result: {res:?}");

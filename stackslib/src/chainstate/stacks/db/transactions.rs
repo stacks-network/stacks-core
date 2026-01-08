@@ -193,14 +193,14 @@ impl StacksTransactionReceipt {
         error: ClarityError,
     ) -> StacksTransactionReceipt {
         let error_string = match error {
-            ClarityError::StaticCheck(ref analysis_report) => {
-                if let Some(span) = analysis_report.diagnostic.spans.first() {
+            ClarityError::StaticCheck(ref static_check_error) => {
+                if let Some(span) = static_check_error.diagnostic.spans.first() {
                     format!(
                         ":{}:{}: {}",
-                        span.start_line, span.start_column, analysis_report.diagnostic.message
+                        span.start_line, span.start_column, static_check_error.diagnostic.message
                     )
                 } else {
-                    analysis_report.diagnostic.message.to_string()
+                    static_check_error.diagnostic.message.to_string()
                 }
             }
             ClarityError::Parse(ref parse_error) => {

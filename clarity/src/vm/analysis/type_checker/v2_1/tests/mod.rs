@@ -22,9 +22,7 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{
-    StaticCheckErrorKind, StaticAnalysisErrorReport, SyntaxBindingError,
-};
+use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::analysis::types::ContractAnalysis;
@@ -61,7 +59,7 @@ const SECP256R1_SIGNATURE: &str =
 /// Backwards-compatibility shim for type_checker tests. Runs at latest Clarity version.
 pub fn mem_type_check(
     exp: &str,
-) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticAnalysisErrorReport> {
+) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticCheckError> {
     mem_run_analysis(
         exp,
         crate::vm::ClarityVersion::latest(),
@@ -70,7 +68,7 @@ pub fn mem_type_check(
 }
 
 /// NOTE: runs at latest Clarity version
-fn type_check_helper(exp: &str) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+fn type_check_helper(exp: &str) -> Result<TypeSignature, StaticCheckError> {
     mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
@@ -78,11 +76,11 @@ fn type_check_helper_version(
     exp: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     mem_run_analysis(exp, version, epoch).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
-fn type_check_helper_v1(exp: &str) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+fn type_check_helper_v1(exp: &str) -> Result<TypeSignature, StaticCheckError> {
     type_check_helper_version(exp, ClarityVersion::Clarity1, StacksEpochId::latest())
 }
 
@@ -814,7 +812,9 @@ fn test_destructuring_opts(#[case] version: ClarityVersion, #[case] epoch: Stack
         ),
         (
             "(match (some 1) 2 (+ 1 1) (+ 3 4))",
-            StaticCheckErrorKind::BadMatchOptionSyntax(Box::new(StaticCheckErrorKind::ExpectedName)),
+            StaticCheckErrorKind::BadMatchOptionSyntax(Box::new(
+                StaticCheckErrorKind::ExpectedName,
+            )),
         ),
         (
             "(match)",

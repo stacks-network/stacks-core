@@ -20,7 +20,7 @@ pub mod v2_1;
 
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{StaticCheckErrorKind, StaticAnalysisErrorReport};
+use super::errors::{StaticCheckErrorKind, StaticCheckError};
 pub use super::types::{AnalysisPass, ContractAnalysis};
 use super::AnalysisDatabase;
 use crate::vm::costs::CostTracker;
@@ -34,7 +34,7 @@ impl FunctionType {
         args: &[TypeSignature],
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
                 self.check_args_2_05(accounting, args)
@@ -60,7 +60,7 @@ impl FunctionType {
         func_args: &[Value],
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
                 self.check_args_by_allowing_trait_cast_2_05(db, func_args)

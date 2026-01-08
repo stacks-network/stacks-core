@@ -17,7 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_checker::v2_05::{
-    check_arguments_at_least, StaticCheckErrorKind, StaticAnalysisErrorReport, TypeChecker,
+    check_arguments_at_least, StaticCheckErrorKind, StaticCheckError, TypeChecker,
     TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -29,7 +29,7 @@ pub fn check_special_fetch_entry(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
     let map_name = args[0]
@@ -58,7 +58,7 @@ pub fn check_special_fetch_entry(
     let option_type = TypeSignature::new_option(value_type.clone())?;
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch2_05, &key_type)? {
-        Err(StaticAnalysisErrorReport::new(
+        Err(StaticCheckError::new(
             StaticCheckErrorKind::TypeError(Box::new(expected_key_type.clone()), Box::new(key_type)),
         ))
     } else {
@@ -70,7 +70,7 @@ pub fn check_special_delete_entry(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
     let map_name = args[0]
@@ -92,7 +92,7 @@ pub fn check_special_delete_entry(
     analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch2_05, &key_type)? {
-        Err(StaticAnalysisErrorReport::new(
+        Err(StaticCheckError::new(
             StaticCheckErrorKind::TypeError(Box::new(expected_key_type.clone()), Box::new(key_type)),
         ))
     } else {
@@ -104,7 +104,7 @@ fn check_set_or_insert_entry(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(3, args)?;
 
     let map_name = args[0]
@@ -134,11 +134,11 @@ fn check_set_or_insert_entry(
     analysis_typecheck_cost(&mut checker.cost_track, expected_value_type, &value_type)?;
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch2_05, &key_type)? {
-        Err(StaticAnalysisErrorReport::new(
+        Err(StaticCheckError::new(
             StaticCheckErrorKind::TypeError(Box::new(expected_key_type.clone()), Box::new(key_type)),
         ))
     } else if !expected_value_type.admits_type(&StacksEpochId::Epoch2_05, &value_type)? {
-        Err(StaticAnalysisErrorReport::new(
+        Err(StaticCheckError::new(
             StaticCheckErrorKind::TypeError(
                 Box::new(expected_value_type.clone()),
                 Box::new(value_type),
@@ -153,7 +153,7 @@ pub fn check_special_set_entry(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_set_or_insert_entry(checker, args, context)
 }
 
@@ -161,6 +161,6 @@ pub fn check_special_insert_entry(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_set_or_insert_entry(checker, args, context)
 }

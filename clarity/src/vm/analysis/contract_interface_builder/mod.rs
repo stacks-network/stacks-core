@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::analysis::{StaticCheckErrorKind, StaticAnalysisErrorReport};
+use crate::vm::analysis::{StaticCheckErrorKind, StaticCheckError};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,
@@ -28,7 +28,7 @@ use crate::vm::{ClarityName, ClarityVersion};
 
 pub fn build_contract_interface(
     contract_analysis: &ContractAnalysis,
-) -> Result<ContractInterface, StaticAnalysisErrorReport> {
+) -> Result<ContractInterface, StaticCheckError> {
     let mut contract_interface =
         ContractInterface::new(contract_analysis.epoch, contract_analysis.clarity_version);
 
@@ -267,7 +267,7 @@ impl ContractInterfaceFunction {
     fn from_map(
         map: &BTreeMap<ClarityName, FunctionType>,
         access: ContractInterfaceFunctionAccess,
-    ) -> Result<Vec<ContractInterfaceFunction>, StaticAnalysisErrorReport> {
+    ) -> Result<Vec<ContractInterfaceFunction>, StaticCheckError> {
         map.iter()
             .map(|(name, function_type)| {
                 Ok(ContractInterfaceFunction {
@@ -400,7 +400,7 @@ impl ContractInterface {
         }
     }
 
-    pub fn serialize(&self) -> Result<String, StaticAnalysisErrorReport> {
+    pub fn serialize(&self) -> Result<String, StaticCheckError> {
         serde_json::to_string(self).map_err(|_| {
             StaticCheckErrorKind::Expects("Failed to serialize contract interface".into()).into()
         })

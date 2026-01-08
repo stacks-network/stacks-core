@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{StaticCheckErrorKind, StaticAnalysisErrorReport};
+use crate::vm::analysis::errors::{StaticCheckErrorKind, StaticCheckError};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{TraitIdentifier, TypeSignature};
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
@@ -64,11 +64,11 @@ impl TypeMap {
         &mut self,
         expr: &SymbolicExpression,
         type_sig: TypeSignature,
-    ) -> Result<(), StaticAnalysisErrorReport> {
+    ) -> Result<(), StaticCheckError> {
         match self.map {
             TypeMapDataType::Map(ref mut map) => {
                 if map.insert(expr.id, type_sig).is_some() {
-                    Err(StaticAnalysisErrorReport::new(
+                    Err(StaticCheckError::new(
                         StaticCheckErrorKind::TypeAlreadyAnnotatedFailure,
                     ))
                 } else {
@@ -77,7 +77,7 @@ impl TypeMap {
             }
             TypeMapDataType::Set(ref mut map) => {
                 if !map.insert(expr.id) {
-                    Err(StaticAnalysisErrorReport::new(
+                    Err(StaticCheckError::new(
                         StaticCheckErrorKind::TypeAlreadyAnnotatedFailure,
                     ))
                 } else {
@@ -107,9 +107,9 @@ impl TypingContext<'_> {
         }
     }
 
-    pub fn extend(&self) -> Result<TypingContext<'_>, StaticAnalysisErrorReport> {
+    pub fn extend(&self) -> Result<TypingContext<'_>, StaticCheckError> {
         if self.depth >= MAX_CONTEXT_DEPTH {
-            Err(StaticAnalysisErrorReport::new(
+            Err(StaticCheckError::new(
                 StaticCheckErrorKind::MaxContextDepthReached,
             ))
         } else {

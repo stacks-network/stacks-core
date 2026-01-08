@@ -1894,7 +1894,7 @@ mod tests {
     }
 
     #[test]
-    fn analysis_report_span() {
+    fn static_check_error_span() {
         let mut lexer = Lexer::new("0a 123", false).unwrap();
         lexer.read_token().unwrap();
         assert_eq!(

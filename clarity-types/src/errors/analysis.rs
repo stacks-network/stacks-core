@@ -849,7 +849,7 @@ pub enum RuntimeCheckErrorKind {
 /// (like line and column numbers) and the code expression that caused the error.
 /// It provides the full context needed to report a clear, actionable error to a
 /// developer during contract deployment.
-pub struct StaticAnalysisErrorReport {
+pub struct StaticCheckError {
     /// The specific type-checking or semantic error that occurred.
     pub err: Box<StaticCheckErrorKind>,
     /// Optional vector of expressions related to the error, if available.
@@ -878,10 +878,10 @@ impl StaticCheckErrorKind {
     }
 }
 
-impl StaticAnalysisErrorReport {
-    pub fn new(err: StaticCheckErrorKind) -> StaticAnalysisErrorReport {
+impl StaticCheckError {
+    pub fn new(err: StaticCheckErrorKind) -> StaticCheckError {
         let diagnostic = Diagnostic::err(&err);
-        StaticAnalysisErrorReport {
+        StaticCheckError {
             err: Box::new(err),
             expressions: None,
             diagnostic,
@@ -909,13 +909,13 @@ impl StaticAnalysisErrorReport {
     }
 }
 
-impl From<(CommonCheckErrorKind, &SymbolicExpression)> for StaticAnalysisErrorReport {
+impl From<(CommonCheckErrorKind, &SymbolicExpression)> for StaticCheckError {
     fn from(e: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         Self::with_expression(e.0.into(), e.1)
     }
 }
 
-impl From<(SyntaxBindingError, &SymbolicExpression)> for StaticAnalysisErrorReport {
+impl From<(SyntaxBindingError, &SymbolicExpression)> for StaticCheckError {
     fn from(e: (SyntaxBindingError, &SymbolicExpression)) -> Self {
         Self::with_expression(StaticCheckErrorKind::BadSyntaxBinding(e.0), e.1)
     }
@@ -951,7 +951,7 @@ impl fmt::Display for StaticCheckErrorKind {
     }
 }
 
-impl fmt::Display for StaticAnalysisErrorReport {
+impl fmt::Display for StaticCheckError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.err)?;
 
@@ -963,9 +963,9 @@ impl fmt::Display for StaticAnalysisErrorReport {
     }
 }
 
-impl From<CostErrors> for StaticAnalysisErrorReport {
+impl From<CostErrors> for StaticCheckError {
     fn from(err: CostErrors) -> Self {
-        StaticAnalysisErrorReport::from(StaticCheckErrorKind::from(err))
+        StaticCheckError::from(StaticCheckErrorKind::from(err))
     }
 }
 
@@ -1044,7 +1044,7 @@ impl error::Error for CommonCheckErrorKind {
     }
 }
 
-impl error::Error for StaticAnalysisErrorReport {
+impl error::Error for StaticCheckError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
@@ -1056,15 +1056,15 @@ impl error::Error for RuntimeCheckErrorKind {
     }
 }
 
-impl From<StaticCheckErrorKind> for StaticAnalysisErrorReport {
+impl From<StaticCheckErrorKind> for StaticCheckError {
     fn from(err: StaticCheckErrorKind) -> Self {
-        StaticAnalysisErrorReport::new(err)
+        StaticCheckError::new(err)
     }
 }
 
-impl From<CommonCheckErrorKind> for StaticAnalysisErrorReport {
+impl From<CommonCheckErrorKind> for StaticCheckError {
     fn from(err: CommonCheckErrorKind) -> Self {
-        StaticAnalysisErrorReport::new(StaticCheckErrorKind::from(err))
+        StaticCheckError::new(StaticCheckErrorKind::from(err))
     }
 }
 

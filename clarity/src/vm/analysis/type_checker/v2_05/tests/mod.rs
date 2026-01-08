@@ -17,7 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{
-    StaticCheckErrorKind, StaticAnalysisErrorReport, SyntaxBindingError,
+    StaticCheckErrorKind, StaticCheckError, SyntaxBindingError,
 };
 use crate::vm::analysis::mem_type_check;
 use crate::vm::ast::build_ast;
@@ -32,7 +32,7 @@ use crate::vm::ClarityVersion;
 mod assets;
 mod contracts;
 
-fn type_check_helper(exp: &str) -> Result<TypeSignature, StaticAnalysisErrorReport> {
+fn type_check_helper(exp: &str) -> Result<TypeSignature, StaticCheckError> {
     mem_type_check(exp, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
         .map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
