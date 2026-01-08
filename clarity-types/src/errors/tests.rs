@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,12 +16,7 @@
 //! Tests for Avoiding Accidental Consensus (AAC) Error Handling
 //!
 //! These tests ensure that error types maintain proper boundaries and don't
-//! accidentally change consensus behavior. This directly addresses issues:
-//! - #6727: Split CostErrors from ParseErrors
-//! - #6728: Split CostErrors from CheckErrors
-//! - #6729: Rename error types for clarification
-//! - #6730: Add Unreachable error for unreachable runtime check errors
-//! - #6731: Add new layer of errors for clarity-types
+//! accidentally change consensus behavior.
 //!
 //! Key invariants tested:
 //! 1. Error type separation: CostErrors, ParseErrors, and CheckErrors remain distinct
@@ -37,7 +32,6 @@ use crate::execution_cost::ExecutionCost;
 use crate::types::{TypeSignature, Value};
 
 /// Test that CostErrors and CheckErrors are properly separated.
-/// Addresses #6728: Split CostErrors from CheckErrors
 #[test]
 fn test_cost_error_to_check_error_conversion() {
     // CostErrors should convert to CheckErrorKind variants
@@ -58,7 +52,16 @@ fn test_cost_error_to_check_error_conversion() {
     let check_err: CheckErrorKind = cost_balance.into();
     assert!(matches!(
         check_err,
-        CheckErrorKind::CostBalanceExceeded(_, _)
+        CheckErrorKind::CostBalanceExceeded(
+            ExecutionCost::ZERO,
+            ExecutionCost {
+                write_length: 100,
+                write_count: 10,
+                read_length: 200,
+                read_count: 20,
+                runtime: 1000,
+            }
+        )
     ));
 
     // Memory balance exceeded
@@ -71,7 +74,6 @@ fn test_cost_error_to_check_error_conversion() {
 }
 
 /// Test that CostErrors and ParseErrors are properly separated.
-/// Addresses #6727: Split CostErrors from ParseErrors
 #[test]
 fn test_cost_error_to_parse_error_conversion() {
     // CostErrors should convert to ParseErrorKind variants
@@ -92,7 +94,16 @@ fn test_cost_error_to_parse_error_conversion() {
     let parse_err: ParseError = cost_balance.into();
     assert!(matches!(
         *parse_err.err,
-        ParseErrorKind::CostBalanceExceeded(_, _)
+        ParseErrorKind::CostBalanceExceeded(
+            ExecutionCost::ZERO,
+            ExecutionCost {
+                write_length: 100,
+                write_count: 10,
+                read_length: 200,
+                read_count: 20,
+                runtime: 1000,
+            }
+        )
     ));
 }
 
@@ -130,28 +141,49 @@ fn test_rejectable_errors_consensus_critical() {
     assert!(!non_rejectable_parse.rejectable());
 }
 
-/// Test that error conversions preserve rejectable status.
+/// Test that CostErrors to CheckError conversions preserve rejectable status.
 /// This is critical for consensus - we must not accidentally make
 /// a non-rejectable error rejectable or vice versa.
 #[test]
-fn test_error_conversion_preserves_rejectable_status() {
-    // CostErrors::InterpreterFailure is rejectable
-    let cost_err = CostErrors::InterpreterFailure;
-    assert!(cost_err.rejectable());
+fn test_cost_error_conversion_check_error_preserves_rejectable_status() {
+    // Rejectable CostErrors should remain rejectable after conversion to CheckError
+    let cost_expect = CostErrors::Expect("test".into());
+    assert!(cost_expect.rejectable());
+    let check_err: CheckErrorKind = cost_expect.into();
+    assert!(check_err.rejectable());
 
-    // When converted to CheckErrorKind via VmExecutionError, it becomes an Expects variant
-    let vm_err: VmExecutionError = cost_err.into();
-    if let VmExecutionError::Internal(VmInternalError::Expect(_)) = vm_err {
-        // This is correct - interpreter failures become internal errors
-    } else {
-        panic!("InterpreterFailure should convert to Internal error");
-    }
+    let cost_interpreter = CostErrors::InterpreterFailure;
+    assert!(cost_interpreter.rejectable());
+    // InterpreterFailure converts to Expects variant in CheckErrorKind
+    let check_err: CheckErrorKind = cost_interpreter.into();
+    assert!(check_err.rejectable());
 
     // Non-rejectable CostErrors should remain non-rejectable
     let cost_overflow = CostErrors::CostOverflow;
     assert!(!cost_overflow.rejectable());
     let check_err: CheckErrorKind = cost_overflow.into();
     assert!(!check_err.rejectable());
+}
+
+/// Test that CostErrors to ParseError conversions preserve rejectable status.
+#[test]
+fn test_cost_error_conversion_parse_error_preserves_rejectable_status() {
+    // Rejectable CostErrors should remain rejectable after conversion to ParseError
+    let cost_expect = CostErrors::Expect("test".into());
+    assert!(cost_expect.rejectable());
+    let parse_err: ParseError = cost_expect.into();
+    assert!(parse_err.rejectable());
+
+    let cost_interpreter = CostErrors::InterpreterFailure;
+    assert!(cost_interpreter.rejectable());
+    let parse_err: ParseError = cost_interpreter.into();
+    assert!(parse_err.rejectable());
+
+    // Non-rejectable CostErrors should remain non-rejectable
+    let cost_overflow = CostErrors::CostOverflow;
+    assert!(!cost_overflow.rejectable());
+    let parse_err: ParseError = cost_overflow.into();
+    assert!(!parse_err.rejectable());
 }
 
 /// Test that untrusted data parsing never panics.
@@ -184,8 +216,7 @@ fn test_untrusted_data_never_panics() {
         });
         assert!(
             result.is_ok(),
-            "Parsing untrusted data panicked on input: {}",
-            input
+            "Parsing untrusted data panicked on input: {input}"
         );
     }
 }
@@ -244,13 +275,10 @@ fn test_parse_error_from_cost_errors_structure() {
     let cost_computation_failed = CostErrors::CostComputationFailed("test failure".into());
     let parse_err: ParseError = cost_computation_failed.into();
 
-    assert!(matches!(
-        *parse_err.err,
-        ParseErrorKind::CostComputationFailed(_)
-    ));
-    if let ParseErrorKind::CostComputationFailed(msg) = *parse_err.err {
-        assert_eq!(msg, "test failure");
-    }
+    assert!(
+        matches!(*parse_err.err, ParseErrorKind::CostComputationFailed(ref msg) if msg == "test failure"),
+        "Expected CostComputationFailed with correct message"
+    );
 }
 
 /// Test that StaticCheckError from CostErrors maintains diagnostic info.
@@ -320,21 +348,17 @@ fn test_memory_balance_exceeded_consistency() {
 
     // Convert to CheckErrorKind
     let check_err: CheckErrorKind = cost_err.into();
-    if let CheckErrorKind::MemoryBalanceExceeded(u, l) = check_err {
-        assert_eq!(u, used);
-        assert_eq!(l, limit);
-    } else {
-        panic!("Expected MemoryBalanceExceeded variant");
-    }
+    assert!(
+        matches!(check_err, CheckErrorKind::MemoryBalanceExceeded(u, l) if u == used && l == limit),
+        "Expected MemoryBalanceExceeded variant with correct values"
+    );
 
     // Convert to ParseError
     let parse_err: ParseError = CostErrors::MemoryBalanceExceeded(used, limit).into();
-    if let ParseErrorKind::MemoryBalanceExceeded(u, l) = *parse_err.err {
-        assert_eq!(u, used);
-        assert_eq!(l, limit);
-    } else {
-        panic!("Expected MemoryBalanceExceeded variant");
-    }
+    assert!(
+        matches!(*parse_err.err, ParseErrorKind::MemoryBalanceExceeded(u, l) if u == used && l == limit),
+        "Expected MemoryBalanceExceeded variant with correct values"
+    );
 }
 
 /// Test that trait-related errors maintain proper boundaries.
@@ -371,13 +395,12 @@ fn test_error_display_formatting() {
     ];
 
     for err in errors {
-        let display_str = format!("{}", err);
+        let display_str = format!("{err}");
         assert!(!display_str.is_empty(), "Error display should not be empty");
     }
 }
 
 /// Test that error conversions from Expect variants are properly handled.
-/// Addresses #6730: Add Unreachable error for unreachable runtime check errors
 #[test]
 fn test_expect_error_handling() {
     // CostErrors::Expect should be rejectable (indicates a bug)
@@ -390,10 +413,13 @@ fn test_expect_error_handling() {
 
     // Conversion to VmExecutionError
     let vm_err: VmExecutionError = cost_expect.into();
-    assert!(matches!(
-        vm_err,
-        VmExecutionError::Internal(VmInternalError::Expect(_))
-    ));
+    assert!(
+        matches!(
+            vm_err,
+            VmExecutionError::Internal(VmInternalError::Expect(_))
+        ),
+        "Expect errors should convert to Internal VmExecutionError"
+    );
 }
 
 /// Test that cost computation failures are properly categorized.
@@ -407,11 +433,10 @@ fn test_cost_computation_failure_categorization() {
 
     // Convert to CheckErrorKind
     let check_err: CheckErrorKind = cost_err.into();
-    if let CheckErrorKind::CostComputationFailed(msg) = check_err {
-        assert_eq!(msg, failure_msg);
-    } else {
-        panic!("Expected CostComputationFailed variant");
-    }
+    assert!(
+        matches!(check_err, CheckErrorKind::CostComputationFailed(ref msg) if msg == failure_msg),
+        "Expected CostComputationFailed variant with correct message"
+    );
 }
 
 /// Test that StaticCheckError properly tracks expressions.
@@ -455,14 +480,14 @@ fn test_argument_count_error_boundaries() {
 fn test_error_message_safety() {
     // Error messages should not contain sensitive information
     let err = CheckErrorKind::NoSuchContract("test-contract".into());
-    let msg = format!("{:?}", err);
+    let msg = format!("{err:?}");
     assert!(msg.contains("test-contract"));
     assert!(!msg.contains("password"));
     assert!(!msg.contains("secret"));
 
     // ParseError messages should also be safe
     let parse_err = ParseError::new(ParseErrorKind::IllegalVariableName("test-var".into()));
-    let msg = format!("{:?}", parse_err);
+    let msg = format!("{parse_err:?}");
     assert!(msg.contains("test-var"));
 }
 
@@ -481,10 +506,12 @@ fn test_cost_balance_exceeded_variants() {
     assert!(!err.rejectable());
 
     let check_err: CheckErrorKind = err.into();
-    if let CheckErrorKind::CostBalanceExceeded(used, limit) = check_err {
-        assert_eq!(used.runtime, u64::MAX);
-        assert_eq!(limit, ExecutionCost::ZERO);
-    } else {
-        panic!("Expected CostBalanceExceeded variant");
-    }
+    assert!(
+        matches!(
+            check_err,
+            CheckErrorKind::CostBalanceExceeded(ref used, limit)
+            if used.runtime == u64::MAX && limit == ExecutionCost::ZERO
+        ),
+        "Expected CostBalanceExceeded variant with correct values"
+    );
 }
