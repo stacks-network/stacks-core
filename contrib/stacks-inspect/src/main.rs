@@ -22,7 +22,7 @@ use clarity::types::chainstate::StacksPrivateKey;
 use clarity_cli::{DEFAULT_CLI_EPOCH, read_file_or_stdin, read_file_or_stdin_bytes};
 use stacks_inspect::{
     command_contract_hash, command_replay_mock_mining, command_try_mine, command_validate_block,
-    command_validate_block_nakamoto, drain_common_opts,
+    drain_common_opts,
 };
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
@@ -1593,11 +1593,6 @@ check if the associated microblocks can be downloaded
 
     if argv[1] == "validate-block" {
         command_validate_block(&argv[1..], common_opts.config.as_ref());
-        process::exit(0);
-    }
-
-    if argv[1] == "validate-naka-block" {
-        command_validate_block_nakamoto(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
