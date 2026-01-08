@@ -249,6 +249,17 @@ fn cli_get_miner_spend(
     spend_amount
 }
 
+/// If the previous session was terminated before all the pending events had been sent,
+/// the DB will still contain them. Work through that before doing anything new.
+/// Pending events for observers that are no longer registered will be discarded.
+fn send_pending_event_payloads(conf: &Config) {
+    let mut event_dispatcher = EventDispatcher::new(conf.get_working_dir());
+    for observer in &conf.events_observers {
+        event_dispatcher.register_observer(observer);
+    }
+    event_dispatcher.process_pending_payloads();
+}
+
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
         error!("Process abort due to thread panic: {panic_info}");
@@ -410,6 +421,8 @@ fn main() {
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
+
+    send_pending_event_payloads(&conf);
 
     let num_round: u64 = 0; // Infinite number of rounds
 

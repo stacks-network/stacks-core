@@ -95,7 +95,6 @@ impl RunLoop {
         for observer in config.events_observers.iter() {
             event_dispatcher.register_observer(observer);
         }
-        event_dispatcher.process_pending_payloads();
 
         Self {
             config,

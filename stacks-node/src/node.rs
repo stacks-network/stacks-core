@@ -343,7 +343,6 @@ impl Node {
         for observer in &config.events_observers {
             event_dispatcher.register_observer(observer);
         }
-        event_dispatcher.process_pending_payloads();
 
         let burnchain_config = config.get_burnchain();
 
