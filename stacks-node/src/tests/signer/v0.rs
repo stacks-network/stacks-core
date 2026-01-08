@@ -134,7 +134,7 @@ use crate::tests::nakamoto_integrations::{
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch,
     next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
-    TestProxy,
+    wait_for_tenure_change_tx, TestProxy,
 };
 use crate::tests::signer::commands::*;
 use crate::tests::signer::SpawnedSignerTrait;
@@ -1227,39 +1227,6 @@ pub fn verify_sortition_winner(sortdb: &SortitionDB, miner_pkh: &Hash160) {
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert!(tip.sortition);
     assert_eq!(&tip.miner_pk_hash.unwrap(), miner_pkh);
-}
-
-/// Waits for a tenure change transaction to be observed in the test_observer at the expected height
-fn wait_for_tenure_change_tx(
-    timeout_secs: u64,
-    cause: TenureChangeCause,
-    expected_height: u64,
-) -> Result<serde_json::Value, String> {
-    let mut result = None;
-    wait_for(timeout_secs, || {
-        let blocks = test_observer::get_blocks();
-        for block in blocks {
-            let height = block["block_height"].as_u64().unwrap();
-            if height == expected_height {
-                let transactions = block["transactions"].as_array().unwrap();
-                for tx in transactions {
-                    let raw_tx = tx["raw_tx"].as_str().unwrap();
-                    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-                    let parsed =
-                        StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-                    if let TransactionPayload::TenureChange(payload) = &parsed.payload {
-                        if payload.cause.is_eq(&cause) {
-                            info!("Found tenure change transaction: {parsed:?}");
-                            result = Some(block);
-                            return Ok(true);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(false)
-    })?;
-    Ok(result.unwrap())
 }
 
 /// Waits for a block proposal to be observed in the test_observer stackerdb chunks at the expected height
