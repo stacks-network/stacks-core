@@ -309,6 +309,11 @@ impl Secp256r1PrivateKey {
 
     /// Sign a message hash, SHA256 hashing it (i.e. double-hashing) before
     /// returning the signature.
+    ///
+    /// NOTE: This was needed for the original behavior of `secp256r1-verify` in Clarity 4
+    /// but in Clarity 5, the preferred method is to use `sign_digest` and `verify_digest`
+    /// to avoid double hashing.
+    ///
     /// The message must be a 32-byte hash.
     pub fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
         if data_hash.len() != 32 {
@@ -356,6 +361,11 @@ pub fn secp256r1_verify_digest(
 
 /// Verify a secp256r1 signature against the SHA256 hash of the message hash
 /// (i.e., double-hashed).
+///
+/// NOTE: This was needed for the original behavior of `secp256r1-verify` in Clarity 4
+/// but in Clarity 5, the preferred method is to use `sign_digest` and `verify_digest`
+/// to avoid double hashing.
+///
 /// The message must be a 32-byte hash.
 /// The signature must be a 64-byte compact signature
 pub fn secp256r1_verify(
