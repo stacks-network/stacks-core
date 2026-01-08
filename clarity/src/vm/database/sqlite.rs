@@ -402,3 +402,24 @@ impl ClarityBackingStore for MemoryBackingStore {
         sqlite_get_metadata_manual(self, at_height, contract, key)
     }
 }
+
+#[test]
+fn trigger_bad_block_height() {
+    let mut store = MemoryBackingStore::default();
+    let contract_id = QualifiedContractIdentifier::transient();
+    // Use a block height that does NOT exist in MemoryBackingStore
+    // MemoryBackingStore::get_block_at_height returns None for any height != 0
+    let nonexistent_height = 42;
+    let key = "some-metadata-key";
+
+    let err =
+        sqlite_get_metadata_manual(&mut store, nonexistent_height, &contract_id, key).unwrap_err();
+
+    assert!(
+        matches!(
+            err,
+            VmExecutionError::Runtime(RuntimeError::BadBlockHeight(_), _)
+        ),
+        "Expected BadBlockHeight. Got {err}"
+    );
+}

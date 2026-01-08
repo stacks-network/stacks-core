@@ -22,7 +22,7 @@ use clarity::types::chainstate::StacksPrivateKey;
 use clarity_cli::DEFAULT_CLI_EPOCH;
 use stacks_inspect::{
     command_contract_hash, command_replay_mock_mining, command_try_mine, command_validate_block,
-    command_validate_block_nakamoto, drain_common_opts,
+    drain_common_opts,
 };
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
@@ -975,11 +975,6 @@ check if the associated microblocks can be downloaded
         return;
     }
 
-    if argv[1] == "local" {
-        clarity_cli::invoke_command(&format!("{} {}", argv[0], argv[1]), &argv[2..]);
-        return;
-    }
-
     if argv[1] == "deserialize-db" {
         if argv.len() < 4 {
             eprintln!("Usage: {} clarity_sqlite_db [byte-prefix]", &argv[0]);
@@ -1587,11 +1582,6 @@ check if the associated microblocks can be downloaded
 
     if argv[1] == "validate-block" {
         command_validate_block(&argv[1..], common_opts.config.as_ref());
-        process::exit(0);
-    }
-
-    if argv[1] == "validate-naka-block" {
-        command_validate_block_nakamoto(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 

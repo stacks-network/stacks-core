@@ -25,6 +25,7 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 
 [dev-dependencies]
 mutants = "0.0.3"
+clarity = { package = "clarity", path = "../clarity", features = ["rusqlite"]}
 
 [features]
 slog_json = ["stacks_common/slog_json", "clarity/slog_json"]
