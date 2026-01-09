@@ -77,11 +77,16 @@ pub struct RunLoop {
 
 impl RunLoop {
     /// Sets up a runloop and node, given a config.
+    ///
+    /// If no event_dispatcher is passed, a new one is created. Allowing one to be passed in
+    /// allows the nakamoto runloop to continue using the same event dispatcher as the
+    /// neon runloop at the epoch 2->3 transition.
     pub fn new(
         config: Config,
         should_keep_running: Option<Arc<AtomicBool>>,
         counters: Option<Counters>,
         monitoring_thread: Option<JoinHandle<Result<(), MonitoringError>>>,
+        event_dispatcher: Option<EventDispatcher>,
     ) -> Self {
         let channels = CoordinatorCommunication::instantiate();
         let should_keep_running =
@@ -91,10 +96,13 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let mut event_dispatcher = EventDispatcher::new(config.get_working_dir());
-        for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer);
-        }
+        let event_dispatcher = event_dispatcher.unwrap_or_else(|| {
+            let mut event_dispatcher = EventDispatcher::new(config.get_working_dir());
+            for observer in config.events_observers.iter() {
+                event_dispatcher.register_observer(observer);
+            }
+            event_dispatcher
+        });
 
         Self {
             config,

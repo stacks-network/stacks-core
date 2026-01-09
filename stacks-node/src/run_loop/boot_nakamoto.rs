@@ -83,7 +83,7 @@ impl BootRunLoop {
                 InnerLoops::Epoch2(neon),
             )
         } else {
-            let naka = NakaRunLoop::new(config.clone(), None, None, None);
+            let naka = NakaRunLoop::new(config.clone(), None, None, None, None);
             (
                 naka.get_coordinator_channel().unwrap(),
                 InnerLoops::Epoch3(naka),
@@ -184,6 +184,7 @@ impl BootRunLoop {
             Some(termination_switch),
             Some(counters),
             monitoring_thread,
+            Some(neon_loop.get_event_dispatcher()),
         );
         let new_coord_channels = naka
             .get_coordinator_channel()
