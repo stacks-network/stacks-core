@@ -195,6 +195,8 @@ impl EventDispatcherWorker {
                 return;
             };
 
+            thread::sleep(Duration::from_millis(250));
+
             let WorkerTask::Payload {
                 id,
                 disable_retries,
