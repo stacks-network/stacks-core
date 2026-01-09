@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 use std::sync::Arc;
 use std::thread::{self, sleep};
@@ -92,6 +93,8 @@ pub struct EventDispatcherWorker {
     sender: SyncSender<WorkerMessage>,
 }
 
+static NEXT_THREAD_NUM: AtomicU64 = AtomicU64::new(1);
+
 impl EventDispatcherWorker {
     pub fn new(db_path: PathBuf) -> Result<EventDispatcherWorker, EventDispatcherError> {
         Self::new_with_custom_queue_size(db_path, 1_000)
@@ -104,8 +107,10 @@ impl EventDispatcherWorker {
         let (message_tx, message_rx) = sync_channel(queue_size);
         let (ready_tx, ready_rx) = channel();
 
+        let thread_num = NEXT_THREAD_NUM.fetch_add(1, Ordering::SeqCst);
+
         thread::Builder::new()
-            .name("event-dispatcher".to_string())
+            .name(format!("event-dispatcher-{thread_num}").to_string())
             .spawn(move || {
                 let conn = match EventDispatcherDbConnection::new(&db_path) {
                     Ok(conn) => conn,
@@ -154,6 +159,7 @@ impl EventDispatcherWorker {
         timeout_override: Option<Duration>,
     ) -> Result<EventDispatcherResult, EventDispatcherError> {
         let (sender, receiver) = channel();
+        debug!("Event Dispatcher Worker: sending payload {id}");
 
         self.sender.send(WorkerMessage {
             task: WorkerTask::Payload {
@@ -170,6 +176,7 @@ impl EventDispatcherWorker {
     #[cfg(test)]
     pub fn noop(&self) -> Result<EventDispatcherResult, EventDispatcherError> {
         let (sender, receiver) = channel();
+        debug!("Event Dispatcher Worker: sending no-op");
 
         self.sender.send(WorkerMessage {
             task: WorkerTask::NoOp,
@@ -195,9 +202,12 @@ impl EventDispatcherWorker {
             } = task
             else {
                 // no-op -- just ack and move on
+                debug!("Event Dispatcher Worker: doing no-op");
                 let _ = completion.send(());
                 continue;
             };
+
+            debug!("Event Dispatcher Worker: doing payload {id}");
 
             // This will block forever if we were passed a non-existing ID. Don't do that.
             let mut payload = conn.get_payload_with_retry(id);
