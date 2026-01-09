@@ -19,6 +19,7 @@ use std::fmt;
 use std::mem::replace;
 
 use hashbrown::{HashMap, HashSet};
+use lazy_static::lazy_static;
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -1901,6 +1902,11 @@ impl Default for CallStack {
     }
 }
 
+lazy_static! {
+    static ref CONTRACT_CALL_FUNCTION_IDENTIFIER: FunctionIdentifier =
+        FunctionIdentifier::new_native_function("special_contract-call");
+}
+
 impl CallStack {
     pub fn new() -> CallStack {
         CallStack {
@@ -1911,7 +1917,11 @@ impl CallStack {
     }
 
     pub fn depth(&self) -> usize {
-        self.stack.len() + self.apply_depth
+        self.stack
+            .iter()
+            .filter(|id| **id != *CONTRACT_CALL_FUNCTION_IDENTIFIER)
+            .count()
+            + self.apply_depth
     }
 
     pub fn contains(&self, function: &FunctionIdentifier) -> bool {

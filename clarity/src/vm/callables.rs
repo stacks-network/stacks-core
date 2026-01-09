@@ -396,7 +396,7 @@ impl CallableType {
 }
 
 impl FunctionIdentifier {
-    fn new_native_function(name: &str) -> FunctionIdentifier {
+    pub(crate) fn new_native_function(name: &str) -> FunctionIdentifier {
         let identifier = format!("_native_:{}", name);
         FunctionIdentifier { identifier }
     }
