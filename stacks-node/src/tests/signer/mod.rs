@@ -72,6 +72,7 @@ use super::neon_integrations::{
     copy_dir_all, get_account, get_sortition_info_ch, submit_tx_fallible, Account,
 };
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
+use crate::event_dispatcher::catch_up_all_event_dispatchers;
 use crate::nakamoto_node::miner::TEST_MINE_SKIP;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
@@ -1140,6 +1141,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         TEST_MINE_SKIP.set(true);
         let mined_blocks = self.running_nodes.counters.naka_mined_blocks.clone();
         let mined_before = mined_blocks.get();
+        catch_up_all_event_dispatchers();
         self.mine_bitcoin_block();
         wait_for_state_machine_update_by_miner_tenure_id(
             timeout.as_secs(),
