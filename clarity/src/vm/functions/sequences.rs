@@ -468,7 +468,7 @@ pub fn special_slice(
         Ok(sliced_seq) => Ok(sliced_seq),
         Err(e) => {
             runtime_cost(ClarityCostFunction::Slice, env, 0)?;
-            Err(e.into())
+            Err(e)
         }
     }
 }
