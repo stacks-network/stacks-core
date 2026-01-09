@@ -1417,7 +1417,7 @@ mod tests {
     }
 
     #[test]
-    fn check_span() {
+    fn check_lexer_span() {
         let mut lexer = Lexer::new(
             r#"
  (foo)
@@ -1894,7 +1894,7 @@ mod tests {
     }
 
     #[test]
-    fn static_check_error_span() {
+    fn check_lexer_error_span() {
         let mut lexer = Lexer::new("0a 123", false).unwrap();
         lexer.read_token().unwrap();
         assert_eq!(
