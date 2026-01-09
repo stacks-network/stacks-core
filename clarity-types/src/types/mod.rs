@@ -547,32 +547,28 @@ impl SequenceData {
     /// is aborted and the original sequence is left unmodified. The first error is propagated.
     pub fn retain_values<E, F>(&mut self, mut predicate: F) -> Result<(), RetainValuesError<E>>
     where
-        F: FnMut(Value) -> Result<bool, E>,
+        F: FnMut(SymbolicExpression) -> Result<bool, E>,
     {
         // Note: this macro can probably get removed once
         // ```Vec::drain_filter<F>(&mut self, filter: F) -> DrainFilter<T, F>```
         // is available in rust stable channel (experimental at this point).
         macro_rules! retain_inner {
             ($data:expr, $seq_type:ident) => {{
-                let len = $data.data.len();
-                // To maintain relative order, avoid half mutated state on error, build a mask of elements to keep
-                let mut keep_mask = Vec::with_capacity(len);
-                for item in $data.data.iter() {
-                    let value = $seq_type::to_value(item).map_err(RetainValuesError::Internal)?;
-                    let keep = predicate(value).map_err(RetainValuesError::Predicate)?;
-                    keep_mask.push(keep);
-                }
-                // Rebuild vector from keep mask
-                let mut out = Vec::with_capacity(len);
-                for (item, keep) in $data.data.drain(..).zip(keep_mask.into_iter()) {
+                let mut i = 0;
+                while i != $data.data.len() {
+                    let atom_value = SymbolicExpression::atom_value(
+                        $seq_type::to_value(&$data.data[i]).map_err(RetainValuesError::Internal)?,
+                    );
+                    let keep = predicate(atom_value).map_err(RetainValuesError::Predicate)?;
                     if keep {
-                        out.push(item);
+                        i += 1;
+                    } else {
+                        $data.data.remove(i);
                     }
                 }
-
-                $data.data = out;
             }};
         }
+
         match self {
             SequenceData::Buffer(data) => retain_inner!(data, BuffData),
             SequenceData::List(data) => retain_inner!(data, ListData),

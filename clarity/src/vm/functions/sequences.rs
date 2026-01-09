@@ -68,20 +68,20 @@ pub fn special_filter(
     match sequence {
         Value::Sequence(ref mut sequence_data) => {
             sequence_data
-                .retain_values(&mut |v: Value| -> Result<bool, VmExecutionError> {
-                    let atom = SymbolicExpression::atom_value(v);
-                    let argument = [atom];
-                    let filter_eval = apply(&function, &argument, env, context)?;
-                    if let Value::Bool(include) = filter_eval {
-                        Ok(include)
-                    } else {
-                        Err(CheckErrorKind::TypeValueError(
-                            Box::new(BoolType),
-                            Box::new(filter_eval),
-                        )
-                        .into())
-                    }
-                })
+                .retain_values(
+                    &mut |atom: SymbolicExpression| -> Result<bool, VmExecutionError> {
+                        let filter_eval = apply(&function, &[atom], env, context)?;
+                        if let Value::Bool(include) = filter_eval {
+                            Ok(include)
+                        } else {
+                            Err(CheckErrorKind::TypeValueError(
+                                Box::new(BoolType),
+                                Box::new(filter_eval),
+                            )
+                            .into())
+                        }
+                    },
+                )
                 .map_err(|e| match e {
                     RetainValuesError::Internal(err) => {
                         VmExecutionError::Internal(VmInternalError::Expect(format!(
@@ -434,7 +434,7 @@ pub fn special_slice(
     let left_position = eval(&args[1], env, context)?;
     let right_position = eval(&args[2], env, context)?;
 
-    let sliced_seq_res = (|| {
+    let sliced_seq_res: Result<Value, VmExecutionError> = (|| {
         match (seq, left_position, right_position) {
             (Value::Sequence(seq), Value::UInt(left_position), Value::UInt(right_position)) => {
                 let (left_position, right_position) =
@@ -460,36 +460,7 @@ pub fn special_slice(
                     seq.slice(env.epoch(), left_position as usize, right_position as usize)?;
                 Ok(Value::some(seq_value)?)
             }
-            (seq, left_position, right_position) => {
-                // TODO: REMOVE THIS COMMENT: Is it better to keep RuntimeError::BadTypeConstruction? It just seems weird
-                // to have this error. if we are going to have an error for htings that shouldn't really hit, I feel like
-                // it should be more explicit like an ExpectAcceptable(String) error here instead. But handling explicitly
-                // for now until I get feedback.
-
-                // These errors should not really ever occur at runtime. These should have already been caught
-                // during static analysis. However, handle them just in case.
-
-                // seq must be a sequence
-                if !matches!(seq, Value::Sequence(_)) {
-                    return Err(CheckErrorKind::ExpectedSequence(Box::new(
-                        TypeSignature::type_of(&seq)?,
-                    )));
-                }
-
-                // left must be uint
-                if !matches!(left_position, Value::UInt(_)) {
-                    return Err(CheckErrorKind::TypeValueError(
-                        Box::new(TypeSignature::UIntType),
-                        Box::new(left_position),
-                    ));
-                }
-
-                // right must be uint
-                Err(CheckErrorKind::TypeValueError(
-                    Box::new(TypeSignature::UIntType),
-                    Box::new(right_position),
-                ))
-            }
+            _ => Err(CheckErrorKind::ExpectsAcceptable("Bad type construction".into()).into()),
         }
     })();
 
