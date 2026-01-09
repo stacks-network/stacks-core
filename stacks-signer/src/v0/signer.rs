@@ -945,6 +945,9 @@ impl Signer {
         if self.test_skip_block_response_broadcast(&block_response) {
             return;
         }
+
+        self.test_stall_block_response();
+
         const NUM_REPEATS: usize = 1;
         let mut count = 0;
         let public_keys = TEST_REPEAT_PROPOSAL_RESPONSE.get();
