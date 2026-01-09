@@ -115,7 +115,9 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
 use crate::clarity::vm::clarity::ClarityConnection;
-use crate::event_dispatcher::{MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT};
+use crate::event_dispatcher::{
+    catch_up_all_event_dispatchers, MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT,
+};
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
     TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_SKIP, TEST_P2P_BROADCAST_STALL,
@@ -7879,6 +7881,7 @@ fn mock_sign_epoch_25() {
         < epoch_3_boundary
     {
         let mut mock_block_mesage = None;
+        catch_up_all_event_dispatchers();
         let mock_poll_time = Instant::now();
         signer_test
             .running_nodes
@@ -11339,6 +11342,8 @@ fn block_validation_pending_table() {
 
     // Set the delay to 0 so that the block validation finishes quickly
     TEST_VALIDATE_DELAY_DURATION_SECS.set(0);
+
+    catch_up_all_event_dispatchers();
 
     wait_for(30, || {
         let proposal_responses = test_observer::get_proposal_responses();
