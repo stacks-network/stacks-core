@@ -762,10 +762,12 @@ pub fn special_delete_entry_v205(
 /// - `block-reward` returns the block reward for the block at `block-height`
 ///
 /// # Errors:
-/// - RuntimeCheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
-/// - RuntimeCheckErrorKind::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - RuntimeCheckErrorKind::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
-/// - RuntimeCheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
+/// - [`RuntimeCheckErrorKind`] cost errors (e.g., `CostOverflow`, `CostBalanceExceeded`) from [`runtime_cost`].
+/// - [`RuntimeCheckErrorKind::IncorrectArgumentCount`] if there aren't 2 arguments.
+/// - [`RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName`] if `args[0]` isn't a ClarityName or isn't a valid [`BlockInfoProperty`].
+/// - [`RuntimeCheckErrorKind::TypeValueError`] if `args[1]` doesn't evaluate to a `uint`.
+/// - [`VmExecutionError`] propagated from [`eval`] when evaluating `args[1]`.
+/// - [`VmInternalError`] from database operations when retrieving block information.
 pub fn special_get_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -914,10 +916,13 @@ pub fn special_get_block_info(
 /// - `pox_addrs` returns the list of PoX addresses paid out at `burn_block_height`
 ///
 /// # Errors:
-/// - RuntimeCheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
-/// - RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - RuntimeCheckErrorKind::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
-/// - RuntimeCheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
+/// - [`RuntimeCheckErrorKind::IncorrectArgumentCount`] if there aren't 2 arguments.
+/// - [`RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName`] if `args[0]` isn't a ClarityName.
+/// - [`RuntimeCheckErrorKind::NoSuchBurnBlockInfoProperty`] if `args[0]` isn't a [`BurnBlockInfoProperty`].
+/// - [`RuntimeCheckErrorKind::TypeValueError`] if `args[1]` doesn't evaluate to a `uint`.
+/// - [`RuntimeCheckErrorKind`] cost errors (e.g., `CostOverflow`, `CostBalanceExceeded`) from [`runtime_cost`].
+/// - [`VmExecutionError`] propagated from [`eval`] when evaluating `args[1]`.
+/// - [`VmInternalError`] from database operations or value construction failures.
 pub fn special_get_burn_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -1015,10 +1020,13 @@ pub fn special_get_burn_block_info(
 /// - `time` returns the block time at `block-height`
 ///
 /// # Errors:
-/// - RuntimeCheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
-/// - RuntimeCheckErrorKind::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - RuntimeCheckErrorKind::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
-/// - RuntimeCheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
+/// - [`RuntimeCheckErrorKind::IncorrectArgumentCount`] if there aren't 2 arguments.
+/// - [`RuntimeCheckErrorKind::GetStacksBlockInfoExpectPropertyName`] if `args[0]` isn't a ClarityName.
+/// - [`RuntimeCheckErrorKind::NoSuchStacksBlockInfoProperty`] if `args[0]` isn't a [`StacksBlockInfoProperty`].
+/// - [`RuntimeCheckErrorKind::TypeValueError`] if `args[1]` doesn't evaluate to a `uint`.
+/// - [`RuntimeCheckErrorKind`] cost errors (e.g., `CostOverflow`, `CostBalanceExceeded`) from [`runtime_cost`].
+/// - [`VmExecutionError`] propagated from [`eval`] when evaluating `args[1]`.
+/// - [`VmInternalError`] from database operations when retrieving block information.
 pub fn special_get_stacks_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -1085,7 +1093,7 @@ pub fn special_get_stacks_block_info(
     Value::some(result)
 }
 
-/// Handles the function `get-tenure-info?` special function.
+/// Handles the `get-tenure-info?` special function.
 /// Interprets `args` as variables `[property-name, block-height]`, and returns
 /// a property value determined by `property-name`:
 /// - `time` returns the burn block time for the tenure of which `block-height` is a part
@@ -1097,10 +1105,12 @@ pub fn special_get_stacks_block_info(
 /// - `block-reward` returns the block reward for the tenure of which `block-height` is a part
 ///
 /// # Errors:
-/// - RuntimeCheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
-/// - RuntimeCheckErrorKind::GetTenureInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - RuntimeCheckErrorKind::NoSuchTenureInfoProperty if `args[0]` isn't a TenureInfoProperty.
-/// - RuntimeCheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
+/// - [`RuntimeCheckErrorKind::IncorrectArgumentCount`] if there aren't 2 arguments.
+/// - [`RuntimeCheckErrorKind::GetTenureInfoExpectPropertyName`] if `args[0]` isn't a ClarityName or isn't a valid [`TenureInfoProperty`].
+/// - [`RuntimeCheckErrorKind::TypeValueError`] if `args[1]` doesn't evaluate to a `uint`.
+/// - [`RuntimeCheckErrorKind`] cost errors (e.g., `CostOverflow`, `CostBalanceExceeded`) from [`runtime_cost`].
+/// - [`VmExecutionError`] propagated from [`eval`] when evaluating `args[1]`.
+/// - [`VmInternalError`] from database operations when retrieving tenure information.
 pub fn special_get_tenure_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
