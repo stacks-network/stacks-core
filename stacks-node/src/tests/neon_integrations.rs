@@ -37,7 +37,7 @@ use stacks::chainstate::stacks::miner::{
 };
 use stacks::chainstate::stacks::{
     StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction, TransactionContractCall, TransactionPayload,
+    StacksTransaction, TenureChangeCause, TransactionContractCall, TransactionPayload,
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
@@ -1584,7 +1584,7 @@ fn get_chain_tip(http_origin: &str) -> (ConsensusHash, BlockHeaderHash) {
     )
 }
 
-fn get_chain_tip_height(http_origin: &str) -> u64 {
+pub fn get_chain_tip_height(http_origin: &str) -> u64 {
     let client = reqwest::blocking::Client::new();
     let path = format!("{http_origin}/v2/info");
     let res = client
@@ -9639,4 +9639,37 @@ fn mock_miner_replay() {
 
     miner_channel.stop_chains_coordinator();
     follower_channel.stop_chains_coordinator();
+}
+
+/// Waits for a tenure change transaction to be observed in the test_observer at the expected height
+pub fn wait_for_tenure_change_tx(
+    timeout_secs: u64,
+    cause: TenureChangeCause,
+    expected_height: u64,
+) -> Result<serde_json::Value, String> {
+    let mut result = None;
+    wait_for(timeout_secs, || {
+        let blocks = test_observer::get_blocks();
+        for block in blocks {
+            let height = block["block_height"].as_u64().unwrap();
+            if height == expected_height {
+                let transactions = block["transactions"].as_array().unwrap();
+                for tx in transactions {
+                    let raw_tx = tx["raw_tx"].as_str().unwrap();
+                    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+                    let parsed =
+                        StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                    if let TransactionPayload::TenureChange(payload) = &parsed.payload {
+                        if payload.cause.is_eq(&cause) {
+                            info!("Found tenure change transaction: {parsed:?}");
+                            result = Some(block);
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(false)
+    })?;
+    Ok(result.unwrap())
 }
