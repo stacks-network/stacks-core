@@ -195,7 +195,7 @@ impl EventDispatcherWorker {
                 return;
             };
 
-            thread::sleep(Duration::from_millis(250));
+            thread::sleep(Duration::from_millis(50));
 
             let WorkerTask::Payload {
                 id,
