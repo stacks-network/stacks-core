@@ -57,6 +57,9 @@ pub static TEST_SKIP_SIGNER_CLEANUP: LazyLock<TestFlag<bool>> = LazyLock::new(Te
 pub static TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
     LazyLock::new(TestFlag::default);
 
+/// A global variable that can be used to stall the block response broadcast
+pub static TEST_STALL_BLOCK_RESPONSE: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
 impl Signer {
     /// Skip the block broadcast if the TEST_SKIP_BLOCK_BROADCAST flag is set
     pub fn test_skip_block_broadcast(&self, block: &NakamotoBlock) -> bool {
@@ -191,5 +194,17 @@ impl Signer {
             return true;
         }
         false
+    }
+
+    /// Stall the block response broadcast if the TEST_STALL_BLOCK_RESPONSE flag is set
+    pub fn test_stall_block_response(&self) {
+        if TEST_STALL_BLOCK_RESPONSE.get() {
+            // Do an extra check just so we don't log EVERY time.
+            warn!("{self}: Block response is stalled due to testing directive");
+            while TEST_STALL_BLOCK_RESPONSE.get() {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            warn!("{self}: Block response is no longer stalled due to testing directive. Continuing...");
+        }
     }
 }
