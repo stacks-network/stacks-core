@@ -15,13 +15,15 @@
 
 pub mod cli;
 
-use std::path::PathBuf;
 use std::time::Instant;
 use std::{fs, process};
 
 use clarity::types::chainstate::SortitionId;
 use clarity::util::hash::{Sha512Trunc256Sum, to_hex};
 use clarity_cli::read_file_or_stdin;
+pub use cli::{
+    ContractHashArgs, ReplayMockMiningArgs, TryMineArgs, ValidateBlockArgs, ValidateBlockMode,
+};
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
@@ -47,137 +49,55 @@ use stackslib::chainstate::stacks::miner::*;
 use stackslib::chainstate::stacks::{Error as ChainstateError, *};
 use stackslib::clarity_vm::clarity::ClarityInstance;
 use stackslib::clarity_vm::database::GetTenureStartId;
-use stackslib::config::{Config, ConfigFile, DEFAULT_MAINNET_CONFIG};
+use stackslib::config::{Config, DEFAULT_MAINNET_CONFIG};
 use stackslib::core::*;
 use stackslib::cost_estimates::UnitEstimator;
 use stackslib::cost_estimates::metrics::UnitMetric;
 use stackslib::util_lib::db::IndexDBTx;
 
-/// Options common to many `stacks-inspect` subcommands
-/// Returned by `process_common_opts()`
 #[derive(Debug, Default)]
 pub struct CommonOpts {
     pub config: Option<Config>,
-}
-
-/// Process arguments common to many `stacks-inspect` subcommands and drain them from `argv`
-///
-/// Args:
-///  - `argv`: Full CLI args `Vec`
-///  - `start_at`: Position in args vec where to look for common options.
-///    For example, if `start_at` is `1`, then look for these options **before** the subcommand:
-///    ```console
-///    stacks-inspect --config testnet.toml replay-block path/to/chainstate
-///    ```
-pub fn drain_common_opts(argv: &mut Vec<String>, start_at: usize) -> CommonOpts {
-    let mut i = start_at;
-    let mut opts = CommonOpts::default();
-    while let Some(arg) = argv.get(i) {
-        let (prefix, opt) = arg.split_at(2);
-        if prefix != "--" {
-            // No args left to take
-            break;
-        }
-        // "Take" arg
-        i += 1;
-        match opt {
-            "config" => {
-                let path = &argv[i];
-                i += 1;
-                let config_file = ConfigFile::from_path(path).unwrap_or_else(|e| {
-                    panic!("Failed to read '{path}' as stacks-node config: {e}")
-                });
-                let config = Config::from_config_file(config_file, false).unwrap_or_else(|e| {
-                    panic!("Failed to convert config file into node config: {e}")
-                });
-                opts.config.replace(config);
-            }
-            "network" => {
-                let network = &argv[i];
-                i += 1;
-                let config_file = match network.to_lowercase().as_str() {
-                    "helium" => ConfigFile::helium(),
-                    "mainnet" => ConfigFile::mainnet(),
-                    "mocknet" => ConfigFile::mocknet(),
-                    "xenon" => ConfigFile::xenon(),
-                    other => {
-                        eprintln!("Unknown network choice `{other}`");
-                        process::exit(1);
-                    }
-                };
-                let config = Config::from_config_file(config_file, false).unwrap_or_else(|e| {
-                    panic!("Failed to convert config file into node config: {e}")
-                });
-                opts.config.replace(config);
-            }
-            _ => panic!("Unrecognized option: {opt}"),
-        }
-    }
-    // Remove options processed
-    argv.drain(start_at..i);
-    opts
 }
 
 /// Replay blocks from chainstate database
 /// Terminates on error using `process::exit()`
 ///
 /// Arguments:
-///  - `argv`: Args in CLI format: `<command-name> [args...]`
-pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
-    let print_help_and_exit = || -> ! {
-        let n = &argv[0];
-        eprintln!("Usage:");
-        eprintln!("  {n} <database-path>");
-        eprintln!("  {n} <database-path> prefix <index-block-hash-prefix>");
-        eprintln!("  {n} <database-path> index-range <start-block> <end-block>");
-        eprintln!("  {n} <database-path> range <start-block> <end-block>");
-        eprintln!("  {n} <database-path> <first|last> <block-count>");
-        process::exit(1);
-    };
+///  - `args`: Parsed CLI arguments
+///  - `conf`: Optional config for running on non-mainnet chainstate
+pub fn command_validate_block(args: &ValidateBlockArgs, conf: Option<&Config>) {
     let start = Instant::now();
-    let db_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
-    let mode = argv.get(2).map(String::as_str);
+    let db_path = &args.database_path;
     let staging_blocks_db_path = format!("{db_path}/chainstate/vm/index.sqlite");
     let conn =
         Connection::open_with_flags(&staging_blocks_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .unwrap();
 
-    let query = match mode {
-        Some("prefix") => format!(
-            "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{}%\"",
-            argv[3]
+    let query = match &args.mode {
+        Some(ValidateBlockMode::Prefix { prefix }) => format!(
+            "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{prefix}%\""
         ),
-        Some("first") => format!(
-            "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {}",
-            argv[3]
+        Some(ValidateBlockMode::First { count }) => format!(
+            "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {count}"
         ),
-        Some("range") => {
-            let arg4 = argv[3]
-                .parse::<u64>()
-                .expect("<start_block> not a valid u64");
-            let arg5 = argv[4].parse::<u64>().expect("<end-block> not a valid u64");
-            let start = arg4.saturating_sub(1);
-            let blocks = arg5.saturating_sub(arg4);
+        Some(ValidateBlockMode::Last { count }) => format!(
+            "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {count}"
+        ),
+        Some(ValidateBlockMode::Range { start, end }) => {
+            let offset = start.saturating_sub(1);
+            let limit = end.saturating_sub(*start);
             format!(
-                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {start}, {blocks}"
+                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {offset}, {limit}"
             )
         }
-        Some("index-range") => {
-            let start = argv[3]
-                .parse::<u64>()
-                .expect("<start_block> not a valid u64");
-            let end = argv[4].parse::<u64>().expect("<end-block> not a valid u64");
-            let blocks = end.saturating_sub(start);
+        Some(ValidateBlockMode::IndexRange { start, end }) => {
+            let limit = end.saturating_sub(*start);
             format!(
-                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}"
+                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {limit}"
             )
         }
-        Some("last") => format!(
-            "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {}",
-            argv[3]
-        ),
-        Some(_) => print_help_and_exit(),
-        // Default to ALL blocks
+        // Default: validate ALL blocks
         None => "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0".into(),
     };
 
@@ -204,21 +124,11 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
 /// Terminates on error using `process::exit()`
 ///
 /// Arguments:
-///  - `argv`: Args in CLI format: `<command-name> [args...]`
-pub fn command_validate_block_nakamoto(argv: &[String], conf: Option<&Config>) {
-    let print_help_and_exit = || -> ! {
-        let n = &argv[0];
-        eprintln!("Usage:");
-        eprintln!("  {n} <database-path>");
-        eprintln!("  {n} <database-path> prefix <index-block-hash-prefix>");
-        eprintln!("  {n} <database-path> index-range <start-block> <end-block>");
-        eprintln!("  {n} <database-path> range <start-block> <end-block>");
-        eprintln!("  {n} <database-path> <first|last> <block-count>");
-        process::exit(1);
-    };
+///  - `args`: Parsed CLI arguments
+///  - `conf`: Optional config for running on non-mainnet chainstate
+pub fn command_validate_block_nakamoto(args: &ValidateBlockArgs, conf: Option<&Config>) {
     let start = Instant::now();
-    let db_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
-    let mode = argv.get(2).map(String::as_str);
+    let db_path = &args.database_path;
 
     let chain_state_path = format!("{db_path}/chainstate/");
 
@@ -234,42 +144,30 @@ pub fn command_validate_block_nakamoto(argv: &[String], conf: Option<&Config>) {
 
     let conn = chainstate.nakamoto_blocks_db();
 
-    let query = match mode {
-        Some("prefix") => format!(
-            "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{}%\"",
-            argv[3]
+    let query = match &args.mode {
+        Some(ValidateBlockMode::Prefix { prefix }) => format!(
+            "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{prefix}%\""
         ),
-        Some("first") => format!(
-            "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {}",
-            argv[3]
+        Some(ValidateBlockMode::First { count }) => format!(
+            "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {count}"
         ),
-        Some("range") => {
-            let arg4 = argv[3]
-                .parse::<u64>()
-                .expect("<start_block> not a valid u64");
-            let arg5 = argv[4].parse::<u64>().expect("<end-block> not a valid u64");
-            let start = arg4.saturating_sub(1);
-            let blocks = arg5.saturating_sub(arg4);
+        Some(ValidateBlockMode::Last { count }) => format!(
+            "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {count}"
+        ),
+        Some(ValidateBlockMode::Range { start, end }) => {
+            let offset = start.saturating_sub(1);
+            let limit = end.saturating_sub(*start);
             format!(
-                "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {start}, {blocks}"
+                "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {offset}, {limit}"
             )
         }
-        Some("index-range") => {
-            let start = argv[3]
-                .parse::<u64>()
-                .expect("<start_block> not a valid u64");
-            let end = argv[4].parse::<u64>().expect("<end-block> not a valid u64");
-            let blocks = end.saturating_sub(start);
+        Some(ValidateBlockMode::IndexRange { start, end }) => {
+            let limit = end.saturating_sub(*start);
             format!(
-                "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}"
+                "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {limit}"
             )
         }
-        Some("last") => format!(
-            "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {}",
-            argv[3]
-        ),
-        Some(_) => print_help_and_exit(),
-        // Default to ALL blocks
+        // Default: validate ALL blocks
         None => "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0".into(),
     };
 
@@ -296,26 +194,14 @@ pub fn command_validate_block_nakamoto(argv: &[String], conf: Option<&Config>) {
 /// Terminates on error using `process::exit()`
 ///
 /// Arguments:
-///  - `argv`: Args in CLI format: `<command-name> [args...]`
+///  - `args`: Parsed CLI arguments
 ///  - `conf`: Optional config for running on non-mainnet chainstate
-pub fn command_replay_mock_mining(argv: &[String], conf: Option<&Config>) {
-    let print_help_and_exit = || -> ! {
-        let n = &argv[0];
-        eprintln!("Usage:");
-        eprintln!("  {n} <database-path> <mock-mined-blocks-path>");
-        process::exit(1);
-    };
-
+pub fn command_replay_mock_mining(args: &ReplayMockMiningArgs, conf: Option<&Config>) {
     // Process CLI args
-    let db_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
+    let db_path = &args.chainstate_path;
 
-    let blocks_path = argv
-        .get(2)
-        .map(PathBuf::from)
-        .map(fs::canonicalize)
-        .transpose()
-        .unwrap_or_else(|e| panic!("Not a valid path: {e}"))
-        .unwrap_or_else(|| print_help_and_exit());
+    let blocks_path = fs::canonicalize(&args.mock_mining_output_path)
+        .unwrap_or_else(|e| panic!("Not a valid path: {e}"));
 
     // Validate directory path
     if !blocks_path.is_dir() {
@@ -390,34 +276,13 @@ pub fn command_replay_mock_mining(argv: &[String], conf: Option<&Config>) {
 /// Terminates on error using `process::exit()`
 ///
 /// Arguments:
-///  - `argv`: Args in CLI format: `<command-name> [args...]`
+///  - `args`: Parsed CLI arguments
 ///  - `conf`: Optional config for running on non-mainnet chainstate
-pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
-    let print_help_and_exit = || {
-        let n = &argv[0];
-        eprintln!("Usage: {n} <working-dir> [min-fee [max-time]]");
-        eprintln!();
-        eprintln!(
-            "Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block"
-        );
-        eprintln!(
-            "assembly, but does not attempt to broadcast a block commit. This is useful for determining"
-        );
-        eprintln!("what transactions a given chain state would include in an anchor block,");
-        eprintln!("or otherwise simulating a miner.");
-        process::exit(1);
-    };
-
+pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
     // Parse subcommand-specific args
-    let db_path = argv.get(1).unwrap_or_else(print_help_and_exit);
-    let min_fee = argv
-        .get(2)
-        .map(|arg| arg.parse().expect("Could not parse min_fee"))
-        .unwrap_or(u64::MAX);
-    let max_time = argv
-        .get(3)
-        .map(|arg| arg.parse().expect("Could not parse max_time"))
-        .unwrap_or(u64::MAX);
+    let db_path = &args.chainstate_path;
+    let min_fee = args.min_fee.unwrap_or(u64::MAX);
+    let max_time = args.max_time.unwrap_or(u64::MAX);
 
     let start = Instant::now();
 
@@ -566,17 +431,11 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
 /// Compute the contract hash for a given contract
 ///
 /// Arguments:
-///  - `argv`: Args in CLI format: `<command-name> [args...]`
-pub fn command_contract_hash(argv: &[String], _conf: Option<&Config>) {
-    let print_help_and_exit = || -> ! {
-        let n = &argv[0];
-        eprintln!("Usage:");
-        eprintln!("  {n} <CONTRACT_PATH | - (stdin)>");
-        process::exit(1);
-    };
-
+///  - `args`: Parsed CLI arguments
+///  - `conf`: Optional config (unused)
+pub fn command_contract_hash(args: &ContractHashArgs, _conf: Option<&Config>) {
     // Process CLI args
-    let contract_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
+    let contract_path = &args.contract_source;
     let contract_source = read_file_or_stdin(contract_path);
 
     let hash = Sha512Trunc256Sum::from_data(contract_source.as_bytes());
@@ -1204,35 +1063,3 @@ fn replay_block_nakamoto(
     Ok(())
 }
 
-#[cfg(test)]
-pub mod test {
-    use super::*;
-
-    fn parse_cli_command(s: &str) -> Vec<String> {
-        s.split(' ').map(String::from).collect()
-    }
-
-    #[test]
-    pub fn test_drain_common_opts() {
-        // Should find/remove no options
-        let mut argv = parse_cli_command(
-            "stacks-inspect try-mine --config my_config.toml /tmp/chainstate/mainnet",
-        );
-        let argv_init = argv.clone();
-        let _opts = drain_common_opts(&mut argv, 0);
-        let opts = drain_common_opts(&mut argv, 1);
-
-        assert_eq!(argv, argv_init);
-        assert!(opts.config.is_none());
-
-        // Should find config opts and remove from vec
-        let mut argv = parse_cli_command(
-            "stacks-inspect --network mocknet --network mainnet try-mine /tmp/chainstate/mainnet",
-        );
-        let opts = drain_common_opts(&mut argv, 1);
-        let argv_expected = parse_cli_command("stacks-inspect try-mine /tmp/chainstate/mainnet");
-
-        assert_eq!(argv, argv_expected);
-        assert!(opts.config.is_some());
-    }
-}

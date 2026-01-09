@@ -13,9 +13,117 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! CLI argument parsing for stacks-inspect using clap derive API
+use clap::{Args, Parser, Subcommand};
 
-use clap::{Parser, Subcommand};
+// Structs for commands that call helper functions
+#[derive(Args, Debug, Clone)]
+pub struct TryMineArgs {
+    /// Path to chainstate directory
+    pub chainstate_path: String,
+
+    /// Minimum fee to use
+    #[arg(long)]
+    pub min_fee: Option<u64>,
+
+    /// Maximum time in milliseconds for the mining process
+    #[arg(long)]
+    pub max_time: Option<u64>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct TipMineArgs {
+    /// Working directory containing mainnet data
+    pub working_dir: String,
+
+    /// Event log file path
+    pub event_log: String,
+
+    /// Target block height to mine at
+    pub mine_tip_height: u64,
+
+    /// Maximum transactions to include
+    pub max_txns: u64,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct ReplayMockMiningArgs {
+    /// Path to chainstate directory
+    pub chainstate_path: String,
+
+    /// Path to mock mining output directory
+    pub mock_mining_output_path: String,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum ValidateBlockMode {
+    /// Validate blocks matching a hash prefix
+    Prefix {
+        /// Index block hash prefix to match
+        prefix: String,
+    },
+    /// Validate the first N blocks by height
+    First {
+        /// Number of blocks to validate
+        count: u64,
+    },
+    /// Validate the last N blocks by height
+    Last {
+        /// Number of blocks to validate
+        count: u64,
+    },
+    /// Validate blocks in a height range (inclusive)
+    Range {
+        /// Start block height
+        start: u64,
+        /// End block height
+        end: u64,
+    },
+    /// Validate blocks in an index range
+    IndexRange {
+        /// Start index
+        start: u64,
+        /// End index
+        end: u64,
+    },
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct ValidateBlockArgs {
+    /// Path to chainstate database
+    pub database_path: String,
+
+    /// Block selection mode (if not specified, validates all blocks)
+    #[command(subcommand)]
+    pub mode: Option<ValidateBlockMode>,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct ContractHashArgs {
+    /// Contract source file path or "-" for stdin
+    pub contract_source: String,
+}
+
+/// Arguments for the analyze-sortition-mev command
+#[derive(Args, Debug, Clone)]
+pub struct AnalyzeSortitionMevArgs {
+    /// Path to burnchain database
+    pub burnchain_db_path: String,
+
+    /// Path to sortition database
+    pub sortition_db_path: String,
+
+    /// Path to chainstate database
+    pub chainstate_path: String,
+
+    /// Start block height
+    pub start_height: u64,
+
+    /// End block height
+    pub end_height: u64,
+
+    /// Miner advantage pairs: MINER BURN MINER BURN ...
+    pub advantages: Vec<String>,
+}
 
 /// Build the version string at compile time from Cargo metadata
 fn build_version_string() -> &'static str {
@@ -48,7 +156,7 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    // ========== Decode Commands ==========
+    // ================ Decode Commands ================
     /// Decode a Bitcoin block header from SPV data
     #[command(name = "decode-bitcoin-header")]
     DecodeBitcoinHeader {
@@ -109,29 +217,32 @@ pub enum Command {
         microblocks_path: String,
     },
 
-    // ========== MARF/Database Commands ==========
+    // ================ MARF/Database Commands ================
     /// Query header-indexed MARF data
     ///
-    /// Can be called in two ways:
-    /// - With state directory: header-indexed-get STATE_DIR BLOCK_ID_HASH KEY
-    /// - With explicit paths: header-indexed-get MARF_PATH DATA_DB_PATH BLOCK_ID_HASH KEY
+    /// Provide either --state-dir to auto-derive paths, or both --marf-path and --data-db-path
+    /// for explicit file locations.
     #[command(name = "header-indexed-get")]
     HeaderIndexedGet {
-        /// State directory, MARF index path, or MARF path when data_db_path is specified
-        #[arg(value_name = "STATE_DIR_OR_MARF_PATH")]
-        state_dir: String,
+        /// Block ID hash to query at
+        #[arg(value_name = "BLOCK_ID_HASH")]
+        block_id_hash: String,
 
-        /// Block ID hash to query at (or DATA_DB_PATH if 4 positional args given)
-        #[arg(value_name = "BLOCK_ID_HASH_OR_DATA_DB")]
-        block_id_hash_or_data_db: String,
-
-        /// MARF key to lookup (or BLOCK_ID_HASH if 4 positional args given)
-        #[arg(value_name = "KEY_OR_BLOCK_ID_HASH")]
-        key_or_block_id: String,
-
-        /// MARF key (only when data_db_path is also provided)
+        /// MARF key to lookup
         #[arg(value_name = "KEY")]
-        key: Option<String>,
+        key: String,
+
+        /// State directory (auto-derives paths)
+        #[arg(long, value_name = "STATE_DIR")]
+        state_dir: Option<String>,
+
+        /// Explicit path to MARF index file (requires --data-db-path)
+        #[arg(long, value_name = "MARF_PATH")]
+        marf_path: Option<String>,
+
+        /// Explicit path to data DB file (requires --marf-path)
+        #[arg(long, value_name = "DATA_DB_PATH")]
+        data_db_path: Option<String>,
     },
 
     /// Get a value from the MARF database
@@ -190,7 +301,7 @@ pub enum Command {
         burn_hash: String,
     },
 
-    // ========== Shadow Block Commands ==========
+    // ================ Shadow Block Commands ================
     /// Create a shadow block from transactions
     #[command(name = "make-shadow-block")]
     MakeShadowBlock {
@@ -255,7 +366,7 @@ pub enum Command {
         shadow_block_hex: String,
     },
 
-    // ========== Nakamoto Commands ==========
+    // ================ Nakamoto Commands ================
     /// Get the Nakamoto chain tip
     #[command(name = "get-nakamoto-tip")]
     GetNakamotoTip {
@@ -304,97 +415,29 @@ pub enum Command {
         consensus_hash: String,
     },
 
-    // ========== Mining Commands ==========
+    // ================ Mining Commands ================
     /// Simulate mining an anchored block
     #[command(name = "try-mine")]
-    TryMine {
-        /// Path to chainstate directory
-        #[arg(value_name = "CHAINSTATE_PATH")]
-        chainstate_path: String,
-
-        /// Optional block to mine at (default: chain tip)
-        #[arg(value_name = "AT_BLOCK")]
-        at_block: Option<String>,
-
-        /// Optional path to estimator to use
-        #[arg(long, value_name = "ESTIMATOR")]
-        estimator: Option<String>,
-
-        /// Optional minimum fee to use
-        #[arg(long, value_name = "MIN_FEE")]
-        min_fee: Option<u64>,
-
-        /// Optional maximum time in milliseconds for the mining process
-        #[arg(long, value_name = "MAX_TIME")]
-        max_time: Option<u64>,
-    },
+    TryMine(TryMineArgs),
 
     /// Mine a block at tip height using event log
     #[command(name = "tip-mine")]
-    TipMine {
-        /// Working directory
-        #[arg(value_name = "WORKING_DIR")]
-        working_dir: String,
-
-        /// Event log file path
-        #[arg(value_name = "EVENT_LOG")]
-        event_log: String,
-
-        /// Target block height to mine at
-        #[arg(value_name = "MINE_TIP_HEIGHT")]
-        mine_tip_height: u64,
-
-        /// Maximum transactions to include
-        #[arg(value_name = "MAX_TXNS")]
-        max_txns: u64,
-    },
+    TipMine(TipMineArgs),
 
     /// Replay mock-mined blocks from JSON files
     #[command(name = "replay-mock-mining")]
-    ReplayMockMining {
-        /// Path to chainstate directory
-        #[arg(value_name = "CHAINSTATE_PATH")]
-        chainstate_path: String,
+    ReplayMockMining(ReplayMockMiningArgs),
 
-        /// Path to mock mining output directory
-        #[arg(value_name = "MOCK_MINING_OUTPUT_PATH")]
-        mock_mining_output_path: String,
-    },
-
-    // ========== Validation Commands ==========
+    // ================ Validation Commands ================
     /// Validate Stacks blocks from chainstate database
     #[command(name = "validate-block")]
-    ValidateBlock {
-        /// Path to chainstate database
-        #[arg(value_name = "DATABASE_PATH")]
-        database_path: String,
-
-        /// Query mode: prefix, index-range, range, first, or last
-        #[arg(value_name = "MODE")]
-        mode: Option<String>,
-
-        /// Arguments for the query mode
-        #[arg(value_name = "ARGS")]
-        args: Vec<String>,
-    },
+    ValidateBlock(ValidateBlockArgs),
 
     /// Validate Nakamoto blocks from chainstate database
     #[command(name = "validate-naka-block")]
-    ValidateNakaBlock {
-        /// Path to chainstate database
-        #[arg(value_name = "DATABASE_PATH")]
-        database_path: String,
+    ValidateNakaBlock(ValidateBlockArgs),
 
-        /// Query mode: prefix, index-range, range, first, or last
-        #[arg(value_name = "MODE")]
-        mode: Option<String>,
-
-        /// Arguments for the query mode
-        #[arg(value_name = "ARGS")]
-        args: Vec<String>,
-    },
-
-    // ========== Chain State Commands ==========
+    // ================ Chain State Commands ================
     /// Get block tenure information
     #[command(name = "get-tenure")]
     GetTenure {
@@ -447,7 +490,7 @@ pub enum Command {
         new_burnchain_path: String,
     },
 
-    // ========== PoX/Sortition Commands ==========
+    // ================ PoX/Sortition Commands ================
     /// Evaluate PoX anchor selection at a block height
     #[command(name = "evaluate-pox-anchor")]
     EvaluatePoxAnchor {
@@ -466,33 +509,9 @@ pub enum Command {
 
     /// Analyze sortition MEV across epochs
     #[command(name = "analyze-sortition-mev")]
-    AnalyzeSortitionMev {
-        /// Path to burnchain database
-        #[arg(value_name = "BURNCHAIN_DB_PATH")]
-        burnchain_db_path: String,
+    AnalyzeSortitionMev(AnalyzeSortitionMevArgs),
 
-        /// Path to sortition database
-        #[arg(value_name = "SORTITION_DB_PATH")]
-        sortition_db_path: String,
-
-        /// Path to chainstate database
-        #[arg(value_name = "CHAINSTATE_PATH")]
-        chainstate_path: String,
-
-        /// Start block height
-        #[arg(value_name = "START_HEIGHT")]
-        start_height: u64,
-
-        /// End block height
-        #[arg(value_name = "END_HEIGHT")]
-        end_height: u64,
-
-        /// Advantage adjustments (pairs of miner address and burn bonus)
-        #[arg(value_name = "ADVANTAGES")]
-        advantages: Vec<String>,
-    },
-
-    // ========== Utility Commands ==========
+    // ================ Utility Commands ================
     /// Generate peer public key from seed
     #[command(name = "peer-pub-key")]
     PeerPubKey {
@@ -516,18 +535,14 @@ pub enum Command {
         #[arg(value_name = "PRIVATE_KEY")]
         private_key: String,
 
-        /// Data (hex string, file path, or "-" for stdin)
+        /// Data (raw string, file path, or "-" for stdin)
         #[arg(value_name = "DATA")]
         data: String,
     },
 
     /// Compute contract hash from source
     #[command(name = "contract-hash")]
-    ContractHash {
-        /// Contract source file or "-" for stdin
-        #[arg(value_name = "CONTRACT_SOURCE")]
-        contract_source: String,
-    },
+    ContractHash(ContractHashArgs),
 
     /// Output blockchain constants as JSON
     #[command(name = "dump-consts")]
@@ -552,8 +567,9 @@ pub enum Command {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use clap::CommandFactory;
+
+    use super::*;
 
     #[test]
     fn verify_cli_structure() {
@@ -563,11 +579,7 @@ mod tests {
 
     #[test]
     fn test_decode_tx_parsing() {
-        let cli = Cli::try_parse_from([
-            "stacks-inspect",
-            "decode-tx",
-            "0x00000001",
-        ]).unwrap();
+        let cli = Cli::try_parse_from(["stacks-inspect", "decode-tx", "0x00000001"]).unwrap();
 
         match cli.command {
             Command::DecodeTx { tx_input } => {
@@ -579,11 +591,8 @@ mod tests {
 
     #[test]
     fn test_global_options() {
-        let cli = Cli::try_parse_from([
-            "stacks-inspect",
-            "--network", "mainnet",
-            "docgen",
-        ]).unwrap();
+        let cli =
+            Cli::try_parse_from(["stacks-inspect", "--network", "mainnet", "docgen"]).unwrap();
 
         assert_eq!(cli.network, Some("mainnet".to_string()));
         assert!(matches!(cli.command, Command::Docgen));
@@ -593,9 +602,11 @@ mod tests {
     fn test_config_option() {
         let cli = Cli::try_parse_from([
             "stacks-inspect",
-            "--config", "/path/to/config.toml",
+            "--config",
+            "/path/to/config.toml",
             "dump-consts",
-        ]).unwrap();
+        ])
+        .unwrap();
 
         assert_eq!(cli.config, Some("/path/to/config.toml".to_string()));
         assert!(matches!(cli.command, Command::DumpConsts));
