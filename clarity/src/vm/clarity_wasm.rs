@@ -2164,6 +2164,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_tx_sponsor_fn(linker)?;
     link_block_height_fn(linker)?;
     link_stacks_block_height_fn(linker)?;
+    link_stacks_block_time_fn(linker)?;
     link_tenure_height_fn(linker)?;
     link_burn_block_height_fn(linker)?;
     link_stx_liquid_supply_fn(linker)?;
@@ -3085,6 +3086,31 @@ fn link_stacks_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Resul
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "stacks_block_height".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `stacks_block_time`, into the Wasm module.
+/// This function is called for use of the builtin variable, `stacks-block-time`.
+fn link_stacks_block_time_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "stacks_block_time",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                let block_time = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_current_block_time()?;
+                Ok((block_time as i64, 0i64))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "stacks_block_time".to_string(),
                 e,
             ))
         })
