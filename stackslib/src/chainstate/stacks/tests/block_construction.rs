@@ -4031,7 +4031,7 @@ fn test_is_tx_problematic() {
                             )))
                         )
 
-                        ;; triggers a RuntimeCheckErrorKind at runtime because the code in
+                        ;; triggers a RuntimeCheckErrorKind because the code in
                         ;; `at-block` is buggy
                         (define-public (test-past (ref <trait>))
                             (at-block 0x{} (test ref))
