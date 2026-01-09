@@ -720,6 +720,8 @@ impl Config {
                 Ok(StacksEpochId::Epoch32)
             } else if epoch_name == EPOCH_CONFIG_3_3_0 {
                 Ok(StacksEpochId::Epoch33)
+            } else if epoch_name == EPOCH_CONFIG_3_4_0 {
+                Ok(StacksEpochId::Epoch34)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -749,6 +751,7 @@ impl Config {
             StacksEpochId::Epoch31,
             StacksEpochId::Epoch32,
             StacksEpochId::Epoch33,
+            StacksEpochId::Epoch34,
         ];
         for (expected_epoch, configured_epoch) in expected_list
             .iter()
@@ -1712,6 +1715,7 @@ pub const EPOCH_CONFIG_3_0_0: &str = "3.0";
 pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 pub const EPOCH_CONFIG_3_3_0: &str = "3.3";
+pub const EPOCH_CONFIG_3_4_0: &str = "3.4";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]

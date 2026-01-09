@@ -88,6 +88,7 @@ pub mod consts {
     pub const PEER_VERSION_EPOCH_3_1: u8 = 0x0c;
     pub const PEER_VERSION_EPOCH_3_2: u8 = 0x0d;
     pub const PEER_VERSION_EPOCH_3_3: u8 = 0x0e;
+    pub const PEER_VERSION_EPOCH_3_4: u8 = 0x0f;
 
     /// this should be updated to the latest network epoch version supported by
     ///  this node. this will be checked by the `validate_epochs()` method.

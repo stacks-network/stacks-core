@@ -41,8 +41,8 @@ use crate::vm::contexts::GlobalContext;
 use crate::vm::database::STXBalance;
 use crate::vm::{execute_with_parameters_and_call_in_global_context, ClarityVersion};
 
-const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
-const DEFAULT_CLARITY_VERSION: ClarityVersion = ClarityVersion::Clarity4;
+const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::Epoch34;
+const DEFAULT_CLARITY_VERSION: ClarityVersion = ClarityVersion::Clarity5;
 const INITIAL_BALANCE: u128 = 1_000_000_000;
 const UTF8_SNIPPET_MAX_SEGMENTS: usize = 16;
 const UTF8_SIMPLE_ESCAPES: [&str; 6] = ["\\\"", "\\\\", "\\n", "\\t", "\\r", "\\0"];

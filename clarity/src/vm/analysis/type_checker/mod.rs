@@ -47,7 +47,8 @@ impl FunctionType {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => self.check_args_2_1(accounting, args, clarity_version),
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => self.check_args_2_1(accounting, args, clarity_version),
             StacksEpochId::Epoch10 => {
                 Err(StaticCheckErrorKind::Expects("Epoch10 is not supported".into()).into())
             }
@@ -73,7 +74,8 @@ impl FunctionType {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => {
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => {
                 self.check_args_by_allowing_trait_cast_2_1(db, clarity_version, func_args)
             }
             StacksEpochId::Epoch10 => {
@@ -94,6 +96,8 @@ fn is_reserved_word_v3(word: &str) -> bool {
 pub fn is_reserved_word(word: &str, version: ClarityVersion) -> bool {
     match version {
         ClarityVersion::Clarity1 | ClarityVersion::Clarity2 => false,
-        ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => is_reserved_word_v3(word),
+        ClarityVersion::Clarity3 | ClarityVersion::Clarity4 | ClarityVersion::Clarity5 => {
+            is_reserved_word_v3(word)
+        }
     }
 }

@@ -147,7 +147,7 @@ use stacks::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::clarity::vm::clarity::ClarityConnection;
 
 lazy_static! {
-    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 12] = [
+    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 13] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -228,6 +228,13 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
             start_height: 252,
+            end_height: 253,
+            block_limit: HELIUM_BLOCK_LIMIT_20,
+            network_epoch: PEER_VERSION_EPOCH_3_2
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch34,
+            start_height: 253,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
@@ -15134,7 +15141,7 @@ fn check_block_time_keyword() {
         naka_conf.burnchain.chain_id,
         contract_name,
         contract,
-        Some(ClarityVersion::Clarity4),
+        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     submit_tx(&http_origin, &contract_tx);
@@ -15428,7 +15435,7 @@ fn check_with_stacking_allowances_delegate_stx() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::Clarity4),
+        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -15843,7 +15850,7 @@ fn check_with_stacking_allowances_stack_stx() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::Clarity4),
+        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -16521,7 +16528,7 @@ fn check_restrict_assets_rollback() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::Clarity4),
+        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -17237,7 +17244,7 @@ fn check_as_contract_rollback() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::Clarity4),
+        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);

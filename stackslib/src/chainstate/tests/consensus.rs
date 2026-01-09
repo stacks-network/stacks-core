@@ -52,7 +52,7 @@ use crate::net::tests::NakamotoBootPlan;
 /// The epochs to test for consensus are the current and upcoming epochs.
 /// This constant must be changed when new epochs are introduced.
 /// Note that contract deploys MUST be done in each epoch >= 2.0.
-pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch33];
+pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch33, StacksEpochId::Epoch34];
 
 pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
 pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
@@ -90,6 +90,13 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity2,
             ClarityVersion::Clarity3,
             ClarityVersion::Clarity4,
+        ],
+        StacksEpochId::Epoch34 => &[
+            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity2,
+            ClarityVersion::Clarity3,
+            ClarityVersion::Clarity4,
+            ClarityVersion::Clarity5,
         ],
     }
 }
@@ -371,7 +378,10 @@ impl ConsensusChain<'_> {
                     let num_blocks = num_blocks_per_epoch.get(epoch_id).copied().unwrap_or(0) + 1;
                     place_blocks_avoiding_prepare(start_height, num_blocks) + 1
                 }
-                StacksEpochId::Epoch30 | StacksEpochId::Epoch31 | StacksEpochId::Epoch32 => {
+                StacksEpochId::Epoch30
+                | StacksEpochId::Epoch31
+                | StacksEpochId::Epoch32
+                | StacksEpochId::Epoch33 => {
                     // Only need 1 block per Epoch
                     if num_blocks_per_epoch.contains_key(epoch_id) {
                         start_height + 1
@@ -382,7 +392,7 @@ impl ConsensusChain<'_> {
                     }
                 }
                 // The last Epoch height never ends
-                StacksEpochId::Epoch33 => STACKS_EPOCH_MAX,
+                StacksEpochId::Epoch34 => STACKS_EPOCH_MAX,
             };
 
             // Special case the Epoch 2.5 -> Epoch 3.0 transition

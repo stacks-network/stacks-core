@@ -1216,8 +1216,8 @@ fn test_block_time(
 
 #[test]
 fn test_block_time_in_expressions() {
-    let version = ClarityVersion::Clarity4;
-    let epoch = StacksEpochId::Epoch33;
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
     let mut tl_env_factory = tl_env_factory();
 
     let contract = r#"
