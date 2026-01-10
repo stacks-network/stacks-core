@@ -32,11 +32,11 @@ async-std = { version = "1.6", optional = true, features = ["attributes"] }
 http-types = { version = "2.12", default-features = false, optional = true }
 thiserror = { workspace = true }
 
-# This dependency is used for the multiversion integration tests which live behind the build-v3-1-0-0-13 feature flag
-signer_v3_3_0_0_1 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev="b3efa588571e168d2d154790e1c57d9e3e64adc5", optional = true, features = ["testing", "default"]}
-libsigner_v3_3_0_0_1 = { package = "libsigner", git = "https://github.com/stacks-network/stacks-core.git", rev="b3efa588571e168d2d154790e1c57d9e3e64adc5", optional = true}
-stacks_v3_3_0_0_1 = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", rev="b3efa588571e168d2d154790e1c57d9e3e64adc5", optional = true, features = ["testing", "default"]}
-stacks_common_v3_3_0_0_1 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev="b3efa588571e168d2d154790e1c57d9e3e64adc5", optional = true, features = ["testing", "default"]}
+# This dependency is used for the multiversion integration tests which live behind the build-v3-1-0-0-4 feature flag
+signer_v3_3_0_0_4 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev="7baa99ac3120111d1166c1a6c91abbd7aee8dbed", optional = true, features = ["testing", "default"]}
+libsigner_v3_3_0_0_4 = { package = "libsigner", git = "https://github.com/stacks-network/stacks-core.git", rev="7baa99ac3120111d1166c1a6c91abbd7aee8dbed", optional = true}
+stacks_v3_3_0_0_4 = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", rev="7baa99ac3120111d1166c1a6c91abbd7aee8dbed", optional = true, features = ["testing", "default"]}
+stacks_common_v3_3_0_0_4 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev="7baa99ac3120111d1166c1a6c91abbd7aee8dbed", optional = true, features = ["testing", "default"]}
 [target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
 tikv-jemallocator = {workspace = true}
 
@@ -68,7 +68,7 @@ slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
 testing = ["stacks-common/testing", "stacks/testing", "clarity/testing"]
-build-signer-v3-3-0-0-1 = ["signer_v3_3_0_0_1", "libsigner_v3_3_0_0_1", "stacks_v3_3_0_0_1", "stacks_common_v3_3_0_0_1"]
+build-signer-v3-3-0-0-4 = ["signer_v3_3_0_0_4", "libsigner_v3_3_0_0_4", "stacks_v3_3_0_0_4", "stacks_common_v3_3_0_0_4"]
 
 [package.metadata.pinny]
 allowed = ["bitcoind", "flaky", "slow"]

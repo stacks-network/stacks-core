@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -1690,6 +1690,7 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
             let negotiated = update
                 .active_signer_protocol_version
                 .min(update.local_supported_signer_protocol_version);
+            debug!("Found update from address {address} with version {version}. We expect version {negotiated}.");
             if negotiated != *version {
                 continue;
             }

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::sync::mpsc::TryRecvError;
-use std::thread;
 use std::time::Duration;
 
 use libsigner::v0::messages::{
@@ -21,16 +20,19 @@ use libsigner::v0::messages::{
     SignerMessageMetadata,
 };
 use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
-use libsigner_v3_3_0_0_1::v0::messages::SignerMessage as OldSignerMessage;
+use libsigner_v3_3_0_0_4::v0::messages::SignerMessage as OldSignerMessage;
+use signer_v3_3_0_0_4::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION as OldSupportedVersion;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
-use stacks_common_v3_3_0_0_1::codec::StacksMessageCodec as OldStacksMessageCodec;
+use stacks_common_v3_3_0_0_4::codec::StacksMessageCodec as OldStacksMessageCodec;
 use stacks_signer::runloop::{RewardCycleInfo, State, StateInfo};
-use stacks_signer::v0::signer_state::LocalStateMachine;
+use stacks_signer::v0::signer_state::{
+    LocalStateMachine, SUPPORTED_SIGNER_PROTOCOL_VERSION as NewSupportedVersion,
+};
 use stacks_signer::v0::SpawnedSigner;
-use {libsigner_v3_3_0_0_1, signer_v3_3_0_0_1, stacks_common_v3_3_0_0_1, stacks_v3_3_0_0_1};
+use {libsigner_v3_3_0_0_4, signer_v3_3_0_0_4, stacks_common_v3_3_0_0_4, stacks_v3_3_0_0_4};
 
 use super::SpawnedSignerTrait;
 use crate::stacks_common::codec::StacksMessageCodec;
@@ -41,24 +43,24 @@ use crate::tests::{self};
 use crate::Keychain;
 
 pub enum MultiverSpawnedSigner {
-    V33001(signer_v3_3_0_0_1::v0::SpawnedSigner),
+    V33004(signer_v3_3_0_0_4::v0::SpawnedSigner),
     Current(SpawnedSigner),
 }
 
 pub enum ReceiveResult {
-    V33001(Result<signer_v3_3_0_0_1::runloop::SignerResult, ()>),
+    V33004(Result<signer_v3_3_0_0_4::runloop::SignerResult, ()>),
     Current(Result<stacks_signer::runloop::SignerResult, TryRecvError>),
 }
 
-// Helper function to convert libsigner_v3_3_0_0_1 miner state to current miner state
-pub fn miner_state_v3_3_0_0_1_to_current(
-    miner_state: &libsigner_v3_3_0_0_1::v0::signer_state::MinerState,
+// Helper function to convert libsigner_v3_3_0_0_4 miner state to current miner state
+pub fn miner_state_v3_3_0_0_4_to_current(
+    miner_state: &libsigner_v3_3_0_0_4::v0::signer_state::MinerState,
 ) -> MinerState {
     match miner_state {
-        libsigner_v3_3_0_0_1::v0::signer_state::MinerState::NoValidMiner => {
+        libsigner_v3_3_0_0_4::v0::signer_state::MinerState::NoValidMiner => {
             MinerState::NoValidMiner
         }
-        libsigner_v3_3_0_0_1::v0::signer_state::MinerState::ActiveMiner {
+        libsigner_v3_3_0_0_4::v0::signer_state::MinerState::ActiveMiner {
             current_miner_pkh,
             tenure_id,
             parent_tenure_id,
@@ -75,29 +77,29 @@ pub fn miner_state_v3_3_0_0_1_to_current(
 }
 
 // Helper function to convert from one to the other
-pub fn stacks_transaction_v3_3_0_0_1_to_current(
-    tx: &stacks_v3_3_0_0_1::chainstate::stacks::StacksTransaction,
+pub fn stacks_transaction_v3_3_0_0_4_to_current(
+    tx: &stacks_v3_3_0_0_4::chainstate::stacks::StacksTransaction,
 ) -> StacksTransaction {
     let tx_bytes = tx.serialize_to_vec();
     StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap()
 }
 
-// Helper function to convert libsigner_v3_1_0_0_13 signer state machine to current signer state machine
-pub fn signer_state_update_v3_3_0_0_1_to_current(
-    update: &signer_v3_3_0_0_1::v0::signer_state::StateMachineUpdate,
+// Helper function to convert libsigner_v3_3_0_0_4 signer state machine to current signer state machine
+pub fn signer_state_update_v3_3_0_0_4_to_current(
+    update: &signer_v3_3_0_0_4::v0::signer_state::StateMachineUpdate,
 ) -> stacks_signer::v0::signer_state::StateMachineUpdate {
     let serialized = serde_json::to_string(update).unwrap();
     serde_json::from_str(&serialized).unwrap()
 }
 
-// Helper function to convert libsigner_v3_1_0_0_13 signer state machine to current signer state machine
-pub fn signer_state_machine_v3_3_0_0_1_to_current(
-    machine: &libsigner_v3_3_0_0_1::v0::signer_state::SignerStateMachine,
+// Helper function to convert libsigner_v3_3_0_0_4 signer state machine to current signer state machine
+pub fn signer_state_machine_v3_3_0_0_4_to_current(
+    machine: &libsigner_v3_3_0_0_4::v0::signer_state::SignerStateMachine,
 ) -> SignerStateMachine {
     SignerStateMachine {
         burn_block: ConsensusHash(machine.burn_block.0),
         burn_block_height: machine.burn_block_height,
-        current_miner: miner_state_v3_3_0_0_1_to_current(&machine.current_miner),
+        current_miner: miner_state_v3_3_0_0_4_to_current(&machine.current_miner),
         active_signer_protocol_version: machine.active_signer_protocol_version,
         tx_replay_set: ReplayTransactionSet::new(
             machine
@@ -105,28 +107,28 @@ pub fn signer_state_machine_v3_3_0_0_1_to_current(
                 .clone()
                 .unwrap_or_default()
                 .iter()
-                .map(stacks_transaction_v3_3_0_0_1_to_current)
+                .map(stacks_transaction_v3_3_0_0_4_to_current)
                 .collect(),
         ),
     }
 }
 
-// Helper function to convert signer_v3_1_0_0_13 local state machines to current local state machines
-pub fn local_state_machine_v3_3_0_0_1_to_current(
-    state_machine: &signer_v3_3_0_0_1::v0::signer_state::LocalStateMachine,
+// Helper function to convert signer_v3_3_0_0_4 local state machines to current local state machines
+pub fn local_state_machine_v3_3_0_0_4_to_current(
+    state_machine: &signer_v3_3_0_0_4::v0::signer_state::LocalStateMachine,
 ) -> LocalStateMachine {
     match state_machine {
-        signer_v3_3_0_0_1::v0::signer_state::LocalStateMachine::Uninitialized => {
+        signer_v3_3_0_0_4::v0::signer_state::LocalStateMachine::Uninitialized => {
             LocalStateMachine::Uninitialized
         }
-        signer_v3_3_0_0_1::v0::signer_state::LocalStateMachine::Pending { prior, update } => {
+        signer_v3_3_0_0_4::v0::signer_state::LocalStateMachine::Pending { prior, update } => {
             LocalStateMachine::Pending {
-                prior: signer_state_machine_v3_3_0_0_1_to_current(prior),
-                update: signer_state_update_v3_3_0_0_1_to_current(update),
+                prior: signer_state_machine_v3_3_0_0_4_to_current(prior),
+                update: signer_state_update_v3_3_0_0_4_to_current(update),
             }
         }
-        signer_v3_3_0_0_1::v0::signer_state::LocalStateMachine::Initialized(machine) => {
-            LocalStateMachine::Initialized(signer_state_machine_v3_3_0_0_1_to_current(machine))
+        signer_v3_3_0_0_4::v0::signer_state::LocalStateMachine::Initialized(machine) => {
+            LocalStateMachine::Initialized(signer_state_machine_v3_3_0_0_4_to_current(machine))
         }
     }
 }
@@ -137,9 +139,17 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
 
     fn new(c: stacks_signer::config::GlobalConfig) -> Self {
         if c.endpoint.port() % 2 == 0 {
+            debug!(
+                "Spawning current version signer for endpoint {}",
+                c.endpoint
+            );
             Self::Current(SpawnedSigner::new(c))
         } else {
-            let config = signer_v3_3_0_0_1::config::GlobalConfig {
+            debug!(
+                "Spawning v3_3_0_0_4 version signer for endpoint {}",
+                c.endpoint
+            );
+            let config = signer_v3_3_0_0_4::config::GlobalConfig {
                 node_host: c.node_host,
                 endpoint: c.endpoint,
                 stacks_private_key: serde_json::from_value(
@@ -150,7 +160,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                     serde_json::to_value(&c.stacks_address).unwrap(),
                 )
                 .unwrap(),
-                network: signer_v3_3_0_0_1::config::Network::Testnet,
+                network: signer_v3_3_0_0_4::config::Network::Testnet,
                 event_timeout: c.event_timeout,
                 auth_password: c.auth_password,
                 db_path: c.db_path,
@@ -171,16 +181,17 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                 reset_replay_set_after_fork_blocks: c.reset_replay_set_after_fork_blocks,
                 stackerdb_timeout: c.stackerdb_timeout,
                 supported_signer_protocol_version: c.supported_signer_protocol_version,
+                read_count_idle_timeout: c.read_count_idle_timeout,
             };
-            Self::V33001(signer_v3_3_0_0_1::v0::SpawnedSigner::new(config))
+            Self::V33004(signer_v3_3_0_0_4::v0::SpawnedSigner::new(config))
         }
     }
 
     fn try_recv(&self) -> Self::ReceiveResult {
         match self {
-            MultiverSpawnedSigner::V33001(spawned_signer) => {
+            MultiverSpawnedSigner::V33004(spawned_signer) => {
                 let result = spawned_signer.res_recv.try_recv().map_err(|_| ());
-                ReceiveResult::V33001(result)
+                ReceiveResult::V33004(result)
             }
             MultiverSpawnedSigner::Current(spawned_signer) => {
                 ReceiveResult::Current(spawned_signer.res_recv.try_recv())
@@ -190,7 +201,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
 
     fn stop(self) -> Option<Self::StopResult> {
         match self {
-            MultiverSpawnedSigner::V33001(spawned_signer) => spawned_signer.stop().map(|_| ()),
+            MultiverSpawnedSigner::V33004(spawned_signer) => spawned_signer.stop().map(|_| ()),
             MultiverSpawnedSigner::Current(spawned_signer) => spawned_signer.stop().map(|_| ()),
         }
     }
@@ -199,13 +210,13 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
         result: Self::ReceiveResult,
     ) -> Option<stacks_signer::runloop::StateInfo> {
         match result {
-            ReceiveResult::V33001(signer_result) => {
-                let Ok(signer_v3_3_0_0_1::runloop::SignerResult::StatusCheck(state_info)) =
+            ReceiveResult::V33004(signer_result) => {
+                let Ok(signer_v3_3_0_0_4::runloop::SignerResult::StatusCheck(state_info)) =
                     signer_result
                 else {
                     return None;
                 };
-                let signer_v3_3_0_0_1::runloop::StateInfo {
+                let signer_v3_3_0_0_4::runloop::StateInfo {
                     runloop_state,
                     reward_cycle_info,
                     running_signers,
@@ -215,11 +226,11 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                 } = state_info;
                 Some(StateInfo {
                     runloop_state: match runloop_state {
-                        signer_v3_3_0_0_1::runloop::State::Uninitialized => State::Uninitialized,
-                        signer_v3_3_0_0_1::runloop::State::NoRegisteredSigners => {
+                        signer_v3_3_0_0_4::runloop::State::Uninitialized => State::Uninitialized,
+                        signer_v3_3_0_0_4::runloop::State::NoRegisteredSigners => {
                             State::NoRegisteredSigners
                         }
-                        signer_v3_3_0_0_1::runloop::State::RegisteredSigners => {
+                        signer_v3_3_0_0_4::runloop::State::RegisteredSigners => {
                             State::RegisteredSigners
                         }
                     },
@@ -247,7 +258,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                                 *i,
                                 machine
                                     .as_ref()
-                                    .map(local_state_machine_v3_3_0_0_1_to_current),
+                                    .map(local_state_machine_v3_3_0_0_4_to_current),
                             )
                         })
                         .collect(),
@@ -319,13 +330,10 @@ fn old_version_parses_new_messages() {
         as_block_accepted.response_data.reject_reason.to_string(),
         new_msg.response_data.reject_reason.to_string()
     );
+    let empty_vec: Vec<u8> = vec![];
     assert_eq!(
-        as_block_accepted.response_data.unknown_bytes,
-        new_msg
-            .response_data
-            .tenure_extend_read_count_timestamp
-            .to_be_bytes()
-            .to_vec()
+        as_block_accepted.response_data.unknown_bytes, // No difference between versions at the moment
+        empty_vec
     );
 
     let serialized_old_msg = old_msg.serialize_to_vec();
@@ -403,7 +411,6 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
             .submit_transfer_tx(&sender_sk, send_fee, send_amt)
             .unwrap();
         wait_for(120, || {
-            thread::sleep(Duration::from_secs(1));
             Ok(get_account(&signer_test.running_nodes.rpc_origin(), &sender_addr).nonce > nonce)
         })
         .expect("Timed out waiting for interim block to be mined");
@@ -454,4 +461,298 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
         "Final chain info: {:#?}",
         get_chain_info(&signer_test.running_nodes.conf)
     );
+}
+
+#[test]
+#[ignore] // Remove when ready to run in CI
+/// Test with 40% new signers and 60% old signers that the chain still progresses
+/// with ALL signers signing the proposed blocks.
+fn mixed_signer_set_40_percent_new_60_percent_old() {
+    // We want: 40% new (current), 60% old (v3.3.0.0.4)
+    // Let's use 10 signers total for clean percentages: 4 new, 6 old
+    assert!(
+        OldSupportedVersion < NewSupportedVersion,
+        "Test setup error: old supported version should be less than new supported version"
+    );
+    let num_signers = 10;
+    let num_new_signers = 4; // 40%
+    let num_old_signers = 6; // 60%
+
+    // Let's just do 3 tenures
+    let nmb_tenures = 3;
+
+    let btc_miner_seed = vec![2, 2, 2, 2];
+    let btc_miner_pk = Keychain::default(btc_miner_seed.clone()).get_pub_key();
+
+    let localhost = "127.0.0.1";
+    let node_rpc_port = 30500;
+    let node_p2p_port = 30501;
+
+    // Custom signer config: decide old vs new based on signer index
+    let signer_test: SignerTest<MultiverSpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |signer_config| {
+            // Use port to determine version: even port -> current (new), odd -> old
+            // Initially the signer port number is simply sequential
+            let signer_index = signer_config.endpoint.port() % num_signers as u16;
+            // Update the ports to enforce versioning
+            let base_port = 40000 + signer_index * 10;
+            let endpoint_port = if signer_index < num_new_signers as u16 {
+                signer_config.supported_signer_protocol_version = NewSupportedVersion;
+                base_port // even: new version
+            } else {
+                signer_config.supported_signer_protocol_version = OldSupportedVersion;
+                base_port + 1 // odd: old version
+            };
+            signer_config.endpoint = format!("{localhost}:{endpoint_port}").parse().unwrap();
+        },
+        |node_config| {
+            node_config.node.rpc_bind = format!("{localhost}:{node_rpc_port}");
+            node_config.node.p2p_bind = format!("{localhost}:{node_p2p_port}");
+            node_config.node.data_url = format!("http://{localhost}:{node_rpc_port}");
+            node_config.node.p2p_address = format!("{localhost}:{node_p2p_port}");
+
+            node_config.node.seed = btc_miner_seed.clone();
+            node_config.node.local_peer_seed = btc_miner_seed.clone();
+            node_config.burnchain.local_mining_public_key = Some(btc_miner_pk.to_hex());
+
+            node_config.miner.wait_on_interim_blocks = Some(Duration::from_secs(10));
+            node_config.burnchain.pox_reward_length = Some(30);
+            node_config.node.pox_sync_sample_secs = 30;
+        },
+        Some(vec![btc_miner_pk.clone()]),
+        None,
+    );
+    info!("--------------- Started mixed signer test: {num_new_signers} new, {num_old_signers} old signers ---------------");
+    // Boot to Nakamoto (Epoch 3.0)
+    signer_test.boot_to_epoch_3();
+    let start_chain = get_chain_info(&signer_test.running_nodes.conf);
+    test_observer::clear();
+
+    // Mine several Nakamoto tenures to trigger signing rounds
+    for tenure in 1..=nmb_tenures {
+        info!("--------------- Mining Nakamoto tenure #{tenure} ---------------");
+
+        // Mine a tenure-start block (should trigger signer voting)
+        signer_test.mine_nakamoto_block(Duration::from_secs(60), false);
+    }
+    // Wait for all signatures to come in from every signer per tenure
+    wait_for(60, || {
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let nmb_signatures = stackerdb_events
+            .iter()
+            .map(|ev| ev.modified_slots.iter())
+            .flatten()
+            .filter_map(|chunk| {
+                let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                else {
+                    return None;
+                };
+                let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message
+                else {
+                    return None;
+                };
+                Some(accepted)
+            })
+            .count();
+        Ok(nmb_signatures >= num_signers * nmb_tenures)
+    })
+    .expect("Expected every signer to sign every tenure-start block");
+    // Now analyze stackerdb events to count old vs new BlockResponse versions
+    let stackerdb_events = test_observer::get_stackerdb_chunks();
+    let state_machine_updates = stackerdb_events
+        .iter()
+        .map(|ev| ev.modified_slots.iter())
+        .flatten()
+        .filter_map(|chunk| {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                return None;
+            };
+            let SignerMessage::StateMachineUpdate(update) = message else {
+                return None;
+            };
+            Some(update)
+        })
+        .collect::<Vec<_>>();
+    info!("--------------- StackerDB State Machine Updates ---------------");
+    let nmb_old_versions = state_machine_updates
+        .iter()
+        .filter(|update| update.local_supported_signer_protocol_version == OldSupportedVersion)
+        .count();
+    let nmb_current_versions = state_machine_updates
+        .iter()
+        .filter(|update| update.local_supported_signer_protocol_version == NewSupportedVersion)
+        .count();
+    assert!(
+        nmb_old_versions >= state_machine_updates.len() * 6 / 10,
+        "Expected 60% of signers to be configured to support only the old protocol version"
+    );
+    assert!(
+        nmb_current_versions >= state_machine_updates.len() * 4 / 10,
+        "Expected 40% of signers to be configured to support the new protocol version"
+    );
+
+    let end_chain = get_chain_info(&signer_test.running_nodes.conf);
+    info!("Final chain info: {end_chain:#?}",);
+
+    assert_eq!(
+        end_chain.burn_block_height,
+        start_chain.burn_block_height + nmb_tenures as u64,
+        "Chain should have progressed by {nmb_tenures} burn blocks"
+    );
+    assert_eq!(
+        end_chain.stacks_tip_height,
+        start_chain.stacks_tip_height + nmb_tenures as u64,
+        "Chain should have progressed by {nmb_tenures} stacks blocks",
+    );
+    assert_ne!(end_chain.stacks_tip, start_chain.stacks_tip);
+}
+
+#[test]
+#[ignore] // Remove when ready to run in CI
+/// Test with 80% new signers and 20% old signers that the chain still progresses
+/// with ALL signers signing the proposed blocks.
+fn mixed_signer_set_80_percent_new_20_percent_old() {
+    // We want: 80% new (current), 20% old (v3.3.0.0.4)
+    // Let's use 10 signers total for clean percentages: 8 new, 2 old
+    assert!(
+        OldSupportedVersion < NewSupportedVersion,
+        "Test setup error: old supported version should be less than new supported version"
+    );
+    let num_signers = 10;
+    let num_new_signers = 8; // 80%
+    let num_old_signers = 2; // 20%
+
+    // Let's just do 3 tenures
+    let nmb_tenures = 3;
+
+    let btc_miner_seed = vec![2, 2, 2, 2];
+    let btc_miner_pk = Keychain::default(btc_miner_seed.clone()).get_pub_key();
+
+    let localhost = "127.0.0.1";
+    let node_rpc_port = 30500;
+    let node_p2p_port = 30501;
+
+    // Custom signer config: decide old vs new based on signer index
+    let signer_test: SignerTest<MultiverSpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |signer_config| {
+            // Use port to determine version: even port -> current (new), odd -> old
+            // Initially the signer port number is simply sequential
+            let signer_index = signer_config.endpoint.port() % num_signers as u16;
+            // Update the ports to enforce versioning
+            let base_port = 40000 + signer_index * 10;
+            let endpoint_port = if signer_index < num_new_signers as u16 {
+                signer_config.supported_signer_protocol_version = NewSupportedVersion;
+                base_port // even: new version
+            } else {
+                signer_config.supported_signer_protocol_version = OldSupportedVersion;
+                base_port + 1 // odd: old version
+            };
+            signer_config.endpoint = format!("{localhost}:{endpoint_port}").parse().unwrap();
+        },
+        |node_config| {
+            node_config.node.rpc_bind = format!("{localhost}:{node_rpc_port}");
+            node_config.node.p2p_bind = format!("{localhost}:{node_p2p_port}");
+            node_config.node.data_url = format!("http://{localhost}:{node_rpc_port}");
+            node_config.node.p2p_address = format!("{localhost}:{node_p2p_port}");
+
+            node_config.node.seed = btc_miner_seed.clone();
+            node_config.node.local_peer_seed = btc_miner_seed.clone();
+            node_config.burnchain.local_mining_public_key = Some(btc_miner_pk.to_hex());
+
+            node_config.miner.wait_on_interim_blocks = Some(Duration::from_secs(10));
+            node_config.burnchain.pox_reward_length = Some(30);
+            node_config.node.pox_sync_sample_secs = 30;
+        },
+        Some(vec![btc_miner_pk.clone()]),
+        None,
+    );
+    info!("--------------- Started mixed signer test: {num_new_signers} new, {num_old_signers} old signers ---------------");
+    // Boot to Nakamoto (Epoch 3.0)
+    signer_test.boot_to_epoch_3();
+    let start_chain = get_chain_info(&signer_test.running_nodes.conf);
+    test_observer::clear();
+
+    // Mine several Nakamoto tenures to trigger signing rounds
+    for tenure in 1..=nmb_tenures {
+        info!("--------------- Mining Nakamoto tenure #{tenure} ---------------");
+
+        // Mine a tenure-start block (should trigger signer voting)
+        signer_test.mine_nakamoto_block(Duration::from_secs(60), false);
+    }
+    // Wait for all signatures to come in from every signer per tenure
+    wait_for(60, || {
+        let stackerdb_events = test_observer::get_stackerdb_chunks();
+        let nmb_signatures = stackerdb_events
+            .iter()
+            .map(|ev| ev.modified_slots.iter())
+            .flatten()
+            .filter_map(|chunk| {
+                let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                else {
+                    return None;
+                };
+                let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message
+                else {
+                    return None;
+                };
+                Some(accepted)
+            })
+            .count();
+        Ok(nmb_signatures >= num_signers * nmb_tenures)
+    })
+    .expect("Expected every signer to sign every tenure-start block");
+    // Now analyze stackerdb events to count old vs new BlockResponse versions
+    let stackerdb_events = test_observer::get_stackerdb_chunks();
+    let state_machine_updates = stackerdb_events
+        .iter()
+        .map(|ev| ev.modified_slots.iter())
+        .flatten()
+        .filter_map(|chunk| {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                return None;
+            };
+            let SignerMessage::StateMachineUpdate(update) = message else {
+                return None;
+            };
+            Some(update)
+        })
+        .collect::<Vec<_>>();
+    info!("--------------- StackerDB State Machine Updates ---------------");
+    let nmb_old_versions = state_machine_updates
+        .iter()
+        .filter(|update| update.local_supported_signer_protocol_version == OldSupportedVersion)
+        .count();
+    let nmb_current_versions = state_machine_updates
+        .iter()
+        .filter(|update| update.local_supported_signer_protocol_version == NewSupportedVersion)
+        .count();
+    assert!(
+        nmb_old_versions >= state_machine_updates.len() * 2 / 10,
+        "Expected 20% of signers to be configured to support only the old protocol version"
+    );
+    assert!(
+        nmb_current_versions >= state_machine_updates.len() * 8 / 10,
+        "Expected 80% of signers to be configured to support the new protocol version"
+    );
+
+    let end_chain = get_chain_info(&signer_test.running_nodes.conf);
+    info!("Final chain info: {end_chain:#?}",);
+
+    assert_eq!(
+        end_chain.burn_block_height,
+        start_chain.burn_block_height + nmb_tenures as u64,
+        "Chain should have progressed by {nmb_tenures} burn blocks"
+    );
+    assert_eq!(
+        end_chain.stacks_tip_height,
+        start_chain.stacks_tip_height + nmb_tenures as u64,
+        "Chain should have progressed by {nmb_tenures} stacks blocks",
+    );
+    assert_ne!(end_chain.stacks_tip, start_chain.stacks_tip);
 }
