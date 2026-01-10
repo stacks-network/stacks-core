@@ -208,7 +208,16 @@ impl GlobalStateView {
             // (1) if this is the most recent sortition, an extend is allowed if it changes the burnchain view
             // (2) if this is the most recent sortition, an extend is allowed if enough time has passed to refresh the block limit
             // (3) if we are in replay, an extend is allowed
-            let changed_burn_view = &tenure_extend.burn_view_consensus_hash != tenure_id;
+            let tenure_tip = client.get_tenure_tip(tenure_id)
+                .map_err(|e| {
+                    warn!("Could not load current tenure tip while evaluating a tenure-extend; cannot approve."; "err" => %e);
+                    RejectReason::InvalidTenureExtend
+                })?;
+            let Some(current_burn_view) = tenure_tip.burn_view else {
+                warn!("Tenure-extend attempted in tenure without burn-view.");
+                return Err(RejectReason::InvalidTenureExtend);
+            };
+            let changed_burn_view = tenure_extend.burn_view_consensus_hash != current_burn_view;
             let extend_timestamp = signer_db.calculate_full_extend_timestamp(
                 self.config.tenure_idle_timeout,
                 block,
@@ -238,7 +247,16 @@ impl GlobalStateView {
             .filter(|extend| extend.cause.is_read_count_extend())
         {
             // burn view changes are not allowed during read-count tenure extends
-            let changed_burn_view = &tenure_extend.burn_view_consensus_hash != tenure_id;
+            let tenure_tip = client.get_tenure_tip(tenure_id)
+                .map_err(|e| {
+                    warn!("Could not load current tenure tip while evaluating a tenure-extend; cannot approve."; "err" => %e);
+                    RejectReason::InvalidTenureExtend
+                })?;
+            let Some(current_burn_view) = tenure_tip.burn_view else {
+                warn!("Tenure-extend attempted in tenure without burn-view.");
+                return Err(RejectReason::InvalidTenureExtend);
+            };
+            let changed_burn_view = tenure_extend.burn_view_consensus_hash != current_burn_view;
             if changed_burn_view {
                 warn!(
                     "Miner block proposal contains a read-count extend, but the conditions for allowing a tenure extend are not met. Considering proposal invalid.";
