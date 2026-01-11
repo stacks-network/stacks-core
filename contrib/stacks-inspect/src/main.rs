@@ -21,7 +21,7 @@ use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity_cli::{DEFAULT_CLI_EPOCH, read_file_or_stdin, read_file_or_stdin_bytes};
-use stacks_inspect::cli::{AnalyzeSortitionMevArgs, Cli, Command, TipMineArgs};
+use stacks_inspect::cli::{Cli, Command};
 use stacks_inspect::{
     CommonOpts, command_contract_hash, command_replay_mock_mining, command_try_mine,
     command_validate_block, command_validate_block_nakamoto,
@@ -517,11 +517,15 @@ fn main() {
                     (m, d)
                 }
                 (None, None, None) => {
-                    eprintln!("Error: provide either --state-dir OR both --marf-path and --data-db-path");
+                    eprintln!(
+                        "Error: provide either --state-dir OR both --marf-path and --data-db-path"
+                    );
                     process::exit(1);
                 }
                 (Some(_), Some(_), _) | (Some(_), _, Some(_)) => {
-                    eprintln!("Error: --state-dir cannot be combined with --marf-path or --data-db-path");
+                    eprintln!(
+                        "Error: --state-dir cannot be combined with --marf-path or --data-db-path"
+                    );
                     process::exit(1);
                 }
                 (None, Some(_), None) | (None, None, Some(_)) => {
@@ -1357,8 +1361,13 @@ fn main() {
             process::exit(0);
         }
 
-        Command::TipMine(args) => {
-            tip_mine(&args);
+        Command::TipMine {
+            working_dir,
+            event_log,
+            mine_tip_height,
+            max_txns,
+        } => {
+            tip_mine(&working_dir, &event_log, mine_tip_height, max_txns);
         }
 
         Command::ReplayMockMining(args) => {
@@ -1499,8 +1508,22 @@ fn main() {
             process::exit(0);
         }
 
-        Command::AnalyzeSortitionMev(args) => {
-            analyze_sortition_mev(&args);
+        Command::AnalyzeSortitionMev {
+            burnchain_db_path,
+            sortition_db_path,
+            chainstate_path,
+            start_height,
+            end_height,
+            advantages,
+        } => {
+            analyze_sortition_mev(
+                &burnchain_db_path,
+                &sortition_db_path,
+                &chainstate_path,
+                start_height,
+                end_height,
+                &advantages,
+            );
         }
     }
 }
@@ -1526,14 +1549,13 @@ pub fn dump_consts() {
 
 #[cfg_attr(test, mutants::skip)]
 #[allow(clippy::indexing_slicing)]
-pub fn tip_mine(args: &TipMineArgs) {
-    let burnchain_path = format!("{}/mainnet/burnchain", &args.working_dir);
-    let sort_db_path = format!("{}/mainnet/burnchain/sortition", &args.working_dir);
-    let chain_state_path = format!("{}/mainnet/chainstate/", &args.working_dir);
+pub fn tip_mine(working_dir: &str, event_log: &str, mine_tip_height: u64, max_txns: u64) {
+    let burnchain_path = format!("{}/mainnet/burnchain", working_dir);
+    let sort_db_path = format!("{}/mainnet/burnchain/sortition", working_dir);
+    let chain_state_path = format!("{}/mainnet/chainstate/", working_dir);
 
-    let events_file = &args.event_log;
-    let mine_tip_height = args.mine_tip_height;
-    let mine_max_txns = args.max_txns;
+    let events_file = event_log;
+    let mine_max_txns = max_txns;
 
     let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
         .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
@@ -1740,19 +1762,20 @@ pub fn tip_mine(args: &TipMineArgs) {
 /// Perform an analysis of the anti-MEV algorithm in epoch 3.0, vis-a-vis the status quo.
 /// Results are printed to stdout.
 /// Exits with 0 on success, and 1 on failure.
-fn analyze_sortition_mev(args: &AnalyzeSortitionMevArgs) {
-    let burnchaindb_path = &args.burnchain_db_path;
-    let sortdb_path = &args.sortition_db_path;
-    let chainstate_path = &args.chainstate_path;
-    let start_height = args.start_height;
-    let end_height = args.end_height;
-
+fn analyze_sortition_mev(
+    burnchaindb_path: &str,
+    sortdb_path: &str,
+    chainstate_path: &str,
+    start_height: u64,
+    end_height: u64,
+    advantage_pairs: &[String],
+) {
     // Parse advantages from pairs: MINER BURN MINER BURN ...
     let mut advantages = HashMap::new();
     let mut i = 0;
-    while i + 1 < args.advantages.len() {
-        let miner = args.advantages[i].clone();
-        let burn: u64 = args.advantages[i + 1]
+    while i + 1 < advantage_pairs.len() {
+        let miner = advantage_pairs[i].clone();
+        let burn: u64 = advantage_pairs[i + 1]
             .parse()
             .expect("advantage burn must be a valid u64");
         advantages.insert(miner, burn);

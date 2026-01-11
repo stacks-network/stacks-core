@@ -31,21 +31,6 @@ pub struct TryMineArgs {
 }
 
 #[derive(Args, Debug, Clone)]
-pub struct TipMineArgs {
-    /// Working directory containing mainnet data
-    pub working_dir: String,
-
-    /// Event log file path
-    pub event_log: String,
-
-    /// Target block height to mine at
-    pub mine_tip_height: u64,
-
-    /// Maximum transactions to include
-    pub max_txns: u64,
-}
-
-#[derive(Args, Debug, Clone)]
 pub struct ReplayMockMiningArgs {
     /// Path to chainstate directory
     pub chainstate_path: String,
@@ -101,28 +86,6 @@ pub struct ValidateBlockArgs {
 pub struct ContractHashArgs {
     /// Contract source file path or "-" for stdin
     pub contract_source: String,
-}
-
-/// Arguments for the analyze-sortition-mev command
-#[derive(Args, Debug, Clone)]
-pub struct AnalyzeSortitionMevArgs {
-    /// Path to burnchain database
-    pub burnchain_db_path: String,
-
-    /// Path to sortition database
-    pub sortition_db_path: String,
-
-    /// Path to chainstate database
-    pub chainstate_path: String,
-
-    /// Start block height
-    pub start_height: u64,
-
-    /// End block height
-    pub end_height: u64,
-
-    /// Miner advantage pairs: MINER BURN MINER BURN ...
-    pub advantages: Vec<String>,
 }
 
 /// Build the version string at compile time from Cargo metadata
@@ -422,7 +385,23 @@ pub enum Command {
 
     /// Mine a block at tip height using event log
     #[command(name = "tip-mine")]
-    TipMine(TipMineArgs),
+    TipMine {
+        /// Working directory containing mainnet data
+        #[arg(value_name = "WORKING_DIR")]
+        working_dir: String,
+
+        /// Event log file path
+        #[arg(value_name = "EVENT_LOG")]
+        event_log: String,
+
+        /// Target block height to mine at
+        #[arg(value_name = "MINE_TIP_HEIGHT")]
+        mine_tip_height: u64,
+
+        /// Maximum transactions to include
+        #[arg(value_name = "MAX_TXNS")]
+        max_txns: u64,
+    },
 
     /// Replay mock-mined blocks from JSON files
     #[command(name = "replay-mock-mining")]
@@ -509,7 +488,31 @@ pub enum Command {
 
     /// Analyze sortition MEV across epochs
     #[command(name = "analyze-sortition-mev")]
-    AnalyzeSortitionMev(AnalyzeSortitionMevArgs),
+    AnalyzeSortitionMev {
+        /// Path to burnchain database
+        #[arg(value_name = "BURNCHAIN_DB_PATH")]
+        burnchain_db_path: String,
+
+        /// Path to sortition database
+        #[arg(value_name = "SORTITION_DB_PATH")]
+        sortition_db_path: String,
+
+        /// Path to chainstate database
+        #[arg(value_name = "CHAINSTATE_PATH")]
+        chainstate_path: String,
+
+        /// Start block height
+        #[arg(value_name = "START_HEIGHT")]
+        start_height: u64,
+
+        /// End block height
+        #[arg(value_name = "END_HEIGHT")]
+        end_height: u64,
+
+        /// Miner advantage pairs: MINER BURN MINER BURN ...
+        #[arg(value_name = "ADVANTAGES")]
+        advantages: Vec<String>,
+    },
 
     // ================ Utility Commands ================
     /// Generate peer public key from seed

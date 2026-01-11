@@ -1062,4 +1062,3 @@ fn replay_block_nakamoto(
 
     Ok(())
 }
-
