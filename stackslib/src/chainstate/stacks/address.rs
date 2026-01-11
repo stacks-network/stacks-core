@@ -71,6 +71,49 @@ pub enum PoxAddress {
     Addr32(bool, PoxAddressType32, [u8; 32]),
 }
 
+pub mod pox_addr_b58_serde {
+    pub fn serialize<S: serde::Serializer>(
+        val: &super::PoxAddress,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        super::pox_addr_b58_serialize(val, s)
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deser: D,
+    ) -> Result<super::PoxAddress, D::Error> {
+        super::pox_addr_b58_deser(deser)
+    }
+}
+
+pub mod pox_addr_vec_b58_serde {
+    pub fn serialize<S: serde::Serializer>(
+        input: &Vec<super::PoxAddress>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = s.serialize_seq(Some(input.len()))?;
+        for addr in input {
+            seq.serialize_element(&addr.clone().to_b58())?;
+        }
+        seq.end()
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deser: D,
+    ) -> Result<Vec<super::PoxAddress>, D::Error> {
+        let strings: Vec<String> = serde::Deserialize::deserialize(deser)?;
+        strings
+            .into_iter()
+            .map(|s| {
+                super::PoxAddress::from_b58(&s).ok_or_else(|| {
+                    serde::de::Error::custom("Failed to decode PoxAddress from string")
+                })
+            })
+            .collect()
+    }
+}
+
 /// Serializes a PoxAddress as a B58 check encoded address or a bech32 address
 pub fn pox_addr_b58_serialize<S: Serializer>(
     input: &PoxAddress,
