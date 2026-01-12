@@ -378,8 +378,8 @@ fn main() {
             }
         }
 
-        Command::DecodeTx { tx_input } => {
-            let tx_str = if tx_input == "-" || std::path::Path::new(&tx_input).exists() {
+        Command::DecodeTx { tx_input, file } => {
+            let tx_str = if file {
                 read_file_or_stdin(&tx_input).trim().to_string()
             } else {
                 // Treat as hex string directly
@@ -428,8 +428,8 @@ fn main() {
             process::exit(0);
         }
 
-        Command::DecodeNakamotoBlock { block_input } => {
-            let block_hex = if block_input == "-" || std::path::Path::new(&block_input).exists() {
+        Command::DecodeNakamotoBlock { block_input, file } => {
+            let block_hex = if file {
                 read_file_or_stdin(&block_input).trim().to_string()
             } else {
                 // Treat as hex string directly
@@ -448,8 +448,8 @@ fn main() {
             process::exit(0);
         }
 
-        Command::DecodeNetMessage { message_data } => {
-            let buf = if message_data == "-" || std::path::Path::new(&message_data).exists() {
+        Command::DecodeNetMessage { message_data, file } => {
+            let buf = if file {
                 read_file_or_stdin_bytes(&message_data)
             } else {
                 // Parse as JSON array of bytes

@@ -143,9 +143,13 @@ pub enum Command {
     /// Decode and print a Stacks transaction
     #[command(name = "decode-tx")]
     DecodeTx {
-        /// Transaction hex string, path to file, or "-" for stdin
-        #[arg(value_name = "TX_HEX_OR_FILE")]
+        /// Transaction hex string (use --file to read from file instead)
+        #[arg(value_name = "TX_HEX")]
         tx_input: String,
+
+        /// Treat input as file path (use "-" for stdin)
+        #[arg(long)]
+        file: bool,
     },
 
     /// Decode and print a Stacks block (epoch 2.x)
@@ -159,17 +163,25 @@ pub enum Command {
     /// Decode and print a Nakamoto block
     #[command(name = "decode-nakamoto-block")]
     DecodeNakamotoBlock {
-        /// Block hex string, path to file, or "-" for stdin
-        #[arg(value_name = "BLOCK_HEX_OR_FILE")]
+        /// Block hex string (use --file to read from file instead)
+        #[arg(value_name = "BLOCK_HEX")]
         block_input: String,
+
+        /// Treat input as file path (use "-" for stdin)
+        #[arg(long)]
+        file: bool,
     },
 
     /// Decode and print a Stacks network message
     #[command(name = "decode-net-message")]
     DecodeNetMessage {
-        /// Message data as JSON byte array, path to file, or "-" for stdin
+        /// Message data as JSON byte array (use --file to read from file instead)
         #[arg(value_name = "MESSAGE_DATA")]
         message_data: String,
+
+        /// Treat input as file path (use "-" for stdin)
+        #[arg(long)]
+        file: bool,
     },
 
     /// Decode and print a microblock stream
