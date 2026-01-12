@@ -1,3 +1,6 @@
 {
-    "data": "0x01ce0123456789abcdef"
+    "summary": "Constant value lookup result",
+    "value": {
+        "data": "0x01ce0123456789abcdef"
+    }
 }

@@ -1,659 +1,662 @@
 {
-  "functions": [
-    {
-      "name": "protocol-mint-many-iter",
-      "access": "private",
-      "args": [
-        {
-          "name": "item",
-          "type": {
-            "tuple": [
-              {
-                "name": "amount",
-                "type": "uint128"
-              },
-              {
-                "name": "recipient",
-                "type": "principal"
-              }
-            ]
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "bool",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "transfer-many-iter",
-      "access": "private",
-      "args": [
-        {
-          "name": "individual-transfer",
-          "type": {
-            "tuple": [
-              {
-                "name": "amount",
-                "type": "uint128"
-              },
-              {
-                "name": "memo",
-                "type": {
-                  "optional": {
-                    "buffer": {
-                      "length": 34
-                    }
-                  }
-                }
-              },
-              {
-                "name": "sender",
-                "type": "principal"
-              },
-              {
-                "name": "to",
-                "type": "principal"
-              }
-            ]
-          }
-        },
-        {
-          "name": "result",
-          "type": {
-            "response": {
-              "ok": "uint128",
-              "error": "uint128"
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "uint128",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "protocol-burn",
-      "access": "public",
-      "args": [
-        {
-          "name": "amount",
-          "type": "uint128"
-        },
-        {
-          "name": "owner",
-          "type": "principal"
-        },
-        {
-          "name": "contract-flag",
-          "type": {
-            "buffer": {
-              "length": 1
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "bool",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "protocol-burn-locked",
-      "access": "public",
-      "args": [
-        {
-          "name": "amount",
-          "type": "uint128"
-        },
-        {
-          "name": "owner",
-          "type": "principal"
-        },
-        {
-          "name": "contract-flag",
-          "type": {
-            "buffer": {
-              "length": 1
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "bool",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "protocol-lock",
-      "access": "public",
-      "args": [
-        {
-          "name": "amount",
-          "type": "uint128"
-        },
-        {
-          "name": "owner",
-          "type": "principal"
-        },
-        {
-          "name": "contract-flag",
-          "type": {
-            "buffer": {
-              "length": 1
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "bool",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "protocol-mint",
-      "access": "public",
-      "args": [
-        {
-          "name": "amount",
-          "type": "uint128"
-        },
-        {
-          "name": "recipient",
-          "type": "principal"
-        },
-        {
-          "name": "contract-flag",
-          "type": {
-            "buffer": {
-              "length": 1
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "bool",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "protocol-mint-many",
-      "access": "public",
-      "args": [
-        {
-          "name": "recipients",
-          "type": {
-            "list": {
-              "type": {
-                "tuple": [
-                  {
-                    "name": "amount",
-                    "type": "uint128"
-                  },
-                  {
-                    "name": "recipient",
-                    "type": "principal"
-                  }
-                ]
-              },
-              "length": 200
-            }
-          }
-        },
-        {
-          "name": "contract-flag",
-          "type": {
-            "buffer": {
-              "length": 1
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": {
-              "list": {
-                "type": {
-                  "response": {
-                    "ok": "bool",
-                    "error": "uint128"
-                  }
-                },
-                "length": 200
-              }
-            },
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "protocol-set-name",
-      "access": "public",
-      "args": [
-        {
-          "name": "new-name",
-          "type": {
-            "string-ascii": {
-              "length": 32
-            }
-          }
-        },
-        {
-          "name": "contract-flag",
-          "type": {
-            "buffer": {
-              "length": 1
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "bool",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "protocol-set-symbol",
-      "access": "public",
-      "args": [
-        {
-          "name": "new-symbol",
-          "type": {
-            "string-ascii": {
-              "length": 10
-            }
-          }
-        },
-        {
-          "name": "contract-flag",
-          "type": {
-            "buffer": {
-              "length": 1
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "bool",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "protocol-set-token-uri",
-      "access": "public",
-      "args": [
-        {
-          "name": "new-uri",
-          "type": {
-            "optional": {
-              "string-utf8": {
-                "length": 256
-              }
-            }
-          }
-        },
-        {
-          "name": "contract-flag",
-          "type": {
-            "buffer": {
-              "length": 1
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "bool",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "protocol-unlock",
-      "access": "public",
-      "args": [
-        {
-          "name": "amount",
-          "type": "uint128"
-        },
-        {
-          "name": "owner",
-          "type": "principal"
-        },
-        {
-          "name": "contract-flag",
-          "type": {
-            "buffer": {
-              "length": 1
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "bool",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "transfer",
-      "access": "public",
-      "args": [
-        {
-          "name": "amount",
-          "type": "uint128"
-        },
-        {
-          "name": "sender",
-          "type": "principal"
-        },
-        {
-          "name": "recipient",
-          "type": "principal"
-        },
-        {
-          "name": "memo",
-          "type": {
-            "optional": {
-              "buffer": {
-                "length": 34
-              }
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "bool",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "transfer-many",
-      "access": "public",
-      "args": [
-        {
-          "name": "recipients",
-          "type": {
-            "list": {
-              "type": {
-                "tuple": [
-                  {
-                    "name": "amount",
-                    "type": "uint128"
-                  },
-                  {
-                    "name": "memo",
-                    "type": {
-                      "optional": {
-                        "buffer": {
-                          "length": 34
+    "summary": "Contract interface details",
+    "value": {
+        "functions": [
+            {
+                "name": "protocol-mint-many-iter",
+                "access": "private",
+                "args": [
+                    {
+                        "name": "item",
+                        "type": {
+                            "tuple": [
+                                {
+                                    "name": "amount",
+                                    "type": "uint128"
+                                },
+                                {
+                                    "name": "recipient",
+                                    "type": "principal"
+                                }
+                            ]
                         }
-                      }
                     }
-                  },
-                  {
-                    "name": "sender",
-                    "type": "principal"
-                  },
-                  {
-                    "name": "to",
-                    "type": "principal"
-                  }
-                ]
-              },
-              "length": 200
-            }
-          }
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "uint128",
-            "error": "uint128"
-          }
-        }
-      }
-    },
-    {
-      "name": "get-balance",
-      "access": "read_only",
-      "args": [
-        {
-          "name": "who",
-          "type": "principal"
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "uint128",
-            "error": "none"
-          }
-        }
-      }
-    },
-    {
-      "name": "get-balance-available",
-      "access": "read_only",
-      "args": [
-        {
-          "name": "who",
-          "type": "principal"
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "uint128",
-            "error": "none"
-          }
-        }
-      }
-    },
-    {
-      "name": "get-balance-locked",
-      "access": "read_only",
-      "args": [
-        {
-          "name": "who",
-          "type": "principal"
-        }
-      ],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "uint128",
-            "error": "none"
-          }
-        }
-      }
-    },
-    {
-      "name": "get-decimals",
-      "access": "read_only",
-      "args": [],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "uint128",
-            "error": "none"
-          }
-        }
-      }
-    },
-    {
-      "name": "get-name",
-      "access": "read_only",
-      "args": [],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": {
-              "string-ascii": {
-                "length": 32
-              }
-            },
-            "error": "none"
-          }
-        }
-      }
-    },
-    {
-      "name": "get-symbol",
-      "access": "read_only",
-      "args": [],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": {
-              "string-ascii": {
-                "length": 10
-              }
-            },
-            "error": "none"
-          }
-        }
-      }
-    },
-    {
-      "name": "get-token-uri",
-      "access": "read_only",
-      "args": [],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": {
-              "optional": {
-                "string-utf8": {
-                  "length": 256
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "bool",
+                            "error": "uint128"
+                        }
+                    }
                 }
-              }
             },
-            "error": "none"
-          }
-        }
-      }
-    },
-    {
-      "name": "get-total-supply",
-      "access": "read_only",
-      "args": [],
-      "outputs": {
-        "type": {
-          "response": {
-            "ok": "uint128",
-            "error": "none"
-          }
-        }
-      }
+            {
+                "name": "transfer-many-iter",
+                "access": "private",
+                "args": [
+                    {
+                        "name": "individual-transfer",
+                        "type": {
+                            "tuple": [
+                                {
+                                    "name": "amount",
+                                    "type": "uint128"
+                                },
+                                {
+                                    "name": "memo",
+                                    "type": {
+                                        "optional": {
+                                            "buffer": {
+                                                "length": 34
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "name": "sender",
+                                    "type": "principal"
+                                },
+                                {
+                                    "name": "to",
+                                    "type": "principal"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "result",
+                        "type": {
+                            "response": {
+                                "ok": "uint128",
+                                "error": "uint128"
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "uint128",
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "protocol-burn",
+                "access": "public",
+                "args": [
+                    {
+                        "name": "amount",
+                        "type": "uint128"
+                    },
+                    {
+                        "name": "owner",
+                        "type": "principal"
+                    },
+                    {
+                        "name": "contract-flag",
+                        "type": {
+                            "buffer": {
+                                "length": 1
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "bool",
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "protocol-burn-locked",
+                "access": "public",
+                "args": [
+                    {
+                        "name": "amount",
+                        "type": "uint128"
+                    },
+                    {
+                        "name": "owner",
+                        "type": "principal"
+                    },
+                    {
+                        "name": "contract-flag",
+                        "type": {
+                            "buffer": {
+                                "length": 1
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "bool",
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "protocol-lock",
+                "access": "public",
+                "args": [
+                    {
+                        "name": "amount",
+                        "type": "uint128"
+                    },
+                    {
+                        "name": "owner",
+                        "type": "principal"
+                    },
+                    {
+                        "name": "contract-flag",
+                        "type": {
+                            "buffer": {
+                                "length": 1
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "bool",
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "protocol-mint",
+                "access": "public",
+                "args": [
+                    {
+                        "name": "amount",
+                        "type": "uint128"
+                    },
+                    {
+                        "name": "recipient",
+                        "type": "principal"
+                    },
+                    {
+                        "name": "contract-flag",
+                        "type": {
+                            "buffer": {
+                                "length": 1
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "bool",
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "protocol-mint-many",
+                "access": "public",
+                "args": [
+                    {
+                        "name": "recipients",
+                        "type": {
+                            "list": {
+                                "type": {
+                                    "tuple": [
+                                        {
+                                            "name": "amount",
+                                            "type": "uint128"
+                                        },
+                                        {
+                                            "name": "recipient",
+                                            "type": "principal"
+                                        }
+                                    ]
+                                },
+                                "length": 200
+                            }
+                        }
+                    },
+                    {
+                        "name": "contract-flag",
+                        "type": {
+                            "buffer": {
+                                "length": 1
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": {
+                                "list": {
+                                    "type": {
+                                        "response": {
+                                            "ok": "bool",
+                                            "error": "uint128"
+                                        }
+                                    },
+                                    "length": 200
+                                }
+                            },
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "protocol-set-name",
+                "access": "public",
+                "args": [
+                    {
+                        "name": "new-name",
+                        "type": {
+                            "string-ascii": {
+                                "length": 32
+                            }
+                        }
+                    },
+                    {
+                        "name": "contract-flag",
+                        "type": {
+                            "buffer": {
+                                "length": 1
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "bool",
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "protocol-set-symbol",
+                "access": "public",
+                "args": [
+                    {
+                        "name": "new-symbol",
+                        "type": {
+                            "string-ascii": {
+                                "length": 10
+                            }
+                        }
+                    },
+                    {
+                        "name": "contract-flag",
+                        "type": {
+                            "buffer": {
+                                "length": 1
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "bool",
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "protocol-set-token-uri",
+                "access": "public",
+                "args": [
+                    {
+                        "name": "new-uri",
+                        "type": {
+                            "optional": {
+                                "string-utf8": {
+                                    "length": 256
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "name": "contract-flag",
+                        "type": {
+                            "buffer": {
+                                "length": 1
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "bool",
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "protocol-unlock",
+                "access": "public",
+                "args": [
+                    {
+                        "name": "amount",
+                        "type": "uint128"
+                    },
+                    {
+                        "name": "owner",
+                        "type": "principal"
+                    },
+                    {
+                        "name": "contract-flag",
+                        "type": {
+                            "buffer": {
+                                "length": 1
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "bool",
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "transfer",
+                "access": "public",
+                "args": [
+                    {
+                        "name": "amount",
+                        "type": "uint128"
+                    },
+                    {
+                        "name": "sender",
+                        "type": "principal"
+                    },
+                    {
+                        "name": "recipient",
+                        "type": "principal"
+                    },
+                    {
+                        "name": "memo",
+                        "type": {
+                            "optional": {
+                                "buffer": {
+                                    "length": 34
+                                }
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "bool",
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "transfer-many",
+                "access": "public",
+                "args": [
+                    {
+                        "name": "recipients",
+                        "type": {
+                            "list": {
+                                "type": {
+                                    "tuple": [
+                                        {
+                                            "name": "amount",
+                                            "type": "uint128"
+                                        },
+                                        {
+                                            "name": "memo",
+                                            "type": {
+                                                "optional": {
+                                                    "buffer": {
+                                                        "length": 34
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "name": "sender",
+                                            "type": "principal"
+                                        },
+                                        {
+                                            "name": "to",
+                                            "type": "principal"
+                                        }
+                                    ]
+                                },
+                                "length": 200
+                            }
+                        }
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "uint128",
+                            "error": "uint128"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get-balance",
+                "access": "read_only",
+                "args": [
+                    {
+                        "name": "who",
+                        "type": "principal"
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "uint128",
+                            "error": "none"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get-balance-available",
+                "access": "read_only",
+                "args": [
+                    {
+                        "name": "who",
+                        "type": "principal"
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "uint128",
+                            "error": "none"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get-balance-locked",
+                "access": "read_only",
+                "args": [
+                    {
+                        "name": "who",
+                        "type": "principal"
+                    }
+                ],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "uint128",
+                            "error": "none"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get-decimals",
+                "access": "read_only",
+                "args": [],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "uint128",
+                            "error": "none"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get-name",
+                "access": "read_only",
+                "args": [],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": {
+                                "string-ascii": {
+                                    "length": 32
+                                }
+                            },
+                            "error": "none"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get-symbol",
+                "access": "read_only",
+                "args": [],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": {
+                                "string-ascii": {
+                                    "length": 10
+                                }
+                            },
+                            "error": "none"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get-token-uri",
+                "access": "read_only",
+                "args": [],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": {
+                                "optional": {
+                                    "string-utf8": {
+                                        "length": 256
+                                    }
+                                }
+                            },
+                            "error": "none"
+                        }
+                    }
+                }
+            },
+            {
+                "name": "get-total-supply",
+                "access": "read_only",
+                "args": [],
+                "outputs": {
+                    "type": {
+                        "response": {
+                            "ok": "uint128",
+                            "error": "none"
+                        }
+                    }
+                }
+            }
+        ],
+        "variables": [
+            {
+                "name": "ERR_NOT_OWNER",
+                "type": {
+                    "response": {
+                        "ok": "none",
+                        "error": "uint128"
+                    }
+                },
+                "access": "constant"
+            },
+            {
+                "name": "ERR_TRANSFER_INDEX_PREFIX",
+                "type": "uint128",
+                "access": "constant"
+            },
+            {
+                "name": "token-decimals",
+                "type": "uint128",
+                "access": "constant"
+            },
+            {
+                "name": "token-name",
+                "type": {
+                    "string-ascii": {
+                        "length": 32
+                    }
+                },
+                "access": "variable"
+            },
+            {
+                "name": "token-symbol",
+                "type": {
+                    "string-ascii": {
+                        "length": 10
+                    }
+                },
+                "access": "variable"
+            },
+            {
+                "name": "token-uri",
+                "type": {
+                    "optional": {
+                        "string-utf8": {
+                            "length": 256
+                        }
+                    }
+                },
+                "access": "variable"
+            }
+        ],
+        "maps": [],
+        "fungible_tokens": [
+            {
+                "name": "sbtc-token"
+            },
+            {
+                "name": "sbtc-token-locked"
+            }
+        ],
+        "non_fungible_tokens": [],
+        "epoch": "Epoch30",
+        "clarity_version": "Clarity3"
     }
-  ],
-  "variables": [
-    {
-      "name": "ERR_NOT_OWNER",
-      "type": {
-        "response": {
-          "ok": "none",
-          "error": "uint128"
-        }
-      },
-      "access": "constant"
-    },
-    {
-      "name": "ERR_TRANSFER_INDEX_PREFIX",
-      "type": "uint128",
-      "access": "constant"
-    },
-    {
-      "name": "token-decimals",
-      "type": "uint128",
-      "access": "constant"
-    },
-    {
-      "name": "token-name",
-      "type": {
-        "string-ascii": {
-          "length": 32
-        }
-      },
-      "access": "variable"
-    },
-    {
-      "name": "token-symbol",
-      "type": {
-        "string-ascii": {
-          "length": 10
-        }
-      },
-      "access": "variable"
-    },
-    {
-      "name": "token-uri",
-      "type": {
-        "optional": {
-          "string-utf8": {
-            "length": 256
-          }
-        }
-      },
-      "access": "variable"
-    }
-  ],
-  "maps": [],
-  "fungible_tokens": [
-    {
-      "name": "sbtc-token"
-    },
-    {
-      "name": "sbtc-token-locked"
-    }
-  ],
-  "non_fungible_tokens": [],
-  "epoch": "Epoch30",
-  "clarity_version": "Clarity3"
 }

@@ -1,4 +1,7 @@
 {
-  "okay": true,
-  "result": "0x0100000000000000000000000000000001"
+    "summary": "Read-only function success response",
+    "value": {
+        "okay": true,
+        "result": "0x0100000000000000000000000000000001"
+    }
 }
