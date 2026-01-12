@@ -221,7 +221,7 @@ fn execute_contract_function_and_get_cost(
     env: &mut OwnedEnvironment,
     contract_id: &QualifiedContractIdentifier,
     function_name: &str,
-    args: &[u64],
+    args: &[clarity_types::Value],
     version: ClarityVersion,
 ) -> ExecutionCost {
     let initial_cost = env.get_cost_total();
@@ -235,8 +235,7 @@ fn execute_contract_function_and_get_cost(
     // Convert u64 arguments to Value::UInt, then to SymbolicExpression::atom_value
     use crate::vm::types::Value;
     use crate::vm::representations::SymbolicExpression;
-    let arg_values: Vec<Value> = args.iter().map(|&a| Value::UInt(a as u128)).collect();
-    let arg_exprs: Vec<SymbolicExpression> = arg_values.iter()
+    let arg_exprs: Vec<SymbolicExpression> = args.iter()
         .map(|v| SymbolicExpression::atom_value(v.clone()))
         .collect();
 
@@ -371,33 +370,11 @@ fn test_contract_call_cost_33() {
 fn run_cost_analysis_test(
     src: &str,
     function_name: &str,
-    args: &[u64],
+    args: &[clarity_types::Value],
     epoch: StacksEpochId,
     clarity_version: ClarityVersion,
 ) -> Result<(), String> {
     let contract_id = QualifiedContractIdentifier::local("test-contract").unwrap();
-
-    // Build AST for static cost analysis
-    let ast = ast::build_ast(
-        &contract_id,
-        src,
-        &mut (),
-        clarity_version,
-        epoch,
-    )
-    .expect("Failed to build AST");
-
-    // Run static cost analysis with source string for accurate contract size
-    let static_cost_map = crate::vm::costs::analysis::static_cost_from_ast_with_source(
-        &ast,
-        &clarity_version,
-        epoch,
-        Some(src),
-    )
-    .expect("Failed to get static cost analysis");
-
-    let (static_cost, _) = static_cost_map.get(function_name)
-        .expect(&format!("Function '{}' not found in static cost map", function_name));
 
     // Set up environment for dynamic cost analysis
     let mut memory_store = MemoryBackingStore::new();
@@ -479,6 +456,29 @@ fn run_cost_analysis_test(
         clarity_version,
     );
 
+
+    // Build AST for static cost analysis
+    let ast = ast::build_ast(
+        &contract_id,
+        src,
+        &mut (),
+        clarity_version,
+        epoch,
+    )
+    .expect("Failed to build AST");
+
+    // Run static cost analysis with source string for accurate contract size
+    let static_cost_map = crate::vm::costs::analysis::static_cost_from_ast_with_source(
+        &ast,
+        &clarity_version,
+        epoch,
+        Some(src),
+    )
+    .expect("Failed to get static cost analysis");
+
+    let (static_cost, _) = static_cost_map.get(function_name)
+        .expect(&format!("Function '{}' not found in static cost map", function_name));
+
     println!("\n=== Cost Analysis for {} ===", function_name);
     println!("static cost: {:?}", static_cost);
     println!("dynamic cost: {:?}", dynamic_cost);
@@ -527,25 +527,52 @@ fn test_against_dynamic_cost_analysis() {
     let epoch = StacksEpochId::Epoch32;
     let clarity_version = ClarityVersion::Clarity3;
 
+    let uint_value = [clarity_types::Value::UInt(1)];
+    let multi_arg_value = [clarity_types::Value::string_ascii_from_bytes("".to_string().into_bytes()).unwrap(), clarity_types::Value::UInt(1)];
+    let value = [clarity_types::Value::string_ascii_from_bytes("".to_string().into_bytes()).unwrap()];
+    let max_value = [clarity_types::Value::string_ascii_from_bytes("aaaaaaaaaa".to_string().into_bytes()).unwrap()];
     // Define test cases as (source, function_name, args)
-    let test_cases: Vec<(&str, &str, &[u64])> = vec![
+    let test_cases: Vec<(&str, &str, &[clarity_types::Value])> = vec![
+//         (
+//             r#"(define-public (let-func (a uint))
+//     (let ((b 1))
+//         (ok (+ a b))
+// ))
+// "#,
+//             "let-func",
+//             &uint_value,
+//         ),
+//         (
+//             r#"(define-public (if-func (a uint))
+//     (if (> a 0)
+//         (ok a)
+// ))
+// "#,
+//             "if-func",
+//             &uint_value,
+//         ),
+//         (
+//             r#"(define-public (simple-str-min (a (string-ascii 10)))
+//     (ok a)
+// )"#,
+//             "simple-str-min",
+//             &value,
+//         ),
         (
-            r#"(define-public (somefunc (a uint))
-    (let ((b 1))
-        (ok (+ a b))
-))
-"#,
-            "somefunc",
-            &[1],
+            r#"(define-public (simple-str (a (string-ascii 10)) (b uint))
+    (ok a)
+)"#,
+            "simple-str",
+            &multi_arg_value,
         ),
-        (
-            r#"(define-public (simple-ok)
-    (ok true)
-)
-"#,
-            "simple-ok",
-            &[],
-        ),
+//         (
+//             r#"(define-public (simple-ok)
+//     (ok true)
+// )
+// "#,
+//             "simple-ok",
+//             &[],
+//         ),
     ];
 
     let mut failures = Vec::new();

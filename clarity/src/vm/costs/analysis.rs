@@ -2,7 +2,8 @@
 
 use std::collections::HashMap;
 
-use clarity_types::types::TraitIdentifier;
+use clarity_types::errors::analysis::SyntaxBindingErrorType;
+use clarity_types::types::{TraitIdentifier};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::build_ast;
@@ -17,8 +18,9 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::{ClarityVersion, Value};
+use crate::vm::types::{QualifiedContractIdentifier, parse_name_type_pairs};
+use crate::vm::variables::lookup_reserved_variable;
+use crate::vm::{ClarityVersion, LocalContext, Value};
 // TODO:
 // contract-call? - get source from database
 // type-checking
@@ -288,31 +290,66 @@ pub fn static_cost_tree(
 /// body cost, not overhead since it depends on the actual argument values/types.
 fn compute_function_overhead_costs(
     contract_size: Option<u64>,
-    arg_count: u64,
+    args: Vec<SymbolicExpression>,
     epoch: StacksEpochId,
-) -> ExecutionCost {
-    let mut overhead = ExecutionCost::ZERO;
+) -> (ExecutionCost, ExecutionCost) {
+    let mut overhead = (ExecutionCost::ZERO, ExecutionCost::ZERO);
+
+    println!("raw args: {:?}", args);
+    // TODO WRONG
+    let args = args.get(0).unwrap().match_list().unwrap().get(1).unwrap().match_list().unwrap().get(1..).unwrap();
+    println!("args: {:?}", args);
+    let arg_count = args.len();
 
     // cost_load_contract
     if let Some(size) = contract_size {
         let load_cost = ClarityCostFunction::LoadContract
             .eval_for_epoch(size, epoch)
             .unwrap_or_else(|_| ExecutionCost::ZERO);
-        overhead.add(&load_cost).ok();
+        overhead.0.add(&load_cost).ok();
+        overhead.1.add(&load_cost).ok();
+        println!("load_cost: {:?}", load_cost);
     }
 
     // cost_lookup_function
     let lookup_cost = ClarityCostFunction::LookupFunction
         .eval_for_epoch(0, epoch)
         .unwrap_or_else(|_| ExecutionCost::ZERO);
-    overhead.add(&lookup_cost).ok();
+    println!("lookup_cost: {:?}", lookup_cost);
+    overhead.0.add(&lookup_cost).ok();
+    overhead.1.add(&lookup_cost).ok();
 
     // cost_user_function_application
     let application_cost = ClarityCostFunction::UserFunctionApplication
-        .eval_for_epoch(arg_count, epoch)
+        .eval_for_epoch(arg_count as u64, epoch)
         .unwrap_or_else(|_| ExecutionCost::ZERO);
-    overhead.add(&application_cost).ok();
+    println!("application_cost: {:?}", application_cost);
 
+    overhead.0.add(&application_cost).ok();
+    overhead.1.add(&application_cost).ok();
+
+    let sigs = parse_name_type_pairs::<(), clarity_types::errors::CommonCheckErrorKind>(epoch, &args, SyntaxBindingErrorType::Eval, &mut ());
+    match sigs {
+        Ok(sigs) => {
+            for (_, sig) in sigs.iter() {
+                let type_check_cost = ClarityCostFunction::InnerTypeCheckCost
+                    .eval_for_epoch(sig.size().unwrap_or(0) as u64, epoch)
+                    .unwrap_or_else(|_| ExecutionCost::ZERO);
+                let type_check_min_cost = ClarityCostFunction::InnerTypeCheckCost
+                    .eval_for_epoch(sig.min_size().unwrap_or(0) as u64, epoch)
+                    .unwrap_or_else(|_| ExecutionCost::ZERO);
+                println!("type_check_cost: {:?}", type_check_cost);
+                println!("type_check_min_cost: {:?}", type_check_min_cost);
+                // TODO min
+                overhead.0.add(&type_check_min_cost).ok();
+                overhead.1.add(&type_check_cost).ok();
+
+            }
+        }
+        Err(e) => {
+            println!("Error parsing signatures: {:?}", e);
+        }
+    }
     overhead
 }
 
@@ -358,16 +395,6 @@ pub fn static_cost_from_ast_with_source(
     let costs: HashMap<String, StaticCost> = cost_trees_with_traits
         .iter()
         .filter_map(|(name, (cost_analysis_node, _))| {
-            let arg_count = contract_ast.expressions.iter()
-                .find_map(|expr| {
-                    if let Some(function_name) = extract_function_name(expr) {
-                        if function_name == *name {
-                            return extract_function_arg_count(expr);
-                        }
-                    }
-                    None
-                })
-                .unwrap_or(0);
 
             let summing_cost = calculate_total_cost_with_branching(cost_analysis_node);
             let mut static_cost: StaticCost = summing_cost.into();
@@ -375,11 +402,11 @@ pub fn static_cost_from_ast_with_source(
             // Add overhead costs to both min and max
             let overhead = compute_function_overhead_costs(
                 contract_size,
-                arg_count,
+                contract_ast.expressions.clone(),
                 epoch,
             );
-            static_cost.min.add(&overhead).ok()?;
-            static_cost.max.add(&overhead).ok()?;
+            static_cost.min.add(&overhead.0).ok()?;
+            static_cost.max.add(&overhead.1).ok()?;
 
             Some((name.clone(), static_cost))
         })
@@ -501,8 +528,36 @@ pub fn build_cost_analysis_tree(
             ))
         }
         SymbolicExpressionType::Atom(name) => {
+            // lookup variable size cost
+            // lookup variable depth cost
+            // IFF not reserved variable
+
+            // TODO
+            let context = LocalContext::new();
+            let cost = match lookup_reserved_variable(name, &context, env).unwrap_or(None) {
+                Some(_value) => { StaticCost::ZERO },
+                None => {
+                    // let type_sig = env type_map lookup name -> TypeSignature
+                    let variable_size_cost = ClarityCostFunction::LookupVariableSize
+                        .eval_for_epoch(sig.size().unwrap_or(0) as u64, epoch)
+                        .unwrap_or_else(|_| ExecutionCost::ZERO);
+                    let variable_size_min_cost = ClarityCostFunction::LookupVariableSize
+                        .eval_for_epoch(sig.min_size().unwrap_or(0) as u64, epoch)
+                        .unwrap_or_else(|_| ExecutionCost::ZERO);
+
+                    let lookup_variable_depth_cost = ClarityCostFunction::LookupVariableDepth
+                        .eval_for_epoch(let_depth, epoch)
+                        .unwrap_or_else(|_| ExecutionCost::ZERO);
+                    variable_size_min_cost.add(&lookup_variable_depth_cost).unwrap();
+                    variable_size_cost.add(&lookup_variable_depth_cost).unwrap();
+                    StaticCost {
+                        min: variable_size_min_cost,
+                        max: variable_size_cost,
+                    }
+                }
+            }
             let expr_node = parse_atom_expression(name, user_args)?;
-            Ok((None, CostAnalysisNode::leaf(expr_node, StaticCost::ZERO)))
+            Ok((None, CostAnalysisNode::leaf(expr_node, cost)))
         }
         SymbolicExpressionType::Field(field_identifier) => Ok((
             None,
@@ -552,7 +607,7 @@ fn build_function_definition_cost_analysis_tree(
     let signature = list[1]
         .match_list()
         .ok_or("Expected list for function signature")?;
-    println!("signature: {:?}", signature);
+    // println!("signature: {:?}", signature);
     let body = &list[2];
 
     let mut children = Vec::new();
