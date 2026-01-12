@@ -16,7 +16,6 @@
 use std::time::Duration;
 
 use clarity::vm::analysis::CheckErrorKind;
-use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::errors::VmExecutionError::Unchecked;
@@ -30,6 +29,7 @@ use stacks_common::types::net::PeerHost;
 use crate::net::api::callreadonly::{
     CallReadOnlyRequestBody, CallReadOnlyResponse, RPCCallReadOnlyRequestHandler,
 };
+use crate::net::api::CLARITY_NAME_SEGMENT;
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
     HttpRequestPreamble, HttpRequestTimeout, HttpResponse, HttpResponseContents,
@@ -80,7 +80,7 @@ impl HttpRequest for RPCFastCallReadOnlyRequestHandler {
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
             "^/v3/contracts/fast-call-read/(?P<address>{})/(?P<contract>{})/(?P<function>{})$",
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
+            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, CLARITY_NAME_SEGMENT,
         ))
         .unwrap()
     }

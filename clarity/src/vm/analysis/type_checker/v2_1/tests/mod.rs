@@ -473,12 +473,7 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
     let bad_expected = [
         ParseErrorKind::DefineTraitBadSignature,
         ParseErrorKind::DefineTraitBadSignature,
-        if epoch == StacksEpochId::Epoch20 || epoch == StacksEpochId::Epoch2_05 {
-            // the pre-2.1 parser returns less instructive errors
-            ParseErrorKind::ClosingParenthesisUnexpected
-        } else {
-            ParseErrorKind::UnexpectedToken(Token::Rparen)
-        },
+        ParseErrorKind::UnexpectedToken(Token::Rparen),
     ];
 
     let contract_identifier = QualifiedContractIdentifier::transient();

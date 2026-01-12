@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::{QualifiedContractIdentifier, TraitIdentifier};
@@ -23,6 +22,7 @@ use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 
+use crate::net::api::CLARITY_NAME_SEGMENT;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
@@ -63,7 +63,11 @@ impl HttpRequest for RPCGetIsTraitImplementedRequestHandler {
     fn path_regex(&self) -> Regex {
         Regex::new(&format!(
             "^/v2/traits/(?P<address>{})/(?P<contract>{})/(?P<traitContractAddr>{})/(?P<traitContractName>{})/(?P<traitName>{})$",
-            *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING, *CLARITY_NAME_REGEX
+            *STANDARD_PRINCIPAL_REGEX_STRING,
+            *CONTRACT_NAME_REGEX_STRING,
+            *STANDARD_PRINCIPAL_REGEX_STRING,
+            *CONTRACT_NAME_REGEX_STRING,
+            CLARITY_NAME_SEGMENT,
         ))
         .unwrap()
     }
