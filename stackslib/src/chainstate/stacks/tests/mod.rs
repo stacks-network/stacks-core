@@ -39,6 +39,7 @@ use crate::net::test::*;
 pub mod accounting;
 pub mod block_construction;
 pub mod chain_histories;
+pub mod reward_set;
 
 pub const COINBASE: u128 = 500 * 1_000_000;
 

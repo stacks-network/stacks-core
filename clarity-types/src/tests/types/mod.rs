@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,8 +18,9 @@ mod signatures;
 use rstest::rstest;
 use stacks_common::types::StacksEpochId;
 
+use crate::errors::ClarityTypeError;
 use crate::types::{
-    ASCIIData, BuffData, CharType, ClarityTypeError, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
+    ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
     QualifiedContractIdentifier, SequenceData, SequenceSubtype, SequencedValue as _,
     StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature, UTF8Data,
     Value,
@@ -333,47 +334,32 @@ fn test_trait_identifier_parse_fully_qualified_returns_clarity_type_error(
         TraitIdentifier::parse_fully_qualified(input).expect_err("Unexpected trait identifier");
     assert_eq!(expected_err, err);
 }
-
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block
-/// The returned ClarityTypeError::InvalidPrincipalVersion is consensus-critical.
 #[test]
-fn test_standard_principal_data_new_returns_clarity_type_error_invalid_principal_version_error_consensus_critical()
- {
+fn test_clarity_type_error_invalid_principal_version_to_vm_internal_error_expect() {
     let result = StandardPrincipalData::new(32, [0; 20]);
     let err = result.expect_err("Unexpected valid principal data");
-
-    assert_eq!(ClarityTypeError::InvalidPrincipalVersion(32), err,);
+    assert_eq!(ClarityTypeError::InvalidPrincipalVersion(32), err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block? Currently all calls to elemant_at are converted to an VmInternal::Expects
 #[test]
-fn test_sequence_data_element_at_returns_clarity_type_error_consensus_critical() {
+fn test_sequence_data_element_at_returns_clarity_type_error() {
     let buff = SequenceData::String(CharType::ASCII(ASCIIData { data: vec![1] }));
     let err = buff.element_at(0).unwrap_err();
     assert_eq!(ClarityTypeError::InvalidAsciiCharacter(1), err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block
 #[test]
 fn test_ascii_data_to_value_returns_clarity_type_error() {
     let err = ASCIIData::to_value(&1).unwrap_err();
     assert_eq!(ClarityTypeError::InvalidAsciiCharacter(1), err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block
 #[test]
-fn test_utf8_data_to_value_returns_clarity_types_error_invalid_utf8_encoding_consensus_critical() {
+fn test_utf8_data_to_value_returns_clarity_types_error_invalid_utf8_encoding() {
     let err = UTF8Data::to_value(&vec![0xED, 0xA0, 0x80]).unwrap_err();
     assert_eq!(ClarityTypeError::InvalidUtf8Encoding, err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block? Currently even without my own changes, calls to from_data_typed are already
-// immediately remapped
 #[test]
 fn test_tuple_data_from_data_typed_returns_clarity_type_error() {
     let tuple_type =
@@ -410,8 +396,6 @@ fn test_value_expect_ascii_returns_clarity_type_error(
     assert_eq!(expected_err, err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block? I think its up to the caller to determine if its consensus critical issue
 #[test]
 fn test_value_expect_u128_returns_clarity_type_error() {
     let err = Value::none().expect_u128().unwrap_err();
@@ -505,8 +489,6 @@ fn test_value_expect_bool_returns_clarity_type_error() {
     );
 }
 
-/// TODO: remove this comment. Is this really consensus critical?
-/// I think its up to the caller to determine if its consensus critical issue
 #[test]
 fn test_value_expect_optional_returns_clarity_type_error() {
     let err = Value::okay_true().expect_optional().unwrap_err();
@@ -519,8 +501,6 @@ fn test_value_expect_optional_returns_clarity_type_error() {
     );
 }
 
-/// TODO: remove this comment. Is this really consensus critical?
-/// I think its up to the caller to determine if its consensus critical issue
 #[test]
 fn test_value_expect_principal_returns_clarity_type_error() {
     let err = Value::none().expect_principal().unwrap_err();
@@ -533,8 +513,6 @@ fn test_value_expect_principal_returns_clarity_type_error() {
     );
 }
 
-/// TODO: remove this comment. Is this really consensus critical?
-/// I think its up to the caller to determine if its consensus critical issue
 #[test]
 fn test_value_expect_callable_returns_clarity_type_error() {
     let err = Value::none().expect_callable().unwrap_err();
@@ -566,7 +544,7 @@ fn test_value_expect_result_returns_clarity_type_error() {
 
 #[rstest]
 #[case::not_a_response(Value::none(), ClarityTypeError::TypeMismatchValue(Box::new(TypeSignature::ResponseType(Box::new((TypeSignature::NoType, TypeSignature::NoType)))), Box::new(Value::none())))]
-#[case::not_an_ok_response(Value::error(Value::Int(1)).unwrap(), ClarityTypeError::ResponseTypeMismatch { expected_ok: true, data_committed: false })]
+#[case::not_an_ok_response(Value::error(Value::Int(1)).unwrap(), ClarityTypeError::ResponseTypeMismatch { expected_ok: true})]
 fn test_value_expect_result_ok_returns_clarity_type_error(
     #[case] value: Value,
     #[case] expected_err: ClarityTypeError,
@@ -577,7 +555,7 @@ fn test_value_expect_result_ok_returns_clarity_type_error(
 
 #[rstest]
 #[case::not_a_response(Value::none(), ClarityTypeError::TypeMismatchValue(Box::new(TypeSignature::ResponseType(Box::new((TypeSignature::NoType, TypeSignature::NoType)))), Box::new(Value::none())))]
-#[case::not_an_err_response(Value::okay_true(), ClarityTypeError::ResponseTypeMismatch { expected_ok: false, data_committed: true })]
+#[case::not_an_err_response(Value::okay_true(), ClarityTypeError::ResponseTypeMismatch { expected_ok: false })]
 fn test_value_expect_result_err_returns_clarity_type_error(
     #[case] value: Value,
     #[case] expected_err: ClarityTypeError,
@@ -586,8 +564,6 @@ fn test_value_expect_result_err_returns_clarity_type_error(
     assert_eq!(expected_err, err);
 }
 
-// TODO: remove this comment. Is this truly consensus critical? i.e. if it just returns an error, does it matter if it
-// maintains that its a rejectable block
 #[test]
 fn test_buff_data_len_returns_clarity_type_error() {
     let err = BuffData {

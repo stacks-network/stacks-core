@@ -22,12 +22,12 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
-use clarity::vm::ast::errors::ClarityEvalError;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
+use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::events::*;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::TupleData;

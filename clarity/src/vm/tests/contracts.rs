@@ -13,13 +13,10 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-#[cfg(test)]
-use clarity_types::errors::ast::ClarityEvalError;
 #[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
 #[cfg(test)]
-use stacks_common::types::{chainstate::BlockHeaderHash, StacksEpochId};
+use stacks_common::types::{StacksEpochId, chainstate::BlockHeaderHash};
 #[cfg(test)]
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
@@ -29,13 +26,13 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrinc
 #[cfg(test)]
 use crate::vm::{
     ast::errors::ParseErrorKind,
-    errors::{CheckErrorKind, RuntimeError, VmExecutionError},
+    errors::{CheckErrorKind, ClarityEvalError, RuntimeError, VmExecutionError},
     tests::{
-        env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
-        tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
+        MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator, env_factory, execute,
+        is_committed, is_err_code_i128 as is_err_code, symbols_from_values, tl_env_factory,
     },
     types::{OptionalData, ResponseData, TypeSignature},
-    {execute as vm_execute, ClarityVersion, ContractContext},
+    {ClarityVersion, ContractContext, execute as vm_execute},
 };
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
@@ -1038,7 +1035,7 @@ fn test_ast_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        ClarityEvalError::Parse(ParseErrorKind::VaryExpressionStackDepthTooDeep.into()).into()
+        ClarityEvalError::Parse(ParseErrorKind::VaryExpressionStackDepthTooDeep.into())
     );
 }
 

@@ -20,26 +20,25 @@ use std::mem::replace;
 use std::time::{Duration, Instant};
 
 use clarity_types::errors::{ParseError, ParseErrorKind};
-pub use clarity_types::errors::ast::ClarityEvalError;
-pub use clarity_types::errors::StackTrace;
 use clarity_types::representations::ClarityName;
-use clarity_types::VmExecutionError;
 use serde::Serialize;
 use serde_json::json;
-use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::StacksBlockId;
 
 use super::EvalHook;
 use crate::vm::ast::ContractAST;
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostErrors, CostTracker, ExecutionCost, LimitedCostTracker};
+use crate::vm::costs::{CostErrors, CostTracker, ExecutionCost, LimitedCostTracker, runtime_cost};
 use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
 };
-use crate::vm::errors::{CheckErrorKind, RuntimeError, VmInternalError};
+use crate::vm::errors::{
+    CheckErrorKind, ClarityEvalError, RuntimeError, StackTrace, VmExecutionError, VmInternalError,
+};
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::FunctionSignature;
@@ -2125,10 +2124,10 @@ mod test {
     use crate::vm::callables::DefineType;
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::tests::{
-        test_clarity_versions, test_epochs, tl_env_factory, TopLevelMemoryEnvironmentGenerator,
+        TopLevelMemoryEnvironmentGenerator, test_clarity_versions, test_epochs, tl_env_factory,
     };
-    use crate::vm::types::signatures::CallableSubtype;
     use crate::vm::types::StandardPrincipalData;
+    use crate::vm::types::signatures::CallableSubtype;
 
     #[test]
     fn test_asset_map_abort() {
@@ -2415,14 +2414,9 @@ mod test {
         // Call eval_read_only with an empty program
         let program = ""; // empty program triggers parsed.is_empty()
         let err = env.eval_raw(program).unwrap_err();
-        let expected_err =  ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
-        assert!(
-            matches!(
-            err,
-            expected_err
-            ),
-            "Expected a type parse failure"
-        );
+        let expected_err =
+            ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
+        assert!(matches!(err, expected_err), "Expected a type parse failure");
     }
 
     #[test]
@@ -2437,14 +2431,9 @@ mod test {
         // Call eval_read_only with an empty program
         let program = ""; // empty program triggers parsed.is_empty()
         let err = env.eval_read_only(&contract_id, program).unwrap_err();
-        let expected_err =  ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
-        assert!(
-            matches!(
-            err,
-            expected_err
-            ),
-            "Expected a type parse failure"
-        );
+        let expected_err =
+            ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
+        assert!(matches!(err, expected_err), "Expected a type parse failure");
     }
 
     #[test]

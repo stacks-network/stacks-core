@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,15 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::Value::CallableContract;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostTracker, MemoryConsumer};
+use crate::vm::costs::{CostTracker, MemoryConsumer, runtime_cost};
 use crate::vm::errors::{
-    check_arguments_at_least, CheckErrorKind, EarlyReturnError, RuntimeError, VmExecutionError,
-    VmInternalError,
+    CheckErrorKind, EarlyReturnError, RuntimeError, VmExecutionError, VmInternalError,
+    check_arguments_at_least,
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
-use crate::vm::Value::CallableContract;
 use crate::vm::{self, ClarityName, ClarityVersion, SymbolicExpression};
 
 fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>, VmExecutionError> {
@@ -36,7 +36,9 @@ fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>, VmExecutionError> {
             }
         }
         _ => {
-            return Err(CheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(to_unwrap)).into())
+            return Err(
+                CheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(to_unwrap)).into(),
+            );
         }
     };
 
@@ -126,16 +128,16 @@ fn eval_with_new_binding(
     let memory_use = bind_value.get_memory_use()?;
     env.add_memory(memory_use)?;
 
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        if let CallableContract(trait_data) = &bind_value {
-            inner_context.callable_contracts.insert(
-                bind_name.clone(),
-                CallableData {
-                    contract_identifier: trait_data.contract_identifier.clone(),
-                    trait_identifier: trait_data.trait_identifier.clone(),
-                },
-            );
-        }
+    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2
+        && let CallableContract(trait_data) = &bind_value
+    {
+        inner_context.callable_contracts.insert(
+            bind_name.clone(),
+            CallableData {
+                contract_identifier: trait_data.contract_identifier.clone(),
+                trait_identifier: trait_data.trait_identifier.clone(),
+            },
+        );
     }
     inner_context.variables.insert(bind_name, bind_value);
     let result = vm::eval(body, env, &inner_context);

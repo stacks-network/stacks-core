@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,12 +16,12 @@
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, SyntaxBindingErrorType,
-    VmExecutionError, VmInternalError,
+    CheckErrorKind, SyntaxBindingErrorType, VmExecutionError, VmInternalError,
+    check_argument_count, check_arguments_at_least,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TupleData, TypeSignature, Value};
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{Environment, LocalContext, eval};
 
 pub fn tuple_cons(
     args: &[SymbolicExpression],

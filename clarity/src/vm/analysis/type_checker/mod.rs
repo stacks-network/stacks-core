@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,9 +20,9 @@ pub mod v2_1;
 
 use stacks_common::types::StacksEpochId;
 
+use super::AnalysisDatabase;
 use super::errors::{StaticCheckError, StaticCheckErrorKind};
 pub use super::types::{AnalysisPass, ContractAnalysis};
-use super::AnalysisDatabase;
 use crate::vm::costs::CostTracker;
 use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::{ClarityVersion, Value};

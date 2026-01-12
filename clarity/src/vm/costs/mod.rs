@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,7 +19,6 @@ use std::{cmp, fmt};
 
 pub use clarity_types::errors::CostErrors;
 pub use clarity_types::execution_cost::{CostOverflowingMath, ExecutionCost};
-use clarity_types::VmExecutionError;
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
@@ -33,11 +32,12 @@ use super::errors::{CheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
 use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::database::clarity_store::NullBackingStore;
 use crate::vm::database::ClarityDatabase;
+use crate::vm::database::clarity_store::NullBackingStore;
+use crate::vm::errors::VmExecutionError;
+use crate::vm::types::Value::UInt;
 use crate::vm::types::signatures::FunctionType::Fixed;
 use crate::vm::types::signatures::TupleTypeSignature;
-use crate::vm::types::Value::UInt;
 use crate::vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
 };
@@ -356,7 +356,7 @@ impl LimitedCostTracker {
         match self {
             Self::Free => panic!("Cannot get contract call circuits on free tracker"),
             Self::Limited(TrackerData {
-                ref contract_call_circuits,
+                contract_call_circuits,
                 ..
             }) => contract_call_circuits.clone(),
         }
@@ -367,7 +367,7 @@ impl LimitedCostTracker {
         match self {
             Self::Free => panic!("Cannot get cost function references on free tracker"),
             Self::Limited(TrackerData {
-                ref cost_function_references,
+                cost_function_references,
                 ..
             }) => cost_function_references.clone(),
         }
@@ -1021,7 +1021,7 @@ impl LimitedCostTracker {
     pub fn set_total(&mut self, total: ExecutionCost) {
         // used by the miner to "undo" the cost of a transaction when trying to pack a block.
         match self {
-            Self::Limited(ref mut data) => data.total = total,
+            Self::Limited(data) => data.total = total,
             Self::Free => panic!("Cannot set total on free tracker"),
         }
     }
@@ -1193,7 +1193,7 @@ impl CostTracker for LimitedCostTracker {
                 // tracker is free, return zero!
                 Ok(ExecutionCost::ZERO)
             }
-            Self::Limited(ref mut data) => {
+            Self::Limited(data) => {
                 if cost_function == ClarityCostFunction::Unimplemented {
                     return Err(CostErrors::Expect(
                         "Used unimplemented cost function".into(),
@@ -1221,25 +1221,25 @@ impl CostTracker for LimitedCostTracker {
     fn add_cost(&mut self, cost: ExecutionCost) -> Result<(), CostErrors> {
         match self {
             Self::Free => Ok(()),
-            Self::Limited(ref mut data) => add_cost(data, cost),
+            Self::Limited(data) => add_cost(data, cost),
         }
     }
     fn add_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         match self {
             Self::Free => Ok(()),
-            Self::Limited(ref mut data) => add_memory(data, memory),
+            Self::Limited(data) => add_memory(data, memory),
         }
     }
     fn drop_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         match self {
             Self::Free => Ok(()),
-            Self::Limited(ref mut data) => drop_memory(data, memory),
+            Self::Limited(data) => drop_memory(data, memory),
         }
     }
     fn reset_memory(&mut self) {
         match self {
             Self::Free => {}
-            Self::Limited(ref mut data) => {
+            Self::Limited(data) => {
                 data.memory = 0;
             }
         }

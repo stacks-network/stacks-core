@@ -19,11 +19,9 @@
 use std::collections::BTreeSet;
 use std::result::Result;
 
-use clarity_types::errors::ast::ClarityEvalError;
-use clarity_types::errors::VmExecutionError;
 use clarity_types::types::{
-    CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData,
-    TypeSignature, UTF8Data, MAX_TO_ASCII_BUFFER_LEN, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE,
+    CharType, MAX_TO_ASCII_BUFFER_LEN, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PrincipalData,
+    QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TypeSignature, UTF8Data,
 };
 use clarity_types::{ContractName, Value};
 use proptest::array::uniform20;
@@ -31,8 +29,8 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::strategy::BoxedStrategy;
 use proptest::string::string_regex;
-use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::hash::to_hex;
 
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
@@ -40,7 +38,8 @@ use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
 };
 use crate::vm::contexts::GlobalContext;
 use crate::vm::database::STXBalance;
-use crate::vm::{execute_with_parameters_and_call_in_global_context, ClarityVersion};
+use crate::vm::errors::{ClarityEvalError, VmExecutionError};
+use crate::vm::{ClarityVersion, execute_with_parameters_and_call_in_global_context};
 
 const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
 const DEFAULT_CLARITY_VERSION: ClarityVersion = ClarityVersion::Clarity4;

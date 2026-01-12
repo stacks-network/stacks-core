@@ -36,8 +36,6 @@ pub mod analysis;
 pub mod docs;
 pub mod version;
 
-pub mod coverage;
-
 pub mod events;
 
 #[cfg(feature = "rusqlite")]
@@ -53,8 +51,6 @@ pub mod clarity;
 
 use std::collections::BTreeMap;
 
-#[cfg(any(test, feature = "testing"))]
-use clarity_types::errors::ast::ClarityEvalError;
 pub use clarity_types::MAX_CALL_STACK_DEPTH;
 use costs::CostErrors;
 use stacks_common::types::StacksEpochId;
@@ -70,10 +66,12 @@ pub use crate::vm::contexts::{
 use crate::vm::contexts::{ExecutionTimeTracker, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer,
+    CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
 };
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
+#[cfg(any(test, feature = "testing"))]
+use crate::vm::errors::ClarityEvalError;
 use crate::vm::errors::{CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
@@ -140,6 +138,7 @@ impl CostSynthesis {
 }
 
 /// EvalHook defines an interface for hooks to execute during evaluation.
+/// NOTE: Used in the Clarinet repo.
 pub trait EvalHook {
     // Called before the expression is evaluated
     fn will_begin_eval(
@@ -221,10 +220,10 @@ pub fn lookup_function(
 }
 
 fn add_stack_trace(result: &mut Result<Value, VmExecutionError>, env: &Environment) {
-    if let Err(VmExecutionError::Runtime(_, ref mut stack_trace)) = result {
-        if stack_trace.is_none() {
-            stack_trace.replace(env.call_stack.make_stack_trace());
-        }
+    if let Err(VmExecutionError::Runtime(_, stack_trace)) = result
+        && stack_trace.is_none()
+    {
+        stack_trace.replace(env.call_stack.make_stack_trace());
     }
 }
 
@@ -362,7 +361,7 @@ pub fn eval(
             return Err(VmInternalError::BadSymbolicRepresentation(
                 "Unexpected trait reference".into(),
             )
-            .into())
+            .into());
         }
     };
 
@@ -657,8 +656,8 @@ mod test {
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
     use crate::vm::{
-        eval, CallStack, ContractContext, Environment, GlobalContext, LocalContext,
-        SymbolicExpression, Value,
+        CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
+        Value, eval,
     };
 
     #[test]

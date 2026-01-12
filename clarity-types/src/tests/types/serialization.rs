@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,11 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
+use crate::errors::ClarityTypeError;
 use crate::types::serialization::SerializationError;
 use crate::types::{
-    ASCIIData, CharType, ClarityTypeError, MAX_VALUE_SIZE, PrincipalData,
-    QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData, TypeSignature,
-    Value,
+    ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
 fn test_deser_ser(v: Value) {
@@ -415,8 +415,6 @@ fn test_principals() {
     test_bad_expectation(standard_p, TypeSignature::BoolType);
 }
 
-/// TODO: remove this comment: I have made it so that any serialize_to_vec that fails is mapped to an Expect.
-/// Not sure that is sufficient...
 #[test]
 fn test_serialize_to_vec_returns_serialization_failure() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
@@ -429,8 +427,6 @@ fn test_serialize_to_vec_returns_serialization_failure() {
     );
 }
 
-/// TODO: remove this comment: I have made it so that any serialize_to_vec that fails is mapped to an Expect.
-/// Not sure that is sufficient...
 #[test]
 fn test_serialize_to_hex_returns_serialization_failure() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {

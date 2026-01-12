@@ -15,12 +15,12 @@
 
 use std::{error, fmt};
 
+use crate::MAX_CALL_STACK_DEPTH;
 use crate::diagnostic::{DiagnosableError, Diagnostic, Level};
-use crate::errors::{CheckErrorKind, CostErrors, LexerError, RuntimeError};
+use crate::errors::{CostErrors, LexerError};
 use crate::execution_cost::ExecutionCost;
 use crate::representations::{PreSymbolicExpression, Span};
 use crate::token::Token;
-use crate::{MAX_CALL_STACK_DEPTH, VmExecutionError};
 
 pub type ParseResult<T> = Result<T, ParseError>;
 /// Errors encountered during the lexical and syntactic analysis of Clarity source code
@@ -419,44 +419,4 @@ impl DiagnosableError for ParseErrorKind {
 pub struct PlacedError {
     pub e: ParseErrorKind,
     pub span: Span,
-}
-
-/// Helper error for testing both clarity parse and vm execution errors.
-#[derive(Debug, PartialEq)]
-pub enum ClarityEvalError {
-    Vm(VmExecutionError),
-    Parse(ParseError),
-}
-
-impl From<VmExecutionError> for ClarityEvalError {
-    fn from(err: VmExecutionError) -> Self {
-        Self::Vm(err)
-    }
-}
-
-impl From<ParseError> for ClarityEvalError {
-    fn from(err: ParseError) -> Self {
-        Self::Parse(err)
-    }
-}
-
-impl From<CheckErrorKind> for ClarityEvalError {
-    fn from(err: CheckErrorKind) -> Self {
-        Self::Vm(err.into())
-    }
-}
-
-impl From<RuntimeError> for ClarityEvalError {
-    fn from(err: RuntimeError) -> Self {
-        Self::Vm(err.into())
-    }
-}
-
-impl fmt::Display for ClarityEvalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ClarityEvalError::Vm(err) => write!(f, "VM Execution Error: {err}"),
-            ClarityEvalError::Parse(err) => write!(f, "Parse Error: {err}"),
-        }
-    }
 }

@@ -22,8 +22,8 @@ use std::io::Read;
 use std::io::prelude::*;
 use std::{env, fs, io};
 
-use clarity::vm::ast::errors::{ClarityEvalError, ParseError};
-use clarity::vm::errors::{ClarityTypeError, VmExecutionError};
+use clarity::vm::ast::errors::ParseError;
+use clarity::vm::errors::{ClarityEvalError, ClarityTypeError, VmExecutionError};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use clarity_cli::vm_execute;

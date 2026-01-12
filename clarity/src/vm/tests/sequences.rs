@@ -14,29 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[cfg(test)]
-use clarity_types::errors::ast::ClarityEvalError;
 use rstest::rstest;
 use rstest_reuse::{self, *};
-#[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
-use crate::vm::{
-    errors::{CheckErrorKind, VmExecutionError},
-    execute, execute_v2,
-    types::{
-        signatures::{
-            SequenceSubtype::{self, BufferType, StringType},
-            StringSubtype::ASCII,
-        },
-        BufferLength, ListTypeData, StringSubtype, StringUTF8Length,
-        TypeSignature::{self, BoolType, IntType, SequenceType, UIntType},
-        Value,
-    },
-    ClarityVersion,
-};
+use crate::vm::errors::ClarityEvalError;
+use crate::vm::errors::{CheckErrorKind, VmExecutionError};
+use crate::vm::tests::test_clarity_versions;
+use crate::vm::types::TypeSignature::{self, BoolType, IntType, SequenceType, UIntType};
+use crate::vm::types::signatures::SequenceSubtype::{self, BufferType, StringType};
+use crate::vm::types::signatures::StringSubtype::ASCII;
+use crate::vm::types::{BufferLength, ListTypeData, StringSubtype, StringUTF8Length, Value};
+use crate::vm::{ClarityVersion, execute, execute_v2};
 
 #[test]
 fn test_simple_list_admission() {
@@ -232,8 +222,7 @@ fn test_string_ascii_map() {
 
 #[test]
 fn test_string_utf8_map() {
-    let defines =
-        "(define-private (replace-dog-with-fox (c (string-utf8 1))) (if (is-eq u\"\\u{1F436}\" c) u\"\\u{1F98A}\" c))";
+    let defines = "(define-private (replace-dog-with-fox (c (string-utf8 1))) (if (is-eq u\"\\u{1F436}\" c) u\"\\u{1F98A}\" c))";
     let t1 = format!("{defines} (map replace-dog-with-fox u\"fox \\u{{1F436}}\")");
 
     let expected = Value::list_from(vec![
@@ -301,8 +290,7 @@ fn test_string_ascii_concat() {
 
 #[test]
 fn test_string_utf8_concat() {
-    let test1 =
-        "(concat (concat (concat (concat u\"\\u{1F926}\" u\"\\u{1F3FC}\") u\"\\u{200D}\") u\"\\u{2642}\") u\"\\u{FE0F}\")";
+    let test1 = "(concat (concat (concat (concat u\"\\u{1F926}\" u\"\\u{1F3FC}\") u\"\\u{200D}\") u\"\\u{2642}\") u\"\\u{FE0F}\")";
 
     let expected = Value::string_utf8_from_bytes("🤦🏼‍♂️".into()).unwrap();
 
@@ -557,19 +545,17 @@ fn test_slice_utf8() {
 
 #[test]
 fn test_slice_type_errors() {
-    assert_eq!(
-        execute_v2("(slice? 3 u0 u1)").unwrap_err(),
-        CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::NoType)).into()
-    );
+    let bad_type_error = CheckErrorKind::ExpectsAcceptable("Bad type construction".into()).into();
+    assert_eq!(execute_v2("(slice? 3 u0 u1)").unwrap_err(), bad_type_error);
 
     assert_eq!(
         execute_v2("(slice? (list 1 2 3) 0 u1)").unwrap_err(),
-        CheckErrorKind::TypeValueError(Box::new(UIntType), Box::new(Value::Int(0))).into()
+        bad_type_error
     );
 
     assert_eq!(
         execute_v2("(slice? (list 1 2 3) u0 1)").unwrap_err(),
-        CheckErrorKind::TypeValueError(Box::new(UIntType), Box::new(Value::Int(1))).into()
+        bad_type_error
     );
 }
 
@@ -617,13 +603,7 @@ fn test_simple_list_concat() {
 
     assert_eq!(
         execute("(concat (list 1) 3)").unwrap_err(),
-        CheckErrorKind::TypeValueError(
-            Box::new(SequenceType(SequenceSubtype::ListType(
-                ListTypeData::new_list(TypeSignature::IntType, 1).unwrap()
-            ))),
-            Box::new(Value::Int(3))
-        )
-        .into()
+        CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::IntType)).into()
     );
 
     assert_eq!(
@@ -660,11 +640,7 @@ fn test_simple_buff_concat() {
 
     assert_eq!(
         execute("(concat 0x31 3)").unwrap_err(),
-        CheckErrorKind::TypeValueError(
-            Box::new(TypeSignature::BUFFER_MIN),
-            Box::new(Value::Int(3))
-        )
-        .into()
+        CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::IntType)).into()
     );
 
     assert_eq!(
@@ -1161,9 +1137,11 @@ fn test_list_tuple_admission() {
 
     assert_eq!(expected_type, result_type);
     assert!(not_expected_type != result_type);
-    assert!(result_type
-        .admits(&StacksEpochId::Epoch21, testing_value)
-        .unwrap());
+    assert!(
+        result_type
+            .admits(&StacksEpochId::Epoch21, testing_value)
+            .unwrap()
+    );
 }
 
 #[test]

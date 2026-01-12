@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::ast::errors::ClarityEvalError;
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, ResponseData, TupleData};
 use clarity::vm::Value;
 #[cfg(any(test, feature = "testing"))]
@@ -595,8 +595,7 @@ pub fn synthesize_pox_event_info(
         function_name,
         args,
         response,
-    )
-    .map_err(ClarityEvalError::from);
+    );
     // Restore the cost tracker
     global_context.cost_track = original_tracker;
     result

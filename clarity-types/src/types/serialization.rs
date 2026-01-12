@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,13 +23,12 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
 
 use super::{ListTypeData, TupleTypeSignature};
-use crate::errors::IncomparableError;
+use crate::errors::{ClarityTypeError, IncomparableError};
 use crate::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::types::{
-    BOUND_VALUE_SERIALIZATION_BYTES, BufferLength, CallableData, CharType, ClarityTypeError,
-    MAX_TYPE_DEPTH, MAX_VALUE_SIZE, OptionalData, PrincipalData, QualifiedContractIdentifier,
-    SequenceData, SequenceSubtype, StandardPrincipalData, StringSubtype, TupleData, TypeSignature,
-    Value,
+    BOUND_VALUE_SERIALIZATION_BYTES, BufferLength, CallableData, CharType, MAX_TYPE_DEPTH,
+    MAX_VALUE_SIZE, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    SequenceSubtype, StandardPrincipalData, StringSubtype, TupleData, TypeSignature, Value,
 };
 
 /// Errors that may occur in serialization or deserialization

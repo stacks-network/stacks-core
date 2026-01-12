@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,11 +15,11 @@
 
 use rstest::rstest;
 
+use crate::errors::ClarityTypeError;
 use crate::representations::{
     CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, ClarityName, ContractName, MAX_STRING_LEN,
 };
 use crate::stacks_common::codec::StacksMessageCodec;
-use crate::types::ClarityTypeError;
 
 #[rstest]
 #[case::valid_name("hello")]

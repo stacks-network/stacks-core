@@ -13,17 +13,15 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use clarity_types::types::ClarityTypeError;
-#[cfg(test)]
-use clarity_types::{errors::ast::ClarityEvalError, VmExecutionError};
+use clarity_types::errors::ClarityTypeError;
 
-use crate::vm::types::{TupleData, Value};
-#[cfg(test)]
-use crate::vm::{
-    errors::{CheckErrorKind, EarlyReturnError, SyntaxBindingError},
-    types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
+use crate::vm::errors::{
+    CheckErrorKind, ClarityEvalError, EarlyReturnError, SyntaxBindingError, VmExecutionError,
 };
-use crate::vm::{execute, ClarityName};
+use crate::vm::types::{
+    ListData, SequenceData, TupleData, TupleTypeSignature, TypeSignature, Value,
+};
+use crate::vm::{ClarityName, execute};
 
 fn assert_executes(expected: Result<Value, ClarityTypeError>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
@@ -300,10 +298,9 @@ fn test_set_response_variable() {
     "#;
     let contract_src = contract_src.to_string();
     assert_eq!(
-        Err(
-            ClarityEvalError::Vm(EarlyReturnError::UnwrapFailed(Box::new(Value::Int(5))).into())
-                .into()
-        ),
+        Err(ClarityEvalError::Vm(
+            EarlyReturnError::UnwrapFailed(Box::new(Value::Int(5))).into()
+        )),
         execute(&contract_src)
     );
 }

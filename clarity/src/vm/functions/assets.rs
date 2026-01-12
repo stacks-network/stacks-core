@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,16 +17,16 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostTracker};
+use crate::vm::costs::{CostTracker, runtime_cost};
 use crate::vm::database::STXBalance;
 use crate::vm::errors::{
-    check_argument_count, CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError,
+    CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError, check_argument_count,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, SequenceData, TupleData, TypeSignature, Value,
 };
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{Environment, LocalContext, eval};
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,
@@ -279,7 +279,7 @@ pub fn special_stx_burn(
     let amount_val = eval(&args[0], env, context)?;
     let from_val = eval(&args[1], env, context)?;
 
-    if let (Value::Principal(ref from), Value::UInt(amount)) = (&from_val, amount_val) {
+    if let (Value::Principal(from), Value::UInt(amount)) = (&from_val, amount_val) {
         if amount == 0 {
             return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
         }
@@ -575,7 +575,7 @@ pub fn special_transfer_asset_v200(
         ) {
             Ok(owner) => Ok(owner),
             Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
-                return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST)
+                return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST);
             }
             Err(e) => Err(e),
         }?;
@@ -669,7 +669,7 @@ pub fn special_transfer_asset_v205(
         ) {
             Ok(owner) => Ok(owner),
             Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
-                return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST)
+                return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST);
             }
             Err(e) => Err(e),
         }?;
@@ -1074,7 +1074,7 @@ pub fn special_burn_asset_v200(
             expected_asset_type,
         ) {
             Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
-                return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
+                return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST);
             }
             Ok(owner) => Ok(owner),
             Err(e) => Err(e),
@@ -1163,7 +1163,7 @@ pub fn special_burn_asset_v205(
             expected_asset_type,
         ) {
             Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
-                return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
+                return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST);
             }
             Ok(owner) => Ok(owner),
             Err(e) => Err(e),

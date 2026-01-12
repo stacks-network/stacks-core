@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::errors::ast::ClarityEvalError;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -22,7 +21,7 @@ use rstest_reuse::{self, *};
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::errors::CheckErrorKind;
+use crate::vm::errors::{CheckErrorKind, ClarityEvalError};
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
@@ -30,7 +29,7 @@ use crate::vm::{
     ast::{build_ast, errors::ParseErrorKind},
     errors::{RuntimeError, VmExecutionError},
     types::{QualifiedContractIdentifier, TypeSignature, TypeSignatureExt as _, Value},
-    {execute, ClarityVersion},
+    {ClarityVersion, execute},
 };
 
 fn assert_eq_err(e1: CheckErrorKind, e2: ClarityEvalError) {
@@ -149,8 +148,7 @@ fn test_unwrap_ret() {
 fn test_define_read_only() {
     let test0 = "(define-read-only (silly) 1) (silly)";
     let test1 = "(define-read-only (silly) (map-delete map-name (tuple (value 1))))  (silly)";
-    let test2 =
-        "(define-read-only (silly) (map-insert map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
+    let test2 = "(define-read-only (silly) (map-insert map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
     let test3 =
         "(define-read-only (silly) (map-set map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
 

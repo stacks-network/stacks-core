@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #[cfg(test)]
-use clarity_types::errors::ast::ClarityEvalError;
-#[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::contexts::{AssetMap, OwnedEnvironment};
@@ -26,15 +24,15 @@ use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 #[cfg(test)]
 use crate::vm::{
+    ContractContext,
     contexts::AssetMapEntry,
-    errors::{CheckErrorKind, RuntimeError},
+    errors::{CheckErrorKind, ClarityEvalError, RuntimeError},
     tests::{
-        execute, is_committed, is_err_code, symbols_from_values, tl_env_factory as env_factory,
-        TopLevelMemoryEnvironmentGenerator,
+        TopLevelMemoryEnvironmentGenerator, execute, is_committed, is_err_code,
+        symbols_from_values, tl_env_factory as env_factory,
     },
     types::AssetIdentifier,
     version::ClarityVersion,
-    ContractContext,
 };
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)

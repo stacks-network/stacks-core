@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,14 +21,14 @@ use integer_sqrt::IntegerSquareRoot;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError,
+    CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError, check_argument_count,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
 use crate::vm::version::ClarityVersion;
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{Environment, LocalContext, eval};
 
 struct U128Ops();
 struct I128Ops();
@@ -332,7 +332,7 @@ macro_rules! make_arithmetic_ops {
                         return Err(RuntimeError::Arithmetic(
                             "sqrti must be passed a positive integer".to_string(),
                         )
-                        .into())
+                        .into());
                     }
                 }
             }

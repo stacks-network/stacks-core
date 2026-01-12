@@ -23,8 +23,8 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{
-    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, ContractAnalysis,
-    StaticCheckError, StaticCheckErrorKind,
+    AnalysisDatabase, ContractAnalysis, StaticCheckError, StaticCheckErrorKind,
+    mem_type_check as mem_run_analysis, run_analysis,
 };
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;

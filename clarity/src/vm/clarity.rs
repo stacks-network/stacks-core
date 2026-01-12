@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+// Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,21 +14,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
 
-use clarity_types::errors::ClarityEvalError;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{
     AnalysisDatabase, CheckErrorKind, ContractAnalysis, StaticCheckError, StaticCheckErrorKind,
 };
-use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::ast::ContractAST;
+use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::VmExecutionError;
+use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
-use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpression, Value};
+use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
 
 /// Top-level error type for Clarity contract processing, encompassing errors from parsing,
 /// type-checking, runtime evaluation, and transaction execution.
@@ -66,17 +64,17 @@ pub enum ClarityError {
 
 impl fmt::Display for ClarityError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ClarityError::CostError(ref a, ref b) => {
+        match &self {
+            ClarityError::CostError(a, b) => {
                 write!(f, "Cost Error: {a} cost exceeded budget of {b} cost")
             }
-            ClarityError::StaticCheck(ref e) => fmt::Display::fmt(e, f),
-            ClarityError::Parse(ref e) => fmt::Display::fmt(e, f),
+            ClarityError::StaticCheck(e) => fmt::Display::fmt(e, f),
+            ClarityError::Parse(e) => fmt::Display::fmt(e, f),
             ClarityError::AbortedByCallback { reason, .. } => {
                 write!(f, "Post condition aborted transaction: {reason}")
             }
-            ClarityError::Interpreter(ref e) => fmt::Display::fmt(e, f),
-            ClarityError::BadTransaction(ref s) => fmt::Display::fmt(s, f),
+            ClarityError::Interpreter(e) => fmt::Display::fmt(e, f),
+            ClarityError::BadTransaction(s) => fmt::Display::fmt(s, f),
         }
     }
 }

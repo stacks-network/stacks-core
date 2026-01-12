@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
 pub mod serialization;
 pub mod signatures;
 
-use core::error;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::{char, fmt, str};
@@ -37,8 +36,7 @@ pub use self::signatures::{
     AssetIdentifier, BufferLength, ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length,
     TupleTypeSignature, TypeSignature,
 };
-use crate::VmExecutionError;
-use crate::diagnostic::DiagnosableError;
+use crate::errors::ClarityTypeError;
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 
 /// Maximum size in bytes allowed for types.
@@ -59,170 +57,6 @@ pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
 pub const MAX_TYPE_DEPTH: u8 = 32;
 /// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
-
-/// Errors originating purely from the Clarity type system layer.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ClarityTypeError {
-    // Size & Depth Invariants
-    /// The constructed value exceeds the maximum allowed Clarity value size.
-    ValueTooLarge,
-    /// The constructed value exceeds the maximum allowed nesting depth.
-    TypeSignatureTooDeep,
-
-    // String & Encoding Errors
-    /// A non-ASCII byte was found in an ASCII string.
-    InvalidAsciiCharacter(u8),
-    /// The provided bytes did not form valid UTF-8.
-    InvalidUtf8Encoding,
-
-    // List, Tuple, & Structural Type Errors
-    /// A list operation failed because element types do not match.
-    ListTypeMismatch,
-    /// An index was out of bounds for a sequence.
-    ValueOutOfBounds,
-    /// A tuple was constructed with duplicate field names.
-    DuplicateTupleField(String),
-    /// Referenced tuple field does not exist in the tuple type.
-    /// The `String` wraps the requested field name, and the `TupleTypeSignature` wraps the tuple’s type.
-    NoSuchTupleField(String, TupleTypeSignature),
-    /// Value does not match the expected type.
-    /// The `Box<TypeSignature>` wraps the expected type, and the `Box<Value>` wraps the invalid value.
-    TypeMismatchValue(Box<TypeSignature>, Box<Value>),
-    /// Expected type does not match the actual type during analysis.
-    /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
-    TypeMismatch(Box<TypeSignature>, Box<TypeSignature>),
-    /// Expected an different response type
-    ResponseTypeMismatch {
-        /// Whether the response type should be an `Ok` response
-        expected_ok: bool,
-        /// Whether the response data was committed or not
-        data_committed: bool,
-    },
-    /// Invalid contract name.
-    /// The `String` represents the offending value.
-    InvalidContractName(String),
-    /// Invalid Clarity name.
-    /// The `String` represents the offending value.
-    InvalidClarityName(String),
-    /// Invalid URL.
-    /// The `String` represents the offending value.
-    InvalidUrlString(String),
-    /// Empty tuple is not allowed in Clarity.
-    EmptyTuplesNotAllowed,
-    /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
-    /// This error indicates a transaction would invalidate a block if included.
-    SupertypeTooLarge,
-    /// Type description is invalid or malformed, preventing proper type-checking.
-    InvalidTypeDescription,
-    /// Sequence element length mismatch
-    SequenceElementArityMismatch { expected: usize, found: usize },
-    /// Expected a sequence value
-    ExpectedSequenceValue,
-
-    // Principal & Identifier Errors
-    /// An invalid version byte was used for a principal.
-    InvalidPrincipalVersion(u8),
-    /// An invalid principal byte length was supplied.
-    InvalidPrincipalLength(usize),
-    /// C32 decode failed
-    InvalidPrincipalEncoding(String),
-    /// An invalid qualified identifier was supplied with a missing '.' separator.
-    QualifiedContractMissingDot,
-    /// An invalid qualified identifier was supplied with a missing issuer.
-    QualifiedContractEmptyIssuer,
-
-    // Type Resolution & Abstract Type Failures
-    /// The value has a valid abstract type, but it cannot be serialized
-    /// into a concrete consensus representation.
-    CouldNotDetermineSerializationType,
-    /// The type signature could not be determined.
-    CouldNotDetermineType,
-
-    /// Type is unsupported in the given epoch
-    UnsupportedTypeInEpoch(Box<TypeSignature>, StacksEpochId),
-    /// Unsupported epoch
-    UnsupportedEpoch(StacksEpochId),
-    /// Something unexpected happened that should not be possible
-    InvariantViolation(String),
-}
-
-impl fmt::Display for ClarityTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
-impl DiagnosableError for ClarityTypeError {
-    fn message(&self) -> String {
-        match &self {
-            // Size & Depth
-            Self::ValueTooLarge => "value exceeds maximum Clarity size".into(),
-            Self::TypeSignatureTooDeep => "type signature exceeds maximum nesting depth".into(),
-            // Encoding
-            Self::InvalidAsciiCharacter(b) => format!("invalid ASCII character byte: 0x{b:02x}"),
-            Self::InvalidUtf8Encoding => "invalid UTF-8 encoding".into(),
-            // List / Tuple / Type Construction
-            Self::ListTypeMismatch => "list elements do not match required type".into(),
-            Self::ValueOutOfBounds => "value index is out of bounds".into(),
-            Self::DuplicateTupleField(name) => format!("duplicate tuple field '{name}'"),
-            Self::NoSuchTupleField(field_name, tuple_signature) => {
-                format!("cannot find field '{field_name}' in tuple '{tuple_signature}'")
-            }
-            Self::TypeMismatchValue(expected_type, found_value) => {
-                format!("expecting expression of type '{expected_type}', found '{found_value}'")
-            }
-            Self::TypeMismatch(expected_type, found_type) => {
-                format!("expecting expression of type '{expected_type}', found '{found_type}'")
-            }
-            Self::ResponseTypeMismatch {
-                expected_ok,
-                data_committed,
-            } => format!(
-                "expected ok response `{expected_ok}`, found data committed `{data_committed}`"
-            ),
-            Self::InvalidClarityName(value) => format!("invalid clarity name `{value}`"),
-            Self::InvalidContractName(value) => format!("invalid contract name `{value}`"),
-            Self::InvalidUrlString(value) => format!("invalid URL string `{value}`"),
-            Self::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
-            Self::SupertypeTooLarge => "supertype of two types is too large".into(),
-            Self::InvalidTypeDescription => "supplied type description is invalid".into(),
-            Self::SequenceElementArityMismatch { expected, found } => {
-                format!("sequence expected {expected} elements, but found {found} elements")
-            }
-            Self::ExpectedSequenceValue => "expected sequence value".into(),
-            // Principal
-            Self::InvalidPrincipalVersion(v) => format!("invalid principal version byte: {v}"),
-            Self::InvalidPrincipalLength(len) => {
-                format!("invalid principal byte length. Expected 20 bytes. Got: {len}")
-            }
-            Self::InvalidPrincipalEncoding(msg) => format!("invalid principal encoding: {msg}"),
-            Self::QualifiedContractMissingDot => {
-                "expected a `.` in a qualified contract name".into()
-            }
-            Self::QualifiedContractEmptyIssuer => "Expected an issuer, but found none".into(),
-            // Type resolution
-            Self::CouldNotDetermineSerializationType => {
-                "could not determine the input type for the serialization function".into()
-            }
-            Self::CouldNotDetermineType => "could not determine the input type".into(),
-            Self::UnsupportedTypeInEpoch(type_signature, epoch) => {
-                format!("{type_signature} is unsupported in {epoch}")
-            }
-            Self::UnsupportedEpoch(epoch) => format!("{epoch} is unsupported"),
-            Self::InvariantViolation(msg) => format!("Invariant violation: {msg}"),
-        }
-    }
-
-    fn suggestion(&self) -> Option<String> {
-        None
-    }
-}
-
-impl error::Error for ClarityTypeError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
@@ -499,6 +333,15 @@ pub enum SequenceData {
     String(CharType),
 }
 
+/// A helper to properly propogate errors from retain_values
+#[derive(Debug)]
+pub enum RetainValuesError<E> {
+    /// An internal error from Clarity type system operations occurred
+    Internal(ClarityTypeError),
+    /// The provided predicate returned an error
+    Predicate(E),
+}
+
 impl SequenceData {
     pub fn type_signature(&self) -> Result<TypeSignature, ClarityTypeError> {
         match self {
@@ -698,45 +541,39 @@ impl SequenceData {
         }
     }
 
-    pub fn filter<F>(&mut self, filter: &mut F) -> Result<(), VmExecutionError>
+    /// Retains elements where the predicate returns Ok(true).
+    /// Removes elements where it returns Ok(false).
+    /// If the predicate or internal value conversion returns an error, the operation
+    /// is aborted and the original sequence is left unmodified. The first error is propagated.
+    pub fn retain_values<E, F>(&mut self, mut predicate: F) -> Result<(), RetainValuesError<E>>
     where
-        F: FnMut(SymbolicExpression) -> Result<bool, VmExecutionError>,
+        F: FnMut(SymbolicExpression) -> Result<bool, E>,
     {
         // Note: this macro can probably get removed once
         // ```Vec::drain_filter<F>(&mut self, filter: F) -> DrainFilter<T, F>```
         // is available in rust stable channel (experimental at this point).
-        macro_rules! drain_filter {
-            ($data:expr, $seq_type:ident) => {
+        macro_rules! retain_inner {
+            ($data:expr, $seq_type:ident) => {{
                 let mut i = 0;
                 while i != $data.data.len() {
-                    let atom_value =
-                        SymbolicExpression::atom_value($seq_type::to_value(&$data.data[i])?);
-                    match filter(atom_value) {
-                        Ok(res) if res == false => {
-                            $data.data.remove(i);
-                        }
-                        Ok(_) => {
-                            i += 1;
-                        }
-                        Err(err) => return Err(err),
+                    let atom_value = SymbolicExpression::atom_value(
+                        $seq_type::to_value(&$data.data[i]).map_err(RetainValuesError::Internal)?,
+                    );
+                    let keep = predicate(atom_value).map_err(RetainValuesError::Predicate)?;
+                    if keep {
+                        i += 1;
+                    } else {
+                        $data.data.remove(i);
                     }
                 }
-            };
+            }};
         }
 
         match self {
-            SequenceData::Buffer(data) => {
-                drain_filter!(data, BuffData);
-            }
-            SequenceData::List(data) => {
-                drain_filter!(data, ListData);
-            }
-            SequenceData::String(CharType::ASCII(data)) => {
-                drain_filter!(data, ASCIIData);
-            }
-            SequenceData::String(CharType::UTF8(data)) => {
-                drain_filter!(data, UTF8Data);
-            }
+            SequenceData::Buffer(data) => retain_inner!(data, BuffData),
+            SequenceData::List(data) => retain_inner!(data, ListData),
+            SequenceData::String(CharType::ASCII(data)) => retain_inner!(data, ASCIIData),
+            SequenceData::String(CharType::UTF8(data)) => retain_inner!(data, UTF8Data),
         }
         Ok(())
     }
@@ -930,7 +767,11 @@ impl SequencedValue<u8> for BuffData {
     }
 
     fn type_signature(&self) -> Result<TypeSignature, ClarityTypeError> {
-        let buff_length = BufferLength::try_from(self.data.len())?;
+        let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: too large of a buffer successfully constructed.".into(),
+            )
+        })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::BufferType(
             buff_length,
         )))
@@ -951,7 +792,11 @@ impl SequencedValue<u8> for ASCIIData {
     }
 
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
-        let buff_length = BufferLength::try_from(self.data.len())?;
+        let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: too large of a buffer successfully constructed.".into(),
+            )
+        })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::ASCII(buff_length),
         )))
@@ -972,7 +817,11 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
     }
 
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
-        let str_len = StringUTF8Length::try_from(self.data.len())?;
+        let str_len = StringUTF8Length::try_from(self.data.len()).map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: Too large of a buffer successfully constructed.".into(),
+            )
+        })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::UTF8(str_len),
         )))
@@ -989,6 +838,11 @@ impl OptionalData {
             Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(v)?),
             None => TypeSignature::new_option(TypeSignature::NoType),
         }
+        .map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: Should not have constructed too large of a type.".into(),
+            )
+        })
     }
 }
 
@@ -1004,6 +858,11 @@ impl ResponseData {
                 TypeSignature::type_of(&self.data)?,
             ),
         }
+        .map_err(|_| {
+            ClarityTypeError::InvariantViolation(
+                "ERROR: Should not have constructed too large of a type.".into(),
+            )
+        })
     }
 }
 
@@ -1093,9 +952,6 @@ impl Value {
         Ok(TypeSignature::type_of(self)?.depth())
     }
 
-    // TODO: remove this comment. This is to help reviewers: list_with_type is only called in
-    // serialization.rs where its returned error is immediately ignored. Therefore changes to the error
-    // types in here are not consensus-breaking
     pub fn list_with_type(
         epoch: &StacksEpochId,
         list_data: Vec<Value>,
@@ -1109,11 +965,7 @@ impl Value {
             let expected_item_type = expected_type.get_list_item_type();
 
             for item in &list_data {
-                let admits = expected_item_type
-                    .admits(epoch, item)
-                    .map_err(|_| ClarityTypeError::ListTypeMismatch)?;
-
-                if !admits {
+                if !expected_item_type.admits(epoch, item)? {
                     return Err(ClarityTypeError::ListTypeMismatch);
                 }
             }
@@ -1239,8 +1091,6 @@ impl Value {
     }
 
     pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value, ClarityTypeError> {
-        // This used to return InvalidCharactersDetected, but its more accurate to label
-        // this as InvalidUtf8Encoding
         let validated_utf8_str =
             str::from_utf8(&bytes).map_err(|_| ClarityTypeError::InvalidUtf8Encoding)?;
         let data = validated_utf8_str
@@ -1259,8 +1109,6 @@ impl Value {
         ))))
     }
 
-    /// TODO: remove this comment. For code reviewers. Expect ascii is only called in load_cost_functions and immediately
-    /// is mapped to a CostError
     pub fn expect_ascii(self) -> Result<String, ClarityTypeError> {
         if let Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) = self {
             String::from_utf8(data).map_err(|_| ClarityTypeError::InvalidUtf8Encoding)
@@ -1285,7 +1133,8 @@ impl Value {
         }
     }
 
-    /// TODO: from this comment. For code reviewers. This is only called in tests and immediately unwrwapped.
+    /// TODO: from this comment. For code reviewers. This is only called in tests and/or immediately unwrapped
+    /// (see calls in pox-locking/src/pox_*).
     /// Therefore, its returned value is not currently important.
     pub fn expect_i128(self) -> Result<i128, ClarityTypeError> {
         if let Value::Int(inner) = self {
@@ -1343,7 +1192,6 @@ impl Value {
         Ok(data)
     }
 
-    /// TODO: remove this comment. For code reviwers: this is only ever called in tests and immediately unwrapped
     pub fn expect_bool(self) -> Result<bool, ClarityTypeError> {
         if let Value::Bool(b) = self {
             Ok(b)
@@ -1397,7 +1245,7 @@ impl Value {
         }
     }
 
-    /// TODO: remove this comment. For reviwers: this is only called in tests and immediately unwrapped
+    #[cfg(any(test, feature = "testing"))]
     pub fn expect_callable(self) -> Result<CallableData, ClarityTypeError> {
         if let Value::CallableContract(t) = self {
             Ok(t)
@@ -1437,10 +1285,7 @@ impl Value {
                 Ok(*res_data.data)
             } else {
                 error!("Value is not a (ok ..)");
-                Err(ClarityTypeError::ResponseTypeMismatch {
-                    expected_ok: true,
-                    data_committed: false,
-                })
+                Err(ClarityTypeError::ResponseTypeMismatch { expected_ok: true })
             }
         } else {
             error!("Value '{self:?}' is not a response");
@@ -1454,17 +1299,14 @@ impl Value {
         }
     }
 
-    /// TODO: remove this comment. For reviewers: only ever called in tests and immediately unwrapped
+    #[cfg(any(test, feature = "testing"))]
     pub fn expect_result_err(self) -> Result<Value, ClarityTypeError> {
         if let Value::Response(res_data) = self.clone() {
             if !res_data.committed {
                 Ok(*res_data.data)
             } else {
                 error!("Value is not a (err ..)");
-                Err(ClarityTypeError::ResponseTypeMismatch {
-                    expected_ok: false,
-                    data_committed: true,
-                })
+                Err(ClarityTypeError::ResponseTypeMismatch { expected_ok: false })
             }
         } else {
             error!("Value '{self:?}' is not a response");
@@ -1493,17 +1335,14 @@ impl Value {
 
 impl BuffData {
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data
-            .len()
-            .try_into()
-            .map_err(|_| ClarityTypeError::ValueTooLarge)
+        self.data.len().try_into()
     }
 
     pub fn as_slice(&self) -> &[u8] {
         self.data.as_slice()
     }
 
-    pub fn append(&mut self, other_seq: &mut BuffData) {
+    fn append(&mut self, other_seq: &mut BuffData) {
         self.data.append(&mut other_seq.data);
     }
 
@@ -1524,7 +1363,7 @@ impl ListData {
         self.data.is_empty()
     }
 
-    pub fn append(
+    fn append(
         &mut self,
         epoch: &StacksEpochId,
         other_seq: ListData,
@@ -1550,10 +1389,7 @@ impl ASCIIData {
     }
 
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data
-            .len()
-            .try_into()
-            .map_err(|_| ClarityTypeError::ValueTooLarge)
+        self.data.len().try_into()
     }
 }
 
@@ -1563,10 +1399,7 @@ impl UTF8Data {
     }
 
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
-        self.data
-            .len()
-            .try_into()
-            .map_err(|_| ClarityTypeError::ValueTooLarge)
+        self.data.len().try_into()
     }
 }
 
@@ -1717,8 +1550,6 @@ impl fmt::Display for TraitIdentifier {
     }
 }
 
-/// TODO: Do we want to make these return errors? I know in theory its infallible, but there is a lot of
-/// in theory infallible that return errors instead of straight expects.
 impl From<StacksAddress> for StandardPrincipalData {
     fn from(addr: StacksAddress) -> Self {
         let (version, bytes) = addr.destruct();
@@ -1736,8 +1567,6 @@ impl From<StacksAddress> for PrincipalData {
     }
 }
 
-/// TODO: Do we want to make these return errors? I know in theory its infallible, but there is a lot of
-/// in theory infallible that return errors instead of straight expects.
 impl From<StandardPrincipalData> for StacksAddress {
     fn from(o: StandardPrincipalData) -> StacksAddress {
         // should be infallible because it's impossible to construct a StandardPrincipalData with
@@ -1840,9 +1669,6 @@ impl TupleData {
     }
 
     // TODO: add tests from mutation testing results #4834
-    // TODO: remove this comment. This is to help reviewers: from_data_typed is only called in
-    // serialization.rs where its returned error is immediately ignored. Therefore changes to the error
-    // types in here are not consensus-breaking
     #[cfg_attr(test, mutants::skip)]
     pub fn from_data_typed(
         epoch: &StacksEpochId,
@@ -1858,13 +1684,7 @@ impl TupleData {
             })?;
 
             // User provided a value that does not match the declared field type
-            let admits = expected_type.admits(epoch, &value).map_err(|_| {
-                ClarityTypeError::TypeMismatchValue(
-                    Box::new(expected_type.clone()),
-                    Box::new(value.clone()),
-                )
-            })?;
-            if !admits {
+            if !expected_type.admits(epoch, &value)? {
                 return Err(ClarityTypeError::TypeMismatchValue(
                     Box::new(expected_type.clone()),
                     Box::new(value),

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,14 +20,14 @@ use clarity_types::types::{AssetIdentifier, PrincipalData, StandardPrincipalData
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
+use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
 use crate::vm::errors::{
-    check_arguments_at_least, CheckErrorKind, VmExecutionError, VmInternalError,
+    CheckErrorKind, VmExecutionError, VmInternalError, check_arguments_at_least,
 };
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::Value;
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{Environment, LocalContext, eval};
 
 pub struct StxAllowance {
     amount: u128,

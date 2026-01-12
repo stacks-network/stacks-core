@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+// Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,19 +12,17 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use clarity_types::errors::ast::ClarityEvalError;
 use clarity_types::errors::CheckErrorKind;
-use clarity_types::VmExecutionError;
 use proptest::prelude::*;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::hash::{to_hex, Sha256Sum};
+use stacks_common::util::hash::{Sha256Sum, to_hex};
 use stacks_common::util::secp256k1::MessageSignature as Secp256k1Signature;
 use stacks_common::util::secp256r1::{Secp256r1PrivateKey, Secp256r1PublicKey};
 
+use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::types::{ResponseData, TypeSignature, Value};
-use crate::vm::{execute_with_parameters, ClarityVersion};
+use crate::vm::{ClarityVersion, execute_with_parameters};
 
 fn secp256r1_vectors() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let privk = Secp256r1PrivateKey::from_seed(&[7u8; 32]);

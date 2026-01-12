@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -4607,7 +4607,10 @@ impl StacksChainState {
             })?;
 
             let entries = match result {
-                Value::Optional(_) => match result.expect_optional()? {
+                Value::Optional(_) => match result
+                    .expect_optional()
+                    .map_err(|_| Error::Expects("expected lockups to return an optional".into()))?
+                {
                     Some(Value::Sequence(SequenceData::List(entries))) => entries.data,
                     _ => return Ok((0, vec![])),
                 },
@@ -4617,9 +4620,21 @@ impl StacksChainState {
             let mut total_minted = 0;
             let mut events = vec![];
             for entry in entries.into_iter() {
-                let schedule: TupleData = entry.expect_tuple()?;
-                let amount = schedule.get("amount")?.to_owned().expect_u128()?;
-                let recipient = schedule.get("recipient")?.to_owned().expect_principal()?;
+                let schedule: TupleData = entry
+                    .expect_tuple()
+                    .map_err(|_| Error::Expects("expected unlock schedule tuple".into()))?;
+                let amount = schedule
+                    .get("amount")
+                    .map_err(|_| Error::Expects("missing amount in unlock schedule".into()))?
+                    .to_owned()
+                    .expect_u128()
+                    .map_err(|_| Error::Expects("invalid amount in unlock schedule".into()))?;
+                let recipient = schedule
+                    .get("recipient")
+                    .map_err(|_| Error::Expects("missing recipient in unlock schedule".into()))?
+                    .to_owned()
+                    .expect_principal()
+                    .map_err(|_| Error::Expects("invalid recipient in unlock schedule".into()))?;
                 total_minted += amount;
                 StacksChainState::account_credit(
                     tx_connection,
@@ -5858,7 +5873,7 @@ impl StacksChainState {
     /// parent block has been processed.
     /// If it's not known, return None.
     pub fn get_parent_header_info(
-        chainstate_tx: &mut ChainstateTx,
+        chainstate_tx: &ChainstateTx,
         next_staging_block: &StagingBlock,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         let parent_block_header_info = match StacksChainState::get_anchored_block_header_info(
@@ -6056,13 +6071,11 @@ impl StacksChainState {
             &next_staging_block.parent_microblock_hash,
         );
 
-        let parent_header_info = match StacksChainState::get_parent_header_info(
-            &mut chainstate_tx,
-            &next_staging_block,
-        )? {
-            Some(hinfo) => hinfo,
-            None => return Ok((None, None)),
-        };
+        let parent_header_info =
+            match StacksChainState::get_parent_header_info(&chainstate_tx, &next_staging_block)? {
+                Some(hinfo) => hinfo,
+                None => return Ok((None, None)),
+            };
 
         let block = StacksChainState::extract_stacks_block(&next_staging_block)?;
         let block_size = u64::try_from(next_staging_block.block_data.len())

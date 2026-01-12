@@ -13,11 +13,9 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 use clarity::vm::analysis::errors::CheckErrorKind;
-use clarity::vm::ast::errors::ClarityEvalError;
 use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::errors::{RuntimeError, VmExecutionError};
+use clarity::vm::errors::{ClarityEvalError, RuntimeError, VmExecutionError};
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
