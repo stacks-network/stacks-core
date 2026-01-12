@@ -312,8 +312,8 @@ fn build_common_opts(cli: &Cli) -> CommonOpts {
         opts.config.replace(config);
     }
 
-    // Handle --network option
-    if let Some(ref network) = cli.network {
+    // Handle --network-config option
+    if let Some(ref network) = cli.network_config {
         let config_file = match network.to_lowercase().as_str() {
             "helium" => ConfigFile::helium(),
             "mainnet" => ConfigFile::mainnet(),
