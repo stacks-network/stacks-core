@@ -387,9 +387,14 @@ fn run_cost_analysis_test(
     )
     .expect("Failed to build AST");
 
-    // Run static cost analysis
-    let static_cost_map = static_cost_from_ast(&ast, &clarity_version, epoch)
-        .expect("Failed to get static cost analysis");
+    // Run static cost analysis with source string for accurate contract size
+    let static_cost_map = crate::vm::costs::analysis::static_cost_from_ast_with_source(
+        &ast,
+        &clarity_version,
+        epoch,
+        Some(src),
+    )
+    .expect("Failed to get static cost analysis");
 
     let (static_cost, _) = static_cost_map.get(function_name)
         .expect(&format!("Function '{}' not found in static cost map", function_name));

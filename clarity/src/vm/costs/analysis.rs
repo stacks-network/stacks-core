@@ -13,6 +13,7 @@ use crate::vm::ast::static_cost::{
     TraitCountContext, TraitCountPropagator, TraitCountVisitor,
 };
 use crate::vm::contexts::Environment;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
@@ -267,25 +268,120 @@ pub fn static_cost_tree(
     static_cost_tree_from_ast(&ast, clarity_version, epoch)
 }
 
+/// Compute overhead costs for executing a function.
+///
+/// When a function is called, there are three types of overhead costs that are charged
+/// before the function body is executed:
+///
+/// 1. **Contract Loading Cost** (`cost_load_contract`):
+///    - Charged when loading the contract from storage to execute a function
+///
+/// 2. **Function Lookup Cost** (`cost_lookup_function`):
+///    - Charged when looking up the function definition in the contract
+///    - This is separate from variable lookups inside the function body
+///
+/// 3. **Function Application Cost** (`cost_user_function_application`):
+///    - Charged when applying a user-defined function (not native functions)
+///
+/// These overhead costs are added to the function body cost to get the total execution cost.
+/// Note: `cost_inner_type_check_cost` for argument type checking is part of the function
+/// body cost, not overhead since it depends on the actual argument values/types.
+fn compute_function_overhead_costs(
+    contract_size: Option<u64>,
+    arg_count: u64,
+    epoch: StacksEpochId,
+) -> ExecutionCost {
+    let mut overhead = ExecutionCost::ZERO;
+
+    // cost_load_contract
+    if let Some(size) = contract_size {
+        let load_cost = ClarityCostFunction::LoadContract
+            .eval_for_epoch(size, epoch)
+            .unwrap_or_else(|_| ExecutionCost::ZERO);
+        overhead.add(&load_cost).ok();
+    }
+
+    // cost_lookup_function
+    let lookup_cost = ClarityCostFunction::LookupFunction
+        .eval_for_epoch(0, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO);
+    overhead.add(&lookup_cost).ok();
+
+    // cost_user_function_application
+    let application_cost = ClarityCostFunction::UserFunctionApplication
+        .eval_for_epoch(arg_count, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO);
+    overhead.add(&application_cost).ok();
+
+    overhead
+}
+
+/// Extract function argument count from a function definition expression
+fn extract_function_arg_count(expr: &SymbolicExpression) -> Option<u64> {
+    expr.match_list().and_then(|list| {
+        if list.len() >= 2 {
+            list[1].match_list().map(|signature| {
+                // Skip the first element: function name
+                (signature.len().saturating_sub(1)) as u64
+            })
+        } else {
+            None
+        }
+    })
+}
+
 pub fn static_cost_from_ast(
     contract_ast: &crate::vm::ast::ContractAST,
     clarity_version: &ClarityVersion,
     epoch: StacksEpochId,
 ) -> Result<HashMap<String, (StaticCost, Option<TraitCount>)>, String> {
+    static_cost_from_ast_with_source(contract_ast, clarity_version, epoch, None)
+}
+
+pub fn static_cost_from_ast_with_source(
+    contract_ast: &crate::vm::ast::ContractAST,
+    clarity_version: &ClarityVersion,
+    epoch: StacksEpochId,
+    contract_source: Option<&str>,
+) -> Result<HashMap<String, (StaticCost, Option<TraitCount>)>, String> {
+    // Use actual contract source size if provided, otherwise estimate
+    let contract_size = contract_source.map(|s| s.len() as u64);
+
     let cost_trees_with_traits = static_cost_tree_from_ast(contract_ast, clarity_version, epoch)?;
 
-    // Extract trait_count from the first entry (all entries have the same trait_count)
     let trait_count = cost_trees_with_traits
         .values()
         .next()
         .and_then(|(_, trait_count)| trait_count.clone());
 
-    // Convert CostAnalysisNode to StaticCost
+    // Convert CostAnalysisNode to StaticCost and add overhead costs
     let costs: HashMap<String, StaticCost> = cost_trees_with_traits
-        .into_iter()
-        .map(|(name, (cost_analysis_node, _))| {
-            let summing_cost = calculate_total_cost_with_branching(&cost_analysis_node);
-            (name, summing_cost.into())
+        .iter()
+        .filter_map(|(name, (cost_analysis_node, _))| {
+            let arg_count = contract_ast.expressions.iter()
+                .find_map(|expr| {
+                    if let Some(function_name) = extract_function_name(expr) {
+                        if function_name == *name {
+                            return extract_function_arg_count(expr);
+                        }
+                    }
+                    None
+                })
+                .unwrap_or(0);
+
+            let summing_cost = calculate_total_cost_with_branching(cost_analysis_node);
+            let mut static_cost: StaticCost = summing_cost.into();
+
+            // Add overhead costs to both min and max
+            let overhead = compute_function_overhead_costs(
+                contract_size,
+                arg_count,
+                epoch,
+            );
+            static_cost.min.add(&overhead).ok()?;
+            static_cost.max.add(&overhead).ok()?;
+
+            Some((name.clone(), static_cost))
         })
         .collect();
 
