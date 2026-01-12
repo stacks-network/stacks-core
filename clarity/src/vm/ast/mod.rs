@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -36,12 +36,12 @@ use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
+use crate::vm::ClarityVersion;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostTracker};
+use crate::vm::costs::{CostTracker, runtime_cost};
 use crate::vm::diagnostic::{Diagnostic, Level};
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::ClarityVersion;
 
 /// Legacy function
 #[cfg(any(test, feature = "testing"))]

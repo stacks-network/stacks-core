@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,22 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::vm::callables::DefineType;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
+use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, RuntimeError, VmExecutionError,
-    VmInternalError,
+    CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError, check_argument_count,
+    check_arguments_at_least,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, PrincipalData, SequenceData,
     StacksBlockInfoProperty, TenureInfoProperty, TupleData, TypeSignature, Value,
 };
-use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
+use crate::vm::{ClarityVersion, Environment, LocalContext, eval};
 
 switch_on_global_epoch!(special_fetch_variable(
     special_fetch_variable_v200,
@@ -76,13 +76,13 @@ pub fn special_contract_call(
     let mut rest_args_sizes = Vec::with_capacity(rest_args_len);
     for arg in rest_args_slice.iter() {
         let evaluated_arg = eval(arg, env, context)?;
-        rest_args_sizes.push(evaluated_arg.size()? as u64);
+        rest_args_sizes.push(evaluated_arg.size()?.into());
         rest_args.push(SymbolicExpression::atom_value(evaluated_arg));
     }
 
     let (contract_identifier, type_returns_constraint) = match &args[0].expr {
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(
-            ref contract_identifier,
+            contract_identifier,
         ))) => {
             // Static dispatch
             (contract_identifier, None)
@@ -93,10 +93,9 @@ pub fn special_contract_call(
                 Some(trait_data) => {
                     // Ensure that contract-call is used for inter-contract calls only
                     if trait_data.contract_identifier == env.contract_context.contract_identifier {
-                        return Err(CheckErrorKind::CircularReference(vec![trait_data
-                            .contract_identifier
-                            .name
-                            .to_string()])
+                        return Err(CheckErrorKind::CircularReference(vec![
+                            trait_data.contract_identifier.name.to_string(),
+                        ])
                         .into());
                     }
 
@@ -282,7 +281,7 @@ pub fn special_fetch_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size()? as u64,
+        Err(_e) => data_types.value_type.size()?.into(),
     };
 
     runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
@@ -361,7 +360,7 @@ pub fn special_set_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size()? as u64,
+        Err(_e) => data_types.value_type.size()?.into(),
     };
 
     runtime_cost(ClarityCostFunction::SetVar, env, result_size)?;
@@ -431,7 +430,7 @@ pub fn special_fetch_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
     runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
@@ -461,7 +460,7 @@ pub fn special_at_block(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(x),
             )
-            .into())
+            .into());
         }
     };
 
@@ -548,7 +547,7 @@ pub fn special_set_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -635,7 +634,7 @@ pub fn special_insert_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -716,7 +715,7 @@ pub fn special_delete_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.key_type.size()? as u64,
+        Err(_e) => data_types.key_type.size()?.into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -882,7 +881,7 @@ pub fn special_get_block_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
 /// Handles the `get-burn-block-info?` special function.
@@ -941,11 +940,11 @@ pub fn special_get_burn_block_info(
                 .get_burnchain_block_header_hash_for_burnchain_height(height_value)?;
 
             match burnchain_header_hash_opt {
-                Some(burnchain_header_hash) => {
-                    Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
+                Some(burnchain_header_hash) => Ok(Value::some(Value::Sequence(
+                    SequenceData::Buffer(BuffData {
                         data: burnchain_header_hash.as_bytes().to_vec(),
-                    })))
-                }
+                    }),
+                ))?),
                 None => Ok(Value::none()),
             }
         }
@@ -1060,7 +1059,7 @@ pub fn special_get_stacks_block_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
 /// Handles the function `get-tenure-info?` special function.
@@ -1173,7 +1172,7 @@ pub fn special_get_tenure_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
 /// Handles the function `contract-hash?`
@@ -1212,5 +1211,7 @@ pub fn special_contract_hash(
         return Ok(Value::err_uint(2));
     };
 
-    Value::okay(Value::buff_from(contract_hash.as_bytes().to_vec())?)
+    Ok(Value::okay(Value::buff_from(
+        contract_hash.as_bytes().to_vec(),
+    )?)?)
 }

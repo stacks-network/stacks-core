@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -109,16 +109,22 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                 sortdb,
                 block_id,
                 SIGNERS_NAME,
-                &format!("(map-get? cycle-set-height u{})", cycle),
+                &format!("(map-get? cycle-set-height u{cycle})"),
             )?
             .expect_optional()
-            .map_err(|e| Error::ChainstateError(e.into()))?
+            .map_err(|_| {
+                ChainstateError::Expects(format!(
+                    "(map-get? cycle-set-height u{cycle}) did not return an optional"
+                ))
+            })?
             .map(|x| {
-                let as_u128 = x.expect_u128()?;
-                Ok(u64::try_from(as_u128).expect("FATAL: block height exceeded u64"))
+                let as_u128 = x.expect_u128().map_err(|_| {
+                    ChainstateError::Expects("cycle-set-height did not return a u128".into())
+                })?;
+                u64::try_from(as_u128)
+                    .map_err(|_| ChainstateError::Expects("block height exceeded u64".into()))
             })
-            .transpose()
-            .map_err(|e| Error::ChainstateError(ChainstateError::ClarityError(e)))?
+            .transpose()?
         else {
             err_or_debug!(
                 debug_log,
@@ -156,13 +162,15 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
             )
             .map_err(ChainstateError::ClarityError)?
             .expect_optional()
-            .map_err(|e| Error::ChainstateError(e.into()))?
+            .map_err(|e| ChainstateError::Expects(format!("Expected an optional: {e}")))?
             .map(|x| {
-                let as_u128 = x.expect_u128()?;
-                Ok(u64::try_from(as_u128).expect("FATAL: block height exceeded u64"))
+                let as_u128 = x
+                    .expect_u128()
+                    .map_err(|e| ChainstateError::Expects(format!("Expected u128: {e}")))?;
+                u64::try_from(as_u128)
+                    .map_err(|_| ChainstateError::Expects("block height exceeded u64".into()))
             })
-            .transpose()
-            .map_err(|e| Error::ChainstateError(ChainstateError::ClarityError(e)))?
+            .transpose()?
         else {
             error!(
                 "The reward set was not written to .signers before it was needed by Nakamoto";
@@ -298,7 +306,9 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
     let burn_height = burnchain.nakamoto_first_block_of_cycle(reward_cycle);
 
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?
-        .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", burn_height))
+        .ok_or_else(|| {
+            ChainstateError::Expects(format!("no epoch defined for burn height {burn_height}"))
+        })?
         .epoch_id;
 
     assert!(
@@ -366,9 +376,13 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     let prepare_phase_start_height =
         cycle_start_height.saturating_sub(u64::from(burnchain.pox_constants.prepare_length));
     let epoch_at_height =
-        SortitionDB::get_stacks_epoch(sort_db.conn(), prepare_phase_start_height)?.unwrap_or_else(
-            || panic!("FATAL: no epoch defined for burn height {prepare_phase_start_height}"),
-        );
+        SortitionDB::get_stacks_epoch(sort_db.conn(), prepare_phase_start_height)?.ok_or_else(
+            || {
+                ChainstateError::Expects(format!(
+                    "FATAL: no epoch defined for burn height {prepare_phase_start_height}"
+                ))
+            },
+        )?;
     if epoch_at_height.epoch_id < StacksEpochId::Epoch30 {
         // in epoch 2.5, and in the first reward cycle of epoch 3.0, the reward set can *only* be found in the sortition DB.
         // The nakamoto chain-processing rules aren't active yet, so we can't look for the reward
@@ -507,7 +521,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
         sort_db.conn(),
         &anchor_block_header.consensus_hash,
     )?
-    .expect("FATAL: no snapshot for winning PoX anchor block");
+    .ok_or_else(|| ChainstateError::Expects("no snapshot for winning PoX anchor block".into()))?;
 
     // make sure the `anchor_block` field is the same as whatever goes into the block-commit,
     // or PoX ancestry queries won't work.
@@ -683,15 +697,12 @@ impl<
                         debug!("Received new epoch 2.x Stacks block notice");
                         match self.handle_new_stacks_block() {
                             Ok(missing_block_opt) => {
-                                if missing_block_opt.is_some() {
-                                    debug!(
-                                        "Missing affirmed anchor block: {:?}",
-                                        &missing_block_opt.as_ref().expect("unreachable")
-                                    );
+                                if let Some(missing_block) = &missing_block_opt {
+                                    debug!("Missing affirmed anchor block: {missing_block:?}");
                                 }
                             }
                             Err(e) => {
-                                warn!("Error processing new stacks block: {:?}", e);
+                                warn!("Error processing new stacks block: {e:?}");
                             }
                         }
                     }
@@ -761,9 +772,11 @@ impl<
     /// DB.
     pub fn handle_new_nakamoto_stacks_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
         debug!("Handle new Nakamoto block");
-        let canonical_sortition_tip = self.canonical_sortition_tip.clone().expect(
-            "FAIL: processing a new Stacks block, but don't have a canonical sortition tip",
-        );
+        let canonical_sortition_tip = self.canonical_sortition_tip.clone().ok_or_else(|| {
+            ChainstateError::Expects(
+                "processing a new Stacks block, but don't have a canonical sortition tip".into(),
+            )
+        })?;
 
         loop {
             Self::fault_injection_pause_nakamoto_block_processing();
@@ -822,7 +835,11 @@ impl<
                     .header
                     .anchored_header
                     .as_stacks_nakamoto()
-                    .expect("FATAL: unreachable: processed a non-Nakamoto block");
+                    .ok_or_else(|| {
+                        ChainstateError::Expects(
+                            "unreachable: processed a non-Nakamoto block".into(),
+                        )
+                    })?;
 
                 (
                     nakamoto_header.block_id(),
@@ -831,7 +848,7 @@ impl<
                 )
             };
 
-            debug!("Bump blocks processed ({})", &canonical_stacks_block_id);
+            debug!("Bump blocks processed ({canonical_stacks_block_id})");
 
             self.notifier.notify_stacks_block_processed();
             increment_stx_blocks_processed_counter();
@@ -850,7 +867,7 @@ impl<
                     self.sortition_db.conn(),
                     &block_receipt.evaluated_epoch,
                 )?
-                .expect("Could not find a stacks epoch.");
+                .ok_or_else(|| ChainstateError::Expects("Could not find a stacks epoch.".into()))?;
                 estimator.notify_block(
                     &block_receipt.tx_receipts,
                     &stacks_epoch.block_limit,
@@ -864,7 +881,7 @@ impl<
                     self.sortition_db.conn(),
                     &block_receipt.evaluated_epoch,
                 )?
-                .expect("Could not find a stacks epoch.");
+                .ok_or_else(|| ChainstateError::Expects("Could not find a stacks epoch.".into()))?;
                 if let Err(e) = estimator.notify_block(&block_receipt, &stacks_epoch.block_limit) {
                     warn!("FeeEstimator failed to process block receipt";
                         "stacks_block_hash" => %block_hash,
@@ -879,12 +896,7 @@ impl<
                 self.sortition_db.conn(),
                 &canonical_stacks_consensus_hash,
             )?
-            .unwrap_or_else(|| {
-                panic!(
-                    "FATAL: unreachable: consensus hash {} has no snapshot",
-                    &canonical_stacks_consensus_hash
-                )
-            });
+            .ok_or_else(|| ChainstateError::Expects(format!("FATAL: unreachable: consensus hash {canonical_stacks_consensus_hash} has no snapshot")))?;
 
             // are we in the prepare phase?
             // TODO: this should *not* include the 0 block!
@@ -900,9 +912,9 @@ impl<
             let current_reward_cycle = self
                 .burnchain
                 .block_height_to_reward_cycle(stacks_sn.block_height)
-                .unwrap_or_else(|| {
-                    panic!("FATAL: unreachable: burnchain block height has no reward cycle")
-                });
+                .ok_or_else(|| {
+                    ChainstateError::Expects(format!("burnchain block height has no reward cycle"))
+                })?;
 
             let last_processed_reward_cycle = {
                 let canonical_sn = SortitionDB::get_block_snapshot(
@@ -916,7 +928,9 @@ impl<
                 let Some((rc_info, _)) = load_nakamoto_reward_set(
                     self.burnchain
                         .block_height_to_reward_cycle(canonical_sn.block_height)
-                        .expect("FATAL: snapshot has no reward cycle"),
+                        .ok_or_else(|| {
+                            ChainstateError::Expects("snapshot has no reward cycle".into())
+                        })?,
                     &canonical_sn.sortition_id,
                     &self.burnchain,
                     &mut self.chain_state_db,
@@ -954,10 +968,9 @@ impl<
         stacks_tip: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Option<RewardCycleInfo>, Error> {
-        let sortition_tip_id = self
-            .canonical_sortition_tip
-            .as_ref()
-            .expect("FATAL: Processing anchor block, but no known sortition tip");
+        let sortition_tip_id = self.canonical_sortition_tip.as_ref().ok_or_else(|| {
+            ChainstateError::Expects("Processing anchor block, but no known sortition tip".into())
+        })?;
 
         get_nakamoto_reward_cycle_info(
             sortition_tip_id,
