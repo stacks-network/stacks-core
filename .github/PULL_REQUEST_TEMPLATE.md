@@ -17,6 +17,7 @@
 ### Checklist
 
 - [ ] Test coverage for new or modified code paths
+- [ ] For new Clarity features or consensus changes, add property tests (see `docs/property-testing.md`)
 - [ ] Changelog is updated
 - [ ] Required documentation changes (e.g., `docs/rpc/openapi.yaml` and `rpc-endpoints.md` for v2 endpoints, `event-dispatcher.md` for new events)
 - [ ] New clarity functions have corresponding PR in `clarity-benchmarking` repo
