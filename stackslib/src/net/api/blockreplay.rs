@@ -214,10 +214,7 @@ where
         .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
     let parent_stacks_header_opt =
-        match NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id) {
-            Ok(parent_stacks_header_opt) => parent_stacks_header_opt,
-            Err(e) => return Err(e),
-        };
+        NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)?;
 
     let Some(parent_stacks_header) = parent_stacks_header_opt else {
         return Err(ChainError::InvalidStacksBlock(
