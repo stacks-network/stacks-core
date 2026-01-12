@@ -144,13 +144,7 @@ pub fn read_file_or_stdin_bytes(path: &str) -> Vec<u8> {
 pub fn read_optional_file_or_stdin(path: Option<&PathBuf>) -> String {
     match path {
         Some(p) => read_file_or_stdin(p.to_str().expect("Invalid UTF-8 in path")),
-        None => {
-            let mut buffer = String::new();
-            io::stdin()
-                .read_to_string(&mut buffer)
-                .expect("Error reading from stdin");
-            buffer
-        }
+        None => read_file_or_stdin("-"),
     }
 }
 
