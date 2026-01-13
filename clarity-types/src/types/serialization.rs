@@ -23,6 +23,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
 
 use super::{ListTypeData, TupleTypeSignature};
+use crate::errors::analysis::StaticCheckErrorKind;
 use crate::errors::{CheckErrorKind, IncomparableError, VmInternalError};
 use crate::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::types::{
@@ -394,7 +395,7 @@ impl TypeSignature {
     /// size of a `(buff 1024*1024)` is `1+1024*1024` because of the
     /// type prefix byte. However, that is 1 byte larger than the maximum
     /// buffer size in Clarity.
-    pub fn max_serialized_size(&self) -> Result<u32, CheckErrorKind> {
+    pub fn max_serialized_size(&self) -> Result<u32, StaticCheckErrorKind> {
         let type_prefix_size = 1;
 
         let max_output_size = match self {
@@ -405,7 +406,7 @@ impl TypeSignature {
                 // `some` or similar with `result` types).  So, when
                 // serializing an object with a `NoType`, the other
                 // branch should always be used.
-                return Err(CheckErrorKind::CouldNotDetermineSerializationType);
+                return Err(StaticCheckErrorKind::CouldNotDetermineSerializationType);
             }
             TypeSignature::IntType => 16,
             TypeSignature::UIntType => 16,
@@ -417,14 +418,14 @@ impl TypeSignature {
                     .get_max_len()
                     .checked_mul(list_type.get_list_item_type().max_serialized_size()?)
                     .and_then(|x| x.checked_add(list_length_encode))
-                    .ok_or_else(|| CheckErrorKind::ValueTooLarge)?
+                    .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::BufferType(buff_length)) => {
                 // u32 length as big-endian bytes
                 let buff_length_encode = 4;
                 u32::from(buff_length)
                     .checked_add(buff_length_encode)
-                    .ok_or_else(|| CheckErrorKind::ValueTooLarge)?
+                    .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
                 length,
@@ -434,7 +435,7 @@ impl TypeSignature {
                 // ascii is 1-byte per character
                 u32::from(length)
                     .checked_add(str_length_encode)
-                    .ok_or_else(|| CheckErrorKind::ValueTooLarge)?
+                    .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
                 length,
@@ -445,7 +446,7 @@ impl TypeSignature {
                 u32::from(length)
                     .checked_mul(4)
                     .and_then(|x| x.checked_add(str_length_encode))
-                    .ok_or_else(|| CheckErrorKind::ValueTooLarge)?
+                    .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)?
             }
             TypeSignature::PrincipalType
             | TypeSignature::CallableType(_)
@@ -468,7 +469,7 @@ impl TypeSignature {
                         .checked_add(1) // length of key-name
                         .and_then(|x| x.checked_add(key.len() as u32)) // ClarityName is ascii-only, so 1 byte per length
                         .and_then(|x| x.checked_add(value_size))
-                        .ok_or_else(|| CheckErrorKind::ValueTooLarge)?;
+                        .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)?;
                 }
                 total_size
             }
@@ -477,7 +478,7 @@ impl TypeSignature {
                     Ok(size) => size,
                     // if NoType, then this is just serializing a none
                     // value, which is only the type prefix
-                    Err(CheckErrorKind::CouldNotDetermineSerializationType) => 0,
+                    Err(StaticCheckErrorKind::CouldNotDetermineSerializationType) => 0,
                     Err(e) => return Err(e),
                 }
             }
@@ -485,17 +486,17 @@ impl TypeSignature {
                 let (ok_type, err_type) = response_types.as_ref();
                 let (ok_type_max_size, no_ok_type) = match ok_type.max_serialized_size() {
                     Ok(size) => (size, false),
-                    Err(CheckErrorKind::CouldNotDetermineSerializationType) => (0, true),
+                    Err(StaticCheckErrorKind::CouldNotDetermineSerializationType) => (0, true),
                     Err(e) => return Err(e),
                 };
                 let err_type_max_size = match err_type.max_serialized_size() {
                     Ok(size) => size,
-                    Err(CheckErrorKind::CouldNotDetermineSerializationType) => {
+                    Err(StaticCheckErrorKind::CouldNotDetermineSerializationType) => {
                         if no_ok_type {
                             // if both the ok type and the error type are NoType,
-                            //  throw a CheckErrorKind. This should not be possible, but the check
+                            //  throw a StaticCheckErrorKind. This should not be possible, but the check
                             //  is done out of caution.
-                            return Err(CheckErrorKind::CouldNotDetermineSerializationType);
+                            return Err(StaticCheckErrorKind::CouldNotDetermineSerializationType);
                         } else {
                             0
                         }
@@ -505,13 +506,13 @@ impl TypeSignature {
                 cmp::max(ok_type_max_size, err_type_max_size)
             }
             TypeSignature::ListUnionType(_) => {
-                return Err(CheckErrorKind::CouldNotDetermineSerializationType);
+                return Err(StaticCheckErrorKind::CouldNotDetermineSerializationType);
             }
         };
 
         max_output_size
             .checked_add(type_prefix_size)
-            .ok_or_else(|| CheckErrorKind::ValueTooLarge)
+            .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)
     }
 }
 
@@ -612,8 +613,8 @@ impl Value {
                 TypePrefix::Buffer => {
                     let mut buffer_len = [0; 4];
                     r.read_exact(&mut buffer_len)?;
-                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))?;
-
+                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))
+                        .map_err(CheckErrorKind::from)?;
                     if let Some(x) = &expected_type {
                         let passed_test = match x {
                             TypeSignature::SequenceType(SequenceSubtype::BufferType(
@@ -844,7 +845,8 @@ impl Value {
                 TypePrefix::StringASCII => {
                     let mut buffer_len = [0; 4];
                     r.read_exact(&mut buffer_len)?;
-                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))?;
+                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))
+                        .map_err(CheckErrorKind::from)?;
 
                     if let Some(x) = &expected_type {
                         let passed_test = match x {
@@ -869,7 +871,8 @@ impl Value {
                 TypePrefix::StringUTF8 => {
                     let mut total_len = [0; 4];
                     r.read_exact(&mut total_len)?;
-                    let total_len = BufferLength::try_from(u32::from_be_bytes(total_len))?;
+                    let total_len = BufferLength::try_from(u32::from_be_bytes(total_len))
+                        .map_err(CheckErrorKind::from)?;
 
                     let mut data: Vec<u8> = vec![0; u32::from(total_len) as usize];
 

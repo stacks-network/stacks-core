@@ -19,6 +19,7 @@ use rstest::rstest;
 use stacks_common::types::StacksEpochId;
 
 use crate::VmExecutionError;
+use crate::errors::analysis::CommonCheckErrorKind;
 use crate::errors::{CheckErrorKind, RuntimeError, VmInternalError};
 use crate::types::{
     ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
@@ -38,7 +39,7 @@ fn test_constructors() {
     );
     assert_eq!(
         ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE),
-        Err(CheckErrorKind::ValueTooLarge)
+        Err(CommonCheckErrorKind::ValueTooLarge)
     );
 
     assert_eq!(
@@ -584,4 +585,47 @@ fn test_utf8_data_len_returns_vm_internal_error() {
         )),
         err
     );
+}
+
+#[test]
+fn invalid_utf8_encoding_from_oob_unicode_escape() {
+    // This is a syntactically valid escape: \u{HEX}
+    // BUT 110000 > 10FFFF (max Unicode scalar)
+    // So oob Unicode → char::from_u32(None) → InvalidUTF8Encoding
+    let bad_utf8_literal = "\\u{110000}".to_string();
+
+    let err = Value::string_utf8_from_string_utf8_literal(bad_utf8_literal).unwrap_err();
+    assert!(matches!(
+        err,
+        VmExecutionError::Unchecked(CheckErrorKind::InvalidUTF8Encoding)
+    ));
+}
+
+#[test]
+fn invalid_string_ascii_from_bytes() {
+    // 0xFF is NOT:
+    // - ASCII alphanumeric
+    // - ASCII punctuation
+    // - ASCII whitespace
+    let bad_bytes = vec![0xFF];
+
+    let err = Value::string_ascii_from_bytes(bad_bytes).unwrap_err();
+
+    assert!(matches!(
+        err,
+        VmExecutionError::Unchecked(CheckErrorKind::InvalidCharactersDetected)
+    ));
+}
+
+#[test]
+fn invalid_utf8_string_from_bytes() {
+    // 0x80 is an invalid standalone UTF-8 continuation byte
+    let bad_bytes = vec![0x80];
+
+    let err = Value::string_utf8_from_bytes(bad_bytes).unwrap_err();
+
+    assert!(matches!(
+        err,
+        VmExecutionError::Unchecked(CheckErrorKind::InvalidCharactersDetected)
+    ));
 }

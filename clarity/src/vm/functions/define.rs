@@ -19,8 +19,8 @@ use std::collections::BTreeMap;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, SyntaxBindingErrorType,
-    VmExecutionError,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, CommonCheckErrorKind,
+    SyntaxBindingErrorType, VmExecutionError,
 };
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
@@ -291,7 +291,7 @@ impl<'a> DefineFunctionsParsed<'a> {
     /// a define-statement, returns None if the supplied expression is not a define.
     pub fn try_parse(
         expression: &'a SymbolicExpression,
-    ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrorKind> {
+    ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CommonCheckErrorKind> {
         let (define_type, args) = match DefineFunctions::try_parse(expression) {
             Some(x) => x,
             None => return Ok(None),
@@ -299,7 +299,9 @@ impl<'a> DefineFunctionsParsed<'a> {
         let result = match define_type {
             DefineFunctions::Constant => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Constant {
                     name,
                     value: &args[1],
@@ -309,7 +311,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
+                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::PrivateFunction {
                     signature,
                     body: &args[1],
@@ -319,7 +321,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
+                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::ReadOnlyFunction {
                     signature,
                     body: &args[1],
@@ -329,7 +331,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
+                    .ok_or(CommonCheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::PublicFunction {
                     signature,
                     body: &args[1],
@@ -337,7 +339,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::NonFungibleToken => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::NonFungibleToken {
                     name,
                     nft_type: &args[1],
@@ -345,7 +349,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::FungibleToken => {
                 check_arguments_at_least(1, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 if args.len() == 1 {
                     DefineFunctionsParsed::UnboundedFungibleToken { name }
                 } else if args.len() == 2 {
@@ -354,12 +360,14 @@ impl<'a> DefineFunctionsParsed<'a> {
                         max_supply: &args[1],
                     }
                 } else {
-                    return Err(CheckErrorKind::IncorrectArgumentCount(1, args.len()));
+                    return Err(CommonCheckErrorKind::IncorrectArgumentCount(1, args.len()));
                 }
             }
             DefineFunctions::Map => {
                 check_argument_count(3, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Map {
                     name,
                     key_type: &args[1],
@@ -368,7 +376,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::PersistedVariable => {
                 check_argument_count(3, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::PersistedVariable {
                     name,
                     data_type: &args[1],
@@ -377,7 +387,9 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::Trait => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Trait {
                     name,
                     functions: &args[1..],
@@ -385,13 +397,15 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::UseTrait => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+                let name = args[0]
+                    .match_atom()
+                    .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 match &args[1].expr {
                     Field(ref field) => DefineFunctionsParsed::UseTrait {
                         name,
                         trait_identifier: field,
                     },
-                    _ => return Err(CheckErrorKind::ExpectedTraitIdentifier),
+                    _ => return Err(CommonCheckErrorKind::ExpectedTraitIdentifier),
                 }
             }
             DefineFunctions::ImplTrait => {
@@ -400,7 +414,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                     Field(ref field) => DefineFunctionsParsed::ImplTrait {
                         trait_identifier: field,
                     },
-                    _ => return Err(CheckErrorKind::ExpectedTraitIdentifier),
+                    _ => return Err(CommonCheckErrorKind::ExpectedTraitIdentifier),
                 }
             }
         };
@@ -458,5 +472,131 @@ pub fn evaluate_define(
         }
     } else {
         Ok(DefineResult::NoDefine)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use clarity_types::errors::CheckErrorKind;
+    use clarity_types::representations::SymbolicExpression;
+    use clarity_types::types::QualifiedContractIdentifier;
+    use clarity_types::{Value, VmExecutionError};
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::StacksEpochId;
+
+    use crate::vm::analysis::type_checker::v2_1::MAX_FUNCTION_PARAMETERS;
+    use crate::vm::callables::DefineType;
+    use crate::vm::contexts::GlobalContext;
+    use crate::vm::costs::LimitedCostTracker;
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::functions::define::{handle_define_function, handle_define_trait};
+    use crate::vm::tests::test_clarity_versions;
+    use crate::vm::{CallStack, ClarityVersion, ContractContext, Environment, LocalContext};
+
+    #[apply(test_clarity_versions)]
+    fn bad_syntax_binding_define_function(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        // ---- BAD SIGNATURE ----
+        // Instead of ((x uint)), we pass (x)
+        let bad_signature = vec![
+            SymbolicExpression::atom("f".into()),
+            SymbolicExpression::atom("x".into()), // NOT a (name type) list
+        ];
+
+        let body = SymbolicExpression::atom_value(Value::UInt(1));
+
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let result = handle_define_function(&bad_signature, &body, &mut env, DefineType::Public);
+
+        assert!(matches!(
+            result,
+            Err(VmExecutionError::Unchecked(
+                CheckErrorKind::BadSyntaxBinding(_)
+            ))
+        ));
+    }
+
+    #[apply(test_clarity_versions)]
+    fn handle_define_trait_too_many_function_parameters(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        if epoch < StacksEpochId::Epoch33 {
+            return;
+        }
+        // Build a trait method with MORE than MAX_FUNCTION_PARAMETERS arguments
+        // (f (uint uint uint ... ) (response uint uint))
+        let too_many_args =
+            vec![SymbolicExpression::atom("uint".into()); MAX_FUNCTION_PARAMETERS + 1];
+
+        let method = SymbolicExpression::list(vec![
+            SymbolicExpression::atom("f".into()),
+            SymbolicExpression::list(too_many_args),
+            SymbolicExpression::list(vec![
+                SymbolicExpression::atom("response".into()),
+                SymbolicExpression::atom("uint".into()),
+                SymbolicExpression::atom("uint".into()),
+            ]),
+        ]);
+
+        // This is the `( (f (...) (response ...)) )` wrapper
+        let trait_body = vec![SymbolicExpression::list(vec![method])];
+
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let result = handle_define_trait(&"bad-trait".into(), &trait_body, &mut env);
+
+        assert!(matches!(
+            result,
+            Err(VmExecutionError::Unchecked(
+                CheckErrorKind::TooManyFunctionParameters(found, max)
+            ))
+        ));
     }
 }

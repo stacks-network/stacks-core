@@ -796,6 +796,11 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
             .check_ancestor_block_hash(&bhh)
             .map_err(|e| match e {
                 Error::NotFoundError => {
+                    // This branch will almost never be hit in normal execution because
+                    // the MARF always contains at least the genesis block and subsequent
+                    // blocks. NotFoundError only occurs if the backing store is completely
+                    // empty or uninitialized, which is not possible during normal contract
+                    // deployment or runtime execution.
                     test_debug!("No such block {:?} (NotFoundError)", &bhh);
                     RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }

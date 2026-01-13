@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use clarity::types::StacksEpochId;
 #[allow(unused_imports)]
 use clarity::vm::analysis::CheckErrorKind;
-use clarity::vm::types::{QualifiedContractIdentifier, MAX_TYPE_DEPTH};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DEPTH};
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
 
 use crate::chainstate::tests::consensus::{
@@ -30,17 +30,293 @@ use crate::chainstate::tests::consensus::{
 use crate::core::test_util::to_addr;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 
-/// TODO: Documentation to be added to the enum
-/// - PublicFunctionNotReadOnly: Functionally Unreachable. Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped.
-/// - NoSuchPublicFunction: Tested. Possible only during contract call. On contract deploy checked during static analysis
-/// - CircularReference: Tested. Possible only during contract call. On contract deploy checked during parsing.
-/// - PublicFunctionMustReturnResponse: Functionally Unreachable. On contract deploy checked during static analysis.
-/// - BadFunctionName: Functionally Unreachable. On contract deploy checked during static analysis.
-/// - DefineFunctionBadSignature: Functionally Unreachable. On contract deploy checked during static analysis.
-/// - NoSuchMap: Functionally Unreachable. On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)
-/// - NoSuchDataVariable: Functionally Unreachable. On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)
-/// - EmptyTuplesNotAllowed: Functionally Unreachable. On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)
-/// - NoSuchTupleField: Functionally Unreachable. On contract deploy checked during static analysis.
+/// Generates a coverage classification report for a specific [`CheckErrorKind`] variant.
+///
+/// This method exists purely for **documentation and tracking purposes**.
+/// It helps maintainers understand which error variants have been:
+///
+/// - ✅ **Tested** — verified through consensus tests.
+/// - ⚙️ **Ignored** — not tested on purpose. (e.g. parser v1 related errors).
+/// - 🚫 **Unreachable** — not testable from consensus test side for reasons.
+#[allow(dead_code)]
+fn variant_coverage_report(variant: CheckErrorKind) {
+    enum VariantCoverage {
+        // Cannot occur through valid execution. The string is to explain the reason.
+        Unreachable_Functionally(&'static str),
+        // Unexpected error, that should never happen
+        Unreachable_ExpectLike,
+        // Defined but never used
+        Unreachable_NotUsed,
+        // Not tested on purpose. The string is to explain the reason.
+        Ignored(&'static str),
+        // Covered by consensus tests. The func lists is for to link the variant with the related tests
+        Tested(Vec<fn()>),
+    }
+
+    use CheckErrorKind::*;
+    use VariantCoverage::*;
+
+    _ = match variant {
+        CostOverflow => Unreachable_ExpectLike, // Should exceed u64
+        CostBalanceExceeded(_, _) => Tested(vec![
+            check_error_cost_balance_exceeded_cdeploy,
+            check_error_cost_balance_exceeded_ccall
+        ]),
+        MemoryBalanceExceeded(_, _) => Tested(vec![
+            check_error_memory_balance_exceeded_cdeploy,
+            check_error_memory_balance_exceeded_ccall
+        ]),
+        CostComputationFailed(_) => Unreachable_ExpectLike,
+        ExecutionTimeExpired => Unreachable_Functionally(
+            "All consensus-critical code paths (block validation and transaction processing)
+             pass `None` for max_execution_time to StacksChainState::process_transaction,
+             causing GlobalContext::execution_time_tracker to remain ExecutionTimeTracker::NoTracking.
+             The check_max_execution_time_expired function always returns Ok(()) when tracker
+             is NoTracking. Execution time limits are only enforced in RPC API calls
+             and miner-local transaction filtering."),
+        ValueTooLarge => Tested(vec![
+            check_error_kind_value_too_large_cdeploy,
+            check_error_kind_value_too_large_ccall
+        ]),
+        ValueOutOfBounds => todo!(),
+        TypeSignatureTooDeep => Tested(vec![
+            check_error_kind_type_signature_too_deep_cdeploy,
+            check_error_kind_type_signature_too_deep_ccall
+        ]),
+        ExpectedName => Unreachable_Functionally(
+            "Every place in the runtime where ExpectedName is raised comes from a direct
+            call to SymbolicExpression::match_atom() on the original AST node and the type
+            checker runs the same structure check during analysis."),
+        SupertypeTooLarge => Unreachable_Functionally(
+            "least_supertype checks already run in analysis, and runtime values are
+             sanitized to their declared signatures, so the VM never sees a pair of
+             values whose unified type wasn't accepted earlier."),
+        Expects(_) => Unreachable_ExpectLike,
+        BadMatchOptionSyntax(_) => Unreachable_Functionally(
+            "Both the analyzer and the runtime examine the exact same match AST slice.
+             The static pass invokes check_special_match_opt, which enforces the 3
+             argument structure and the some binding name before any code is accepted"),
+        BadMatchResponseSyntax(_) => Unreachable_Functionally(
+            "Both the analyzer and the runtime examine the exact same match AST slice.
+             The static pass invokes check_special_match_resp, which enforces the 4
+             argument structure and the ok and err binding names before any code is accepted."),
+        BadMatchInput(_) => Unreachable_Functionally(
+            "Both the analyzer and the runtime examine the exact same match AST slice.
+             The static pass invokes check_special_match, which enforces the 2 argument
+             structure and the input type before any code is accepted."),
+        ListTypesMustMatch => Tested(vec![check_error_kind_list_types_must_match_cdeploy]),
+        TypeError(_, _) => Tested(vec![
+            check_error_kind_type_error_cdeploy,
+            check_error_kind_type_error_ccall
+        ]),
+        TypeValueError(_, _) => Tested(vec![
+            check_error_kind_type_value_error_cdeploy,
+            check_error_kind_type_value_error_ccall
+        ]),
+        InvalidTypeDescription => Unreachable_Functionally(
+            "Every invalid type literal is parsed both by the analyzer and by the runtime.
+             Both paths invoke the same TypeSignature::parse_* helpers, so analysis
+             always fails before initialization can trigger it."),
+        UnknownTypeName(_) => Unreachable_Functionally(
+            "Static analysis catches invalid types via `TypeSignature::parse_atom_type`."),
+        UnionTypeError(_, _) => Unreachable_Functionally(
+            "The analyzer enforces that every call to `bit-shift-left` / `bit-shift-right`
+             supplies an argument whose type is exactly `int` or `uint` (see
+             `NativeFunctions::BitwiseLShift|BitwiseRShift` using
+             `FunctionArgSignature::Union(IntType, UIntType)` and the
+             `TypeSignature::admits_type` checks in `type_checker::check_function_arg_signature`)"),
+        UnionTypeValueError(_, _) => Tested(vec![
+            check_error_kind_union_type_value_error_cdeploy,
+            check_error_kind_union_type_value_error_ccall
+        ]),
+        ExpectedOptionalValue(_) => Unreachable_Functionally(
+            "Every optional primitive (`is-some`, `default-to`, `unwrap!`, etc.)
+             has a dedicated analysis hook (`check_special_is_optional`,
+             `check_special_default_to`, `inner_unwrap`, …) that enforces the optional
+             type before a contract can be published, so the runtime never sees a plain
+             `Value` arrive at `native_default_to` / `is_some`."),
+        ExpectedResponseValue(_) => Unreachable_Functionally(
+            "Response helpers are validated by `check_special_is_response` and `inner_unwrap_err`
+            during static analysis, preventing a non-response from reaching the runtime handlers"),
+        ExpectedOptionalOrResponseValue(_) => Unreachable_Functionally(
+            "The mixed helpers (`match`, `try!`, `unwrap!`, `unwrap-err!`) ultimately
+             delegate to `check_special_match` and `inner_unwrap` in the analyzer, which enforces
+             that the argument is either an optional or a response before the code is accepted.
+             There is no runtime path where a plain value reaches `native_try_ret` or the
+             option/response matchers"),
+        ExpectedContractPrincipalValue(_) => Tested(vec![
+            check_error_kind_expected_contract_principal_value_cdeploy,
+            check_error_kind_expected_contract_principal_value_ccall
+        ]),
+        CouldNotDetermineType => Tested(vec![check_error_kind_could_not_determine_type_ccall]),
+        BadTokenName => Unreachable_Functionally(
+            "Asset natives call `match_atom()` on their token arg during analysis."),
+        NoSuchNFT(_) => Unreachable_Functionally(
+            "Analysis uses contract_context.get_nft_type during every nft-* checker,
+             so a reference to an undefined NFT aborts before initialization"),
+        NoSuchFT(_) => Unreachable_Functionally(
+            "ft-* analyzers call contract_context.ft_exists, preventing undefined
+             fungible tokens from ever reaching the runtime handlers."),
+        BadTransferSTXArguments => Unreachable_Functionally(
+            "The analyzer routes all `stx-transfer?`, `stx-transfer-memo?`, and `stx-burn?`
+             calls through `check_special_stx_transfer` / `check_special_stx_burn`
+             which demand a `(uint, principal, principal)` signature before a contract
+             can be published. Because the runtime caches only sanitized values,
+             `special_stx_transfer` never receives a malformed value at runtime."),
+        BadTransferFTArguments => Unreachable_Functionally(
+            "`check_special_transfer_token` enforces the `(uint, principal, principal)`
+            argument contract for every FT transfer during analysis, so `special_transfer_token`
+            never sees a mismatched set of values at runtime."),
+        BadTransferNFTArguments => Unreachable_Functionally(
+            "`check_special_transfer_asset` ensures that the NFT
+            identifier plus `(principal, principal)` pair have the right types,
+            preventing `special_transfer_asset` from failing at runtime."),
+        BadMintFTArguments => Unreachable_Functionally(
+            "`check_special_mint_token` requires a `(uint, principal)`
+             argument tuple for fungible minting before deployment, so the runtime
+             never raises `BadMintFTArguments`"),
+        BadBurnFTArguments => Unreachable_Functionally(
+            "`check_special_burn_token` enforces `(uint, principal)`
+             during static analysis, making the runtime variant unobservable."),
+        ExpectedTuple(_) => Unreachable_Functionally(
+            "`check_special_get`/`check_special_merge` ensure every
+             `(get …)`/`(merge …)` argument is statically typed as a tuple (or
+             option wrapping a tuple), so `tuple_get` / `tuple_merge` never see
+             a non-tuple at runtime"),
+        NoSuchTupleField(_, _) => Unreachable_Functionally(
+            "`check_special_get` verifies tuple field existence for every `(get …)`
+             during static analysis, so `tuple_get` never receives a missing field"),
+        DefineFunctionBadSignature | BadFunctionName | PublicFunctionMustReturnResponse(_) => Unreachable_Functionally(
+            "On contract deploy checked during static analysis."),
+        EmptyTuplesNotAllowed | NoSuchMap(_) => Unreachable_Functionally(
+            "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)"),
+        NoSuchDataVariable(_) => Unreachable_Functionally(
+            "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)"),
+        ReturnTypesMustMatch(_, _) => Tested(vec![check_error_kind_return_types_must_match_ccall]),
+        CircularReference(_) => Tested(vec![check_error_kind_circular_reference_ccall]), // Possible only during contract call. On contract deploy checked during parsing.
+        NoSuchContract(_) => Tested(vec![check_error_kind_no_such_contract_ccall]),
+        NoSuchPublicFunction(_, _) => Tested(vec![check_error_kind_no_such_public_function_ccall]),
+        PublicFunctionNotReadOnly(_, _) => Unreachable_Functionally("Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped."),
+        ContractAlreadyExists(_) => Unreachable_Functionally(
+            "Contracts can only be created via SmartContract deployment transactions. \
+             The runtime never performs contract installation or replacement.",
+        ),
+        ContractCallExpectName => Tested(vec![
+            check_error_kind_contract_call_expect_name_cdeploy,
+            check_error_kind_contract_call_expect_name_ccall
+        ]),
+        NoSuchBurnBlockInfoProperty(_) => Unreachable_Functionally(
+            "Burn block info property names are validated during static analysis; \
+             unknown properties are rejected at deploy time.",
+        ),
+        NoSuchStacksBlockInfoProperty(_) => Unreachable_Functionally(
+            "Stacks block info property names are validated during static analysis; \
+             unknown properties are rejected at deploy time.",
+        ),
+        GetBlockInfoExpectPropertyName => Unreachable_Functionally(
+            "`get-block-info?` requires a literal property name; \
+             non-atom arguments are rejected during static analysis.",
+        ),
+        GetStacksBlockInfoExpectPropertyName => Unreachable_Functionally(
+            "`get-stacks-block-info?` requires a literal property name; \
+             non-atom arguments are rejected during static analysis.",
+        ),
+        GetTenureInfoExpectPropertyName => Unreachable_Functionally(
+            "`get-tenure-info?` requires a literal property name; \
+             non-atom arguments are rejected during static analysis.",
+        ),
+        NameAlreadyUsed(_) => Tested(vec![
+            check_error_kind_name_already_used_cdeploy,
+            check_error_kind_name_already_used_ccall
+        ]),
+        NonFunctionApplication => Unreachable_Functionally(
+            "Malformed function applications are syntactically rejected by the parser \
+             and type checker before execution.",
+        ),
+        ExpectedListApplication => Unreachable_Functionally(
+            "All `append` operations require a statically-checked list argument; \
+             non-list values are rejected during static analysis.",
+        ),
+        ExpectedSequence(_) => Unreachable_Functionally(
+            "Sequence operations are fully type-checked during analysis; \
+             non-sequence values are rejected before execution.",
+        ),
+        BadLetSyntax => Unreachable_Functionally(
+            "`let` binding structure is fully validated during static analysis; \
+             malformed bindings never reach the runtime.",
+        ),
+        BadSyntaxBinding(_) => Unreachable_Functionally(
+            "Binding syntax errors are detected during parsing and analysis; \
+             runtime never re-parses bindings.",
+        ),
+        UndefinedFunction(_) => Tested(vec![check_error_kind_undefined_function_ccall]),
+        UndefinedVariable(_) => Unreachable_Functionally(
+            "All variable references are resolved during static analysis; \
+             undefined variables cannot appear in executable code.",
+        ),
+        RequiresAtLeastArguments(_, _) => Unreachable_Functionally(
+            "Minimum arity requirements are enforced during static analysis; \
+             calls with too few arguments cannot reach execution.",
+        ),
+        RequiresAtMostArguments(_, _) => Unreachable_Functionally(
+            "Maximum arity requirements are enforced during static analysis; \
+             calls with too many arguments cannot reach execution.",
+        ),
+        IncorrectArgumentCount(_, _) => {
+            Tested(vec![check_error_kind_incorrect_argument_count_ccall])
+        }
+        TooManyFunctionParameters(_, _) => Unreachable_Functionally(
+            "Trait function parameter limits are enforced during trait parsing at deploy time; \
+             oversized signatures are rejected before execution.",
+        ),
+        TraitReferenceUnknown(_) => Unreachable_Functionally(
+            "All `use-trait` references are validated during static analysis; \
+             unknown traits cannot appear at runtime.",
+        ),
+        TraitMethodUnknown(_, _) => Unreachable_Functionally(
+            "Trait method existence is verified during static analysis; \
+             missing methods prevent deployment.",
+        ),
+        ExpectedTraitIdentifier => Unreachable_Functionally(
+            "Callable trait values always include a trait identifier after analysis; \
+             the runtime never receives an untagged trait value.",
+        ),
+        BadTraitImplementation(_, _) => Tested(vec![bad_trait_implementation_mismatched_args]),
+        DefineTraitBadSignature | DefineTraitDuplicateMethod(_) => Unreachable_Functionally(
+            "Trait definitions are fully validated during deployment; \
+             malformed trait signatures never reach runtime.",
+        ),
+        TraitBasedContractCallInReadOnly => Unreachable_Functionally(
+            "Read-only contract-call restrictions are enforced during static analysis; \
+             write-capable calls cannot exist in executable read-only code.",
+        ),
+        ContractOfExpectsTrait => Unreachable_Functionally(
+            "`contract-of` only accepts statically-typed trait values; \
+             invalid inputs are rejected during analysis.",
+        ),
+        TraitTooManyMethods(_, _) => Unreachable_Functionally(
+            "Trait method count limits are enforced during deployment; \
+             oversized traits cannot appear at runtime.",
+        ),
+        InvalidCharactersDetected => Tested(vec![
+            invalid_characters_detected_invalid_ascii,
+            invalid_characters_detected_invalid_utf8
+        ]),
+        InvalidUTF8Encoding => {
+            Ignored("Only reachable via legacy v1 parsing paths")
+        }
+        WriteAttemptedInReadOnly => Unreachable_Functionally(
+            "Write operations inside read-only contexts are rejected during static analysis.",
+        ),
+        ExpectedListOfAllowances(_, _)
+        | AllowanceExprNotAllowed
+        | ExpectedAllowanceExpr(_)
+        | TooManyAllowances(_, _) => Unreachable_Functionally(
+            "Allowance expressions are purely syntactic and fully validated during analysis; \
+                 invalid constructions cannot be produced dynamically at runtime.",
+        ),
+    };
+}
 
 /// CheckErrorKind: [`CheckErrorKind::CostBalanceExceeded`]
 /// Caused by: exceeding the cost analysis budget during contract initialization.
@@ -59,6 +335,85 @@ fn check_error_cost_balance_exceeded_cdeploy() {
         )",
             "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_21.read_count as usize + 1)
         ),
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::MemoryBalanceExceeded`]
+/// Caused by: This test creates a contract that successfully passes analysis but fails during initialization
+///   The contract defines large buffer constants (buff-20 = 1MB) and then creates many references
+///   to it in a top-level `is-eq` expression, which exhausts the 100MB memory limit during initialization.
+/// Outcome: block accepted.
+#[test]
+fn check_error_memory_balance_exceeded_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "test-exceeds",
+        contract_code: &{
+            let define_data_var = "(define-constant buff-0 0x00)";
+
+            let mut contract = define_data_var.to_string();
+            for i in 0..20 {
+                contract.push('\n');
+                contract.push_str(&format!(
+                    "(define-constant buff-{} (concat buff-{i} buff-{i}))",
+                    i + 1,
+                ));
+            }
+
+            contract.push('\n');
+            contract.push_str("(is-eq ");
+
+            for _i in 0..100 {
+                let exploder = "buff-20 ";
+                contract.push_str(exploder);
+            }
+
+            contract.push(')');
+            contract
+        },
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::MemoryBalanceExceeded`]
+/// Caused by: This test creates a contract that successfully passes analysis but fails during contract call.
+///   The contract defines large buffer constants (buff-20 = 1MB) and then creates many references
+///   to it in a top-level `is-eq` expression, which exhausts the 100MB memory limit during contract call.
+/// Outcome: block accepted.
+#[test]
+fn check_error_memory_balance_exceeded_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "memory-test-contract",
+        contract_code: &{
+            // Procedurally generate a contract with large buffer constants and a function
+            // that creates many references to them, similar to argument_memory_test
+            let mut contract = String::new();
+
+            // Create buff-0 through buff-20 via repeated doubling: buff-20 = 1MB
+            contract.push_str("(define-constant buff-0 0x00)\n");
+            for i in 0..20 {
+                contract.push_str(&format!(
+                    "(define-constant buff-{} (concat buff-{i} buff-{i}))\n",
+                    i + 1
+                ));
+            }
+
+            // Create a public function that makes many references to buff-20
+            contract.push_str("\n(define-public (create-many-references)\n");
+            contract.push_str("    (ok (is-eq ");
+
+            // Create 100 references to buff-20 (1MB each = ~100MB total)
+            for _ in 0..100 {
+                contract.push_str("buff-20 ");
+            }
+
+            contract.push_str(")))\n");
+            contract
+        },
+        function_name: "create-many-references",
+        function_args: &[],
+        // we only test epochs 2.4 and later because the call takes ~200 milion runtime cost,
+        // if we test all epochs, the tenure limit will be exceeded and the last 2 calls in
+        // epoch 3.3 will cause a block rejection.
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
     );
 }
 
@@ -314,6 +669,120 @@ fn check_error_kind_type_signature_too_deep_ccall() {
     );
 }
 
+/// CheckErrorKind: [`CheckErrorKind::TypeError`]
+/// Caused by: `(at-block … (ok (var-get zero)))` returns `none` when evaluated at
+/// a block where the contract state doesn't exist yet. The code immediately feeds
+/// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
+/// runtime `TypeError(UIntType, OptionalType(NoType))`.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_type_error_cdeploy() {
+    let contract_1 = SetupContract::new(
+        "pool-trait",
+        "
+    (define-trait pool-trait
+        ((get-shares-at (uint) (response uint uint))))",
+    );
+
+    let contract_2 = SetupContract::new(
+        "pool",
+        "
+    ;; Pool - uses at-block with map access
+    (impl-trait .pool-trait.pool-trait)
+
+    (define-data-var zero uint u0)
+
+    (define-read-only (get-shares-at (block uint))
+        (let (
+            (hash (unwrap-panic (get-block-info? id-header-hash block)))
+            (total-amt (unwrap-panic (at-block hash (ok (var-get zero)))))
+            (is-zero (is-eq total-amt u0))) ;; this is triggering the TypeError
+        (ok u0)))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity2); // Only works with clarity 1 or 2
+
+    contract_deploy_consensus_test!(
+        contract_name: "value-too-large",
+        contract_code: "
+    ;; Rewards - calls pool via trait
+    (use-trait pool-trait .pool-trait.pool-trait)
+
+    (define-map reward-info { id: uint } { share-block: uint })
+
+    (define-read-only (get-reward-info (id uint))
+        (default-to { share-block: u0 } (map-get? reward-info { id: id })))
+
+    (define-public (get-shares (id uint) (pool <pool-trait>))
+        (let (
+            (info (get-reward-info id))
+            (block (get share-block info))
+            ;; the following line triggers the TypeError
+            (shares (unwrap-panic (contract-call? pool get-shares-at block))))
+        (ok shares)))
+
+    (define-constant result (get-shares u999 .pool))",
+        setup_contracts: &[contract_1, contract_2],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::TypeError`]
+/// Caused by: `(at-block … (ok (var-get zero)))` returns `none` when evaluated at
+/// a block where the contract state doesn't exist yet. The code immediately feeds
+/// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
+/// runtime `TypeError(UIntType, OptionalType(NoType))`.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_type_error_ccall() {
+    let contract_1 = SetupContract::new(
+        "pool-trait",
+        "
+    (define-trait pool-trait
+        ((get-shares-at (uint) (response uint uint))))",
+    );
+
+    let contract_2 = SetupContract::new(
+        "pool",
+        "
+    ;; Pool - uses at-block with map access
+    (impl-trait .pool-trait.pool-trait)
+
+    (define-data-var zero uint u0)
+
+    (define-read-only (get-shares-at (block uint))
+        (let (
+            (hash (unwrap-panic (get-block-info? id-header-hash block)))
+            (total-amt (unwrap-panic (at-block hash (ok (var-get zero)))))
+            (is-zero (is-eq total-amt u0))) ;; this is triggering the TypeError
+        (ok u0)))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1); // Only works with clarity 1 or 2
+
+    contract_call_consensus_test!(
+        contract_name: "value-too-large",
+        contract_code: "
+    (use-trait pool-trait .pool-trait.pool-trait)
+
+    (define-map reward-info { id: uint } { share-block: uint })
+
+    (define-read-only (get-reward-info (id uint))
+        (default-to { share-block: u0 } (map-get? reward-info { id: id })))
+
+    (define-public (get-shares (id uint) (pool <pool-trait>))
+        (let (
+            (info (get-reward-info id))
+            (block (get share-block info))
+            ;; the following line triggers the TypeError
+            (shares (unwrap-panic (contract-call? pool get-shares-at block))))
+        (ok shares)))
+
+    (define-public (trigger-error)
+        (get-shares u999 .pool))",
+        function_name: "trigger-error",
+        function_args: &[],
+        setup_contracts: &[contract_1, contract_2],
+    );
+}
+
 /// CheckErrorKind: [`CheckErrorKind::TypeValueError`]
 /// Caused by: passing a value of the wrong type to a function.
 /// Outcome: block accepted.
@@ -478,7 +947,7 @@ fn check_error_kind_union_type_value_error_ccall() {
                 (foo .contract-1))",
         function_name: "trigger-runtime-error",
         function_args: &[],
-        deploy_epochs: &StacksEpochId::ALL[11..], // Epochs 3.3 and later
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch33),
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
         setup_contracts: &[contract_1],
     );
@@ -615,21 +1084,8 @@ fn check_error_kind_expected_contract_principal_value_ccall() {
                     true))"#,
         function_name: "trigger-error",
         function_args: &[],
-        deploy_epochs: &StacksEpochId::ALL[11..], // Epochs 3.3 and later
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch33),
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
-    );
-}
-
-/// CheckErrorKind: [`CheckErrorKind::IncorrectArgumentCount`]
-/// Caused by: passing the wrong number of arguments to a function.
-/// Outcome: block accepted.
-#[test]
-fn check_error_kind_incorrect_argument_count_ccall() {
-    contract_call_consensus_test!(
-        contract_name: "check-error-kind",
-        contract_code: "(define-public (trigger-error (x uint)) (ok true))",
-        function_name: "trigger-error",
-        function_args: &[ClarityValue::Bool(true), ClarityValue::Bool(true)],
     );
 }
 
@@ -728,7 +1184,7 @@ fn check_error_kind_could_not_determine_type_ccall() {
         function_name: "trigger-error",
         function_args: &[],
         deploy_epochs: &[StacksEpochId::Epoch23],
-        call_epochs: &StacksEpochId::ALL[6..], // Epochs 2.4 and later
+        call_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity3, ClarityVersion::Clarity4],
         setup_contracts: &[trait_contract, trait_impl],
     );
@@ -770,5 +1226,98 @@ fn check_error_kind_circular_reference_ccall() {
         function_name: "main-get-1",
         function_args: &[ClarityValue::from(dispatch_principal)],
         setup_contracts: &[trait_contract, dispatching_contract],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::IncorrectArgumentCount`]
+/// Caused by: passing the wrong number of arguments to a function.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_incorrect_argument_count_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-public (trigger-error (x uint)) (ok true))",
+        function_name: "trigger-error",
+        function_args: &[ClarityValue::Bool(true), ClarityValue::Bool(true)],
+    );
+}
+
+/// Error: [`CheckErrorKind::BadTraitImplementation`]
+/// Caused by: Dynamic trait dispatch to a concrete contract that has the function,
+/// but with a mismatched argument type (int instead of uint)
+/// Outcome: Block accepted
+#[test]
+fn bad_trait_implementation_mismatched_args() {
+    let trait_definer = SetupContract::new(
+        "traits",
+        "
+        (define-trait getter-trait
+            ((get-1 (uint) (response uint uint))))
+        ",
+    );
+
+    // Target contract has `get-1`, but it takes `int`, not `uint` → signature mismatch
+    let target_contract = SetupContract::new(
+        "target-contract",
+        "
+        (define-public (get-1 (x int))
+            (ok u1))
+        ",
+    );
+
+    contract_call_consensus_test!(
+        contract_name: "dispatching-contract",
+        contract_code: "
+            (use-trait getter-trait .traits.getter-trait)
+
+            (define-public (wrapped-get-1 (contract <getter-trait>))
+                (contract-call? contract get-1 u0))
+        ",
+        function_name: "wrapped-get-1",
+        function_args: &[ClarityValue::Principal(PrincipalData::Contract(
+            QualifiedContractIdentifier::new(
+                FAUCET_ADDRESS.clone().into(),
+                "target-contract".into(),
+            )
+        ))],
+        setup_contracts: &[trait_definer, target_contract],
+    );
+}
+
+/// Error: [`CheckErrorKind::InvalidCharactersDetected`]
+/// Caused by: deserializing an invalid ascii string using `from-consensus-buf` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
+/// Outcome: Block accepted
+/// Note: [`CheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
+/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
+#[test]
+fn invalid_characters_detected_invalid_ascii() {
+    contract_deploy_consensus_test!(
+        contract_name: "invalid-ascii",
+        contract_code: "
+            (define-constant deserialized-invalid-ascii
+                ;; This buffer represents: string-ascii with bytes [0x00, 0x01, 0x02]
+                ;; (0x0d = string-ascii type, 0x00000003 = length 3, then invalid bytes)
+                (from-consensus-buff? (string-ascii 3) 0x0d00000003000102))
+        ",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buf?
+    );
+}
+
+/// Error: [`CheckErrorKind::InvalidCharactersDetected`]
+/// Caused by: deserializing an invalid utf8 string using `from-consensus-buf` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
+/// Outcome: Block accepted
+/// Note: [`CheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
+/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
+#[test]
+fn invalid_characters_detected_invalid_utf8() {
+    contract_deploy_consensus_test!(
+        contract_name: "invalid-utf8",
+        contract_code: "
+            (define-constant deserialized-invalid-utf8
+                ;; This buffer represents: string-utf8 with invalid UTF-8 bytes [0xff, 0xfe]
+                ;; (0x0e = string-utf8 type, 0x00000002 = length 2, then invalid UTF-8)
+                (from-consensus-buff? (string-utf8 2) 0x0e00000002fffe))
+        ",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buf?
     );
 }

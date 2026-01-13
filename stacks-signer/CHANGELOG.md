@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.3.0.0.4.0]
+
+### Fixed
+
+- Correct calculation of burn-view change status using the new tip with metadata endpoint.
+
+## [3.3.0.0.3.0]
+
+### Changed
+
+- Avoid sending duplicate block acceptance messages when additional pre-commits arrive
+
 ## [3.3.0.0.2.0]
 
 ### Added
