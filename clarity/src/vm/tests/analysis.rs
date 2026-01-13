@@ -19,7 +19,7 @@ use crate::boot_util::boot_code_id;
 
 #[cfg(test)]
 use stackslib::chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_TESTNET,
+    BOOT_CODE_COSTS, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_TESTNET,
 };
 
 #[test]
@@ -43,7 +43,19 @@ fn test_build_cost_analysis_tree_function_definition() {
 
     let clarity_version = ClarityVersion::Clarity3;
     let epoch = StacksEpochId::Epoch32;
-    let result = build_cost_analysis_tree(expr, &user_args, &cost_map, &clarity_version, epoch);
+
+    // Create environment for cost analysis
+    let mut memory_store = MemoryBackingStore::new();
+    let db = memory_store.as_clarity_db();
+    let mut owned_env = OwnedEnvironment::new(db, epoch);
+
+    let result = owned_env.with_cost_analysis_environment(
+        &contract_id,
+        clarity_version,
+        |env| {
+            build_cost_analysis_tree(expr, &user_args, &cost_map, &clarity_version, epoch, env, 0)
+        },
+    );
 
     match result {
         Ok((function_name, node)) => {
@@ -66,15 +78,28 @@ fn test_let_cost() {
 
     let contract_id = QualifiedContractIdentifier::transient();
     let epoch = StacksEpochId::Epoch32;
+    let clarity_version = ClarityVersion::Clarity3;
     let ast = crate::vm::ast::build_ast(
         &QualifiedContractIdentifier::transient(),
         src,
         &mut (),
-        ClarityVersion::Clarity3,
+        clarity_version,
         epoch,
     )
     .unwrap();
-    let function_map = static_cost_from_ast(&ast, &ClarityVersion::Clarity3, epoch).unwrap();
+
+    // Create environment for cost analysis
+    let mut memory_store = MemoryBackingStore::new();
+    let db = memory_store.as_clarity_db();
+    let mut owned_env = OwnedEnvironment::new(db, epoch);
+
+    let function_map = owned_env.with_cost_analysis_environment(
+        &contract_id,
+        clarity_version,
+        |env| {
+            static_cost_from_ast(&ast, &clarity_version, epoch, env)
+        },
+    ).unwrap();
     let (let_cost, _) = function_map.get("let").unwrap();
     let (let2_cost, _) = function_map.get("let2").unwrap();
     assert_ne!(let2_cost.min.runtime, let_cost.min.runtime);
@@ -95,15 +120,28 @@ fn test_dependent_function_calls() {
 
     let contract_id = QualifiedContractIdentifier::transient();
     let epoch = StacksEpochId::Epoch32;
+    let clarity_version = ClarityVersion::Clarity3;
     let ast = crate::vm::ast::build_ast(
         &QualifiedContractIdentifier::transient(),
         src,
         &mut (),
-        ClarityVersion::Clarity3,
+        clarity_version,
         epoch,
     )
     .unwrap();
-    let function_map = static_cost_from_ast(&ast, &ClarityVersion::Clarity3, epoch).unwrap();
+
+    // Create environment for cost analysis
+    let mut memory_store = MemoryBackingStore::new();
+    let db = memory_store.as_clarity_db();
+    let mut owned_env = OwnedEnvironment::new(db, epoch);
+
+    let function_map = owned_env.with_cost_analysis_environment(
+        &contract_id,
+        clarity_version,
+        |env| {
+            static_cost_from_ast(&ast, &clarity_version, epoch, env)
+        },
+    ).unwrap();
 
     let (add_one_cost, _) = function_map.get("add-one").unwrap();
     let (somefunc_cost, _) = function_map.get("somefunc").unwrap();
@@ -126,17 +164,29 @@ fn test_get_trait_count_direct() {
 "#;
 
     let contract_id = QualifiedContractIdentifier::transient();
+    let epoch = StacksEpochId::Epoch32;
+    let clarity_version = ClarityVersion::Clarity3;
     let ast = crate::vm::ast::build_ast(
         &contract_id,
         src,
         &mut (),
-        ClarityVersion::Clarity3,
-        StacksEpochId::Epoch32,
+        clarity_version,
+        epoch,
     )
     .unwrap();
 
-    let costs =
-        static_cost_tree_from_ast(&ast, &ClarityVersion::Clarity3, StacksEpochId::Epoch32).unwrap();
+    // Create environment for cost analysis
+    let mut memory_store = MemoryBackingStore::new();
+    let db = memory_store.as_clarity_db();
+    let mut owned_env = OwnedEnvironment::new(db, epoch);
+
+    let costs = owned_env.with_cost_analysis_environment(
+        &contract_id,
+        clarity_version,
+        |env| {
+            static_cost_tree_from_ast(&ast, &clarity_version, epoch, env)
+        },
+    ).unwrap();
 
     // Extract trait_count from the result (all entries have the same trait_count)
     let trait_count = costs
@@ -170,9 +220,19 @@ fn test_trait_counting() {
     let ast =
         crate::vm::ast::build_ast(&contract_id, src, &mut (), ClarityVersion::Clarity3, epoch)
             .unwrap();
-    let static_cost = static_cost_from_ast(&ast, &ClarityVersion::Clarity3, epoch)
-        .unwrap()
-        .clone();
+
+    // Create environment for cost analysis
+    let mut memory_store = MemoryBackingStore::new();
+    let db = memory_store.as_clarity_db();
+    let mut owned_env = OwnedEnvironment::new(db, epoch);
+    let static_cost = owned_env.with_cost_analysis_environment(
+        &contract_id,
+        ClarityVersion::Clarity3,
+        |env| {
+            static_cost_from_ast(&ast, &ClarityVersion::Clarity3, epoch, env)
+        },
+    ).unwrap();
+
     let send_trait_count_map = static_cost.get("send").unwrap().1.clone().unwrap();
     let send_trait_count = send_trait_count_map.get("send").unwrap();
     assert_eq!(send_trait_count.0, 1);
@@ -290,8 +350,17 @@ fn test_pox_4_costs() {
     )
     .expect("Failed to build AST from pox-4.clar");
 
-    let cost_map = static_cost_from_ast(&ast, &clarity_version, epoch)
-        .expect("Failed to get static cost analysis for pox-4.clar");
+    // Create environment for cost analysis
+    let mut memory_store = MemoryBackingStore::new();
+    let db = memory_store.as_clarity_db();
+    let mut owned_env = OwnedEnvironment::new(db, epoch);
+    let cost_map = owned_env.with_cost_analysis_environment(
+        &contract_id,
+        clarity_version,
+        |env| {
+            static_cost_from_ast(&ast, &clarity_version, epoch, env)
+        },
+    ).unwrap();
 
     // Check some functions in the cost map
     let key_functions = vec![
@@ -334,8 +403,17 @@ fn test_contract_call_cost_32() {
         epoch,
     )
     .expect("Failed to build AST from contract call test");
-    let cost_map = static_cost_from_ast(&ast, &clarity_version, epoch)
-        .expect("Failed to get static cost analysis for contract call test");
+    // Create environment for cost analysis
+    let mut memory_store = MemoryBackingStore::new();
+    let db = memory_store.as_clarity_db();
+    let mut owned_env = OwnedEnvironment::new(db, epoch);
+    let cost_map = owned_env.with_cost_analysis_environment(
+        &contract_id,
+        clarity_version,
+        |env| {
+            static_cost_from_ast(&ast, &clarity_version, epoch, env)
+        },
+    ).unwrap();
     let (somefunc_cost, _) = cost_map.get("somefunc").unwrap();
     assert_eq!(somefunc_cost.min.runtime, 134);
     assert_eq!(somefunc_cost.max.runtime, 134);
@@ -357,8 +435,17 @@ fn test_contract_call_cost_33() {
         epoch,
     )
     .expect("Failed to build AST from contract call test");
-    let cost_map = static_cost_from_ast(&ast, &clarity_version, epoch)
-        .expect("Failed to get static cost analysis for contract call test");
+
+    let mut memory_store = MemoryBackingStore::new();
+    let db = memory_store.as_clarity_db();
+    let mut owned_env = OwnedEnvironment::new(db, epoch);
+    let cost_map = owned_env.with_cost_analysis_environment(
+        &contract_id,
+        clarity_version,
+        |env| {
+            static_cost_from_ast(&ast, &clarity_version, epoch, env)
+        },
+    ).unwrap();
     let (somefunc_cost, _) = cost_map.get("somefunc").unwrap();
     assert_eq!(somefunc_cost.min.runtime, 134);
     assert_eq!(somefunc_cost.max.runtime, 134);
@@ -395,9 +482,9 @@ fn run_cost_analysis_test(
 
     // Initialize the costs and cost-voting contracts so we can use cost tracking
     // The cost tracker needs both contracts to be initialized
-    // For epoch 32, we need costs-3 (not just costs)
+    // For epoch 33, we need costs-4 (not just costs)
     let costs_contract_id = boot_code_id("costs", false);
-    let costs_3_contract_id = boot_code_id("costs-3", false);
+    let costs_4_contract_id = boot_code_id("costs-4", false);
     let cost_voting_contract_id = boot_code_id("cost-voting", false);
     {
         // Use a temporary free environment to initialize the contracts
@@ -413,15 +500,15 @@ fn run_cost_analysis_test(
             )
             .expect("Failed to initialize costs contract");
 
-        // Initialize costs-3 contract (required for epoch 32)
+        // Initialize costs-4 contract (required for epoch 33)
         temp_env
             .initialize_versioned_contract(
-                costs_3_contract_id.clone(),
+                costs_4_contract_id.clone(),
                 clarity_version,
-                BOOT_CODE_COSTS_3,
+                BOOT_CODE_COSTS_4,
                 None,
             )
-            .expect("Failed to initialize costs-3 contract");
+            .expect("Failed to initialize costs-4 contract");
 
         // Initialize cost-voting contract (required for cost tracker to read confirmed-proposal-count)
         temp_env
@@ -468,11 +555,18 @@ fn run_cost_analysis_test(
     .expect("Failed to build AST");
 
     // Run static cost analysis with source string for accurate contract size
-    let static_cost_map = crate::vm::costs::analysis::static_cost_from_ast_with_source(
-        &ast,
-        &clarity_version,
-        epoch,
-        Some(src),
+    let static_cost_map = owned_env.with_cost_analysis_environment(
+        &contract_id,
+        clarity_version,
+        |env| {
+            crate::vm::costs::analysis::static_cost_from_ast_with_source(
+                &ast,
+                &clarity_version,
+                epoch,
+                Some(src),
+                env,
+            )
+        },
     )
     .expect("Failed to get static cost analysis");
 
@@ -484,8 +578,14 @@ fn run_cost_analysis_test(
     println!("dynamic cost: {:?}", dynamic_cost);
 
     // Get the cost tree to debug and print it with values
-    let cost_trees_with_traits = crate::vm::costs::analysis::static_cost_tree_from_ast(&ast, &clarity_version, epoch)
-        .expect("Failed to get static cost tree");
+    let cost_trees_with_traits = owned_env.with_cost_analysis_environment(
+        &contract_id,
+        clarity_version,
+        |env| {
+            crate::vm::costs::analysis::static_cost_tree_from_ast(&ast, &clarity_version, epoch, env)
+        },
+    )
+    .expect("Failed to get static cost tree");
     if let Some((cost_tree, _)) = cost_trees_with_traits.get(function_name) {
         println!("\n=== Cost Tree for {} ===", function_name);
         print_cost_tree(cost_tree, 0);
@@ -524,8 +624,8 @@ fn run_cost_analysis_test(
 // that the dynamic cost is between the min/max static cost
 #[test]
 fn test_against_dynamic_cost_analysis() {
-    let epoch = StacksEpochId::Epoch32;
-    let clarity_version = ClarityVersion::Clarity3;
+    let epoch = StacksEpochId::Epoch33;
+    let clarity_version = ClarityVersion::Clarity4;
 
     let uint_value = [clarity_types::Value::UInt(1)];
     let multi_arg_value = [clarity_types::Value::string_ascii_from_bytes("".to_string().into_bytes()).unwrap(), clarity_types::Value::UInt(1)];
@@ -533,31 +633,31 @@ fn test_against_dynamic_cost_analysis() {
     let max_value = [clarity_types::Value::string_ascii_from_bytes("aaaaaaaaaa".to_string().into_bytes()).unwrap()];
     // Define test cases as (source, function_name, args)
     let test_cases: Vec<(&str, &str, &[clarity_types::Value])> = vec![
-//         (
-//             r#"(define-public (let-func (a uint))
-//     (let ((b 1))
-//         (ok (+ a b))
-// ))
-// "#,
-//             "let-func",
-//             &uint_value,
-//         ),
-//         (
-//             r#"(define-public (if-func (a uint))
-//     (if (> a 0)
-//         (ok a)
-// ))
-// "#,
-//             "if-func",
-//             &uint_value,
-//         ),
-//         (
-//             r#"(define-public (simple-str-min (a (string-ascii 10)))
-//     (ok a)
-// )"#,
-//             "simple-str-min",
-//             &value,
-//         ),
+        (
+            r#"(define-public (let-func (a uint))
+    (let ((b 1))
+        (ok (+ a b))
+))
+"#,
+            "let-func",
+            &uint_value,
+        ),
+        (
+            r#"(define-public (if-func (a uint))
+    (if (> a 0)
+        (ok a)
+))
+"#,
+            "if-func",
+            &uint_value,
+        ),
+        (
+            r#"(define-public (simple-str-min (a (string-ascii 10)))
+    (ok a)
+)"#,
+            "simple-str-min",
+            &value,
+        ),
         (
             r#"(define-public (simple-str (a (string-ascii 10)) (b uint))
     (ok a)
@@ -565,14 +665,14 @@ fn test_against_dynamic_cost_analysis() {
             "simple-str",
             &multi_arg_value,
         ),
-//         (
-//             r#"(define-public (simple-ok)
-//     (ok true)
-// )
-// "#,
-//             "simple-ok",
-//             &[],
-//         ),
+        (
+            r#"(define-public (simple-ok)
+    (ok true)
+)
+"#,
+            "simple-ok",
+            &[],
+        ),
     ];
 
     let mut failures = Vec::new();
