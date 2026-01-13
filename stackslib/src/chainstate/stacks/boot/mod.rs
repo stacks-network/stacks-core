@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -708,7 +708,7 @@ impl StacksChainState {
             )?
             .ok_or_else(|| Error::NoSuchBlockError)??
             .expect_u128()
-            .expect("FATAL: unexpected PoX structure");
+            .map_err(|_| Error::Expects(format!("{function} did not return u128)")))?;
         Ok(result)
     }
 
@@ -1267,13 +1267,13 @@ impl StacksChainState {
                 sortdb,
                 block_id,
                 POX_4_NAME,
-                &format!("(get-reward-set-size u{})", reward_cycle),
+                &format!("(get-reward-set-size u{reward_cycle})"),
             )?
-            .expect_u128()?;
+            .expect_u128()
+            .map_err(|_| Error::Expects("get-reward-set-size did not return u128".to_string()))?;
 
         debug!(
-            "At block {:?} (reward cycle {}): {} PoX reward addresses",
-            block_id, reward_cycle, num_addrs
+            "At block {block_id:?} (reward cycle {reward_cycle}): {num_addrs} PoX reward addresses"
         );
 
         let mut ret = vec![];
@@ -1290,16 +1290,15 @@ impl StacksChainState {
                     sortdb,
                     block_id,
                     POX_4_NAME,
-                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
+                    &format!("(get-reward-set-pox-address u{reward_cycle} u{i})"),
                 )?
-                .expect_optional()?
-                .unwrap_or_else(|| {
-                    panic!(
-                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                        i, num_addrs, reward_cycle
+                .expect_optional().map_err(|_| Error::Expects("get-reward-set-pox-address did not return an optional".to_string()))?
+                .ok_or_else(|| {
+                    Error::Expects(
+                        format!("missing PoX address in slot {i} out of {num_addrs} in reward cycle {reward_cycle}")
                     )
-                })
-                .expect_tuple()?;
+                })?
+                .expect_tuple().map_err(|_| Error::Expects("get-reward-set-pox-address did not return a tuple".to_string()))?;
 
             let entry = RawRewardSetEntry::from_pox_4_tuple(self.mainnet, tuple)?;
             ret.push(entry)
@@ -1380,18 +1379,24 @@ impl StacksChainState {
                 sortdb,
                 block_id,
                 SIGNERS_VOTING_NAME,
-                &format!("(get-approved-aggregate-key u{})", reward_cycle),
+                &format!("(get-approved-aggregate-key u{reward_cycle})"),
             )?
-            .expect_optional()?;
+            .expect_optional()
+            .map_err(|_| {
+                Error::Expects("get-approved-aggregate-key did not return optional".to_string())
+            })?;
         debug!(
-            "Aggregate public key for reward cycle {} is {:?}",
-            reward_cycle, aggregate_public_key_opt
+            "Aggregate public key for reward cycle {reward_cycle} is {aggregate_public_key_opt:?}"
         );
 
         let aggregate_public_key = match aggregate_public_key_opt {
             Some(value) => {
                 // A point should have 33 bytes exactly.
-                Some(value.expect_buff(33)?)
+                Some(value.expect_buff(33).map_err(|_| {
+                    Error::Expects(
+                        "get-approved-aggregate-key did not return buff of length 33".to_string(),
+                    )
+                })?)
             }
             None => None,
         };

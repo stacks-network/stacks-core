@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 
 use std::convert::TryFrom;
 
-use clarity_types::errors::{EarlyReturnError, RuntimeCheckErrorKind, VmExecutionError};
+use clarity_types::errors::RuntimeCheckErrorKind;
 use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
@@ -27,8 +27,10 @@ use clarity_types::{ClarityName, Value};
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestCaseResult};
 
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
+use crate::vm::errors::{EarlyReturnError, VmExecutionError};
 use crate::vm::tests::proptest_utils::{
     allowance_list_snippets, begin_block, body_with_allowances_snippets,
     clarity_values_no_response, execute, execute_and_check, execute_and_check_versioned,
@@ -36,7 +38,6 @@ use crate::vm::tests::proptest_utils::{
     nft_transfer_snippets, standard_principal_strategy, try_response_snippets,
     value_to_clarity_literal,
 };
-use crate::vm::ClarityVersion;
 
 // ---------- Tests for as-contract? ----------
 

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,19 +16,20 @@
 
 use std::cmp;
 
+use clarity_types::types::RetainValuesError;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostOverflowingMath};
+use crate::vm::costs::{CostOverflowingMath, runtime_cost};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, RuntimeCheckErrorKind, RuntimeError,
-    VmExecutionError,
+    RuntimeCheckErrorKind, VmExecutionError, VmInternalError, check_argument_count,
+    check_arguments_at_least,
 };
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::signatures::ListTypeData;
 use crate::vm::types::TypeSignature::BoolType;
+use crate::vm::types::signatures::ListTypeData;
 use crate::vm::types::{ListData, SequenceData, TypeSignature, Value};
-use crate::vm::{apply, eval, lookup_function, Environment, LocalContext};
+use crate::vm::{Environment, LocalContext, apply, eval, lookup_function};
 
 pub fn list_cons(
     args: &[SymbolicExpression],
@@ -46,7 +47,8 @@ pub fn list_cons(
 
     runtime_cost(ClarityCostFunction::ListCons, env, arg_size)?;
 
-    Value::cons_list(args, env.epoch())
+    let value = Value::cons_list(args, env.epoch())?;
+    Ok(value)
 }
 
 pub fn special_filter(
@@ -67,19 +69,29 @@ pub fn special_filter(
 
     match sequence {
         Value::Sequence(ref mut sequence_data) => {
-            sequence_data.filter(&mut |atom_value: SymbolicExpression| {
-                let argument = [atom_value];
-                let filter_eval = apply(&function, &argument, env, context)?;
-                if let Value::Bool(include) = filter_eval {
-                    Ok(include)
-                } else {
-                    Err(RuntimeCheckErrorKind::TypeValueError(
-                        Box::new(BoolType),
-                        Box::new(filter_eval),
-                    )
-                    .into())
-                }
-            })?;
+            sequence_data
+                .retain_values(
+                    &mut |atom: SymbolicExpression| -> Result<bool, VmExecutionError> {
+                        let filter_eval = apply(&function, &[atom], env, context)?;
+                        if let Value::Bool(include) = filter_eval {
+                            Ok(include)
+                        } else {
+                            Err(RuntimeCheckErrorKind::TypeValueError(
+                                Box::new(BoolType),
+                                Box::new(filter_eval),
+                            )
+                            .into())
+                        }
+                    },
+                )
+                .map_err(|e| match e {
+                    RetainValuesError::Internal(err) => {
+                        VmExecutionError::Internal(VmInternalError::Expect(format!(
+                            "Internal error occurred while filtering sequence value: {err}"
+                        )))
+                    }
+                    RetainValuesError::Predicate(vm_err) => vm_err,
+                })?;
         }
         _ => {
             return Err(
@@ -87,7 +99,7 @@ pub fn special_filter(
                     &sequence,
                 )?))
                 .into(),
-            )
+            );
         }
     };
     Ok(sequence)
@@ -112,7 +124,12 @@ pub fn special_fold(
 
     match sequence {
         Value::Sequence(ref mut sequence_data) => sequence_data
-            .atom_values()?
+            .atom_values()
+            .map_err(|_| {
+                VmInternalError::Expect(
+                    "ERROR: Invalid sequence data successfully constructed".into(),
+                )
+            })?
             .into_iter()
             .try_fold(initial, |acc, x| {
                 apply(
@@ -153,7 +170,16 @@ pub fn special_map(
         match sequence {
             Value::Sequence(ref mut sequence_data) => {
                 min_args_len = min_args_len.min(sequence_data.len());
-                for (apply_index, value) in sequence_data.atom_values()?.into_iter().enumerate() {
+                for (apply_index, value) in sequence_data
+                    .atom_values()
+                    .map_err(|_| {
+                        VmInternalError::Expect(
+                            "ERROR: Invalid sequence data successfully constructed".into(),
+                        )
+                    })?
+                    .into_iter()
+                    .enumerate()
+                {
                     if apply_index > min_args_len {
                         break;
                     }
@@ -168,7 +194,7 @@ pub fn special_map(
                 return Err(RuntimeCheckErrorKind::ExpectedSequence(Box::new(
                     TypeSignature::type_of(&sequence)?,
                 ))
-                .into())
+                .into());
             }
         }
     }
@@ -189,7 +215,8 @@ pub fn special_map(
         mapped_results.push(res);
     }
 
-    Value::cons_list(mapped_results, env.epoch())
+    let value = Value::cons_list(mapped_results, env.epoch())?;
+    Ok(value)
 }
 
 pub fn special_append(
@@ -216,7 +243,7 @@ pub fn special_append(
             )?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
-                return Value::cons_list(vec![element], env.epoch());
+                return Ok(Value::cons_list(vec![element], env.epoch())?);
             }
             if let Ok(next_entry_type) =
                 TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)
@@ -260,11 +287,24 @@ pub fn special_concat_v200(
     )?;
 
     match (&mut wrapped_seq, other_wrapped_seq) {
-        (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
-            seq.concat(env.epoch(), other_seq)
+        (Value::Sequence(seq), Value::Sequence(other_seq)) => seq.concat(env.epoch(), other_seq)?,
+        (Value::Sequence(_), other_value) => {
+            // The first value is a sequence, but the second is not
+            return Err(
+                RuntimeCheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(
+                    &other_value,
+                )?))
+                .into(),
+            );
         }
-        _ => Err(RuntimeError::BadTypeConstruction.into()),
-    }?;
+        (value, _) => {
+            // The first value is not a sequence (the other may not be as well, but just error on the first)
+            return Err(
+                RuntimeCheckErrorKind::ExpectedSequence(Box::new(TypeSignature::type_of(value)?))
+                    .into(),
+            );
+        }
+    };
 
     Ok(wrapped_seq)
 }
@@ -280,20 +320,30 @@ pub fn special_concat_v205(
     let other_wrapped_seq = eval(&args[1], env, context)?;
 
     match (&mut wrapped_seq, other_wrapped_seq) {
-        (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
+        (Value::Sequence(seq), Value::Sequence(other_seq)) => {
             runtime_cost(
                 ClarityCostFunction::Concat,
                 env,
                 (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
             )?;
 
-            seq.concat(env.epoch(), other_seq)
+            seq.concat(env.epoch(), other_seq)?
+        }
+        (Value::Sequence(seq_data), other_value) => {
+            runtime_cost(ClarityCostFunction::Concat, env, 1)?;
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(seq_data.type_signature()?),
+                Box::new(other_value),
+            )
+            .into());
         }
         _ => {
             runtime_cost(ClarityCostFunction::Concat, env, 1)?;
-            Err(RuntimeError::BadTypeConstruction.into())
+            return Err(
+                RuntimeCheckErrorKind::ExpectedSequence(Box::new(TypeSignature::NoType)).into(),
+            );
         }
-    }?;
+    };
 
     Ok(wrapped_seq)
 }
@@ -316,7 +366,7 @@ pub fn special_as_max_len(
                 return Err(RuntimeCheckErrorKind::ExpectedSequence(Box::new(
                     TypeSignature::type_of(&sequence)?,
                 ))
-                .into())
+                .into());
             }
         };
         if sequence_len > *expected_len {
@@ -350,7 +400,7 @@ pub fn native_len(sequence: Value) -> Result<Value, VmExecutionError> {
 pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value, VmExecutionError> {
     if let Value::Sequence(sequence_data) = sequence {
         match sequence_data.contains(to_find)? {
-            Some(index) => Value::some(Value::UInt(index as u128)),
+            Some(index) => Ok(Value::some(Value::UInt(index as u128))?),
             None => Ok(Value::none()),
         }
     } else {
@@ -385,8 +435,10 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value, VmExecu
         .into());
     };
 
-    if let Some(result) = sequence_data.element_at(index)? {
-        Value::some(result)
+    if let Some(result) = sequence_data.element_at(index).map_err(|_| {
+        VmInternalError::Expect("Sequence data constructed with invalid data.".into())
+    })? {
+        Ok(Value::some(result)?)
     } else {
         Ok(Value::none())
     }
@@ -404,7 +456,7 @@ pub fn special_slice(
     let left_position = eval(&args[1], env, context)?;
     let right_position = eval(&args[2], env, context)?;
 
-    let sliced_seq_res = (|| {
+    let sliced_seq_res: Result<Value, VmExecutionError> = (|| {
         match (seq, left_position, right_position) {
             (Value::Sequence(seq), Value::UInt(left_position), Value::UInt(right_position)) => {
                 let (left_position, right_position) =
@@ -428,9 +480,11 @@ pub fn special_slice(
                 )?;
                 let seq_value =
                     seq.slice(env.epoch(), left_position as usize, right_position as usize)?;
-                Value::some(seq_value)
+                Ok(Value::some(seq_value)?)
             }
-            _ => Err(RuntimeError::BadTypeConstruction.into()),
+            _ => {
+                Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad type construction".into()).into())
+            }
         }
     })();
 
@@ -488,13 +542,12 @@ pub fn special_replace_at(
         .into());
     };
 
-    if let Value::Sequence(data) = seq {
-        let seq_len = data.len();
-        if index >= seq_len {
-            return Ok(Value::none());
-        }
-        data.replace_at(env.epoch(), index, new_element)
-    } else {
-        Err(RuntimeCheckErrorKind::ExpectedSequence(Box::new(seq_type)).into())
+    let Value::Sequence(data) = seq else {
+        return Err(RuntimeCheckErrorKind::ExpectedSequence(Box::new(seq_type)).into());
+    };
+    let seq_len = data.len();
+    if index >= seq_len {
+        return Ok(Value::none());
     }
+    Ok(data.replace_at(env.epoch(), index, new_element)?)
 }

@@ -1,3 +1,17 @@
+// Copyright (C) 2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
 
 use stacks_common::types::StacksEpochId;
@@ -6,15 +20,15 @@ use crate::vm::analysis::{
     AnalysisDatabase, ContractAnalysis, RuntimeCheckErrorKind, StaticCheckError,
     StaticCheckErrorKind,
 };
-use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::ast::ContractAST;
+use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::VmExecutionError;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
-use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpression, Value};
+use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
 
 /// Top-level error type for Clarity contract processing, encompassing errors from parsing,
 /// type-checking, runtime evaluation, and transaction execution.
@@ -51,17 +65,17 @@ pub enum ClarityError {
 
 impl fmt::Display for ClarityError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            ClarityError::CostError(ref a, ref b) => {
+        match &self {
+            ClarityError::CostError(a, b) => {
                 write!(f, "Cost Error: {a} cost exceeded budget of {b} cost")
             }
-            ClarityError::StaticCheck(ref e) => fmt::Display::fmt(e, f),
-            ClarityError::Parse(ref e) => fmt::Display::fmt(e, f),
+            ClarityError::StaticCheck(e) => fmt::Display::fmt(e, f),
+            ClarityError::Parse(e) => fmt::Display::fmt(e, f),
             ClarityError::AbortedByCallback { reason, .. } => {
                 write!(f, "Post condition aborted transaction: {reason}")
             }
-            ClarityError::Interpreter(ref e) => fmt::Display::fmt(e, f),
-            ClarityError::BadTransaction(ref s) => fmt::Display::fmt(s, f),
+            ClarityError::Interpreter(e) => fmt::Display::fmt(e, f),
+            ClarityError::BadTransaction(s) => fmt::Display::fmt(s, f),
         }
     }
 }
@@ -108,7 +122,7 @@ impl From<StaticCheckError> for ClarityError {
 ///
 /// - [`RuntimeCheckErrorKind::MemoryBalanceExceeded`] and [`RuntimeCheckErrorKind::CostComputationFailed`]
 ///   are intentionally not converted to [`ClarityError::CostError`].
-///   Instead, they remain wrapped in `ClarityError::Interpreter(VmExecutionError::Unchecked(RuntimeCheckErrorKind::MemoryBalanceExceeded))`,
+///   Instead, they remain wrapped in `ClarityError::Interpreter(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::MemoryBalanceExceeded))`,
 ///   which causes the transaction to fail, but still be included in the block.
 ///
 /// - This behavior differs from direct conversions of [`StaticCheckError`] and [`ParseError`] to [`ClarityError`],
@@ -298,15 +312,15 @@ pub trait TransactionConnection: ClarityConnection {
             let result = db.insert_contract(identifier, contract_analysis);
             match result {
                 Ok(_) => {
-                    let result = db
-                        .commit()
-                        .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into());
+                    let result = db.commit().map_err(|e| {
+                        StaticCheckErrorKind::ExpectsRejectable(format!("{e:?}")).into()
+                    });
                     (cost_tracker, result)
                 }
                 Err(e) => {
-                    let result = db
-                        .roll_back()
-                        .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into());
+                    let result = db.roll_back().map_err(|e| {
+                        StaticCheckErrorKind::ExpectsRejectable(format!("{e:?}")).into()
+                    });
                     if result.is_err() {
                         (cost_tracker, result)
                     } else {

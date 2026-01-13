@@ -1,3 +1,17 @@
+// Copyright (C) 2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -7,17 +21,17 @@ use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, RuntimeCheckErrorKind,
-    VmExecutionError, VmInternalError,
+    RuntimeCheckErrorKind, VmExecutionError, VmInternalError, check_argument_count,
+    check_arguments_at_least, check_arguments_at_most,
 };
 use crate::vm::representations::{
-    SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
+    CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, SymbolicExpression,
 };
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
     ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value,
 };
-use crate::vm::{eval, ContractName, Environment, LocalContext};
+use crate::vm::{ContractName, Environment, LocalContext, eval};
 
 pub enum PrincipalConstructErrorCode {
     VERSION_BYTE = 0,
@@ -255,7 +269,7 @@ pub fn special_principal_construct(
                 Box::new(TypeSignature::BUFFER_20),
                 Box::new(hash_bytes),
             )
-            .into())
+            .into());
         }
     };
 
@@ -278,7 +292,8 @@ pub fn special_principal_construct(
     // Construct the principal.
     let mut transfer_buffer = [0u8; 20];
     transfer_buffer.copy_from_slice(verified_hash_bytes);
-    let principal_data = StandardPrincipalData::new(version_byte, transfer_buffer)?;
+    let principal_data = StandardPrincipalData::new(version_byte, transfer_buffer)
+        .map_err(|_| VmInternalError::Expect("Unexpected principal data".into()))?;
 
     let principal = if let Some(name) = name_opt {
         // requested a contract principal.  Verify that the `name` is a valid ContractName.
@@ -290,7 +305,7 @@ pub fn special_principal_construct(
                     Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
                     Box::new(name),
                 )
-                .into())
+                .into());
             }
         };
 

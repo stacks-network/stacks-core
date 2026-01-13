@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,13 +18,13 @@ use assert_json_diff::assert_json_eq;
 use stacks_common::types::StacksEpochId;
 use {assert_json_diff, serde_json};
 
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::{mem_type_check, type_check};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::StaticCheckErrorKind;
 use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::ClarityVersion;
 
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))

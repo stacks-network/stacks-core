@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,25 +19,25 @@ use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
-pub use clarity_types::errors::StackTrace;
 use clarity_types::representations::ClarityName;
-use clarity_types::VmExecutionError;
 use serde::Serialize;
 use serde_json::json;
-use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::StacksBlockId;
 
 use super::EvalHook;
 use crate::vm::ast::ContractAST;
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostErrors, CostTracker, ExecutionCost, LimitedCostTracker};
+use crate::vm::costs::{CostErrors, CostTracker, ExecutionCost, LimitedCostTracker, runtime_cost};
 use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
 };
-use crate::vm::errors::{RuntimeCheckErrorKind, RuntimeError, VmInternalError};
+use crate::vm::errors::{
+    RuntimeCheckErrorKind, RuntimeError, StackTrace, VmExecutionError, VmInternalError,
+};
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::FunctionSignature;
@@ -1404,7 +1404,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         self.global_context.begin();
         let result = stx_transfer_consolidated(self, from, to, amount, memo);
         match result {
-            Ok(value) => match value.clone().expect_result()? {
+            Ok(value) => match value
+                .clone()
+                .expect_result()
+                .map_err(|_| VmInternalError::Expect("Expected result".into()))?
+            {
                 Ok(_) => {
                     self.global_context.commit()?;
                     Ok(value)
@@ -2128,10 +2132,10 @@ mod test {
     use crate::vm::callables::DefineType;
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::tests::{
-        test_clarity_versions, test_epochs, tl_env_factory, TopLevelMemoryEnvironmentGenerator,
+        TopLevelMemoryEnvironmentGenerator, test_clarity_versions, test_epochs, tl_env_factory,
     };
-    use crate::vm::types::signatures::CallableSubtype;
     use crate::vm::types::StandardPrincipalData;
+    use crate::vm::types::signatures::CallableSubtype;
 
     #[test]
     fn test_asset_map_abort() {

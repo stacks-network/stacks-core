@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,21 +20,20 @@ use clarity_types::representations::ClarityName;
 pub use clarity_types::types::FunctionIdentifier;
 use stacks_common::types::StacksEpochId;
 
+use super::ClarityVersion;
 use super::costs::{CostErrors, CostOverflowingMath};
 use super::errors::VmInternalError;
 use super::types::signatures::CallableSubtype;
-use super::ClarityVersion;
-use crate::vm::analysis::errors::RuntimeCheckErrorKind;
 use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_argument_count, VmExecutionError};
+use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, check_argument_count};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
     SequenceSubtype, TraitIdentifier, TupleData, TypeSignature,
 };
-use crate::vm::{eval, Environment, LocalContext, Value};
+use crate::vm::{Environment, LocalContext, Value, eval};
 
 #[allow(clippy::type_complexity, clippy::large_enum_variant)]
 pub enum CallableType {

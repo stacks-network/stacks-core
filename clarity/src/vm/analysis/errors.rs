@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub use clarity_types::errors::analysis::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CommonCheckErrorKind,
-    RuntimeCheckErrorKind, StaticCheckError, StaticCheckErrorKind, SyntaxBindingError,
-    SyntaxBindingErrorType,
+    CommonCheckErrorKind, RuntimeCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
+    SyntaxBindingError, SyntaxBindingErrorType, check_argument_count, check_arguments_at_least,
+    check_arguments_at_most,
 };

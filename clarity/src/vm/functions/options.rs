@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,15 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::Value::CallableContract;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostTracker, MemoryConsumer};
+use crate::vm::costs::{CostTracker, MemoryConsumer, runtime_cost};
 use crate::vm::errors::{
-    check_arguments_at_least, EarlyReturnError, RuntimeCheckErrorKind, RuntimeError,
-    VmExecutionError, VmInternalError,
+    EarlyReturnError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError,
+    check_arguments_at_least,
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
-use crate::vm::Value::CallableContract;
 use crate::vm::{self, ClarityName, ClarityVersion, SymbolicExpression};
 
 fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>, VmExecutionError> {
@@ -38,7 +38,7 @@ fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>, VmExecutionError> {
         _ => {
             return Err(
                 RuntimeCheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(to_unwrap)).into(),
-            )
+            );
         }
     };
 
@@ -128,16 +128,16 @@ fn eval_with_new_binding(
     let memory_use = bind_value.get_memory_use()?;
     env.add_memory(memory_use)?;
 
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        if let CallableContract(trait_data) = &bind_value {
-            inner_context.callable_contracts.insert(
-                bind_name.clone(),
-                CallableData {
-                    contract_identifier: trait_data.contract_identifier.clone(),
-                    trait_identifier: trait_data.trait_identifier.clone(),
-                },
-            );
-        }
+    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2
+        && let CallableContract(trait_data) = &bind_value
+    {
+        inner_context.callable_contracts.insert(
+            bind_name.clone(),
+            CallableData {
+                contract_identifier: trait_data.contract_identifier.clone(),
+                trait_identifier: trait_data.trait_identifier.clone(),
+            },
+        );
     }
     inner_context.variables.insert(bind_name, bind_value);
     let result = vm::eval(body, env, &inner_context);
@@ -235,45 +235,49 @@ pub fn special_match(
 }
 
 pub fn native_some(input: Value) -> Result<Value, VmExecutionError> {
-    Value::some(input)
+    Ok(Value::some(input)?)
 }
 
-fn is_some(input: Value) -> Result<bool, VmExecutionError> {
+fn is_some(input: Value) -> Result<bool, RuntimeCheckErrorKind> {
     match input {
         Value::Optional(ref data) => Ok(data.data.is_some()),
-        _ => Err(RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(input)).into()),
+        _ => Err(RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(
+            input,
+        ))),
     }
 }
 
-fn is_okay(input: Value) -> Result<bool, VmExecutionError> {
+fn is_okay(input: Value) -> Result<bool, RuntimeCheckErrorKind> {
     match input {
         Value::Response(data) => Ok(data.committed),
-        _ => Err(RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(input)).into()),
+        _ => Err(RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(
+            input,
+        ))),
     }
 }
 
 pub fn native_is_some(input: Value) -> Result<Value, VmExecutionError> {
-    is_some(input).map(Value::Bool)
+    Ok(is_some(input).map(Value::Bool)?)
 }
 
 pub fn native_is_none(input: Value) -> Result<Value, VmExecutionError> {
-    is_some(input).map(|is_some| Value::Bool(!is_some))
+    Ok(is_some(input).map(|is_some| Value::Bool(!is_some))?)
 }
 
 pub fn native_is_okay(input: Value) -> Result<Value, VmExecutionError> {
-    is_okay(input).map(Value::Bool)
+    Ok(is_okay(input).map(Value::Bool)?)
 }
 
 pub fn native_is_err(input: Value) -> Result<Value, VmExecutionError> {
-    is_okay(input).map(|is_ok| Value::Bool(!is_ok))
+    Ok(is_okay(input).map(|is_ok| Value::Bool(!is_ok))?)
 }
 
 pub fn native_okay(input: Value) -> Result<Value, VmExecutionError> {
-    Value::okay(input)
+    Ok(Value::okay(input)?)
 }
 
 pub fn native_error(input: Value) -> Result<Value, VmExecutionError> {
-    Value::error(input)
+    Ok(Value::error(input)?)
 }
 
 pub fn native_default_to(default: Value, input: Value) -> Result<Value, VmExecutionError> {

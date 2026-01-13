@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -30,7 +30,7 @@ use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
     ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
-use crate::vm::{execute_v2, execute_with_parameters, ClarityVersion};
+use crate::vm::{ClarityVersion, execute_v2, execute_with_parameters};
 
 #[test]
 fn test_simple_buff_to_int_le() {

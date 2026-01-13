@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,6 +21,7 @@ use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use super::contracts::type_check;
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::errors::StaticCheckErrorKind;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
@@ -28,7 +29,6 @@ use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };
-use crate::vm::ClarityVersion;
 
 fn string_ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(

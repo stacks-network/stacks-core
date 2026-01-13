@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,12 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::ClarityTypeError;
 use clarity_types::types::serialization::SerializationError;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, RuntimeCheckErrorKind, VmExecutionError, VmInternalError,
+    RuntimeCheckErrorKind, VmExecutionError, VmInternalError, check_argument_count,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::SequenceSubtype::BufferType;
@@ -28,7 +29,7 @@ use crate::vm::types::{
     ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, TypeSignatureExt as _,
     UTF8Data, Value,
 };
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{Environment, LocalContext, eval};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EndianDirection {
@@ -52,7 +53,9 @@ pub fn buff_to_int_generic(
 ) -> Result<Value, VmExecutionError> {
     match value {
         Value::Sequence(SequenceData::Buffer(ref sequence_data)) => {
-            if sequence_data.len()?
+            if sequence_data
+                .len()
+                .map_err(|_| VmInternalError::Expect("Data length should be valid".into()))?
                 > BufferLength::try_from(16_u32)
                     .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?
             {
@@ -132,19 +135,19 @@ pub fn native_buff_to_uint_be(value: Value) -> Result<Value, VmExecutionError> {
 //   either a Int or UInt, depending on the desired result.
 pub fn native_string_to_int_generic(
     value: Value,
-    string_to_value_fn: fn(String) -> Result<Value, VmExecutionError>,
+    string_to_value_fn: fn(String) -> Result<Value, RuntimeCheckErrorKind>,
 ) -> Result<Value, VmExecutionError> {
     match value {
         Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
             match String::from_utf8(data) {
-                Ok(as_string) => string_to_value_fn(as_string),
+                Ok(as_string) => Ok(string_to_value_fn(as_string)?),
                 Err(_error) => Ok(Value::none()),
             }
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
             let flattened_bytes = data.into_iter().flatten().collect();
             match String::from_utf8(flattened_bytes) {
-                Ok(as_string) => string_to_value_fn(as_string),
+                Ok(as_string) => Ok(string_to_value_fn(as_string)?),
                 Err(_error) => Ok(Value::none()),
             }
         }
@@ -159,10 +162,10 @@ pub fn native_string_to_int_generic(
     }
 }
 
-fn safe_convert_string_to_int(raw_string: String) -> Result<Value, VmExecutionError> {
+fn safe_convert_string_to_int(raw_string: String) -> Result<Value, RuntimeCheckErrorKind> {
     let possible_int = raw_string.parse::<i128>();
     match possible_int {
-        Ok(val) => Value::some(Value::Int(val)),
+        Ok(val) => Ok(Value::some(Value::Int(val))?),
         Err(_error) => Ok(Value::none()),
     }
 }
@@ -171,10 +174,10 @@ pub fn native_string_to_int(value: Value) -> Result<Value, VmExecutionError> {
     native_string_to_int_generic(value, safe_convert_string_to_int)
 }
 
-fn safe_convert_string_to_uint(raw_string: String) -> Result<Value, VmExecutionError> {
+fn safe_convert_string_to_uint(raw_string: String) -> Result<Value, RuntimeCheckErrorKind> {
     let possible_int = raw_string.parse::<u128>();
     match possible_int {
-        Ok(val) => Value::some(Value::UInt(val)),
+        Ok(val) => Ok(Value::some(Value::UInt(val))?),
         Err(_error) => Ok(Value::none()),
     }
 }
@@ -189,7 +192,7 @@ pub fn native_string_to_uint(value: Value) -> Result<Value, VmExecutionError> {
 //   either an ASCII or UTF8 string, depending on the desired result.
 pub fn native_int_to_string_generic(
     value: Value,
-    bytes_to_value_fn: fn(bytes: Vec<u8>) -> Result<Value, VmExecutionError>,
+    bytes_to_value_fn: fn(bytes: Vec<u8>) -> Result<Value, ClarityTypeError>,
 ) -> Result<Value, VmExecutionError> {
     match value {
         Value::Int(ref int_value) => {
@@ -228,13 +231,13 @@ fn convert_string_to_ascii_ok(s: String) -> Result<Value, VmExecutionError> {
     let ascii_value = Value::string_ascii_from_bytes(s.into_bytes()).map_err(|_| {
         VmInternalError::Expect("Unexpected error converting string to ASCII".into())
     })?;
-    Value::okay(ascii_value)
+    Ok(Value::okay(ascii_value)?)
 }
 
 /// Helper function for UTF8 conversion that can return err u1 for non-ASCII characters
 fn convert_utf8_to_ascii(s: String) -> Result<Value, VmExecutionError> {
     match Value::string_ascii_from_bytes(s.into_bytes()) {
-        Ok(ascii_value) => Value::okay(ascii_value),
+        Ok(ascii_value) => Ok(Value::okay(ascii_value)?),
         Err(_) => Ok(Value::err_uint(1)), // Non-ASCII characters in UTF8
     }
 }
@@ -266,7 +269,7 @@ pub fn special_to_ascii(
             // Convert UTF8 to string first, then to ASCII
             let flattened_bytes: Vec<u8> = data.into_iter().flatten().collect();
             match String::from_utf8(flattened_bytes) {
-                Ok(utf8_string) => convert_utf8_to_ascii(utf8_string),
+                Ok(utf8_string) => Ok(convert_utf8_to_ascii(utf8_string)?),
                 Err(_) => Ok(Value::err_uint(1)), // Invalid UTF8
             }
         }
@@ -345,7 +348,9 @@ pub fn from_consensus_buff(
     ) {
         Ok(value) => value,
         Err(SerializationError::UnexpectedSerialization) => {
-            return Err(RuntimeCheckErrorKind::Expects("UnexpectedSerialization".into()).into());
+            return Err(
+                RuntimeCheckErrorKind::ExpectsRejectable("UnexpectedSerialization".into()).into(),
+            );
         }
         Err(_) => return Ok(Value::none()),
     };
@@ -353,5 +358,5 @@ pub fn from_consensus_buff(
         return Ok(Value::none());
     }
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }

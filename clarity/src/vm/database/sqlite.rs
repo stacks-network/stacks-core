@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,19 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rusqlite::{params, Connection, OptionalExtension};
+use clarity_types::errors::IncomparableError;
+use rusqlite::{Connection, OptionalExtension, params};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::db::tx_busy_handler;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
-use super::clarity_store::{make_contract_hash_key, ContractCommitment};
+use super::clarity_store::{ContractCommitment, make_contract_hash_key};
 use super::{
-    ClarityBackingStore, ClarityDatabase, ClarityDeserializable, SpecialCaseHandler,
-    NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    ClarityBackingStore, ClarityDatabase, ClarityDeserializable, NULL_BURN_STATE_DB,
+    NULL_HEADER_DB, SpecialCaseHandler,
 };
 use crate::vm::analysis::{AnalysisDatabase, RuntimeCheckErrorKind};
-use crate::vm::errors::{IncomparableError, RuntimeError, VmExecutionError, VmInternalError};
+use crate::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use crate::vm::types::QualifiedContractIdentifier;
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";

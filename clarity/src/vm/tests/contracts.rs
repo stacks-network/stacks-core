@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 #[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
 #[cfg(test)]
-use stacks_common::types::{chainstate::BlockHeaderHash, StacksEpochId};
+use stacks_common::types::{StacksEpochId, chainstate::BlockHeaderHash};
 #[cfg(test)]
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
@@ -29,11 +29,11 @@ use crate::vm::{
     ast::errors::ParseErrorKind,
     errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError},
     tests::{
-        env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
-        tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
+        MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator, env_factory, execute,
+        is_committed, is_err_code_i128 as is_err_code, symbols_from_values, tl_env_factory,
     },
     types::{OptionalData, ResponseData, TypeSignature},
-    {execute as vm_execute, ClarityVersion, ContractContext},
+    {ClarityVersion, ContractContext, execute as vm_execute},
 };
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
