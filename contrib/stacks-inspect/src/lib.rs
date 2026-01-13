@@ -964,11 +964,10 @@ fn replay_block(
     };
     let parent_block_hash = parent_block_header.block_hash();
 
-    let Some(cost) =
-        StacksChainState::get_stacks_block_anchored_cost(chainstate_tx.conn(), block_id).unwrap()
-    else {
-        return Err(format!("No header info found for {block_id}"));
-    };
+    // We don't ensure that the cost is found here, because when replaying mock-mined blocks
+    // there may not be a stored cost for the block.
+    let cost_opt =
+        StacksChainState::get_stacks_block_anchored_cost(chainstate_tx.conn(), block_id).unwrap();
 
     let Some(next_microblocks) = StacksChainState::inner_find_parent_microblock_stream(
         &chainstate_tx.tx,
@@ -1056,13 +1055,16 @@ fn replay_block(
         true,
     ) {
         Ok((receipt, _, _)) => {
-            if receipt.anchored_block_cost != cost {
-                return Err(format!(
-                    "Failed processing block! block = {block_id}. Unexpected cost. expected = {cost}, evaluated = {}",
-                    receipt.anchored_block_cost
-                ));
+            if let Some(cost) = cost_opt {
+                if receipt.anchored_block_cost != cost {
+                    return Err(format!(
+                        "Failed processing block! block = {block_id}. Unexpected cost. expected = {cost}, evaluated = {}",
+                        receipt.anchored_block_cost
+                    ));
+                }
+            } else {
+                info!("No stored cost for {block_id}; skipping cost check");
             }
-
             info!("Block processed successfully! block = {block_id}");
             Ok(())
         }

@@ -238,7 +238,7 @@ fn test_process_pending_payloads() {
     info!("endpoint: {}", endpoint);
     let timeout = Duration::from_secs(5);
 
-    let mut dispatcher = EventDispatcher::new(Some(dir.path().to_path_buf()));
+    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
 
     dispatcher.register_observer(&EventObserverConfig {
         endpoint: endpoint.clone(),
@@ -290,7 +290,7 @@ fn pending_payloads_are_skipped_if_url_does_not_match() {
     let mut server = mockito::Server::new();
     let endpoint = server.host_with_port();
     let timeout = Duration::from_secs(5);
-    let mut dispatcher = EventDispatcher::new(Some(dir.path().to_path_buf()));
+    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
 
     dispatcher.register_observer(&EventObserverConfig {
         endpoint: endpoint.clone(),
@@ -343,18 +343,13 @@ fn pending_payloads_are_skipped_if_url_does_not_match() {
 fn test_new_event_dispatcher_with_db() {
     let dir = tempdir().unwrap();
     let working_dir = dir.path().to_path_buf();
-
-    let dispatcher = EventDispatcher::new(Some(working_dir.clone()));
-
     let expected_db_path = working_dir.join("event_observers.sqlite");
-    assert_eq!(dispatcher.db_path, Some(expected_db_path.clone()));
 
-    assert!(
-        !expected_db_path.exists(),
-        "Database file was created too soon"
-    );
+    assert!(!expected_db_path.exists(), "Database file already exists");
 
-    EventDispatcherDbConnection::new(&expected_db_path).expect("Failed to initialize the database");
+    let dispatcher = EventDispatcher::new(working_dir.clone());
+
+    assert_eq!(dispatcher.db_path, expected_db_path.clone());
 
     // Verify that the database was initialized
     assert!(expected_db_path.exists(), "Database file was not created");
@@ -374,13 +369,6 @@ fn test_new_event_observer() {
 }
 
 #[test]
-fn test_new_event_dispatcher_without_db() {
-    let dispatcher = EventDispatcher::new(None);
-
-    assert!(dispatcher.db_path.is_none(), "Expected db_path to be None");
-}
-
-#[test]
 #[serial]
 fn test_send_payload_with_db() {
     use mockito::Matcher;
@@ -389,9 +377,7 @@ fn test_send_payload_with_db() {
     let working_dir = dir.path().to_path_buf();
     let payload = json!({"key": "value"});
 
-    let dispatcher = EventDispatcher::new(Some(working_dir.clone()));
-    let db_path = dispatcher.clone().db_path.clone().unwrap();
-    EventDispatcherDbConnection::new(&db_path).expect("Failed to initialize the database");
+    let dispatcher = EventDispatcher::new(working_dir.clone());
 
     // Create a mock server
     let mut server = mockito::Server::new();
@@ -410,48 +396,19 @@ fn test_send_payload_with_db() {
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
     // Call send_payload
-    dispatcher.send_payload(&observer, &payload, "/test", None);
+    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
 
     // Verify that the payload was sent and database is empty
     _m.assert();
 
     // Verify that the database is empty
-    let db_path = dispatcher.db_path.unwrap();
+    let db_path = dispatcher.db_path;
     let db_path_str = db_path.to_str().unwrap();
     let conn = Connection::open(db_path_str).expect("Failed to open database");
     let pending_payloads = EventDispatcherDbConnection::new_from_exisiting_connection(conn)
         .get_pending_payloads()
         .expect("Failed to get pending payloads");
     assert_eq!(pending_payloads.len(), 0, "Expected no pending payloads");
-}
-
-#[test]
-fn test_send_payload_without_db() {
-    use mockito::Matcher;
-
-    let timeout = Duration::from_secs(5);
-    let payload = json!({"key": "value"});
-
-    // Create a mock server
-    let mut server = mockito::Server::new();
-    let _m = server
-        .mock("POST", "/test")
-        .match_header("content-type", Matcher::Regex("application/json.*".into()))
-        .match_body(Matcher::Json(payload.clone()))
-        .with_status(200)
-        .create();
-
-    let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
-
-    let observer = EventObserver::new(endpoint, timeout, false);
-
-    let dispatcher = EventDispatcher::new(None);
-
-    // Call send_payload
-    dispatcher.send_payload(&observer, &payload, "/test", None);
-
-    // Verify that the payload was sent
-    _m.assert();
 }
 
 #[test]
@@ -480,9 +437,11 @@ fn test_send_payload_success() {
 
     let payload = json!({"key": "value"});
 
-    let dispatcher = EventDispatcher::new(None);
+    let dir = tempdir().unwrap();
+    let working_dir = dir.path().to_path_buf();
+    let dispatcher = EventDispatcher::new(working_dir);
 
-    dispatcher.send_payload(&observer, &payload, "/test", None);
+    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
 
     // Wait for the server to process the request
     rx.recv_timeout(Duration::from_secs(5))
@@ -498,7 +457,7 @@ fn test_send_payload_retry() {
 
     // Start a mock server in a separate thread
     let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
-    thread::spawn(move || {
+    let thread = thread::spawn(move || {
         let mut attempt = 0;
         while let Ok(request) = server.recv() {
             attempt += 1;
@@ -530,13 +489,17 @@ fn test_send_payload_retry() {
 
     let payload = json!({"key": "value"});
 
-    let dispatcher = EventDispatcher::new(None);
+    let dir = tempdir().unwrap();
+    let working_dir = dir.path().to_path_buf();
+    let dispatcher = EventDispatcher::new(working_dir);
 
-    dispatcher.send_payload(&observer, &payload, "/test", None);
+    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
 
     // Wait for the server to process the request
     rx.recv_timeout(Duration::from_secs(5))
         .expect("Server did not receive request in time");
+
+    thread.join().unwrap();
 }
 
 #[test]
@@ -550,7 +513,7 @@ fn test_send_payload_timeout() {
 
     // Start a mock server in a separate thread
     let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
-    thread::spawn(move || {
+    let thread = thread::spawn(move || {
         let mut attempt = 0;
         // This exists to only keep request from being dropped
         #[allow(clippy::collection_is_never_read)]
@@ -582,10 +545,12 @@ fn test_send_payload_timeout() {
     // Record the time before sending the payload
     let start_time = Instant::now();
 
-    let dispatcher = EventDispatcher::new(None);
+    let dir = tempdir().unwrap();
+    let working_dir = dir.path().to_path_buf();
+    let dispatcher = EventDispatcher::new(working_dir);
 
     // Call the function being tested
-    dispatcher.send_payload(&observer, &payload, "/test", None);
+    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
 
     // Record the time after the function returns
     let elapsed_time = start_time.elapsed();
@@ -604,6 +569,8 @@ fn test_send_payload_timeout() {
     // Wait for the server to process the request
     rx.recv_timeout(Duration::from_secs(5))
         .expect("Server did not receive request in time");
+
+    thread.join().unwrap();
 }
 
 #[test]
@@ -620,7 +587,7 @@ fn test_send_payload_with_db_force_restart() {
     info!("Starting mock server on port {port}");
     // Start a mock server in a separate thread
     let server = Server::http(format!("127.0.0.1:{port}")).unwrap();
-    thread::spawn(move || {
+    let thread = thread::spawn(move || {
         let mut attempt = 0;
         // This exists to only keep request from being dropped
         #[allow(clippy::collection_is_never_read)]
@@ -670,7 +637,7 @@ fn test_send_payload_with_db_force_restart() {
         }
     });
 
-    let mut dispatcher = EventDispatcher::new(Some(working_dir.clone()));
+    let mut dispatcher = EventDispatcher::new(working_dir.clone());
 
     let observer = dispatcher.register_observer_private(&EventObserverConfig {
         endpoint: format!("127.0.0.1:{port}"),
@@ -679,7 +646,7 @@ fn test_send_payload_with_db_force_restart() {
         disable_retries: false,
     });
 
-    EventDispatcherDbConnection::new(&dispatcher.clone().db_path.unwrap()).unwrap();
+    EventDispatcherDbConnection::new(&dispatcher.clone().db_path).unwrap();
 
     let payload = json!({"key": "value"});
     let payload2 = json!({"key": "value2"});
@@ -691,7 +658,7 @@ fn test_send_payload_with_db_force_restart() {
     info!("Sending payload 1");
 
     // Send the payload
-    dispatcher.send_payload(&observer, &payload, "/test", None);
+    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
 
     // Re-enable retrying
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
@@ -701,11 +668,13 @@ fn test_send_payload_with_db_force_restart() {
     info!("Sending payload 2");
 
     // Send another payload
-    dispatcher.send_payload(&observer, &payload2, "/test", None);
+    dispatcher.dispatch_to_observer(&observer, &payload2, "/test");
 
     // Wait for the server to process the requests
     rx.recv_timeout(Duration::from_secs(5))
         .expect("Server did not receive request in time");
+
+    thread.join().unwrap();
 }
 
 #[test]
@@ -721,10 +690,12 @@ fn test_event_dispatcher_disable_retries() {
 
     let observer = EventObserver::new(endpoint, timeout, true);
 
-    let dispatcher = EventDispatcher::new(None);
+    let dir = tempdir().unwrap();
+    let working_dir = dir.path().to_path_buf();
+    let dispatcher = EventDispatcher::new(working_dir);
 
     // in non "disable_retries" mode this will run forever
-    dispatcher.send_payload(&observer, &payload, "/test", None);
+    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
 
     // Verify that the payload was sent
     _m.assert();
@@ -739,10 +710,12 @@ fn test_event_dispatcher_disable_retries_invalid_url() {
 
     let observer = EventObserver::new(endpoint, timeout, true);
 
-    let dispatcher = EventDispatcher::new(None);
+    let dir = tempdir().unwrap();
+    let working_dir = dir.path().to_path_buf();
+    let dispatcher = EventDispatcher::new(working_dir);
 
     // in non "disable_retries" mode this will run forever
-    dispatcher.send_payload(&observer, &payload, "/test", None);
+    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
 }
 
 #[test]
@@ -752,7 +725,7 @@ fn block_event_with_disable_retries_observer() {
     let dir = tempdir().unwrap();
     let working_dir = dir.path().to_path_buf();
 
-    let mut event_dispatcher = EventDispatcher::new(Some(working_dir.clone()));
+    let mut event_dispatcher = EventDispatcher::new(working_dir.clone());
     let config = EventObserverConfig {
         endpoint: String::from("255.255.255.255"),
         events_keys: vec![EventKeyType::MinedBlocks],
@@ -952,8 +925,8 @@ fn test_block_proposal_validation_event() {
     let mock = server.mock("POST", "/proposal_response").create();
 
     let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
-
-    let mut dispatcher = EventDispatcher::new(None);
+    let dir = tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
     dispatcher.register_observer(&EventObserverConfig {
         endpoint: endpoint.clone(),
         events_keys: vec![EventKeyType::BlockProposal],
