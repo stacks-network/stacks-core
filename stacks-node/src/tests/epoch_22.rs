@@ -2,11 +2,10 @@ use std::collections::HashMap;
 use std::{env, thread};
 
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityVersion, Value};
+use clarity::vm::{execute_with_parameters as execute, ClarityVersion, Value};
 use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::clarity_cli::vm_execute as execute;
 use stacks::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use stacks::core::test_util::{make_contract_call, make_stacks_transfer_serialized};
 use stacks::core::{self, EpochList, STACKS_EPOCH_MAX};
@@ -196,6 +195,8 @@ fn disable_pox() {
     let pox_addr_tuple_1 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();
@@ -203,6 +204,8 @@ fn disable_pox() {
     let pox_addr_tuple_3 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_3}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();
@@ -253,6 +256,8 @@ fn disable_pox() {
     let pox_addr_tuple_2 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();
@@ -720,6 +725,8 @@ fn pox_2_unlock_all() {
     let pox_addr_tuple_1 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();
@@ -727,6 +734,8 @@ fn pox_2_unlock_all() {
     let pox_addr_tuple_3 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_3}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();
@@ -778,6 +787,8 @@ fn pox_2_unlock_all() {
     let pox_addr_tuple_2 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();

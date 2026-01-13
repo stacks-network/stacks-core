@@ -85,7 +85,6 @@ use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnect
 use stackslib::clarity::vm::ClarityVersion;
 use stackslib::clarity::vm::costs::ExecutionCost;
 use stackslib::clarity::vm::types::StacksAddressExtensions;
-use stackslib::clarity_cli;
 use stackslib::core::MemPoolDB;
 use stackslib::cost_estimates::UnitEstimator;
 use stackslib::cost_estimates::metrics::UnitMetric;
@@ -973,11 +972,6 @@ check if the associated microblocks can be downloaded
             "{}",
             stackslib::chainstate::stacks::boot::docs::make_json_boot_contracts_reference()
         );
-        return;
-    }
-
-    if argv[1] == "local" {
-        clarity_cli::invoke_command(&format!("{} {}", argv[0], argv[1]), &argv[2..]);
         return;
     }
 

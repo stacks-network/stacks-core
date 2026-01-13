@@ -17,9 +17,9 @@ use std::collections::{HashMap, VecDeque};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
-use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionVersion};
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
+use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
 use blockstack_lib::net::api::get_tenures_fork_info::{
     TenureForkingInfo, RPC_TENURE_FORKING_INFO_PATH,
 };
@@ -161,7 +161,7 @@ impl StacksClient {
     pub fn get_tenure_tip(
         &self,
         tenure_id: &ConsensusHash,
-    ) -> Result<StacksBlockHeaderTypes, ClientError> {
+    ) -> Result<BlockHeaderWithMetadata, ClientError> {
         debug!("StacksClient: Getting tenure tip";
                "consensus_hash" => %tenure_id,
         );
@@ -274,31 +274,7 @@ impl StacksClient {
     pub fn get_node_epoch(&self) -> Result<StacksEpochId, ClientError> {
         debug!("StacksClient: Getting node epoch");
         let pox_info = self.get_pox_data()?;
-        let burn_block_height = self.get_burn_block_height()?;
-
-        let epoch_25 = pox_info
-            .epochs
-            .iter()
-            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
-            .ok_or(ClientError::UnsupportedStacksFeature(
-                "/v2/pox must report epochs".into(),
-            ))?;
-
-        let epoch_30 = pox_info
-            .epochs
-            .iter()
-            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch30)
-            .ok_or(ClientError::UnsupportedStacksFeature(
-                "/v2/pox mut report epochs".into(),
-            ))?;
-
-        if burn_block_height < epoch_25.start_height {
-            Ok(StacksEpochId::Epoch24)
-        } else if burn_block_height < epoch_30.start_height {
-            Ok(StacksEpochId::Epoch25)
-        } else {
-            Ok(StacksEpochId::Epoch30)
-        }
+        Ok(pox_info.current_epoch)
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
@@ -553,12 +529,6 @@ impl StacksClient {
         Ok(pox_info_data)
     }
 
-    /// Helper function to retrieve the burn tip height from the stacks node
-    fn get_burn_block_height(&self) -> Result<u64, ClientError> {
-        debug!("StacksClient: Getting burn block height");
-        self.get_peer_info().map(|info| info.burn_block_height)
-    }
-
     /// Get the current reward cycle info from the stacks node
     pub fn get_current_reward_cycle_info(&self) -> Result<RewardCycleInfo, ClientError> {
         debug!("StacksClient: Getting current reward cycle info");
@@ -751,7 +721,10 @@ impl StacksClient {
     }
 
     fn tenure_tip_path(&self, consensus_hash: &ConsensusHash) -> String {
-        format!("{}/v3/tenures/tip/{consensus_hash}", self.http_origin)
+        format!(
+            "{}/v3/tenures/tip_metadata/{consensus_hash}",
+            self.http_origin
+        )
     }
 }
 
@@ -766,6 +739,7 @@ mod tests {
     use blockstack_lib::chainstate::stacks::boot::{
         NakamotoSignerEntry, PoxStartCycleInfo, RewardSet,
     };
+    use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
     use clarity::types::chainstate::{StacksBlockId, TrieHash};
     use clarity::util::hash::Sha512Trunc256Sum;
     use clarity::util::secp256k1::MessageSignature;
@@ -914,17 +888,21 @@ mod tests {
     #[test]
     fn core_info_call_for_burn_block_height_should_succeed() {
         let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_burn_block_height());
+        let h = spawn(move || mock.client.get_peer_info());
         let (response, peer_info) = build_get_peer_info_response(None, None);
         write_response(mock.server, response.as_bytes());
-        let burn_block_height = h.join().unwrap().expect("Failed to deserialize response");
+        let burn_block_height = h
+            .join()
+            .unwrap()
+            .expect("Failed to deserialize response")
+            .burn_block_height;
         assert_eq!(burn_block_height, peer_info.burn_block_height);
     }
 
     #[test]
     fn core_info_call_for_burn_block_height_should_fail() {
         let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_burn_block_height());
+        let h = spawn(move || mock.client.get_peer_info());
         write_response(
             mock.server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
@@ -998,85 +976,17 @@ mod tests {
     #[test]
     fn get_node_epoch_should_succeed() {
         let mock = MockServerClient::new();
-        // The burn block height is one BEHIND the activation height of 2.5, therefore is 2.4
-        let burn_block_height: u64 = 100;
-        let pox_response = build_get_pox_data_response(
-            None,
-            None,
-            Some(burn_block_height.saturating_add(1)),
-            None,
-        )
-        .0;
-        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
-        let h = spawn(move || mock.client.get_node_epoch());
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, StacksEpochId::Epoch24);
 
-        // The burn block height is the same as the activation height of 2.5, therefore is 2.5
-        let pox_response = build_get_pox_data_response(None, None, Some(burn_block_height), None).0;
-        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
-        let mock = MockServerClient::from_config(mock.config);
-        let h = spawn(move || mock.client.get_node_epoch());
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, StacksEpochId::Epoch25);
+        let expected_epoch = StacksEpochId::Epoch30;
 
-        // The burn block height is the AFTER as the activation height of 2.5 but BEFORE the activation height of 3.0, therefore is 2.5
-        let pox_response = build_get_pox_data_response(
-            None,
-            None,
-            Some(burn_block_height.saturating_sub(1)),
-            Some(burn_block_height.saturating_add(1)),
-        )
-        .0;
-        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
-        let mock = MockServerClient::from_config(mock.config);
-        let h = spawn(move || mock.client.get_node_epoch());
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, StacksEpochId::Epoch25);
+        let (pox_response, _) = build_get_pox_data_response(None, None, None, None);
 
-        // The burn block height is the AFTER as the activation height of 2.5 and the SAME as the activation height of 3.0, therefore is 3.0
-        let pox_response = build_get_pox_data_response(
-            None,
-            None,
-            Some(burn_block_height.saturating_sub(1)),
-            Some(burn_block_height),
-        )
-        .0;
-        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
-        let mock = MockServerClient::from_config(mock.config);
         let h = spawn(move || mock.client.get_node_epoch());
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, StacksEpochId::Epoch30);
 
-        // The burn block height is the AFTER as the activation height of 2.5 and AFTER the activation height of 3.0, therefore is 3.0
-        let pox_response = build_get_pox_data_response(
-            None,
-            None,
-            Some(burn_block_height.saturating_sub(1)),
-            Some(burn_block_height),
-        )
-        .0;
-        let peer_response =
-            build_get_peer_info_response(Some(burn_block_height.saturating_add(1)), None).0;
-        let mock = MockServerClient::from_config(mock.config);
-        let h = spawn(move || mock.client.get_node_epoch());
         write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
+
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, StacksEpochId::Epoch30);
+        assert_eq!(epoch, expected_epoch);
     }
 
     #[test]
@@ -1171,7 +1081,7 @@ mod tests {
     fn get_tenure_tip_should_succeed() {
         let mock = MockServerClient::new();
         let consensus_hash = ConsensusHash([15; 20]);
-        let header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+        let anchored_header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
             version: 1,
             chain_length: 10,
             burn_spent: 10,
@@ -1184,10 +1094,15 @@ mod tests {
             signer_signature: vec![],
             pox_treatment: BitVec::ones(1).unwrap(),
         });
-        let response = build_get_tenure_tip_response(&header);
+        let with_metadata = BlockHeaderWithMetadata {
+            anchored_header,
+            burn_view: Some(ConsensusHash([15; 20])),
+        };
+
+        let response = build_get_tenure_tip_response(&with_metadata);
         let h = spawn(move || mock.client.get_tenure_tip(&consensus_hash));
         write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), header);
+        assert_eq!(h.join().unwrap().unwrap(), with_metadata);
     }
 
     #[test]

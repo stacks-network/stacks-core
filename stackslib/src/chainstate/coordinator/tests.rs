@@ -23,7 +23,7 @@ use std::sync::Arc;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
 use lazy_static::lazy_static;
@@ -640,7 +640,7 @@ fn make_genesis_block_with_recipients(
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, None)
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, None, &mut 0)
         .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -904,11 +904,13 @@ fn make_stacks_block_with_input(
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, None)
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, None, &mut 0)
         .unwrap();
 
     for tx in txs {
-        builder.try_mine_tx(&mut epoch_tx, tx, None).unwrap();
+        builder
+            .try_mine_tx(&mut epoch_tx, tx, None, &mut 0)
+            .unwrap();
     }
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -4830,7 +4832,7 @@ fn get_total_stacked_info(
     parent_tip: &StacksBlockId,
     reward_cycle: u64,
     is_pox_2: bool,
-) -> Result<u128, InterpreterError> {
+) -> Result<u128, VmExecutionError> {
     chainstate
         .with_read_only_clarity_tx(burn_dbconn, parent_tip, |conn| {
             conn.with_readonly_clarity_env(

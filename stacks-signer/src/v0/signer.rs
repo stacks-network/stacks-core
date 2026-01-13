@@ -473,9 +473,16 @@ impl Signer {
         BlockAccepted::new(
             block.header.signer_signature_hash(),
             signature,
-            self.signer_db.calculate_tenure_extend_timestamp(
+            self.signer_db.calculate_full_extend_timestamp(
                 self.proposal_config
                     .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
+                block,
+                true,
+            ),
+            self.signer_db.calculate_read_count_extend_timestamp(
+                self.proposal_config
+                    .read_count_idle_timeout
                     .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 block,
                 true,
@@ -692,9 +699,16 @@ impl Signer {
             reject_reason,
             &self.private_key,
             self.mainnet,
-            self.signer_db.calculate_tenure_extend_timestamp(
+            self.signer_db.calculate_full_extend_timestamp(
                 self.proposal_config
                     .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
+                block,
+                false,
+            ),
+            self.signer_db.calculate_read_count_extend_timestamp(
+                self.proposal_config
+                    .read_count_idle_timeout
                     .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 block,
                 false,
@@ -1021,6 +1035,15 @@ impl Signer {
             );
             return;
         };
+
+        if block_info.state == BlockState::LocallyAccepted
+            || block_info.state == BlockState::LocallyRejected
+        {
+            debug!(
+                "{self}: Received pre-commit for a block that we have already responded to. Ignoring...",
+            );
+            return;
+        }
 
         if self.signer_db.has_committed(block_hash, stacker_address).inspect_err(|e| warn!("Failed to check if pre-commit message already considered for {stacker_address:?} for {block_hash}: {e}")).unwrap_or(false) {
             debug!("{self}: Already considered pre-commit message from {stacker_address:?} for {block_hash}. Ignoring...");
@@ -1390,7 +1413,7 @@ impl Signer {
             self.handle_block_rejection(&block_rejection, sortition_state);
             self.send_block_response(&block_info.block, block_rejection.into());
         } else {
-            if let Err(e) = block_info.mark_locally_accepted(false) {
+            if let Err(e) = block_info.mark_pre_committed() {
                 if !block_info.has_reached_consensus() {
                     warn!("{self}: Failed to mark block as locally accepted: {e:?}",);
                     return;
@@ -1449,9 +1472,16 @@ impl Signer {
             block_validate_reject.clone(),
             &self.private_key,
             self.mainnet,
-            self.signer_db.calculate_tenure_extend_timestamp(
+            self.signer_db.calculate_full_extend_timestamp(
                 self.proposal_config
                     .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
+                &block_info.block,
+                false,
+            ),
+            self.signer_db.calculate_read_count_extend_timestamp(
+                self.proposal_config
+                    .read_count_idle_timeout
                     .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 &block_info.block,
                 false,

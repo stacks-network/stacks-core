@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.3.0.0.4]
+
+### Added
+
+- New `/v3/tenures/tip_metadata` endpoint for returning some metadata along with the normal tenure tip information.
+
+
+## [3.3.0.0.3]
+
+### Added
+
+- In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
+
+### Fixed
+
+- When mining, do not try to extend (or initiate) a tenure that did not commit to the ongoing chain tip (see #6744)
+- When mock-mining, retry when hitting the `ParentNotFound` error. This can happen at the beginning of a new tenure, but should resolve with retries.
+
+## [3.3.0.0.2]
+
+### Added
+
+- Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
+- Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
+- Added `--epoch <epoch_number>` flag to `clarity-cli` commands to specify the epoch context for evaluation.
+- Added miner support for generating read-count tenure extends
+  - Added `read_count_extend_cost_threshold` config option (in the miner config) which specifies the percentage of the block budget that must be used before attempting a time-based tenure extend. Defaults to 25%.
+
+### Fixed
+
+- Correctly produce the receipt for the `costs-4` contract, which was deployed on epoch 3.3 activation. Users who consume node events and want to fill in the missing receipt (e.g. the Hiro API) will need to revert their chainstate to before the 3.3 activation and then resume sync to receive the previously missing event.
+
 ## [3.3.0.0.1]
 
 - Add indexes to `nakamoto_block_headers` to fix a performance regression. Node may take a few minutes to restart during the upgrade while the new indexes are created.

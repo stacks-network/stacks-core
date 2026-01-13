@@ -19,7 +19,7 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::ClarityDatabase;
-use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
+use clarity::vm::errors::{RuntimeError, VmExecutionError};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::Value;
@@ -131,7 +131,7 @@ pub fn handle_contract_call(
     _sender_opt: Option<&PrincipalData>,
     function_name: &str,
     value: &Value,
-) -> Result<(), ClarityError> {
+) -> Result<(), VmExecutionError> {
     if !(function_name == "stack-stx" || function_name == "delegate-stack-stx") {
         // only have work to do if the function is `stack-stx` or `delegate-stack-stx`
         return Ok(());
@@ -168,7 +168,7 @@ pub fn handle_contract_call(
         unlock_height,
     ) {
         Ok(_) => {
-            if let Some(batch) = global_context.event_batches.last_mut() {
+            if let Some((batch, _)) = global_context.event_batches.last_mut() {
                 batch.events.push(StacksTransactionEvent::STXEvent(
                     STXEventType::STXLockEvent(STXLockEventData {
                         locked_amount,
@@ -181,15 +181,15 @@ pub fn handle_contract_call(
             return Ok(());
         }
         Err(LockingError::DefunctPoxContract) => {
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
+            return Err(VmExecutionError::Runtime(
+                RuntimeError::DefunctPoxContract,
                 None,
             ));
         }
         Err(LockingError::PoxAlreadyLocked) => {
             // the caller tried to lock tokens into both pox-1 and pox-2
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::PoxAlreadyLocked,
+            return Err(VmExecutionError::Runtime(
+                RuntimeError::PoxAlreadyLocked,
                 None,
             ));
         }

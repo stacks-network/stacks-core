@@ -19,16 +19,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::analysis::CheckError;
+use crate::vm::analysis::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,
 };
-use crate::vm::{CheckErrors, ClarityName, ClarityVersion};
+use crate::vm::{ClarityName, ClarityVersion};
 
 pub fn build_contract_interface(
     contract_analysis: &ContractAnalysis,
-) -> Result<ContractInterface, CheckError> {
+) -> Result<ContractInterface, StaticCheckError> {
     let mut contract_interface =
         ContractInterface::new(contract_analysis.epoch, contract_analysis.clarity_version);
 
@@ -267,7 +267,7 @@ impl ContractInterfaceFunction {
     fn from_map(
         map: &BTreeMap<ClarityName, FunctionType>,
         access: ContractInterfaceFunctionAccess,
-    ) -> Result<Vec<ContractInterfaceFunction>, CheckError> {
+    ) -> Result<Vec<ContractInterfaceFunction>, StaticCheckError> {
         map.iter()
             .map(|(name, function_type)| {
                 Ok(ContractInterfaceFunction {
@@ -278,7 +278,7 @@ impl ContractInterfaceFunction {
                             FunctionType::Fixed(FixedFunction { returns, .. }) => {
                                 ContractInterfaceAtomType::from_type_signature(returns)
                             }
-                            _ => return Err(CheckErrors::Expects(
+                            _ => return Err(StaticCheckErrorKind::Expects(
                                 "Contract functions should only have fixed function return types!"
                                     .into(),
                             )
@@ -290,7 +290,7 @@ impl ContractInterfaceFunction {
                             ContractInterfaceFunctionArg::from_function_args(args)
                         }
                         _ => {
-                            return Err(CheckErrors::Expects(
+                            return Err(StaticCheckErrorKind::Expects(
                                 "Contract functions should only have fixed function arguments!"
                                     .into(),
                             )
@@ -400,9 +400,9 @@ impl ContractInterface {
         }
     }
 
-    pub fn serialize(&self) -> Result<String, CheckError> {
+    pub fn serialize(&self) -> Result<String, StaticCheckError> {
         serde_json::to_string(self).map_err(|_| {
-            CheckErrors::Expects("Failed to serialize contract interface".into()).into()
+            StaticCheckErrorKind::Expects("Failed to serialize contract interface".into()).into()
         })
     }
 }

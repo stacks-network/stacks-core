@@ -1,11 +1,14 @@
 {
-    "accepted": false,
-    "reason": "{\"code\": 1, \"message\": \"NoSuchSlot\", \"reason\": \"No such StackerDB slot\"}",
-    "metadata": {
-        "slot_id": 1,
-        "slot_version": 1,
-        "data_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        "signature": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01"
-    },
-    "code": 1
+    "summary": "StackerDB chunk acknowledgment failure",
+    "value": {
+        "accepted": false,
+        "reason": "{\"code\": 1, \"message\": \"NoSuchSlot\", \"reason\": \"No such StackerDB slot\"}",
+        "metadata": {
+            "slot_id": 1,
+            "slot_version": 1,
+            "data_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "signature": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01"
+        },
+        "code": 1
+    }
 }

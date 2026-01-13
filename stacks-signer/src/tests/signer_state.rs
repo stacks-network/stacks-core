@@ -18,6 +18,7 @@ use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
+use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::types::chainstate::{
@@ -242,11 +243,11 @@ fn check_capitulate_miner_view() {
         );
     });
 
-    let expected_result = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+    let anchored_header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
         version: 1,
         chain_length: parent_tenure_last_block_height,
         burn_spent: 0,
-        consensus_hash: parent_tenure_id,
+        consensus_hash: parent_tenure_id.clone(),
         parent_block_id: parent_tenure_last_block,
         tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
         state_index_root: TrieHash([0u8; 32]),
@@ -255,6 +256,11 @@ fn check_capitulate_miner_view() {
         signer_signature: vec![],
         pox_treatment: BitVec::ones(1).unwrap(),
     });
+
+    let expected_result = BlockHeaderWithMetadata {
+        anchored_header,
+        burn_view: Some(parent_tenure_id),
+    };
 
     let to_send = build_get_tenure_tip_response(&expected_result);
     for _ in 0..2 {
@@ -285,7 +291,7 @@ fn check_miner_inactivity_timeout() {
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
+        read_count_idle_timeout: Duration::from_secs(12000),
     };
 
     let block_sk = StacksPrivateKey::from_seed(&[0, 1]);
@@ -471,9 +477,11 @@ fn check_miner_inactivity_timeout() {
     let to_send_2 = format!("HTTP/1.1 200 OK\n\n{json_payload}");
 
     // Then it will grab the tip of the prior sortition
-    let expected_result = StacksBlockHeaderTypes::Nakamoto(genesis_block);
-    let json_payload = serde_json::to_string(&expected_result).unwrap();
-    let to_send_3 = format!("HTTP/1.1 200 OK\n\n{json_payload}");
+    let expected_result = BlockHeaderWithMetadata {
+        burn_view: Some(genesis_block.consensus_hash.clone()),
+        anchored_header: StacksBlockHeaderTypes::Nakamoto(genesis_block),
+    };
+    let to_send_3 = build_get_tenure_tip_response(&expected_result);
 
     let MockServerClient {
         mut server,

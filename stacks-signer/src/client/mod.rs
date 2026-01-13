@@ -21,7 +21,7 @@ pub(crate) mod stacks_client;
 
 use std::time::Duration;
 
-use clarity::vm::errors::Error as ClarityError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::serialization::SerializationError;
 use libsigner::RPCError;
 use libstackerdb::Error as StackerDBError;
@@ -81,7 +81,7 @@ pub enum ClientError {
     NotConnected,
     /// Clarity interpreter error
     #[error("Clarity interpreter error: {0}")]
-    ClarityError(#[from] ClarityError),
+    ClarityError(#[from] VmExecutionError),
     /// Malformed reward set
     #[error("Malformed contract data: {0}")]
     MalformedContractData(String),
@@ -134,9 +134,11 @@ pub(crate) mod tests {
     use std::collections::{BTreeMap, HashMap};
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     use blockstack_lib::chainstate::stacks::boot::POX_4_NAME;
-    use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
+    use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
     use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
     use blockstack_lib::net::api::getpoxinfo::{
         RPCPoxCurrentCycleInfo, RPCPoxEpoch, RPCPoxInfoData, RPCPoxNextCycleInfo,
@@ -172,7 +174,18 @@ pub(crate) mod tests {
         pub fn new() -> Self {
             let mut config =
                 GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-            let (server, mock_server_addr) = mock_server_random();
+            let (server, mock_server_addr) = {
+                let mut iter = 0usize;
+                loop {
+                    iter += 1;
+                    if let Some(x) = mock_server_random() {
+                        break x;
+                    }
+                    if iter > 10 {
+                        panic!("Could not get a port for mock server");
+                    }
+                }
+            };
             config.node_host = mock_server_addr.to_string();
 
             let client = StacksClient::from(&config);
@@ -196,13 +209,15 @@ pub(crate) mod tests {
     }
 
     /// Create a mock server on a random port and return the socket addr
-    pub fn mock_server_random() -> (TcpListener, SocketAddr) {
+    pub fn mock_server_random() -> Option<(TcpListener, SocketAddr)> {
         let mut mock_server_addr = SocketAddr::from(([127, 0, 0, 1], 0));
         // Ask the OS to assign a random port to listen on by passing 0
-        let server = TcpListener::bind(mock_server_addr).unwrap();
+        let server = TcpListener::bind(mock_server_addr)
+            .inspect_err(|e| warn!("Failed to bind mock RPC server"; "err" => ?e))
+            .ok()?;
 
         mock_server_addr.set_port(server.local_addr().unwrap().port());
-        (server, mock_server_addr)
+        Some((server, mock_server_addr))
     }
 
     /// Create a mock server on a same port as in the config
@@ -220,6 +235,35 @@ pub(crate) mod tests {
             stream.write_all(bytes).unwrap();
         }
         request_bytes
+    }
+
+    /// Continually accept requests and write `bytes` as a response.
+    /// Exits when exit flag is true
+    /// Panics on unexpected errors
+    pub fn write_response_nonblockinig(
+        mock_server: &TcpListener,
+        bytes: &[u8],
+        exit: Arc<AtomicBool>,
+    ) {
+        mock_server.set_nonblocking(true).unwrap();
+        let mut request_bytes = [0u8; 1024];
+
+        while !exit.load(Ordering::SeqCst) {
+            let mut stream = match mock_server.accept() {
+                Ok((stream, ..)) => stream,
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    panic!("Unexpected network error in mock server: {e:?}");
+                }
+            };
+            debug!("Reading request...");
+            let _ = stream.read(&mut request_bytes).unwrap();
+            debug!("Writing a response...");
+            stream.write_all(bytes).unwrap();
+        }
     }
 
     pub fn generate_random_consensus_hash() -> ConsensusHash {
@@ -302,6 +346,7 @@ pub(crate) mod tests {
                     network_epoch: 0,
                 },
             ],
+            current_epoch: StacksEpochId::Epoch30,
             reward_cycle_length: thread_rng().next_u64(),
             rejection_votes_left_required: None,
             next_reward_cycle_in: thread_rng().next_u64(),
@@ -440,10 +485,11 @@ pub(crate) mod tests {
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
+            read_count_idle_timeout: config.read_count_idle_timeout,
         }
     }
 
-    pub fn build_get_tenure_tip_response(header_types: &StacksBlockHeaderTypes) -> String {
+    pub fn build_get_tenure_tip_response(header_types: &BlockHeaderWithMetadata) -> String {
         let response_json =
             serde_json::to_string(header_types).expect("Failed to serialize tenure tip info");
         format!("HTTP/1.1 200 OK\n\n{response_json}")

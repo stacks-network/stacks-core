@@ -28,7 +28,7 @@ pub use clarity_types::types::{
 };
 
 pub use self::std_principals::StandardPrincipalData;
-use crate::vm::errors::CheckErrors;
+use crate::vm::errors::CheckErrorKind;
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
@@ -89,7 +89,7 @@ impl BlockInfoProperty {
 }
 
 impl BurnBlockInfoProperty {
-    pub fn type_result(&self) -> std::result::Result<TypeSignature, CheckErrors> {
+    pub fn type_result(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
         use self::BurnBlockInfoProperty::*;
         let result = match self {
             HeaderHash => TypeSignature::BUFFER_32,
@@ -103,18 +103,20 @@ impl BurnBlockInfoProperty {
                                 ("hashbytes".into(), TypeSignature::BUFFER_32),
                             ])
                             .map_err(|_| {
-                                CheckErrors::Expects(
+                                CheckErrorKind::Expects(
                                     "FATAL: bad type signature for pox addr".into(),
                                 )
                             })?,
                         ),
                         2,
                     )
-                    .map_err(|_| CheckErrors::Expects("FATAL: bad list type signature".into()))?,
+                    .map_err(|_| {
+                        CheckErrorKind::Expects("FATAL: bad list type signature".into())
+                    })?,
                 ),
                 ("payout".into(), TypeSignature::UIntType),
             ])
-            .map_err(|_| CheckErrors::Expects("FATAL: bad type signature for pox addr".into()))?
+            .map_err(|_| CheckErrorKind::Expects("FATAL: bad type signature for pox addr".into()))?
             .into(),
         };
         Ok(result)

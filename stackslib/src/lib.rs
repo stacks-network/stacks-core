@@ -61,9 +61,6 @@ pub extern crate libstackerdb;
 pub mod chainstate;
 
 pub mod burnchains;
-/// Allow panics in CLI commands
-#[allow(clippy::indexing_slicing)]
-pub mod clarity_cli;
 /// A high level library for interacting with the Clarity vm
 pub mod clarity_vm;
 pub mod config;
@@ -71,6 +68,11 @@ pub mod core;
 pub mod cost_estimates;
 pub mod deps;
 pub mod monitoring;
+
+#[cfg(test)]
+/// Utilities and strategy definitions for proptesting
+///  common stackslib arguments
+pub mod proptest_utils;
 
 // set via _compile-time_ envars
 const GIT_BRANCH_ENV: Option<&'static str> = option_env!("GIT_BRANCH");

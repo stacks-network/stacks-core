@@ -4,7 +4,6 @@ use std::sync::Arc;
 use libsigner::v0::messages::RejectReason;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
-use proptest::prop_oneof;
 use stacks::chainstate::stacks::{TenureChangeCause, TenureChangePayload, TransactionPayload};
 
 use super::context::{SignerTestContext, SignerTestState};
@@ -26,7 +25,6 @@ pub struct ChainExpectNakaBlock {
 
 #[derive(Debug)]
 enum HeightStrategy {
-    FromGlobalHeight,
     FromMinerHeight,
     FromStateHeight,
 }
@@ -42,10 +40,6 @@ impl ChainExpectNakaBlock {
             miner_index,
             height_strategy,
         }
-    }
-
-    pub fn from_global_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
-        Self::new(ctx, miner_index, HeightStrategy::FromGlobalHeight)
     }
 
     pub fn from_miner_height(ctx: Arc<SignerTestContext>, miner_index: usize) -> Self {
@@ -76,33 +70,6 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlock {
 
         // Calculate expected height based on the strategy
         match self.height_strategy {
-            HeightStrategy::FromGlobalHeight => {
-                // Use global height approach
-                let conf = self.ctx.get_node_config(self.miner_index);
-                let stacks_height_before = self.ctx.get_peer_stacks_tip_height();
-                let expected_height = stacks_height_before + 1;
-
-                let miner_block =
-                    wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk).expect(
-                        &format!(
-                            "Failed to get block for miner {} - Strategy: {:?}",
-                            self.miner_index, self.height_strategy
-                        ),
-                    );
-
-                let mined_block_height = miner_block.header.chain_length;
-
-                info!(
-                    "Miner {} mined Nakamoto block at height {}",
-                    self.miner_index, mined_block_height
-                );
-
-                let info_after = get_chain_info(&conf);
-
-                assert_eq!(info_after.stacks_tip, miner_block.header.block_hash());
-                assert_eq!(info_after.stacks_tip_height, mined_block_height);
-                assert_eq!(mined_block_height, expected_height);
-            }
             HeightStrategy::FromMinerHeight => {
                 // Use miner-specific height approach
                 let conf = self.ctx.get_node_config(self.miner_index);
@@ -175,7 +142,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlock {
         (1usize..=2usize).prop_flat_map(move |miner_index| {
             prop_oneof![
                 Just(CommandWrapper::new(
-                    ChainExpectNakaBlock::from_global_height(ctx.clone(), miner_index)
+                    ChainExpectNakaBlock::from_state_height(ctx.clone(), miner_index)
                 )),
                 Just(CommandWrapper::new(
                     ChainExpectNakaBlock::from_miner_height(ctx.clone(), miner_index)
@@ -349,22 +316,23 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectStacksTenureChan
         true
     }
 
-    fn apply(&self, _state: &mut SignerTestState) {
+    fn apply(&self, state: &mut SignerTestState) {
         let miner_pk = self.ctx.get_miner_public_key(self.miner_index);
-        // TODO: this is a bug. You cannot gaurantee that the block has not already been processed
-        // by the node causing a potential off by one race condition.
-        // See https://github.com/stacks-network/stacks-core/issues/6221
-        let expected_height = self.ctx.get_peer_stacks_tip_height() + 1;
+        // Cannot use global height as this would result in a race condition. Cannot gaurantee
+        // that the node has not already processed the stacks block. Must use stored state.
+        let expected_height = state.last_stacks_block_height.expect(
+            "Cannot wait for a tenure change block if we haven't set the last_stacks_block_height",
+        ) + 1;
 
         info!(
-            "Applying: Waiting for tenure change block at height {} from miner {}",
-            expected_height, self.miner_index
+            "Applying: Waiting for tenure change block at height {expected_height} from miner {}",
+            self.miner_index
         );
 
         let block =
             wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk).expect(&format!(
-                "Failed to get tenure change block for miner {} at height {}",
-                self.miner_index, expected_height
+                "Failed to get tenure change block for miner {} at height {expected_height}",
+                self.miner_index
             ));
 
         // Verify this is a tenure change block
@@ -380,15 +348,14 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectStacksTenureChan
 
         assert!(
             is_tenure_change_block_found,
-            "Block at height {} from miner {} is not a proper tenure change block. Transactions: {:?}",
-            expected_height,
+            "Block at height {expected_height} from miner {} is not a proper tenure change block. Transactions: {:?}",
             self.miner_index,
             block.txs.iter().map(|tx| &tx.payload).collect::<Vec<_>>()
         );
 
         info!(
-            "Successfully verified tenure change block at height {} from miner {}",
-            expected_height, self.miner_index
+            "Successfully verified tenure change block at height {expected_height} from miner {}",
+            self.miner_index
         );
     }
 

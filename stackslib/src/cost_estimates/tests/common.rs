@@ -37,6 +37,7 @@ pub fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksE
             burn_header_timestamp: 2,
             anchored_block_size: 1,
             burn_view: None,
+            total_tenure_size: 0,
         },
         tx_receipts,
         matured_rewards: vec![],

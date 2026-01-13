@@ -16,24 +16,17 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use clarity::vm::types::TypeSignature;
-use clarity::vm::types::signatures::SequenceSubtype;
-use clarity::vm::Value as ClarityValue;
-use clarity::vm::types::SequenceData;
-use clarity::vm::types::PrincipalData;
-use clarity::vm::types::StandardPrincipalData;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::TupleData;
-use clarity::vm::types::CharType;
-use clarity::vm::ClarityName;
+use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::serialization::SerializationError;
+use clarity::vm::types::signatures::SequenceSubtype;
+use clarity::vm::types::{
+    CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData,
+    StringSubtype, TupleData, TypeSignature,
+};
+use clarity::vm::{ClarityName, Value as ClarityValue};
+use libfuzzer_sys::{arbitrary, fuzz_target};
 use stacks_common::types::StacksEpochId;
-use clarity::vm::analysis::CheckErrors;
-use clarity::vm::types::StringSubtype;
-
-use libfuzzer_sys::arbitrary;
-use libfuzzer_sys::fuzz_target;
 
 #[derive(Debug)]
 struct FuzzClarityValue(ClarityValue);
@@ -92,11 +85,15 @@ impl arbitrary::Arbitrary<'_> for FuzzClarityValue {
                 .map_err(|_| arbitrary::Error::IncorrectFormat)?,
             6 => ClarityValue::error(FuzzClarityValue::arbitrary(u)?.0)
                 .map_err(|_| arbitrary::Error::IncorrectFormat)?,
-            7 => ClarityValue::Principal(PrincipalData::Standard(FuzzStandardPrincipal::arbitrary(u)?.0)),
-            8 => ClarityValue::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
+            7 => ClarityValue::Principal(PrincipalData::Standard(
                 FuzzStandardPrincipal::arbitrary(u)?.0,
-                FuzzContractName::arbitrary(u)?.0,
-            ))),
+            )),
+            8 => {
+                ClarityValue::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
+                    FuzzStandardPrincipal::arbitrary(u)?.0,
+                    FuzzContractName::arbitrary(u)?.0,
+                )))
+            }
             // utf8
             9 => ClarityValue::string_utf8_from_bytes(Arbitrary::arbitrary(u)?)
                 .map_err(|_| arbitrary::Error::IncorrectFormat)?,
@@ -111,7 +108,7 @@ impl arbitrary::Arbitrary<'_> for FuzzClarityValue {
                 let value_vec: Vec<FuzzClarityValue> = Arbitrary::arbitrary(u)?;
                 ClarityValue::cons_list_unsanitized(value_vec.into_iter().map(|x| x.0).collect())
                     .map_err(|_| arbitrary::Error::IncorrectFormat)?
-            },
+            }
             // tuple
             13 => {
                 let tuple_data: Vec<(FuzzClarityName, FuzzClarityValue)> = Arbitrary::arbitrary(u)?;
@@ -119,11 +116,11 @@ impl arbitrary::Arbitrary<'_> for FuzzClarityValue {
                     tuple_data
                         .into_iter()
                         .map(|(key, value)| (key.0, value.0))
-                        .collect()
-                )                    
-                    .map_err(|_| arbitrary::Error::IncorrectFormat)?
-                    .into()
-            },
+                        .collect(),
+                )
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?
+                .into()
+            }
             _ => return Err(arbitrary::Error::IncorrectFormat),
         };
 
@@ -131,9 +128,9 @@ impl arbitrary::Arbitrary<'_> for FuzzClarityValue {
     }
 }
 
-pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, CheckErrors> {
+pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, CheckErrorKind> {
     match me {
-        TypeSignature::NoType => Err(CheckErrors::CouldNotDetermineType),
+        TypeSignature::NoType => Err(CheckErrorKind::CouldNotDetermineType),
         TypeSignature::IntType => match x {
             ClarityValue::Int(_) => Ok(true),
             _ => Ok(false),
@@ -161,7 +158,7 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Check
                 }
             }
             return Ok(true);
-        },
+        }
         TypeSignature::SequenceType(SequenceSubtype::BufferType(ref my_max_len)) => {
             let buff_data = match x {
                 ClarityValue::Sequence(SequenceData::Buffer(ref buff_data)) => buff_data,
@@ -171,37 +168,46 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Check
                 return Ok(false);
             }
             return Ok(true);
-        },
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(ref my_max_len))) => {
+        }
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+            ref my_max_len,
+        ))) => {
             let ascii_data = match x {
-                ClarityValue::Sequence(SequenceData::String(CharType::ASCII(ref ascii_data))) => ascii_data,
+                ClarityValue::Sequence(SequenceData::String(CharType::ASCII(ref ascii_data))) => {
+                    ascii_data
+                }
                 _ => return Ok(false),
             };
             if ascii_data.len().map_or(false, |n| &n > my_max_len) {
                 return Ok(false);
             }
             return Ok(true);
-        },
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(ref my_max_len))) => {
+        }
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+            ref my_max_len,
+        ))) => {
             let utf8_data = match x {
-                ClarityValue::Sequence(SequenceData::String(CharType::UTF8(ref utf8_data))) => utf8_data,
+                ClarityValue::Sequence(SequenceData::String(CharType::UTF8(ref utf8_data))) => {
+                    utf8_data
+                }
                 _ => return Ok(false),
             };
-            if utf8_data.len().map_or(false, |n| u32::from(n) > u32::from(my_max_len.clone())) {
+            if utf8_data
+                .len()
+                .map_or(false, |n| u32::from(n) > u32::from(my_max_len.clone()))
+            {
                 return Ok(false);
             }
             return Ok(true);
-        },
+        }
         TypeSignature::PrincipalType => match x {
             ClarityValue::Principal(_) => Ok(true),
             _ => Ok(false),
         },
         TypeSignature::OptionalType(ref ot) => match x {
-            ClarityValue::Optional(inner_value) => {
-                match &inner_value.data {
-                    Some(some_value) => strict_admits(ot, some_value),
-                    None => Ok(true),
-                }
+            ClarityValue::Optional(inner_value) => match &inner_value.data {
+                Some(some_value) => strict_admits(ot, some_value),
+                None => Ok(true),
             },
             _ => Ok(false),
         },
@@ -216,29 +222,31 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Check
                 &rt.1
             };
             strict_admits(inner_type, &response_data.data)
-        },
+        }
         TypeSignature::TupleType(ref tt) => {
             let tuple_data = match x {
                 ClarityValue::Tuple(td) => td,
                 _ => return Ok(false),
             };
             if tt.len() != tuple_data.len() {
-                return Ok(false)
+                return Ok(false);
             }
             for (field, field_type) in tt.get_type_map().iter() {
                 let field_value = match tuple_data.get(&field) {
                     Ok(x) => x,
-                    Err(_) => return Ok(false)
+                    Err(_) => return Ok(false),
                 };
                 if !strict_admits(field_type, field_value)? {
                     return Ok(false);
                 }
             }
             return Ok(true);
-        },
-        TypeSignature::CallableType(_) |
-        TypeSignature::ListUnionType(_) |
-        TypeSignature::TraitReferenceType(_) => Err(CheckErrors::TraitReferenceNotAllowed),
+        }
+        TypeSignature::CallableType(_)
+        | TypeSignature::ListUnionType(_)
+        | TypeSignature::TraitReferenceType(_) => Err(CheckErrorKind::TraitReferenceUnknown(
+            "Unknown trait reference".into(),
+        )),
     }
 }
 
@@ -250,11 +258,9 @@ fn fuzz_sanitize(input: ClarityValue) {
     let computed_type = TypeSignature::type_of(&input).unwrap();
     let did_strict_admit = strict_admits(&computed_type, &input).unwrap();
 
-    let (sanitized_value, did_sanitize) = ClarityValue::sanitize_value(
-        &StacksEpochId::Epoch24,
-        &computed_type,
-        input.clone()
-    ).unwrap();
+    let (sanitized_value, did_sanitize) =
+        ClarityValue::sanitize_value(&StacksEpochId::Epoch24, &computed_type, input.clone())
+            .unwrap();
 
     if did_strict_admit {
         assert_eq!(input, sanitized_value);
@@ -265,24 +271,22 @@ fn fuzz_sanitize(input: ClarityValue) {
     }
 
     let serialized = input.serialize_to_vec().expect("serialize input");
-    let deserialize_unsanitized = ClarityValue::deserialize_read(
-        &mut serialized.as_slice(),
-        Some(&computed_type),
-        false
-    );
+    let deserialize_unsanitized =
+        ClarityValue::deserialize_read(&mut serialized.as_slice(), Some(&computed_type), false);
     if !did_strict_admit {
         deserialize_unsanitized.unwrap_err();
     } else {
         let deser_value = match deserialize_unsanitized {
-            Err(SerializationError::BadTypeError(CheckErrors::TypeSignatureTooDeep)) => {
+            Err(SerializationError::BadTypeError(CheckErrorKind::TypeSignatureTooDeep)) => {
                 // pre-2.4, deserializer could error on types deeper than a deserialization limit of 16.
                 // with sanitization enabled (a 2.4-gated feature), these serializations are readable.
                 ClarityValue::deserialize_read(
                     &mut serialized.as_slice(),
                     Some(&computed_type),
-                    true
-                ).unwrap()
-            },
+                    true,
+                )
+                .unwrap()
+            }
             deser_result => deser_result.unwrap(),
         };
         assert_eq!(deser_value, input);
@@ -291,27 +295,30 @@ fn fuzz_sanitize(input: ClarityValue) {
     let deserialize_sanitized = match ClarityValue::deserialize_read(
         &mut serialized.as_slice(),
         Some(&computed_type),
-        true
+        true,
     ) {
         Ok(x) => x,
-        Err(SerializationError::BadTypeError(CheckErrors::TypeSignatureTooDeep)) => {
+        Err(SerializationError::BadTypeError(CheckErrorKind::TypeSignatureTooDeep)) => {
             assert!(!did_strict_admit, "Unsanitized inputs may fail to deserialize, but they must have needed sanitization");
             // check that the sanitized value *is* readable
-            let serialized = sanitized_value.serialize_to_vec().expect("serialize sanitized");
+            let serialized = sanitized_value
+                .serialize_to_vec()
+                .expect("serialize sanitized");
             let deserialize_unsanitized = match ClarityValue::deserialize_read(
                 &mut serialized.as_slice(),
                 Some(&computed_type),
-                false
+                false,
             ) {
-                Err(SerializationError::BadTypeError(CheckErrors::TypeSignatureTooDeep)) => {
+                Err(SerializationError::BadTypeError(CheckErrorKind::TypeSignatureTooDeep)) => {
                     // pre-2.4, deserializer could error on legal types deeper than a deserialization limit of 16.
                     // with sanitization enabled (a 2.4-gated feature), these serializations are readable.
                     ClarityValue::deserialize_read(
                         &mut serialized.as_slice(),
                         Some(&computed_type),
-                        true
-                    ).unwrap()
-                },
+                        true,
+                    )
+                    .unwrap()
+                }
                 deser_result => deser_result.unwrap(),
             };
             assert_eq!(deserialize_unsanitized, sanitized_value);
@@ -319,13 +326,14 @@ fn fuzz_sanitize(input: ClarityValue) {
             let deserialize_sanitized = ClarityValue::deserialize_read(
                 &mut serialized.as_slice(),
                 Some(&computed_type),
-                true
-            ).unwrap();
+                true,
+            )
+            .unwrap();
             assert_eq!(deserialize_sanitized, sanitized_value);
             assert!(strict_admits(&computed_type, &deserialize_sanitized).unwrap());
             return;
         }
-        Err(e) => panic!("Unexpected error from deserialization: {}", e)
+        Err(e) => panic!("Unexpected error from deserialization: {}", e),
     };
 
     assert!(strict_admits(&computed_type, &deserialize_sanitized).unwrap());

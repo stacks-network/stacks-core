@@ -20,9 +20,8 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::{type_check, CheckError};
-use crate::vm::ast::errors::ParseErrors;
+use crate::vm::analysis::{type_check, StaticCheckError, StaticCheckErrorKind};
+use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
@@ -98,7 +97,7 @@ fn test_incomplete_impl_trait_1(#[case] version: ClarityVersion, #[case] epoch: 
         })
         .unwrap_err();
     match *err.err {
-        CheckErrors::BadTraitImplementation(_, _) => {}
+        StaticCheckErrorKind::BadTraitImplementation(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -125,7 +124,7 @@ fn test_incomplete_impl_trait_2(#[case] version: ClarityVersion, #[case] epoch: 
         })
         .unwrap_err();
     match *err.err {
-        CheckErrors::BadTraitImplementation(_, _) => {}
+        StaticCheckErrorKind::BadTraitImplementation(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -149,7 +148,7 @@ fn test_impl_trait_arg_admission_1(#[case] version: ClarityVersion, #[case] epoc
         })
         .unwrap_err();
     match *err.err {
-        CheckErrors::BadTraitImplementation(_, _) => {}
+        StaticCheckErrorKind::BadTraitImplementation(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -289,7 +288,7 @@ fn test_get_trait_reference_from_tuple(
         })
         .unwrap_err();
     match *err.err {
-        CheckErrors::ContractCallExpectName => {}
+        StaticCheckErrorKind::ContractCallExpectName => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -332,7 +331,7 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait(
         })
         .unwrap_err();
     match *err.err {
-        CheckErrors::TraitReferenceUnknown(_) => {}
+        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -359,7 +358,7 @@ fn test_define_map_storing_trait_references(
     .unwrap_err();
 
     match *err.err {
-        ParseErrors::TraitReferenceNotAllowed => {}
+        ParseErrorKind::TraitReferenceNotAllowed => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -383,7 +382,7 @@ fn test_cycle_in_traits_1_contract(#[case] version: ClarityVersion, #[case] epoc
     )
     .unwrap_err();
     match *err.err {
-        ParseErrors::CircularReference(_) => {}
+        ParseErrorKind::CircularReference(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -434,7 +433,7 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epo
         })
         .unwrap_err();
     match *err.err {
-        CheckErrors::NoSuchContract(_) => {}
+        StaticCheckErrorKind::NoSuchContract(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -487,7 +486,7 @@ fn test_dynamic_dispatch_unknown_method(
         })
         .unwrap_err();
     match *err.err {
-        CheckErrors::TraitMethodUnknown(_, _) => {}
+        StaticCheckErrorKind::TraitMethodUnknown(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -671,7 +670,7 @@ fn test_dynamic_dispatch_collision_trait(
     )
     .unwrap_err();
     match *err.err {
-        ParseErrors::NameAlreadyUsed(_) => {}
+        ParseErrorKind::NameAlreadyUsed(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -700,7 +699,7 @@ fn test_dynamic_dispatch_collision_defined_trait(
     )
     .unwrap_err();
     match *err.err {
-        ParseErrors::NameAlreadyUsed(_) => {}
+        ParseErrorKind::NameAlreadyUsed(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -740,7 +739,7 @@ fn test_dynamic_dispatch_collision_imported_trait(
     )
     .unwrap_err();
     match *err.err {
-        ParseErrors::NameAlreadyUsed(_) => {}
+        ParseErrorKind::NameAlreadyUsed(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -812,7 +811,7 @@ fn test_dynamic_dispatch_importing_non_existant_trait(
         })
         .unwrap_err();
     match *err.err {
-        CheckErrors::TraitReferenceUnknown(_) => {}
+        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -1099,13 +1098,13 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
         .unwrap_err();
 
     match *err.err {
-        CheckErrors::TypeError(expected, actual) if epoch < StacksEpochId::Epoch21 => {
+        StaticCheckErrorKind::TypeError(expected, actual) if epoch < StacksEpochId::Epoch21 => {
             match (&*expected, &*actual) {
                 (TypeSignature::TraitReferenceType(_), TypeSignature::TraitReferenceType(_)) => {}
                 _ => panic!("unexpected TypeSignature: {expected:?} {actual:?}"),
             }
         }
-        CheckErrors::TypeError(expected, actual)
+        StaticCheckErrorKind::TypeError(expected, actual)
             if epoch >= StacksEpochId::Epoch21 && version < ClarityVersion::Clarity2 =>
         {
             match (&*expected, &*actual) {
@@ -1113,7 +1112,7 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
                 _ => panic!("unexpected TypeSignature: {expected:?} {actual:?}"),
             }
         }
-        CheckErrors::TraitReferenceUnknown(name) => assert_eq!(name.as_str(), "trait-a"),
+        StaticCheckErrorKind::TraitReferenceUnknown(name) => assert_eq!(name.as_str(), "trait-a"),
         _ => panic!("{err:?}"),
     }
 }
@@ -1167,7 +1166,7 @@ fn test_dynamic_dispatch_mismatched_args(
         })
         .unwrap_err();
     match *err.err {
-        CheckErrors::TypeError(_, _) => {}
+        StaticCheckErrorKind::TypeError(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -1221,7 +1220,7 @@ fn test_dynamic_dispatch_mismatched_returns(
         })
         .unwrap_err();
     match *err.err {
-        CheckErrors::BadTraitImplementation(_, _) => {}
+        StaticCheckErrorKind::BadTraitImplementation(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -1257,7 +1256,7 @@ fn test_bad_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Stac
         })
         .unwrap_err();
     match *err.err {
-        CheckErrors::TypeError(_, _) => {}
+        StaticCheckErrorKind::TypeError(_, _) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -1466,7 +1465,7 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
     match result {
         Err(err) if version == ClarityVersion::Clarity1 => {
             match *err.err {
-                CheckErrors::TypeError(_, _) => {}
+                StaticCheckErrorKind::TypeError(_, _) => {}
                 _ => panic!("{err:?}"),
             };
         }
@@ -1560,7 +1559,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_principal.err {
-        CheckErrors::TraitReferenceUnknown(_) => {}
+        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_principal:?}"),
     }
     let err_int = db
@@ -1570,7 +1569,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_int.err {
-        CheckErrors::TraitReferenceUnknown(_) => {}
+        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_int:?}"),
     }
     let err_uint = db
@@ -1580,7 +1579,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_uint.err {
-        CheckErrors::TraitReferenceUnknown(_) => {}
+        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_uint:?}"),
     }
     let err_bool = db
@@ -1590,7 +1589,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_bool.err {
-        CheckErrors::TraitReferenceUnknown(_) => {}
+        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_bool:?}"),
     }
     let err_list = db
@@ -1600,7 +1599,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_list.err {
-        CheckErrors::TraitReferenceUnknown(_) => {}
+        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_list:?}"),
     }
     let err_buff = db
@@ -1610,7 +1609,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_buff.err {
-        CheckErrors::TraitReferenceUnknown(_) => {}
+        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_buff:?}"),
     }
     let err_tuple = db
@@ -1620,7 +1619,7 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
         })
         .unwrap_err();
     match *err_tuple.err {
-        CheckErrors::TraitReferenceUnknown(_) => {}
+        StaticCheckErrorKind::TraitReferenceUnknown(_) => {}
         _ => panic!("{err_tuple:?}"),
     }
 }
@@ -1818,8 +1817,8 @@ fn test_trait_contract_not_found(#[case] version: ClarityVersion, #[case] epoch:
             &version,
         )
     }) {
-        Err(CheckError { err, .. }) if version < ClarityVersion::Clarity2 => match *err {
-            CheckErrors::NoSuchContract(contract) => {
+        Err(StaticCheckError { err, .. }) if version < ClarityVersion::Clarity2 => match *err {
+            StaticCheckErrorKind::NoSuchContract(contract) => {
                 assert!(contract.ends_with(".trait-contract"))
             }
             _ => panic!("{version}: unexpected NoSuchContract error"),
