@@ -593,6 +593,48 @@ pub enum StateMachineUpdateContent {
     },
 }
 
+impl Display for StateMachineUpdateContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StateMachineUpdateContent::V0 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+            } => write!(
+                f,
+                "V0 {{ burn_block: {:?}, burn_block_height: {}, current_miner: {:?} }}",
+                burn_block, burn_block_height, current_miner
+            ),
+            StateMachineUpdateContent::V1 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+                replay_transactions,
+            } => write!(
+                f,
+                "V1 {{ burn_block: {:?}, burn_block_height: {}, current_miner: {:?}, replay_tx_count: {} }}",
+                burn_block,
+                burn_block_height,
+                current_miner,
+                replay_transactions.len()
+            ),
+            StateMachineUpdateContent::V2 {
+                burn_block,
+                burn_block_height,
+                current_miner,
+                replay_transactions,
+            } => write!(
+                f,
+                "V2 {{ burn_block: {:?}, burn_block_height: {}, current_miner: {:?}, replay_tx_count: {} }}",
+                burn_block,
+                burn_block_height,
+                current_miner,
+                replay_transactions.len()
+            ),
+        }
+    }
+}
+
 /// Message for update the Signer State infos
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, Hash)]
 pub enum StateMachineUpdateMinerState {
@@ -632,6 +674,18 @@ impl StateMachineUpdate {
             content,
             no_manual_construct: PhantomData,
         })
+    }
+}
+
+impl Display for StateMachineUpdate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "StateMachineUpdate {{ active_protocol: {}, local_supported_protocol: {}, content: {} }}",
+            self.active_signer_protocol_version,
+            self.local_supported_signer_protocol_version,
+            self.content
+        )
     }
 }
 
@@ -692,6 +746,24 @@ impl StacksMessageCodec for StateMachineUpdateMinerState {
 }
 
 impl StateMachineUpdateContent {
+    /// Get the replay transaction txids
+    pub fn replay_txids(&self) -> Vec<String> {
+        match self {
+            Self::V0 { .. } => Vec::new(),
+            Self::V1 {
+                replay_transactions,
+                ..
+            }
+            | Self::V2 {
+                replay_transactions,
+                ..
+            } => replay_transactions
+                .iter()
+                .map(|tx| tx.txid().to_string())
+                .collect(),
+        }
+    }
+
     // Is the protocol version specified one that uses self's content?
     fn is_protocol_version_compatible(&self, version: u64) -> bool {
         match self {

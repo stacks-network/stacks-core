@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,13 +21,13 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
+    ClarityVersion, ContractContext,
     analysis::type_checker::v2_1::tests::contracts::type_check_version,
     ast::parse,
     database::MemoryBackingStore,
     errors::{CheckErrorKind, StaticCheckErrorKind, VmExecutionError},
-    tests::{tl_env_factory, TopLevelMemoryEnvironmentGenerator},
+    tests::{TopLevelMemoryEnvironmentGenerator, tl_env_factory},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
-    ClarityVersion, ContractContext,
 };
 
 #[apply(test_clarity_versions)]
@@ -243,14 +243,14 @@ fn expect_contract_error(
     });
 
     for (err_condition, expected_error) in expected_errors {
-        if let ExpectedContractError::Analysis(expected_error) = expected_error {
-            if err_condition(version, epoch) {
-                let err = analysis.unwrap_err();
-                assert_eq!(expected_error, &*err.err);
+        if let ExpectedContractError::Analysis(expected_error) = expected_error
+            && err_condition(version, epoch)
+        {
+            let err = analysis.unwrap_err();
+            assert_eq!(expected_error, &*err.err);
 
-                // Do not continue with the test if the analysis failed.
-                return;
-            }
+            // Do not continue with the test if the analysis failed.
+            return;
         }
     }
 
@@ -271,17 +271,17 @@ fn expect_contract_error(
     );
 
     for (err_condition, expected_error) in expected_errors {
-        if let ExpectedContractError::Initialization(expected_error) = expected_error {
-            if err_condition(version, epoch) {
-                let err = init_result.unwrap_err();
-                if let VmExecutionError::Unchecked(inner_err) = &err {
-                    assert_eq!(expected_error, inner_err);
-                } else {
-                    panic!("Expected an Unchecked error, but got a different error");
-                }
-                // Do not continue with the test if the initialization failed.
-                return;
+        if let ExpectedContractError::Initialization(expected_error) = expected_error
+            && err_condition(version, epoch)
+        {
+            let err = init_result.unwrap_err();
+            if let VmExecutionError::Unchecked(inner_err) = &err {
+                assert_eq!(expected_error, inner_err);
+            } else {
+                panic!("Expected an Unchecked error, but got a different error");
             }
+            // Do not continue with the test if the initialization failed.
+            return;
         }
     }
 
@@ -291,18 +291,18 @@ fn expect_contract_error(
     let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
 
     for (err_condition, expected_error) in expected_errors {
-        if let ExpectedContractError::Runtime(expected_error) = expected_error {
-            if err_condition(version, epoch) {
-                let err = eval_result.unwrap_err();
-                if let VmExecutionError::Unchecked(inner_err) = &err {
-                    assert_eq!(expected_error, inner_err);
-                } else {
-                    panic!("Expected an Unchecked error, but got a different error");
-                }
-
-                // Do not continue with the test if the evaluation failed.
-                return;
+        if let ExpectedContractError::Runtime(expected_error) = expected_error
+            && err_condition(version, epoch)
+        {
+            let err = eval_result.unwrap_err();
+            if let VmExecutionError::Unchecked(inner_err) = &err {
+                assert_eq!(expected_error, inner_err);
+            } else {
+                panic!("Expected an Unchecked error, but got a different error");
             }
+
+            // Do not continue with the test if the evaluation failed.
+            return;
         }
     }
 
