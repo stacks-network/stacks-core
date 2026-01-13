@@ -791,7 +791,7 @@ pub fn check_block_state_index_root(
     let index_block_hash =
         StacksBlockHeader::make_index_block_hash(consensus_hash, &stacks_header.block_hash());
     let mut state_root_index =
-        StacksChainState::open_index(&chainstate.clarity_state_index_path).unwrap();
+        StacksChainState::open_index(&chainstate.clarity_state_index_path, None).unwrap();
     let state_root = state_root_index
         .borrow_storage_backend()
         .read_block_root_hash(&index_block_hash)

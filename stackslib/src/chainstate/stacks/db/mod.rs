@@ -1003,8 +1003,9 @@ impl StacksChainState {
         chain_id: u32,
         marf_path: &str,
         migrate: bool,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<MARF<StacksBlockId>, Error> {
-        let mut marf = StacksChainState::open_index(marf_path)?;
+        let mut marf = StacksChainState::open_index(marf_path, marf_opts)?;
         let mut dbtx = StacksDBTx::new(&mut marf, ());
 
         {
@@ -1039,7 +1040,7 @@ impl StacksChainState {
             .ok_or_else(|| db_error::ParseError)?
             .to_string();
 
-        let marf = StacksChainState::open_index(&index_path)?;
+        let marf = StacksChainState::open_index(&index_path, None)?;
         StacksChainState::load_db_config(marf.sqlite_conn())
     }
 
@@ -1202,14 +1203,15 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         index_path: &str,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<MARF<StacksBlockId>, Error> {
         let create_flag = fs::metadata(index_path).is_err();
 
         if create_flag {
             // instantiate!
-            StacksChainState::instantiate_db(mainnet, chain_id, index_path, true)
+            StacksChainState::instantiate_db(mainnet, chain_id, index_path, true, marf_opts.clone())
         } else {
-            let mut marf = StacksChainState::open_index(index_path)?;
+            let mut marf = StacksChainState::open_index(index_path, marf_opts)?;
             if !Self::need_schema_migrations(marf.sqlite_conn(), mainnet, chain_id)? {
                 return Ok(marf);
             }
@@ -1233,9 +1235,9 @@ impl StacksChainState {
 
         if create_flag {
             // instantiate!
-            StacksChainState::instantiate_db(mainnet, chain_id, index_path, false)
+            StacksChainState::instantiate_db(mainnet, chain_id, index_path, false, None)
         } else {
-            let mut marf = StacksChainState::open_index(index_path)?;
+            let mut marf = StacksChainState::open_index(index_path, None)?;
 
             // do we need to apply a schema change?
             let db_config = StacksChainState::load_db_config(marf.sqlite_conn())
@@ -1248,9 +1250,24 @@ impl StacksChainState {
         }
     }
 
-    pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, db_error> {
+    /// Open or create the chainstate MARF index database and its associated blobs file.
+    ///
+    /// This function opens the SQLite-based MARF index at `marf_path`. If the index
+    /// database or its corresponding blobs file does not exist, they will be created.
+    ///
+    /// # Arguments
+    /// * `marf_path` - Path to the MARF SQLite index database.
+    /// * `marf_opts` - Configuration options for opening the MARF.
+    ///
+    /// # Behavior
+    /// Given a `marf_path` such as `chainstate/vm/clarity/index.sqlite`,
+    /// the related blobs file will be `chainstate/vm/clarity/index.sqlite.blobs`.
+    pub fn open_index(
+        marf_path: &str,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<MARF<StacksBlockId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
-        let mut open_opts = MARFOpenOpts::default();
+        let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         open_opts.external_blobs = true;
         test_override_marf_compression(&mut open_opts);
         let marf = MARF::from_path(marf_path, open_opts).map_err(db_error::IndexError)?;
@@ -1808,8 +1825,12 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let state_index =
-            StacksChainState::open_db(self.mainnet, self.chain_id, &header_index_root)?;
+        let state_index = StacksChainState::open_db(
+            self.mainnet,
+            self.chain_id,
+            &header_index_root,
+            self.marf_opts.clone(),
+        )?;
         Ok(state_index.into_sqlite_conn())
     }
 
@@ -1895,7 +1916,8 @@ impl StacksChainState {
 
         let init_required = fs::metadata(&clarity_state_index_marf).is_err();
 
-        let state_index = StacksChainState::open_db(mainnet, chain_id, &header_index_root)?;
+        let state_index =
+            StacksChainState::open_db(mainnet, chain_id, &header_index_root, marf_opts.clone())?;
 
         let vm_state = MarfedKV::open(
             &clarity_state_index_root,
