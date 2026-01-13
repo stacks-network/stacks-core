@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,18 +18,18 @@ use std::collections::{HashMap, HashSet};
 
 use clarity_types::representations::ClarityName;
 
+use crate::vm::ClarityVersion;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::types::ContractAST;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{runtime_cost, CostTracker};
-use crate::vm::functions::define::DefineFunctions;
+use crate::vm::costs::{CostTracker, runtime_cost};
 use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::define::DefineFunctions;
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, AtomValue, Comment, FieldIdentifier, List, Placeholder, SugaredContractIdentifier,
     SugaredFieldIdentifier, TraitReference, Tuple,
 };
-use crate::vm::ClarityVersion;
 
 #[cfg(test)]
 mod tests;
@@ -118,18 +118,18 @@ impl DefinitionSorter {
     ) -> ParseResult<()> {
         match expr.pre_expr {
             Atom(ref name) => {
-                if let Some(dep) = self.top_level_expressions_map.get(name) {
-                    if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index)?;
-                    }
+                if let Some(dep) = self.top_level_expressions_map.get(name)
+                    && dep.atom_index != expr.id
+                {
+                    self.graph.add_directed_edge(tle_index, dep.expr_index)?;
                 }
                 Ok(())
             }
             TraitReference(ref name) => {
-                if let Some(dep) = self.top_level_expressions_map.get(name) {
-                    if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index)?;
-                    }
+                if let Some(dep) = self.top_level_expressions_map.get(name)
+                    && dep.atom_index != expr.id
+                {
+                    self.graph.add_directed_edge(tle_index, dep.expr_index)?;
                 }
                 Ok(())
             }
@@ -198,26 +198,26 @@ impl DefinitionSorter {
                                     }
                                     if let Some(trait_sig) = function_args[1].match_list() {
                                         for func_sig in trait_sig.iter() {
-                                            if let Some(func_sig) = func_sig.match_list() {
-                                                if func_sig.len() == 3 {
-                                                    self.probe_for_dependencies(
-                                                        &func_sig[1],
-                                                        tle_index,
-                                                        version,
-                                                    )?;
-                                                    self.probe_for_dependencies(
-                                                        &func_sig[2],
-                                                        tle_index,
-                                                        version,
-                                                    )?;
-                                                }
+                                            if let Some(func_sig) = func_sig.match_list()
+                                                && func_sig.len() == 3
+                                            {
+                                                self.probe_for_dependencies(
+                                                    &func_sig[1],
+                                                    tle_index,
+                                                    version,
+                                                )?;
+                                                self.probe_for_dependencies(
+                                                    &func_sig[2],
+                                                    tle_index,
+                                                    version,
+                                                )?;
                                             }
                                         }
                                     }
                                     return Ok(());
                                 }
                                 DefineFunctions::ImplTrait | DefineFunctions::UseTrait => {
-                                    return Ok(())
+                                    return Ok(());
                                 }
                                 DefineFunctions::NonFungibleToken => return Ok(()),
                                 DefineFunctions::FungibleToken => {

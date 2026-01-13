@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,14 +24,9 @@ pub use analysis::{CheckErrorKind, CommonCheckErrorKind, StaticCheckError, Stati
 pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
-#[cfg(feature = "rusqlite")]
-use rusqlite::Error as SqliteError;
-use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::StacksEpochId;
 
-use crate::representations::SymbolicExpression;
-use crate::types::{FunctionIdentifier, Value};
-
-pub type StackTrace = Vec<FunctionIdentifier>;
+use crate::types::{TupleTypeSignature, TypeSignature, Value};
 
 /// Wraps error types that do not implement [`PartialEq`], enabling their
 /// use in enums that implement the trait. Any two `IncomparableError` values
@@ -42,324 +37,103 @@ pub struct IncomparableError<T> {
     pub err: T,
 }
 
-/// Errors that can occur during the runtime execution of Clarity contracts in the virtual machine.
-/// These encompass type-checking failures, interpreter issues, runtime errors, and premature returns.
-/// Unlike static analysis errors in `ClarityError::StaticCheck(StaticCheckError)` or `ClarityError::Parse(ParseError)`,
-/// which are caught before execution during type-checking or parsing, these errors occur during dynamic
-/// evaluation and may involve conditions not detectable statically, such as dynamically constructed expressions
-/// (e.g., based on VRF seeds or runtime data).
-#[derive(Debug)]
-pub enum VmExecutionError {
-    /// Type-checking errors caught during runtime analysis, which should typically be detected by
-    /// static type-checking passes before execution. These may occur in test executions or when
-    /// dynamic expression construction (e.g., using runtime data like VRF seeds) creates structures
-    /// violating type or resource constraints (e.g., excessive stack depth).
-    /// The `CheckErrorKind` wraps the specific type-checking error encountered at runtime.
-    Unchecked(CheckErrorKind),
-    /// A critical, unrecoverable bug within the VM's internal logic.
-    ///
-    /// The presence of this error indicates a violation of one of the VM's
-    /// invariants or a corrupted state. This is **not** an error in the user's
-    /// Clarity code, but a bug in the VM's Rust implementation.
-    ///
-    /// # Example
-    /// The VM's evaluation loop attempts to `pop` from an empty internal call stack,
-    /// indicating a mismatch in function entry/exit logic.
-    Internal(VmInternalError),
-    /// Errors that occur during runtime execution of Clarity code, such as arithmetic errors or
-    /// invalid operations, expected as part of contract evaluation.
-    /// The `RuntimeError` wraps the specific runtime error, and the `Option<StackTrace>` provides
-    /// an optional stack trace for debugging, if available.
-    Runtime(RuntimeError, Option<StackTrace>),
-    /// Errors triggered during Clarity contract evaluation that cause early termination with
-    /// insufficient results (e.g., unwrapping an empty `Option`).
-    /// The `EarlyReturnError` wraps the specific early return condition, detailing the premature
-    /// termination cause.
-    EarlyReturn(EarlyReturnError),
-}
-
-/// Represents an internal, unrecoverable error within the Clarity VM.
-///
-/// These errors signify a bug in the VM's logic or a violation of its internal
-/// invariants. They are not meant to be caught or handled by Clarity contracts.
-#[derive(Debug, PartialEq)]
-pub enum VmInternalError {
-    /// Raised when the VM encounters an invalid or malformed `SymbolicExpression`
-    /// e.g., bad variable name or missing argument.
-    /// The `String` provides a message describing the specific issue.
-    BadSymbolicRepresentation(String),
-    /// A generic, unexpected internal error, indicating a logic failure within
-    /// the VM.
-    /// The `String` provides a message describing the specific failure.
-    InvariantViolation(String), // TODO: merge with VmInternalError::Expect
-    /// The VM failed to produce the final `AssetMap` when finalizing the
-    /// execution environment for a transaction.
-    FailedToConstructAssetTable,
-    /// The VM failed to produce the final `EventBatch` when finalizing the
-    /// execution environment for a transaction.
-    FailedToConstructEventBatch,
-    /// An error occurred during an interaction with the database.
-    /// The parameter contains the corresponding SQLite error.
-    #[cfg(feature = "rusqlite")]
-    SqliteError(IncomparableError<SqliteError>),
-    /// The file path provided for the MARF database is invalid because it
-    /// contains non-UTF-8 characters.
-    BadFileName,
-    /// The VM failed to create the necessary directory for the MARF persistent
-    /// storage. Likely due to a file system permissions error or an invalid path
-    FailedToCreateDataDirectory,
-    /// A failure occurred within the MARF implementation.
-    /// The `String` provides a message describing the specific failure.
-    MarfFailure(String),
-    /// Failed to construct a tuple value from provided data because it did not
-    ///  match the expected type signature.
-    FailureConstructingTupleWithType,
-    /// Failed to construct a list value from provided data because it
-    /// did not match the expected type signature.
-    FailureConstructingListWithType,
-    /// An STX transfer failed due to insufficient balance.
-    InsufficientBalance,
-    /// A generic error occurred during a database operation.
-    /// The `String` represents a descriptive message detailing the specific issue.
-    DBError(String),
-    /// An internal expectation or assertion failed. This is used for conditions
-    /// that are believed to be unreachable but are handled gracefully to prevent
-    /// a panic.
-    /// The `String` provides a message describing the failed expectation.
-    Expect(String),
-}
-
-/// Runtime errors that Clarity smart contracts are expected to trigger during execution in the virtual
-/// machine, such as arithmetic errors, invalid operations, or blockchain-specific issues. These errors
-/// are distinct from static analysis errors and occur during dynamic evaluation of contract code.
-#[derive(Debug, PartialEq)]
-pub enum RuntimeError {
-    /// A generic arithmetic error encountered during contract execution.
-    /// The `String` represents a descriptive message detailing the specific arithmetic issue.
-    Arithmetic(String),
-    /// An arithmetic operation exceeded the maximum value for the data type (e.g., `u128`).
-    ArithmeticOverflow,
-    /// An arithmetic operation resulted in a value below zero for an unsigned type.
-    ArithmeticUnderflow,
-    /// Attempt to increase token supply beyond the maximum limit.
-    /// The first u128 represents the attempted new supply (current supply plus increase),
-    /// and the second represents the maximum allowed supply.
-    SupplyOverflow(u128, u128),
-    /// Attempt to decrease token supply below zero.
-    /// The first `u128` represents the current token supply, and the second represents the attempted decrease amount.
-    SupplyUnderflow(u128, u128),
-    /// Attempt to divide or compute modulo by zero.
-    DivisionByZero,
-    /// Failure to parse types dynamically during contract execution.
-    /// The `String` represents the specific parsing issue, such as invalid data formats.
-    TypeParseFailure(String),
-    /// Failure to parse the abstract syntax tree (AST) during dynamic evaluation.
-    /// The `Box<ParseError>` wraps the specific parsing error encountered, detailing code interpretation issues.
-    ASTError(Box<ParseError>),
-    /// The call stack exceeded the virtual machine's maximum depth.
-    MaxStackDepthReached,
-    /// The execution context depth exceeded the virtual machine's limit.
-    MaxContextDepthReached,
-    /// Attempt to construct an invalid or unsupported type at runtime (e.g., malformed data structure).
-    BadTypeConstruction,
-    /// Reference to an invalid or out-of-bounds block height.
-    /// The `String` represents the string representation of the queried block height that was invalid.
-    BadBlockHeight(String),
-    /// Attempt to interact with a non-existent token (e.g., in NFT or fungible token operations).
-    NoSuchToken,
-    /// Feature or function not yet implemented in the virtual machine.
-    NotImplemented,
-    /// No caller principal available in the current execution context.
-    NoCallerInContext,
-    /// No sender principal available in the current execution context.
-    NoSenderInContext,
-    /// Invalid name-value pair in contract data (e.g., map keys).
-    /// The `&'static str` represents the name of the invalid pair, and the `String` represents the offending value.
-    BadNameValue(&'static str, String),
-    /// Reference to a non-existent block header hash.
-    /// The `BlockHeaderHash` represents the unknown block header hash.
-    UnknownBlockHeaderHash(BlockHeaderHash),
-    /// Invalid block hash provided (e.g., incorrect format or length).
-    /// The `Vec<u8>` represents the invalid block hash data.
-    BadBlockHash(Vec<u8>),
-    /// Failed to unwrap an `Optional` (`none`) or `Response` (`err` or `ok`) Clarity value.
-    UnwrapFailure,
-    /// Interaction with a deprecated or inactive Proof of Transfer (PoX) contract.
-    DefunctPoxContract,
-    /// Attempt to lock STX for stacking when already locked in an active PoX cycle.
-    PoxAlreadyLocked,
-    /// Block time unavailable during execution.
-    BlockTimeNotAvailable,
-    /// A Clarity string used as a token name for a post-condition is not a valid Clarity name.
-    BadTokenName(String),
-}
-
-#[derive(Debug, PartialEq)]
-/// Errors triggered during Clarity contract evaluation that cause early termination.
-/// These errors halt evaluation and fail the transaction.
-pub enum EarlyReturnError {
-    /// Failed to unwrap an `Optional` (`none`) or `Response` (`err` or `ok`) Clarity value.
-    /// The `Box<Value>` holds the original or thrown value. Triggered by `try!`, `unwrap-or`, or
-    /// `unwrap-err-or`.
-    UnwrapFailed(Box<Value>),
-    /// An 'asserts!' expression evaluated to false.
-    /// The `Box<Value>` holds the value provided as the second argument to `asserts!`.
-    AssertionFailed(Box<Value>),
-}
-
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {
         false
     }
 }
 
-impl PartialEq<VmExecutionError> for VmExecutionError {
-    fn eq(&self, other: &VmExecutionError) -> bool {
-        match (self, other) {
-            (VmExecutionError::Runtime(x, _), VmExecutionError::Runtime(y, _)) => x == y,
-            (VmExecutionError::Unchecked(x), VmExecutionError::Unchecked(y)) => x == y,
-            (VmExecutionError::EarlyReturn(x), VmExecutionError::EarlyReturn(y)) => x == y,
-            (VmExecutionError::Internal(x), VmExecutionError::Internal(y)) => x == y,
-            _ => false,
-        }
-    }
+/// Errors originating purely from the Clarity type system layer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClarityTypeError {
+    // Size & Depth Invariants
+    /// The constructed value exceeds the maximum allowed Clarity value size.
+    ValueTooLarge,
+    /// The constructed value exceeds the maximum allowed nesting depth.
+    TypeSignatureTooDeep,
+
+    // String & Encoding Errors
+    /// A non-ASCII byte was found in an ASCII string.
+    InvalidAsciiCharacter(u8),
+    /// The provided bytes did not form valid UTF-8.
+    InvalidUtf8Encoding,
+
+    // List, Tuple, & Structural Type Errors
+    /// A list operation failed because element types do not match.
+    ListTypeMismatch,
+    /// An index was out of bounds for a sequence.
+    ValueOutOfBounds,
+    /// A tuple was constructed with duplicate field names.
+    DuplicateTupleField(String),
+    /// Referenced tuple field does not exist in the tuple type.
+    /// The `String` wraps the requested field name, and the `TupleTypeSignature` wraps the tuple’s type.
+    NoSuchTupleField(String, TupleTypeSignature),
+    /// Value does not match the expected type.
+    /// The `Box<TypeSignature>` wraps the expected type, and the `Box<Value>` wraps the invalid value.
+    TypeMismatchValue(Box<TypeSignature>, Box<Value>),
+    /// Expected type does not match the actual type during analysis.
+    /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
+    TypeMismatch(Box<TypeSignature>, Box<TypeSignature>),
+    /// Expected a different response type
+    ResponseTypeMismatch {
+        /// Whether the response type should be an `Ok` response
+        expected_ok: bool,
+    },
+    /// Invalid contract name.
+    /// The `String` represents the offending value.
+    InvalidContractName(String),
+    /// Invalid Clarity name.
+    /// The `String` represents the offending value.
+    InvalidClarityName(String),
+    /// Invalid URL.
+    /// The `String` represents the offending value.
+    InvalidUrlString(String),
+    /// Empty tuple is not allowed in Clarity.
+    EmptyTuplesNotAllowed,
+    /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
+    SupertypeTooLarge,
+    /// Type description is invalid or malformed, preventing proper type-checking.
+    InvalidTypeDescription,
+    /// Sequence element length mismatch
+    SequenceElementArityMismatch { expected: usize, found: usize },
+    /// Expected a sequence value
+    ExpectedSequenceValue,
+
+    // Principal & Identifier Errors
+    /// An invalid version byte was used for a principal.
+    InvalidPrincipalVersion(u8),
+    /// An invalid principal byte length was supplied.
+    InvalidPrincipalLength(usize),
+    /// C32 decode failed
+    InvalidPrincipalEncoding(String),
+    /// An invalid qualified identifier was supplied with a missing '.' separator.
+    QualifiedContractMissingDot,
+    /// An invalid qualified identifier was supplied with a missing issuer.
+    QualifiedContractEmptyIssuer,
+
+    // Type Resolution & Abstract Type Failures
+    /// The value has a valid abstract type, but it cannot be serialized
+    /// into a concrete consensus representation.
+    CouldNotDetermineSerializationType,
+    /// The type signature could not be determined.
+    CouldNotDetermineType,
+
+    /// Type is unsupported in the given epoch
+    UnsupportedTypeInEpoch(Box<TypeSignature>, StacksEpochId),
+    /// Unsupported epoch
+    UnsupportedEpoch(StacksEpochId),
+    /// Something unexpected happened that should not be possible
+    InvariantViolation(String),
 }
 
-impl fmt::Display for VmExecutionError {
+impl fmt::Display for ClarityTypeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            VmExecutionError::Runtime(err, stack) => {
-                write!(f, "{err}")?;
-                if let Some(stack_trace) = stack
-                    && !stack_trace.is_empty()
-                {
-                    writeln!(f, "\n Stack Trace: ")?;
-                    for item in stack_trace.iter() {
-                        writeln!(f, "{item}")?;
-                    }
-                }
-                Ok(())
-            }
-            _ => write!(f, "{self:?}"),
-        }
-    }
-}
-
-impl fmt::Display for RuntimeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
 }
 
-impl error::Error for VmExecutionError {
+impl error::Error for ClarityTypeError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
-    }
-}
-
-impl error::Error for RuntimeError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
-
-impl From<ParseError> for VmExecutionError {
-    fn from(err: ParseError) -> Self {
-        match *err.err {
-            ParseErrorKind::InterpreterFailure => VmExecutionError::from(VmInternalError::Expect(
-                "Unexpected interpreter failure during parsing".into(),
-            )),
-            _ => VmExecutionError::from(RuntimeError::ASTError(Box::new(err))),
-        }
-    }
-}
-
-impl From<CostErrors> for VmExecutionError {
-    fn from(err: CostErrors) -> Self {
-        match err {
-            CostErrors::InterpreterFailure => VmExecutionError::from(VmInternalError::Expect(
-                "Interpreter failure during cost calculation".into(),
-            )),
-            CostErrors::Expect(s) => VmExecutionError::from(VmInternalError::Expect(format!(
-                "Interpreter failure during cost calculation: {s}"
-            ))),
-            other_err => VmExecutionError::from(CheckErrorKind::from(other_err)),
-        }
-    }
-}
-
-impl From<RuntimeError> for VmExecutionError {
-    fn from(err: RuntimeError) -> Self {
-        VmExecutionError::Runtime(err, None)
-    }
-}
-
-impl From<CommonCheckErrorKind> for VmExecutionError {
-    fn from(err: CommonCheckErrorKind) -> Self {
-        VmExecutionError::Unchecked(err.into())
-    }
-}
-
-impl From<CheckErrorKind> for VmExecutionError {
-    fn from(err: CheckErrorKind) -> Self {
-        VmExecutionError::Unchecked(err)
-    }
-}
-
-impl From<(CommonCheckErrorKind, &SymbolicExpression)> for VmExecutionError {
-    fn from(err: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
-        VmExecutionError::Unchecked(err.0.into())
-    }
-}
-
-impl From<EarlyReturnError> for VmExecutionError {
-    fn from(err: EarlyReturnError) -> Self {
-        VmExecutionError::EarlyReturn(err)
-    }
-}
-
-impl From<VmInternalError> for VmExecutionError {
-    fn from(err: VmInternalError) -> Self {
-        VmExecutionError::Internal(err)
-    }
-}
-
-#[cfg(any(test, feature = "testing"))]
-impl From<VmExecutionError> for () {
-    fn from(_err: VmExecutionError) -> Self {}
-}
-
-impl From<EarlyReturnError> for Value {
-    fn from(val: EarlyReturnError) -> Self {
-        match val {
-            EarlyReturnError::UnwrapFailed(v) => *v,
-            EarlyReturnError::AssertionFailed(v) => *v,
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn equality() {
-        assert_eq!(
-            VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(
-                true
-            )))),
-            VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(
-                true
-            ))))
-        );
-        assert_eq!(
-            VmExecutionError::Internal(VmInternalError::InvariantViolation("".to_string())),
-            VmExecutionError::Internal(VmInternalError::InvariantViolation("".to_string()))
-        );
-        assert!(
-            VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(
-                true
-            )))) != VmExecutionError::Internal(VmInternalError::InvariantViolation("".to_string()))
-        );
     }
 }

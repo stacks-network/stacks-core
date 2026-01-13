@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -29,7 +29,7 @@ use crate::vm::{
     ast::{build_ast, errors::ParseErrorKind},
     errors::RuntimeError,
     types::{QualifiedContractIdentifier, TypeSignature, TypeSignatureExt as _, Value},
-    {execute, ClarityVersion},
+    {ClarityVersion, execute},
 };
 
 fn assert_eq_err(e1: CheckErrorKind, e2: VmExecutionError) {
@@ -148,8 +148,7 @@ fn test_unwrap_ret() {
 fn test_define_read_only() {
     let test0 = "(define-read-only (silly) 1) (silly)";
     let test1 = "(define-read-only (silly) (map-delete map-name (tuple (value 1))))  (silly)";
-    let test2 =
-        "(define-read-only (silly) (map-insert map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
+    let test2 = "(define-read-only (silly) (map-insert map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
     let test3 =
         "(define-read-only (silly) (map-set map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
 
