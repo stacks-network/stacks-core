@@ -400,9 +400,6 @@ pub struct TrieRAM<T: MarfTrieId> {
     is_moved: bool,
 
     parent: T,
-
-    /// whether or not to compress the trie on dump
-    compress: bool,
 }
 
 pub enum DumpPtr {
@@ -469,14 +466,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             is_moved: false,
 
             parent: parent.clone(),
-            compress: false,
         }
-    }
-
-    /// Iterative constructor to set compression
-    pub fn with_compression(mut self, compression: bool) -> Self {
-        self.compress = compression;
-        self
     }
 
     /// Inner method to instantiate a TrieRAM from existing Trie data.
@@ -500,7 +490,6 @@ impl<T: MarfTrieId> TrieRAM<T> {
             is_moved: false,
 
             parent,
-            compress: false,
         }
     }
 
@@ -533,7 +522,6 @@ impl<T: MarfTrieId> TrieRAM<T> {
             is_moved: true,
 
             parent: self.parent.clone(),
-            compress: self.compress,
         }
     }
 
