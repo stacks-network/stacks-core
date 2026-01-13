@@ -1414,3 +1414,73 @@ fn test_contract_hash_pre_clarity4(
         ))
     );
 }
+
+/// Verify that using a constant for the contract principal in a `contract-call?`
+/// results in a runtime error in all versions of Clarity.
+///
+/// Note that in Clarity 1, this would cause a type-checking error during analysis,
+/// but here we skip the analysis phase to directly test the runtime behavior.
+#[apply(test_clarity_versions)]
+fn test_contract_call_with_constant(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
+    println!("Testing with Clarity version: {:?}", version);
+
+    let contract_a = "(define-read-only (foo)
+           (ok true))";
+    let contract_b =
+        "(define-constant CONTRACT 'S1G2081040G2081040G2081040G208105NK8PE5.contract-a)
+    (define-read-only (cc-foo)
+           (contract-call? CONSTANT foo))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    {
+        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        env.initialize_contract(
+            QualifiedContractIdentifier::local("contract-a").unwrap(),
+            contract_a,
+        )
+        .unwrap();
+        env.initialize_contract(
+            QualifiedContractIdentifier::local("contract-b").unwrap(),
+            contract_b,
+        )
+        .unwrap();
+    }
+
+    {
+        let c_b = Value::from(PrincipalData::Contract(
+            QualifiedContractIdentifier::local("contract-b").unwrap(),
+        ));
+        let mut env = owned_env.get_exec_environment(
+            Some(p1.clone().expect_principal().unwrap()),
+            None,
+            &placeholder_context,
+        );
+        assert_eq!(
+            env.execute_contract(
+                &QualifiedContractIdentifier::local("contract-a").unwrap(),
+                "foo",
+                &[],
+                false
+            )
+            .unwrap(),
+            Value::okay_true(),
+        );
+        env.execute_contract(
+            &QualifiedContractIdentifier::local("contract-b").unwrap(),
+            "cc-foo",
+            &[],
+            false,
+        )
+        .expect_err(
+            "Expected contract-call? to fail when using a constant for the contract principal",
+        );
+    }
+}
