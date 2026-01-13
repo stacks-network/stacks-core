@@ -2105,6 +2105,18 @@ pub struct NodeConfig {
     /// ---
     /// @default: `true`
     pub marf_defer_hashing: bool,
+    /// Enables on-disk compression for MARF data structures to reduce disk space usage
+    /// for chainstate storage.
+    ///
+    /// When set to `true`, MARF trie nodes may be compressed
+    /// before being written to disk, trading slightly increased CPU overhead during
+    /// reads and writes for reduced storage requirements.
+    /// ---
+    /// @default: `false`
+    /// @notes:
+    ///   - Compression affects only the on-disk MARF representation; in-memory behavior
+    ///     remains unchanged.
+    pub marf_compress: bool,
     /// Sampling interval in seconds for the PoX synchronization watchdog thread
     /// (pre-Nakamoto). Determines how often the watchdog checked PoX state
     /// consistency in the Neon run loop.
@@ -2424,6 +2436,7 @@ impl Default for NodeConfig {
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
+            marf_compress: false,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
             fault_injection_block_push_fail_probability: None,
@@ -2589,6 +2602,7 @@ impl NodeConfig {
             self.marf_cache_strategy.as_deref().unwrap_or("noop"),
             false,
         )
+        .with_compression(self.marf_compress)
     }
 }
 
@@ -3836,6 +3850,7 @@ pub struct NodeConfigFile {
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
+    pub marf_compress: Option<bool>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
     /// At most, how often should the chain-liveness thread
@@ -3911,6 +3926,9 @@ impl NodeConfigFile {
             marf_defer_hashing: self
                 .marf_defer_hashing
                 .unwrap_or(default_node_config.marf_defer_hashing),
+            marf_compress: self
+                .marf_compress
+                .unwrap_or(default_node_config.marf_compress),
             pox_sync_sample_secs: self
                 .pox_sync_sample_secs
                 .unwrap_or(default_node_config.pox_sync_sample_secs),
