@@ -1555,7 +1555,7 @@ impl<'a, T: MarfTrieId> DerefMut for TrieStorageTransaction<'a, T> {
 pub struct TrieStorageTransaction<'a, T: MarfTrieId>(TrieStorageConnection<'a, T>);
 
 /// Hash calculation mode
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum TrieHashCalculationMode {
     /// Calculate all trie node hashes as we insert leaves
     Immediate,

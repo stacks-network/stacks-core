@@ -629,7 +629,12 @@ impl Config {
         let (network_name, _) = self.burnchain.get_bitcoin_network();
         let mut burnchain = {
             let working_dir = self.get_burn_db_path();
-            match Burnchain::new(&working_dir, &self.burnchain.chain, &network_name) {
+            match Burnchain::new(
+                &working_dir,
+                &self.burnchain.chain,
+                &network_name,
+                Some(self.node.get_marf_opts()),
+            ) {
                 Ok(burnchain) => burnchain,
                 Err(e) => {
                     error!("Failed to instantiate burnchain: {e}");

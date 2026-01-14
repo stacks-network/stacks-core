@@ -59,6 +59,7 @@ fn test_process_block_ops() {
         initial_reward_start_block: first_block_height,
         first_block_timestamp: 0,
         first_block_hash: BurnchainHeaderHash::zero(),
+        marf_opts: None,
     };
     let first_burn_hash = BurnchainHeaderHash::from_hex(
         "0000000000000000000000000000000000000000000000000000000000000123",
@@ -683,6 +684,7 @@ fn test_burn_snapshot_sequence() {
         first_block_hash: first_burn_hash.clone(),
         first_block_height,
         initial_reward_start_block: first_block_height,
+        marf_opts: None,
     };
 
     let mut leader_public_keys = vec![];

@@ -1071,6 +1071,7 @@ fn mock_burnchain() -> Burnchain {
         initial_reward_start_block: first_block_height,
         first_block_timestamp: 0,
         first_block_hash: BurnchainHeaderHash::zero(),
+        marf_opts: None,
     }
 }
 

@@ -279,6 +279,7 @@ pub fn setup_states_with_epochs(
             burnchain.pox_constants.clone(),
             None,
             true,
+            None,
         )
         .unwrap();
 
@@ -544,12 +545,24 @@ pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain 
 
 pub fn get_sortition_db(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
     let burnchain = get_burnchain(path, pox_consts);
-    SortitionDB::open(&burnchain.get_db_path(), false, burnchain.pox_constants).unwrap()
+    SortitionDB::open(
+        &burnchain.get_db_path(),
+        false,
+        burnchain.pox_constants,
+        None,
+    )
+    .unwrap()
 }
 
 pub fn get_rw_sortdb(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
     let burnchain = get_burnchain(path, pox_consts);
-    SortitionDB::open(&burnchain.get_db_path(), true, burnchain.pox_constants).unwrap()
+    SortitionDB::open(
+        &burnchain.get_db_path(),
+        true,
+        burnchain.pox_constants,
+        None,
+    )
+    .unwrap()
 }
 
 pub fn get_burnchain_db(path: &str, pox_consts: Option<PoxConstants>) -> BurnchainDB {

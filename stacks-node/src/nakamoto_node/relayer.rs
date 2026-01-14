@@ -487,8 +487,13 @@ impl RelayerThread {
         let burn_db_path = config.get_burn_db_file_path();
         let is_miner = runloop.is_miner();
 
-        let sortdb = SortitionDB::open(&burn_db_path, true, runloop.get_burnchain().pox_constants)
-            .expect("FATAL: failed to open burnchain DB");
+        let sortdb = SortitionDB::open(
+            &burn_db_path,
+            true,
+            runloop.get_burnchain().pox_constants,
+            Some(config.node.get_marf_opts()),
+        )
+        .expect("FATAL: failed to open burnchain DB");
 
         let chainstate =
             open_chainstate_with_faults(&config).expect("FATAL: failed to open chainstate DB");

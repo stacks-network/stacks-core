@@ -513,6 +513,7 @@ impl BlockMinerThread {
             &self.config.get_burn_db_file_path(),
             true,
             self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .expect("FATAL: could not open sortition DB");
 
@@ -666,9 +667,13 @@ impl BlockMinerThread {
         chain_state: &mut StacksChainState,
     ) -> Result<bool, NakamotoNodeError> {
         let burn_db_path = self.config.get_burn_db_file_path();
-        let mut burn_db =
-            SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
-                .expect("FATAL: could not open sortition DB");
+        let mut burn_db = SortitionDB::open(
+            &burn_db_path,
+            true,
+            self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
+        )
+        .expect("FATAL: could not open sortition DB");
         self.check_burn_tip_changed(&burn_db)?;
         match self.load_block_parent_info(&mut burn_db, chain_state) {
             Ok(..) => Ok(true),
@@ -736,6 +741,7 @@ impl BlockMinerThread {
                         &self.config.get_burn_db_file_path(),
                         false,
                         self.burnchain.pox_constants.clone(),
+                        Some(self.config.node.get_marf_opts()),
                     ) else {
                         error!("Failed to open sortition DB. Will try mining again.");
                         return Ok(None);
@@ -919,6 +925,7 @@ impl BlockMinerThread {
                 &self.config.get_burn_db_file_path(),
                 false,
                 self.burnchain.pox_constants.clone(),
+                Some(self.config.node.get_marf_opts()),
             ) else {
                 error!("Failed to open sortition DB. Will try mining again.");
                 return Ok(());
@@ -971,6 +978,7 @@ impl BlockMinerThread {
             &self.config.get_burn_db_file_path(),
             true,
             self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .map_err(|e| {
             NakamotoNodeError::SigningCoordinatorFailure(format!(
@@ -1126,6 +1134,7 @@ impl BlockMinerThread {
             &self.config.get_burn_db_file_path(),
             true,
             self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .expect("FATAL: could not open sortition DB");
 
@@ -1471,9 +1480,13 @@ impl BlockMinerThread {
 
         // NOTE: read-write access is needed in order to be able to query the recipient set.
         // This is an artifact of the way the MARF is built (see #1449)
-        let mut burn_db =
-            SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
-                .expect("FATAL: could not open sortition DB");
+        let mut burn_db = SortitionDB::open(
+            &burn_db_path,
+            true,
+            self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
+        )
+        .expect("FATAL: could not open sortition DB");
 
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
