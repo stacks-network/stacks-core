@@ -4588,6 +4588,15 @@ mod tests {
 
     use super::*;
 
+    mod utils {
+        use super::*;
+
+        /// Creates a [`Config`] from a valid configuration string. Panics otherwise.
+        pub fn config_from_valid_string(valid_config: &str) -> Config {
+            Config::from_config_file(ConfigFile::from_str(valid_config).unwrap(), false).unwrap()
+        }
+    }
+
     #[test]
     fn test_config_file() {
         assert_eq!(
@@ -4923,5 +4932,80 @@ mod tests {
                 .expect("Should not panic");
             assert_eq!(config.chain_id, CHAIN_ID_TESTNET);
         }
+    }
+
+    #[test]
+    fn test_load_node_marf_config() {
+        // Check MARF defaults
+        let config = utils::config_from_valid_string(
+            r#"
+                [node]
+                "#,
+        );
+
+        assert_eq!(None, config.node.marf_cache_strategy, "default cache");
+        assert_eq!(
+            true, config.node.marf_defer_hashing,
+            "default defer hashing"
+        );
+        assert_eq!(false, config.node.marf_compress, "default compress");
+
+        let cfg_opts = config.node.get_marf_opts();
+        assert_eq!("noop", cfg_opts.cache_strategy, "default cache opt");
+        assert_eq!(
+            TrieHashCalculationMode::Deferred,
+            cfg_opts.hash_calculation_mode,
+            "default defer hashing opt"
+        );
+        assert_eq!(false, cfg_opts.compress, "default compress opt");
+        assert_eq!(
+            false, cfg_opts.external_blobs,
+            "internal default blob setting"
+        );
+        assert_eq!(
+            false, cfg_opts.force_db_migrate,
+            "internal default migrate setting"
+        );
+
+        // Check MARF full config
+        let config = utils::config_from_valid_string(
+            r#"
+                [node]
+                marf_cache_strategy = "everything"
+                marf_defer_hashing = false
+                marf_compress = true
+                "#,
+        );
+
+        assert_eq!(
+            Some("everything".to_string()),
+            config.node.marf_cache_strategy,
+            "configured cache"
+        );
+        assert_eq!(
+            false, config.node.marf_defer_hashing,
+            "configured defer hashing"
+        );
+        assert_eq!(true, config.node.marf_compress, "configured compress");
+
+        let cfg_opts = config.node.get_marf_opts();
+        assert_eq!(
+            "everything", cfg_opts.cache_strategy,
+            "configured cache opt"
+        );
+        assert_eq!(
+            TrieHashCalculationMode::Immediate,
+            cfg_opts.hash_calculation_mode,
+            "configured hash opt"
+        );
+        assert_eq!(true, cfg_opts.compress, "configured compress opt");
+        assert_eq!(
+            false, cfg_opts.external_blobs,
+            "internal default blob setting"
+        );
+        assert_eq!(
+            false, cfg_opts.force_db_migrate,
+            "internal default migrate setting"
+        );
     }
 }
