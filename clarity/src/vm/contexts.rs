@@ -1016,25 +1016,10 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Value, ClarityEvalError> {
-        let parsed = ast::build_ast(
-            contract_identifier,
-            program,
-            self,
-            self.contract_context.clarity_version,
-            self.global_context.epoch_id,
-        )?
-        .expressions;
-
-        if parsed.is_empty() {
-            // This is **unreachable** in standard Clarity VM execution.
-            // - `eval_read_only` parses a raw program string into an AST.
-            // - Any empty or invalid program would be rejected at publish/deploy time or earlier parsing stages.
-            // - Therefore, `ast.is_empty()` cannot occur for programs originating from a valid contract
-            // or transaction.
-            // - Only malformed input fed directly to this internal method (e.g., in unit tests or
-            // artificial VM invocations) can trigger this error.
-            return Err(ParseError::from(ParseErrorKind::UnexpectedParserFailure).into());
-        }
+        let parsed = self.parse_nonempty_program(
+            &contract_identifier,
+            program
+        )?;
 
         self.global_context.begin();
 
@@ -1067,27 +1052,10 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     }
 
     pub fn eval_raw(&mut self, program: &str) -> Result<Value, ClarityEvalError> {
-        let contract_id = QualifiedContractIdentifier::transient();
-        let clarity_version = self.contract_context.clarity_version;
-
-        let parsed = ast::build_ast(
-            &contract_id,
-            program,
-            self,
-            clarity_version,
-            self.global_context.epoch_id,
-        )?
-        .expressions;
-
-        if parsed.is_empty() {
-            // This is **unreachable** in standard Clarity VM execution.
-            // - `eval_raw` parses a raw program string into an AST.
-            // - All programs deployed or called via the standard VM go through static parsing and validation first.
-            // - Any empty or invalid program would be rejected at publish/deploy time or earlier parsing stages.
-            // - Therefore, `parsed.is_empty()` cannot occur for a program that originates from a valid Clarity contract or transaction.
-            // Only malformed input directly fed to this internal method (e.g., in unit tests) can trigger this error.
-            return Err(ParseError::from(ParseErrorKind::UnexpectedParserFailure).into());
-        }
+        let parsed = self.parse_nonempty_program(
+            &QualifiedContractIdentifier::transient(),
+            program
+        )?;
         let local_context = LocalContext::new();
         eval(&parsed[0], self, &local_context).map_err(ClarityEvalError::from)
     }
@@ -1107,6 +1075,41 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         let result = to_run(self);
         self.global_context.cost_track = original_tracker;
         result
+    }
+
+    /// Parse `program` into a **non-empty** list of `SymbolicExpression`s.
+    ///
+    /// This is a wrapper around `ast::build_ast(..)` that enforces the invariant
+    /// that a parsed program must contain at least one top-level expression.
+    ///
+    /// # Errors
+    /// - Returns `Err` if the program fails to parse/build an AST.
+    /// - Returns `Err(UnexpectedParserFailure)` if parsing succeeds but yields *zero* expressions.
+    ///
+    /// # Notes
+    /// The empty-expression case should be unreachable for normal VM execution because
+    /// published/deployed contract code and transaction programs are validated earlier.
+    /// It exists as a defensive check for malformed input in tests, fuzzing, or internal
+    /// callers that bypass normal validation paths.
+    fn parse_nonempty_program(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        program: &str,
+    ) -> Result<Vec<SymbolicExpression>, ClarityEvalError> {
+        let expressions = ast::build_ast(
+            contract_identifier,
+            program,
+            self,
+            self.contract_context.clarity_version,
+            self.global_context.epoch_id,
+        )?
+        .expressions;
+
+        if expressions.is_empty() {
+            return Err(ParseError::from(ParseErrorKind::UnexpectedParserFailure).into());
+        }
+
+        Ok(expressions)
     }
 
     /// This is the epoch of the block that this transaction is executing within.
@@ -2416,7 +2419,7 @@ mod test {
         let err = env.eval_raw(program).unwrap_err();
         let expected_err =
             ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
-        assert!(matches!(err, expected_err), "Expected a type parse failure");
+        assert_eq!(err, expected_err, "Expected a type parse failure");
     }
 
     #[test]
@@ -2433,7 +2436,7 @@ mod test {
         let err = env.eval_read_only(&contract_id, program).unwrap_err();
         let expected_err =
             ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
-        assert!(matches!(err, expected_err), "Expected a type parse failure");
+        assert_eq!(err, expected_err, "Expected a type parse failure");
     }
 
     #[test]
