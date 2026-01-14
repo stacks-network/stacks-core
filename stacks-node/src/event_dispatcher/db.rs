@@ -20,7 +20,7 @@ use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection};
-use stacks::util_lib::db::Error as db_error;
+use stacks::util_lib::db::{table_exists, Error as db_error};
 
 use crate::event_dispatcher::EventRequestData;
 
@@ -153,12 +153,12 @@ impl EventDispatcherDbConnection {
         Ok(())
     }
 
-    /// The initial schema of the datebase when this code was first created
+    /// The initial schema of the database when this code was first created
     const INITIAL_SCHEMA: u32 = 0;
     /// The `payload`` column type changed from TEXT to BLOB
     const PAYLOAD_IS_BLOB: u32 = 1;
-    /// Column `timestamp` added
-    const TIMESTAMP_COLUMN: u32 = 2;
+    /// Column `timestamp` and table `db_config` added
+    const VERSIONING_AND_TIMESTAMP_COLUMN: u32 = 2;
 
     fn run_necessary_migrations(&mut self) -> Result<(), db_error> {
         let current_schema = self.get_schema_version()?;
@@ -168,54 +168,39 @@ impl EventDispatcherDbConnection {
             self.migrate_payload_column_to_blob()?;
         }
 
-        if current_schema < Self::TIMESTAMP_COLUMN {
+        if current_schema < Self::VERSIONING_AND_TIMESTAMP_COLUMN {
             info!("Event observer: adding timestamp to pending_payloads");
-            self.add_timestamp_column()?;
+            self.add_versioning_and_timestamp_column()?;
         }
 
         Ok(())
     }
 
     fn get_schema_version(&self) -> Result<u32, db_error> {
-        let mut stmt = self
-            .connection
-            .prepare("PRAGMA table_info(pending_payloads)")?;
+        let has_db_config = table_exists(&self.connection, "db_config")?;
 
-        let name_col = stmt.column_index("name")?;
-        let type_col = stmt.column_index("type")?;
-
-        let rows = stmt.query_map([], |row| {
-            let name: String = row.get(name_col)?;
-            let col_type: String = row.get(type_col)?;
-            Ok((name, col_type))
-        })?;
-
-        let mut payload_is_blob = None;
-        let mut timestamp_exists = false;
-
-        for row in rows {
-            let (name, col_type) = row?;
-            if name == "payload" {
-                payload_is_blob = Some(col_type.eq_ignore_ascii_case("BLOB"));
-            } else if name == "timestamp" {
-                timestamp_exists = true;
-            }
+        if has_db_config {
+            let version =
+                self.connection
+                    .query_row("SELECT MAX(version) FROM db_config", [], |r| {
+                        r.get::<_, u32>(0)
+                    })?;
+            return Ok(version);
         }
 
-        if timestamp_exists && !(payload_is_blob == Some(true)) {
-            warn!("Pending event payload database schema is inconsistent");
-            return Err(db_error::Corruption);
+        let payload_type = self.connection.query_row(
+            "SELECT type FROM pragma_table_info('pending_payloads') WHERE name='payload'",
+            [],
+            |r| r.get::<_, String>(0),
+        )?;
+
+        let payload_is_blob = payload_type.eq_ignore_ascii_case("BLOB");
+
+        if payload_is_blob {
+            Ok(Self::PAYLOAD_IS_BLOB)
+        } else {
+            Ok(Self::INITIAL_SCHEMA)
         }
-
-        let mut result = Self::INITIAL_SCHEMA;
-
-        if timestamp_exists {
-            result = Self::TIMESTAMP_COLUMN
-        } else if payload_is_blob == Some(true) {
-            result = Self::PAYLOAD_IS_BLOB;
-        }
-
-        Ok(result)
     }
 
     fn migrate_payload_column_to_blob(&mut self) -> Result<(), db_error> {
@@ -243,7 +228,7 @@ impl EventDispatcherDbConnection {
         Ok(())
     }
 
-    fn add_timestamp_column(&mut self) -> Result<(), db_error> {
+    fn add_versioning_and_timestamp_column(&mut self) -> Result<(), db_error> {
         let tx = self.connection.transaction()?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -270,6 +255,13 @@ impl EventDispatcherDbConnection {
             [now],
         )?;
         tx.execute("DROP TABLE pending_payloads_old", [])?;
+
+        tx.execute("CREATE TABLE db_config (version INTEGER)", [])?;
+        tx.execute(
+            "INSERT INTO db_config (version) VALUES (?1)",
+            params![Self::VERSIONING_AND_TIMESTAMP_COLUMN],
+        )?;
+
         tx.commit()?;
         Ok(())
     }
@@ -360,6 +352,16 @@ mod test {
             "timestamp column was not added"
         );
 
+        let version: u32 = conn
+            .connection
+            .query_row("SELECT MAX(version) FROM db_config", [], |r| r.get(0))
+            .expect("db_config was not added");
+        assert_eq!(
+            version,
+            EventDispatcherDbConnection::VERSIONING_AND_TIMESTAMP_COLUMN,
+            "Unexpected version number. Did you add a migration? Update this test."
+        );
+
         let pending_payloads = conn
             .get_pending_payloads()
             .expect("Failed to get pending payloads");
@@ -369,36 +371,6 @@ mod test {
             payload_str.as_bytes(),
             "Payload contents did not survive migration"
         );
-    }
-
-    #[test]
-    fn test_migration_errors_on_inconsistent_schema() {
-        let dir = tempdir().unwrap();
-        let db_path = dir.path().join("test_payload_migration.sqlite");
-
-        // Simulate the original schema with TEXT payloads, but also with
-        // a timestamp column. This should not happen.
-        let conn = Connection::open(&db_path).unwrap();
-        conn.execute(
-            "CREATE TABLE pending_payloads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                timeout INTEGER NOT NULL,
-                timestamp INTEGER NOT NULL
-            )",
-            [],
-        )
-        .unwrap();
-
-        let mut conn = EventDispatcherDbConnection::new_without_init(&db_path).unwrap();
-
-        let result = conn.run_necessary_migrations();
-
-        match result {
-            Err(db_error::Corruption) => {}
-            _ => panic!("inconsistent schema should have caused a corruption error result"),
-        }
     }
 
     #[test]
