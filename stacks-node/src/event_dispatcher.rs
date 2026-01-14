@@ -16,7 +16,6 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::mpsc::channel;
