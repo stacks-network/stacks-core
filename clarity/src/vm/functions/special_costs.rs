@@ -1,14 +1,24 @@
 use clarity_types::execution_cost::ExecutionCost;
 use clarity_types::representations::SymbolicExpression;
 use stacks_common::types::StacksEpochId;
-use crate::vm::{costs::cost_functions::ClarityCostFunction, functions::NativeFunctions};
-use crate::vm::version::ClarityVersion;
-use crate::vm::types::Value;
 
-pub fn get_cost_for_special_function(native_function: NativeFunctions, args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
+use crate::vm::costs::analysis::UserArgumentsContext;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::functions::NativeFunctions;
+use crate::vm::types::Value;
+use crate::vm::version::ClarityVersion;
+
+pub fn get_cost_for_special_function(
+    native_function: NativeFunctions,
+    args: &[SymbolicExpression],
+    epoch: StacksEpochId,
+    user_args: Option<&UserArgumentsContext>,
+) -> ExecutionCost {
     match native_function {
         NativeFunctions::Let => cost_binding_list_len(args, epoch),
-        NativeFunctions::If => cost_binding_list_len(args, epoch),
+        NativeFunctions::If => ClarityCostFunction::If
+            .eval_for_epoch(0, epoch)
+            .unwrap_or_else(|_| ExecutionCost::ZERO),
         NativeFunctions::TupleCons => cost_binding_list_len(args, epoch),
         NativeFunctions::ContractCall => contract_call_cost(args, epoch),
         NativeFunctions::ListCons => cost_list_cons(args, epoch),
@@ -25,15 +35,14 @@ pub fn get_cost_for_special_function(native_function: NativeFunctions, args: &[S
         NativeFunctions::DeleteEntry => cost_delete_entry(args, epoch),
         NativeFunctions::Print => cost_print(args, epoch),
         NativeFunctions::ToAscii => cost_to_ascii(args, epoch),
-        NativeFunctions::CmpGeq | NativeFunctions::CmpLeq | NativeFunctions::CmpGreater | NativeFunctions::CmpLess => {
-            cost_comparison(native_function, args, epoch)
-        },
+        NativeFunctions::CmpGeq
+        | NativeFunctions::CmpLeq
+        | NativeFunctions::CmpGreater
+        | NativeFunctions::CmpLess => cost_comparison(native_function, args, epoch, user_args),
         NativeFunctions::MintAsset => cost_mint_asset(args, epoch),
-        native_function => {
-            ClarityCostFunction::from_native_function(native_function).eval_for_epoch(args.len() as u64, epoch).unwrap_or_else(|_| {
-                ExecutionCost::ZERO
-            })
-        }
+        native_function => ClarityCostFunction::from_native_function(native_function)
+            .eval_for_epoch(args.len() as u64, epoch)
+            .unwrap_or_else(|_| ExecutionCost::ZERO),
     }
 }
 
@@ -54,9 +63,9 @@ pub fn contract_call_cost(args: &[SymbolicExpression], epoch: StacksEpochId) -> 
         // parameter types, not argument sizes. However, the base contract-call cost itself
         // is static and doesn't depend on arguments - the cost function ignores the parameter.
         // The runtime also passes 0 here (see special_contract_call in database.rs:70).
-        ClarityCostFunction::ContractCall.eval_for_epoch(0, epoch).unwrap_or_else(|_| {
-            ExecutionCost::ZERO
-        })
+        ClarityCostFunction::ContractCall
+            .eval_for_epoch(0, epoch)
+            .unwrap_or_else(|_| ExecutionCost::ZERO)
     } else {
         // After epoch 3.3, use actual argument sizes
         // Extract literal values from args[2..] and sum their sizes
@@ -74,17 +83,21 @@ pub fn contract_call_cost(args: &[SymbolicExpression], epoch: StacksEpochId) -> 
             }
         }
 
-        ClarityCostFunction::ContractCall.eval_for_epoch(total_size, epoch).unwrap_or_else(|_| {
-            ExecutionCost::ZERO
-        })
+        ClarityCostFunction::ContractCall
+            .eval_for_epoch(total_size, epoch)
+            .unwrap_or_else(|_| ExecutionCost::ZERO)
     }
 }
 
 pub fn cost_binding_list_len(args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    let binding_len = args.get(0).and_then(|e| e.match_list()).map(|binding_list| binding_list.len() as u64).unwrap_or(0);
-    ClarityCostFunction::Let.eval_for_epoch(binding_len, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    let binding_len = args
+        .get(0)
+        .and_then(|e| e.match_list())
+        .map(|binding_list| binding_list.len() as u64)
+        .unwrap_or(0);
+    ClarityCostFunction::Let
+        .eval_for_epoch(binding_len, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // ListCons cost is based on sum of argument sizes
@@ -97,15 +110,16 @@ pub fn cost_list_cons(args: &[SymbolicExpression], epoch: StacksEpochId) -> Exec
             }
         }
     }
-    ClarityCostFunction::ListCons.eval_for_epoch(total_size, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::ListCons
+        .eval_for_epoch(total_size, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // TupleGet cost is based on tuple length
 // For static analysis, we try to extract the tuple from args[1] if it's a literal
 pub fn cost_tuple_get(args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    let tuple_len = args.get(1)
+    let tuple_len = args
+        .get(1)
         .and_then(|arg| arg.match_atom_value().or_else(|| arg.match_literal_value()))
         .and_then(|value| {
             if let Value::Tuple(tuple_data) = value {
@@ -115,15 +129,16 @@ pub fn cost_tuple_get(args: &[SymbolicExpression], epoch: StacksEpochId) -> Exec
             }
         })
         .unwrap_or(0);
-    ClarityCostFunction::TupleGet.eval_for_epoch(tuple_len, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::TupleGet
+        .eval_for_epoch(tuple_len, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // Append cost is based on max of entry type size and element type size
 // For static analysis, we try to extract sizes from literal values
 pub fn cost_append(args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    let size = args.get(0)
+    let size = args
+        .get(0)
         .and_then(|arg| arg.match_atom_value().or_else(|| arg.match_literal_value()))
         .and_then(|seq_value| {
             args.get(1)
@@ -136,9 +151,9 @@ pub fn cost_append(args: &[SymbolicExpression], epoch: StacksEpochId) -> Executi
                 })
         })
         .unwrap_or(0);
-    ClarityCostFunction::Append.eval_for_epoch(size, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::Append
+        .eval_for_epoch(size, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // Concat cost is based on sum of sequence sizes
@@ -176,24 +191,29 @@ pub fn cost_concat(args: &[SymbolicExpression], epoch: StacksEpochId) -> Executi
             })
             .unwrap_or(0)
     };
-    ClarityCostFunction::Concat.eval_for_epoch(size, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::Concat
+        .eval_for_epoch(size, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // Slice cost is based on (right_position - left_position) * element_size
 // For static analysis, we try to extract positions from args
 pub fn cost_slice(args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    let size = args.get(1)
+    let size = args
+        .get(1)
         .and_then(|arg| arg.match_atom_value().or_else(|| arg.match_literal_value()))
         .and_then(|left_val| {
             args.get(2)
                 .and_then(|arg| arg.match_atom_value().or_else(|| arg.match_literal_value()))
                 .and_then(|right_val| {
                     args.get(0)
-                        .and_then(|arg| arg.match_atom_value().or_else(|| arg.match_literal_value()))
+                        .and_then(|arg| {
+                            arg.match_atom_value().or_else(|| arg.match_literal_value())
+                        })
                         .and_then(|seq_val| {
-                            if let (Value::UInt(left), Value::UInt(right), Value::Sequence(seq)) = (left_val, right_val, seq_val) {
+                            if let (Value::UInt(left), Value::UInt(right), Value::Sequence(seq)) =
+                                (left_val, right_val, seq_val)
+                            {
                                 if right >= left {
                                     let slice_len = (right - left) as u64;
                                     let elem_size = seq.element_size().ok()? as u64;
@@ -208,14 +228,15 @@ pub fn cost_slice(args: &[SymbolicExpression], epoch: StacksEpochId) -> Executio
                 })
         })
         .unwrap_or(0);
-    ClarityCostFunction::Slice.eval_for_epoch(size, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::Slice
+        .eval_for_epoch(size, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // ReplaceAt cost is based on sequence type size
 pub fn cost_replace_at(args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    let size = args.get(0)
+    let size = args
+        .get(0)
         .and_then(|arg| arg.match_atom_value().or_else(|| arg.match_literal_value()))
         .and_then(|seq_val| {
             if let Value::Sequence(seq) = seq_val {
@@ -226,85 +247,92 @@ pub fn cost_replace_at(args: &[SymbolicExpression], epoch: StacksEpochId) -> Exe
             }
         })
         .unwrap_or(0);
-    ClarityCostFunction::ReplaceAt.eval_for_epoch(size, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::ReplaceAt
+        .eval_for_epoch(size, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // FetchVar cost is epoch-dependent: v200 uses type size, v205 uses actual result size
 // TODO
 pub fn cost_fetch_var(_args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    ClarityCostFunction::FetchVar.eval_for_epoch(0, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::FetchVar
+        .eval_for_epoch(0, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // SetVar cost is epoch-dependent and uses result size
 // TODO
 pub fn cost_set_var(_args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    ClarityCostFunction::SetVar.eval_for_epoch(0, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::SetVar
+        .eval_for_epoch(0, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // FetchEntry cost is epoch-dependent and uses result size
 // TODO
 pub fn cost_fetch_entry(_args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
     // Static analysis can't determine actual stored size, so we use 0 as fallback
-    ClarityCostFunction::FetchEntry.eval_for_epoch(0, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::FetchEntry
+        .eval_for_epoch(0, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // SetEntry cost is epoch-dependent and uses result size
 // TODO
 pub fn cost_set_entry(_args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    ClarityCostFunction::SetEntry.eval_for_epoch(0, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::SetEntry
+        .eval_for_epoch(0, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // InsertEntry cost is epoch-dependent and uses result size
 // Note: InsertEntry uses SetEntry cost function
 pub fn cost_insert_entry(_args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    ClarityCostFunction::SetEntry.eval_for_epoch(0, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::SetEntry
+        .eval_for_epoch(0, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // DeleteEntry cost is epoch-dependent and uses result size
 // Note: DeleteEntry uses SetEntry cost function
 pub fn cost_delete_entry(_args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    ClarityCostFunction::SetEntry.eval_for_epoch(0, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::SetEntry
+        .eval_for_epoch(0, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // Print cost is based on input size
 pub fn cost_print(args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    let size = args.get(0)
+    let size = args
+        .get(0)
         .and_then(|arg| arg.match_atom_value().or_else(|| arg.match_literal_value()))
         .and_then(|value| value.size().ok().map(|s| s as u64))
         .unwrap_or(0);
-    ClarityCostFunction::Print.eval_for_epoch(size, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::Print
+        .eval_for_epoch(size, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // ToAscii cost is based on value size
 pub fn cost_to_ascii(args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    let size = args.get(0)
+    let size = args
+        .get(0)
         .and_then(|arg| arg.match_atom_value().or_else(|| arg.match_literal_value()))
         .and_then(|value| value.size().ok().map(|s| s as u64))
         .unwrap_or(0);
-    ClarityCostFunction::ToAscii.eval_for_epoch(size, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::ToAscii
+        .eval_for_epoch(size, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // Comparison functions (Geq, Leq, Ge, Le) are epoch-dependent:
 // v1 uses args.len(), v2 uses min(a.size(), b.size())
-pub fn cost_comparison(native_function: NativeFunctions, args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
+pub fn cost_comparison(
+    native_function: NativeFunctions,
+    args: &[SymbolicExpression],
+    epoch: StacksEpochId,
+    user_args: Option<&UserArgumentsContext>,
+) -> ExecutionCost {
     let clarity_version = ClarityVersion::default_for_epoch(epoch);
     let cost_fn = match native_function {
         NativeFunctions::CmpGeq => ClarityCostFunction::Geq,
@@ -316,35 +344,47 @@ pub fn cost_comparison(native_function: NativeFunctions, args: &[SymbolicExpress
 
     let size = if clarity_version >= ClarityVersion::Clarity2 {
         // v2 min(a.size(), b.size())
-        args.get(0)
-            .and_then(|arg| arg.match_atom_value().or_else(|| arg.match_literal_value()))
-            .and_then(|a| {
-                args.get(1)
-                    .and_then(|arg| arg.match_atom_value().or_else(|| arg.match_literal_value()))
-                    .and_then(|b| {
-                        let size_a = a.size().ok()? as u64;
-                        let size_b = b.size().ok()? as u64;
-                        Some(std::cmp::min(size_a, size_b))
-                    })
-            })
-            .unwrap_or(args.len() as u64) // fallback to args.len()
+        // Helper function to get size from an argument (literal value or variable type)
+        let get_arg_size = |arg: &SymbolicExpression| -> Option<u64> {
+            // Try literal value first
+            if let Some(value) = arg.match_atom_value().or_else(|| arg.match_literal_value()) {
+                value.size().ok().map(|s| s as u64)
+            } else if let Some(var_name) = arg.match_atom() {
+                // Try to get type from user_args
+                user_args
+                    .and_then(|ua| ua.get_argument_type(var_name))
+                    .and_then(|type_sig| type_sig.size().ok().map(|s| s as u64))
+            } else {
+                None
+            }
+        };
+
+        // Try to get sizes from literal values first, then from variable types
+        let size_a = args.get(0).and_then(get_arg_size);
+        let size_b = args.get(1).and_then(get_arg_size);
+
+        match (size_a, size_b) {
+            (Some(a), Some(b)) => std::cmp::min(a, b),
+            _ => args.len() as u64, // fallback to args.len()
+        }
     } else {
         // v1
         args.len() as u64
     };
 
-    cost_fn.eval_for_epoch(size, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    cost_fn
+        .eval_for_epoch(size, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }
 
 // MintAsset cost is based on asset_size
 pub fn cost_mint_asset(args: &[SymbolicExpression], epoch: StacksEpochId) -> ExecutionCost {
-    let size = args.get(2)
+    let size = args
+        .get(2)
         .and_then(|arg| arg.match_atom_value().or_else(|| arg.match_literal_value()))
         .and_then(|asset_value| asset_value.size().ok().map(|s| s as u64))
         .unwrap_or(0);
-    ClarityCostFunction::NftMint.eval_for_epoch(size, epoch).unwrap_or_else(|_| {
-        ExecutionCost::ZERO
-    })
+    ClarityCostFunction::NftMint
+        .eval_for_epoch(size, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO)
 }

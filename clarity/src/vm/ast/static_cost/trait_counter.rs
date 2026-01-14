@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use clarity_types::representations::ClarityName;
-use clarity_types::types::Value;
+use clarity_types::types::signatures::CallableSubtype;
 
 use crate::vm::ast::static_cost::{CostAnalysisNode, CostExprNode};
 use crate::vm::costs::analysis::is_function_definition;
 use crate::vm::functions::NativeFunctions;
-use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use crate::vm::types::{SequenceSubtype, TypeSignature};
 
 type MinMaxTraitCount = (u64, u64);
 pub type TraitCount = HashMap<String, MinMaxTraitCount>;
@@ -40,24 +40,21 @@ impl TraitCountContext {
     }
 }
 
-/// Extract the list size multiplier from a list expression (for map/filter/fold operations)
-/// Expects a list in the form `(list <size>)` where size is an integer literal
-fn extract_list_multiplier(list: &[SymbolicExpression]) -> (u64, u64) {
-    if list.is_empty() {
-        return (1, 1);
-    }
-
-    let is_list_atom = list[0]
-        .match_atom()
-        .map(|a| a.as_str() == "list")
-        .unwrap_or(false);
-    if !is_list_atom || list.len() < 2 {
-        return (1, 1);
-    }
-
-    match &list[1].expr {
-        SymbolicExpressionType::LiteralValue(Value::Int(value)) => (0, *value as u64),
-        _ => (1, 1),
+/// Extract the list size multiplier from a TypeSignature (for map/filter/fold operations)
+/// Returns (min, max) where min is 0 if the list has a fixed size, 1 otherwise
+fn extract_list_multiplier_from_type(type_sig: &TypeSignature) -> (u64, u64) {
+    if let TypeSignature::SequenceType(SequenceSubtype::ListType(list_data)) = type_sig {
+        let max_len = list_data.get_max_len() as u64;
+        // If max_len is 0, it's an empty list, so multiplier is (0, 0)
+        // Otherwise, use (0, max_len) to indicate a fixed-size list
+        if max_len == 0 {
+            (0, 0)
+        } else {
+            (0, max_len)
+        }
+    } else {
+        // Not a list type, use default multiplier
+        (1, 1)
     }
 }
 
@@ -99,7 +96,7 @@ pub trait TraitCountVisitor {
         &mut self,
         node: &CostAnalysisNode,
         arg_name: &ClarityName,
-        arg_type: &SymbolicExpressionType,
+        arg_type: &TypeSignature,
         context: &TraitCountContext,
     );
     fn visit_native_function(
@@ -175,12 +172,19 @@ impl TraitCountVisitor for TraitCountCollector {
         &mut self,
         _node: &CostAnalysisNode,
         arg_name: &ClarityName,
-        arg_type: &SymbolicExpressionType,
+        arg_type: &TypeSignature,
         _context: &TraitCountContext,
     ) {
-        if let SymbolicExpressionType::TraitReference(name, _) = arg_type {
-            self.trait_names
-                .insert(arg_name.clone(), name.clone().to_string());
+        // Check if this is a trait type (either CallableType::Trait or TraitReferenceType)
+        let trait_name = match arg_type {
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_id)) => {
+                Some(format!("{}", trait_id.name))
+            }
+            TypeSignature::TraitReferenceType(trait_id) => Some(format!("{}", trait_id.name)),
+            _ => None,
+        };
+        if let Some(name) = trait_name {
+            self.trait_names.insert(arg_name.clone(), name);
         }
     }
 
@@ -194,14 +198,12 @@ impl TraitCountVisitor for TraitCountCollector {
             NativeFunctions::Map | NativeFunctions::Filter | NativeFunctions::Fold => {
                 if node.children.len() > 1 {
                     let list_node = &node.children[1];
-                    let multiplier =
-                        if let CostExprNode::UserArgument(_, SymbolicExpressionType::List(list)) =
-                            &list_node.expr
-                        {
-                            extract_list_multiplier(list)
-                        } else {
-                            (1, 1)
-                        };
+                    let multiplier = match &list_node.expr {
+                        CostExprNode::UserArgument(_name, list_type) => {
+                            extract_list_multiplier_from_type(list_type)
+                        }
+                        _ => (1, 1),
+                    };
                     let new_context = context.with_multiplier(multiplier);
                     for child in &node.children {
                         self.visit(child, &new_context);
@@ -304,7 +306,7 @@ impl<'a> TraitCountVisitor for TraitCountPropagator<'a> {
         &mut self,
         _node: &CostAnalysisNode,
         _arg_name: &ClarityName,
-        _arg_type: &SymbolicExpressionType,
+        _arg_type: &TypeSignature,
         _context: &TraitCountContext,
     ) {
         // No propagation needed for arguments
@@ -320,14 +322,12 @@ impl<'a> TraitCountVisitor for TraitCountPropagator<'a> {
             NativeFunctions::Map | NativeFunctions::Filter | NativeFunctions::Fold => {
                 if node.children.len() > 1 {
                     let list_node = &node.children[1];
-                    let multiplier =
-                        if let CostExprNode::UserArgument(_, SymbolicExpressionType::List(list)) =
-                            &list_node.expr
-                        {
-                            extract_list_multiplier(list)
-                        } else {
-                            (1, 1)
-                        };
+                    let multiplier = match &list_node.expr {
+                        CostExprNode::UserArgument(_name, list_type) => {
+                            extract_list_multiplier_from_type(list_type)
+                        }
+                        _ => (1, 1),
+                    };
 
                     // Process the function being called in map/filter/fold
                     let mut skip_first_child = false;

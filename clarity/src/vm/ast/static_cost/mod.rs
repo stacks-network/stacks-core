@@ -12,13 +12,12 @@ use crate::vm::callables::CallableType;
 use crate::vm::costs::analysis::{
     CostAnalysisNode, CostExprNode, StaticCost, SummingExecutionCost,
 };
-use crate::vm::costs::cost_functions::linear;
+use crate::vm::costs::cost_functions::{linear, ClarityCostFunction};
 use crate::vm::costs::ExecutionCost;
 use crate::vm::errors::VmExecutionError;
-use crate::vm::functions::{lookup_reserved_functions, NativeFunctions};
+use crate::vm::functions::{lookup_reserved_functions, special_costs, NativeFunctions};
 use crate::vm::representations::ClarityName;
 use crate::vm::{ClarityVersion, Value};
-use crate::vm::functions::special_costs;
 
 const STRING_COST_BASE: u64 = 36;
 const STRING_COST_MULTIPLIER: u64 = 3;
@@ -93,39 +92,59 @@ pub(crate) fn calculate_value_cost(value: &Value) -> Result<StaticCost, String> 
     }
 }
 
+/// Add lookup function cost to an execution cost
+/// This cost is charged when looking up native functions during expression evaluation
+fn add_lookup_cost(mut cost: ExecutionCost, epoch: StacksEpochId) -> ExecutionCost {
+    let lookup_cost = ClarityCostFunction::LookupFunction
+        .eval_for_epoch(0, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO);
+    cost.add(&lookup_cost).ok();
+    cost
+}
+
 pub(crate) fn calculate_function_cost_from_native_function(
     native_function: NativeFunctions,
     arg_count: u64,
     args: &[SymbolicExpression],
     epoch: StacksEpochId,
+    user_args: Option<&crate::vm::costs::analysis::UserArgumentsContext>,
 ) -> Result<StaticCost, String> {
     // Derive clarity_version from epoch for lookup_reserved_functions
     let clarity_version = ClarityVersion::default_for_epoch(epoch);
+
     match lookup_reserved_functions(native_function.to_string().as_str(), &clarity_version) {
         Some(CallableType::NativeFunction(_, _, cost_fn)) => {
             let cost = cost_fn
                 .eval_for_epoch(arg_count, epoch)
                 .map_err(|e| format!("Cost calculation error: {:?}", e))?;
+            let cost_with_lookup = add_lookup_cost(cost, epoch);
             Ok(StaticCost {
-                min: cost.clone(),
-                max: cost,
+                min: cost_with_lookup.clone(),
+                max: cost_with_lookup,
             })
         }
         Some(CallableType::NativeFunction205(_, _, cost_fn, _)) => {
             let cost = cost_fn
                 .eval_for_epoch(arg_count, epoch)
                 .map_err(|e| format!("Cost calculation error: {:?}", e))?;
+            let cost_with_lookup = add_lookup_cost(cost, epoch);
             Ok(StaticCost {
-                min: cost.clone(),
-                max: cost,
+                min: cost_with_lookup.clone(),
+                max: cost_with_lookup,
             })
         }
         Some(CallableType::SpecialFunction(_, _)) => {
-                let cost = special_costs::get_cost_for_special_function(native_function, args, epoch);
-                Ok(StaticCost {
-                    min: cost.clone(),
-                    max: cost,
-                })
+            let cost = special_costs::get_cost_for_special_function(
+                native_function,
+                args,
+                epoch,
+                user_args,
+            );
+            let cost_with_lookup = add_lookup_cost(cost, epoch);
+            Ok(StaticCost {
+                min: cost_with_lookup.clone(),
+                max: cost_with_lookup,
+            })
         }
         Some(CallableType::UserFunction(_)) => Ok(StaticCost::ZERO), // TODO ?
         None => Ok(StaticCost::ZERO),
@@ -186,14 +205,51 @@ pub(crate) fn calculate_total_cost_with_branching(node: &CostAnalysisNode) -> Su
             }
         }
     } else {
-        // For non-branching, add all costs sequentially
+        // For non-branching, recursively process children (which may be branching)
         let mut total_cost = node.cost.min.clone();
+        eprintln!(
+            "[STATIC_COST] Non-branching: starting with node cost {}",
+            total_cost.runtime
+        );
+        let mut has_branching_children = false;
         for child_cost_node in &node.children {
-            let child_summing = calculate_total_cost_with_summing(child_cost_node);
-            let combined_cost = child_summing.add_all();
-            let _ = total_cost.add(&combined_cost);
+            // Recursively call calculate_total_cost_with_branching on children
+            // so that branching children (like If) are handled correctly
+            let child_summing = calculate_total_cost_with_branching(child_cost_node);
+
+            if is_node_branching(child_cost_node) {
+                // For branching children, preserve all paths by combining each path
+                // with the current total_cost
+                has_branching_children = true;
+                for child_path_cost in &child_summing.costs {
+                    let mut combined_path = total_cost.clone();
+                    let _ = combined_path.add(child_path_cost);
+                    summing_cost.add_cost(combined_path);
+                }
+                // Update total_cost to the max child path for sequential addition with remaining children
+                let child_static_cost: StaticCost = child_summing.into();
+                let _ = total_cost.add(&child_static_cost.max);
+            } else {
+                // For non-branching children, add sequentially
+                let child_static_cost: StaticCost = child_summing.into();
+                let combined_cost = child_static_cost.max;
+                eprintln!(
+                    "[STATIC_COST] Non-branching: adding child cost {} (child node type: {:?})",
+                    combined_cost.runtime,
+                    format!("{:?}", child_cost_node.expr)
+                );
+                let _ = total_cost.add(&combined_cost);
+            }
         }
-        summing_cost.add_cost(total_cost);
+        eprintln!(
+            "[STATIC_COST] Non-branching: final total {}",
+            total_cost.runtime
+        );
+        // Only add total_cost if we didn't have any branching children
+        // (if we had branching children, we already added all paths above)
+        if !has_branching_children {
+            summing_cost.add_cost(total_cost);
+        }
     }
 
     summing_cost
