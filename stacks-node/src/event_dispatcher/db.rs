@@ -154,21 +154,21 @@ impl EventDispatcherDbConnection {
     }
 
     /// The initial schema of the database when this code was first created
-    const INITIAL_SCHEMA: u32 = 0;
+    const DB_VERSION_INITIAL_SCHEMA: u32 = 0;
     /// The `payload`` column type changed from TEXT to BLOB
-    const PAYLOAD_IS_BLOB: u32 = 1;
+    const DB_VERSION_PAYLOAD_IS_BLOB: u32 = 1;
     /// Column `timestamp` and table `db_config` added
-    const VERSIONING_AND_TIMESTAMP_COLUMN: u32 = 2;
+    const DB_VERSION_VERSIONING_AND_TIMESTAMP_COLUMN: u32 = 2;
 
     fn run_necessary_migrations(&mut self) -> Result<(), db_error> {
         let current_schema = self.get_schema_version()?;
 
-        if current_schema < Self::PAYLOAD_IS_BLOB {
+        if current_schema < Self::DB_VERSION_PAYLOAD_IS_BLOB {
             info!("Event observer: migrating pending_payloads.payload from TEXT to BLOB");
             self.migrate_payload_column_to_blob()?;
         }
 
-        if current_schema < Self::VERSIONING_AND_TIMESTAMP_COLUMN {
+        if current_schema < Self::DB_VERSION_VERSIONING_AND_TIMESTAMP_COLUMN {
             info!("Event observer: adding timestamp to pending_payloads");
             self.add_versioning_and_timestamp_column()?;
         }
@@ -197,9 +197,9 @@ impl EventDispatcherDbConnection {
         let payload_is_blob = payload_type.eq_ignore_ascii_case("BLOB");
 
         if payload_is_blob {
-            Ok(Self::PAYLOAD_IS_BLOB)
+            Ok(Self::DB_VERSION_PAYLOAD_IS_BLOB)
         } else {
-            Ok(Self::INITIAL_SCHEMA)
+            Ok(Self::DB_VERSION_INITIAL_SCHEMA)
         }
     }
 
@@ -259,7 +259,7 @@ impl EventDispatcherDbConnection {
         tx.execute("CREATE TABLE db_config (version INTEGER)", [])?;
         tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
-            params![Self::VERSIONING_AND_TIMESTAMP_COLUMN],
+            params![Self::DB_VERSION_VERSIONING_AND_TIMESTAMP_COLUMN],
         )?;
 
         tx.commit()?;
@@ -358,7 +358,7 @@ mod test {
             .expect("db_config was not added");
         assert_eq!(
             version,
-            EventDispatcherDbConnection::VERSIONING_AND_TIMESTAMP_COLUMN,
+            EventDispatcherDbConnection::DB_VERSION_VERSIONING_AND_TIMESTAMP_COLUMN,
             "Unexpected version number. Did you add a migration? Update this test."
         );
 
