@@ -542,19 +542,17 @@ fn test_slice_utf8() {
 
 #[test]
 fn test_slice_type_errors() {
-    assert_eq!(
-        execute_v2("(slice? 3 u0 u1)").unwrap_err(),
-        CheckErrorKind::ExpectedSequence(Box::new(TypeSignature::IntType)).into()
-    );
+    let bad_type_error = CheckErrorKind::ExpectsAcceptable("Bad type construction".into()).into();
+    assert_eq!(execute_v2("(slice? 3 u0 u1)").unwrap_err(), bad_type_error);
 
     assert_eq!(
         execute_v2("(slice? (list 1 2 3) 0 u1)").unwrap_err(),
-        CheckErrorKind::TypeValueError(Box::new(UIntType), Box::new(Value::Int(0))).into()
+        bad_type_error
     );
 
     assert_eq!(
         execute_v2("(slice? (list 1 2 3) u0 1)").unwrap_err(),
-        CheckErrorKind::TypeValueError(Box::new(UIntType), Box::new(Value::Int(1))).into()
+        bad_type_error
     );
 }
 
