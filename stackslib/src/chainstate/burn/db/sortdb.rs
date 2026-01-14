@@ -2667,7 +2667,8 @@ impl SortitionDB {
 
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open index at {}", index_path);
-        let open_opts = MARFOpenOpts::default();
+        let mut open_opts = MARFOpenOpts::default();
+        open_opts.external_blobs = false;
         let marf = MARF::from_path(index_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
         Ok(marf)
