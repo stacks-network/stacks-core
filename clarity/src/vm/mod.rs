@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -66,7 +66,7 @@ pub use crate::vm::contexts::{
 use crate::vm::contexts::{ExecutionTimeTracker, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer,
+    CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
 };
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
@@ -218,10 +218,10 @@ pub fn lookup_function(
 }
 
 fn add_stack_trace(result: &mut Result<Value, VmExecutionError>, env: &Environment) {
-    if let Err(VmExecutionError::Runtime(_, ref mut stack_trace)) = result {
-        if stack_trace.is_none() {
-            stack_trace.replace(env.call_stack.make_stack_trace());
-        }
+    if let Err(VmExecutionError::Runtime(_, stack_trace)) = result
+        && stack_trace.is_none()
+    {
+        stack_trace.replace(env.call_stack.make_stack_trace());
     }
 }
 
@@ -359,7 +359,7 @@ pub fn eval(
             return Err(VmInternalError::BadSymbolicRepresentation(
                 "Unexpected trait reference".into(),
             )
-            .into())
+            .into());
         }
     };
 
@@ -420,9 +420,9 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(value_type.type_size()
-                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
-                    global_context.add_memory(value.size()? as u64)?;
+                    global_context.add_memory(value.size()?.into())?;
 
                     let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type)?;
                     global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &global_context.epoch_id)?;
@@ -436,9 +436,9 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(key_type.type_size()
-                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
                     global_context.add_memory(value_type.type_size()
-                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type)?;
 
@@ -449,7 +449,7 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(TypeSignature::UIntType.type_size()
-                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply)?;
 
@@ -460,7 +460,7 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(asset_type.type_size()
-                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))?.into())?;
 
                     let data_type = global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type)?;
 
@@ -644,8 +644,8 @@ mod test {
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
     use crate::vm::{
-        eval, CallStack, ContractContext, Environment, GlobalContext, LocalContext,
-        SymbolicExpression, Value,
+        CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
+        Value, eval,
     };
 
     #[test]

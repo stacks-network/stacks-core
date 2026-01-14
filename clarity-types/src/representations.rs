@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@ use regex::Regex;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec, read_next, write_next};
 
 use crate::Value;
-use crate::errors::RuntimeError;
+use crate::errors::ClarityTypeError;
 use crate::types::TraitIdentifier;
 
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
@@ -63,20 +63,18 @@ lazy_static! {
 
 guarded_string!(
     ClarityName,
-    "ClarityName",
     CLARITY_NAME_REGEX,
     MAX_STRING_LEN,
-    RuntimeError,
-    RuntimeError::BadNameValue
+    ClarityTypeError,
+    ClarityTypeError::InvalidClarityName
 );
 
 guarded_string!(
     ContractName,
-    "ContractName",
     CONTRACT_NAME_REGEX,
     MAX_STRING_LEN,
-    RuntimeError,
-    RuntimeError::BadNameValue
+    ClarityTypeError,
+    ClarityTypeError::InvalidContractName
 );
 
 impl StacksMessageCodec for ClarityName {

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,6 +16,7 @@
 
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check;
 use crate::vm::ast::build_ast;
@@ -26,7 +27,6 @@ use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, UIntType
 use crate::vm::types::{
     FixedFunction, FunctionType, QualifiedContractIdentifier, TypeSignature, TypeSignatureExt as _,
 };
-use crate::vm::ClarityVersion;
 mod assets;
 mod contracts;
 
@@ -213,7 +213,7 @@ fn test_stx_ops() {
         "(stx-burn? u4 true)",
         "(stx-burn? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(stx-get-balance true)",
-        "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
+        "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
     ];
     let bad_expected = [
         StaticCheckErrorKind::IncorrectArgumentCount(3, 2),
