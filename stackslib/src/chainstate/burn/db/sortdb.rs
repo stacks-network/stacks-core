@@ -2669,15 +2669,30 @@ impl SortitionDB {
         self.marf.sqlite_conn()
     }
 
+    /// Open or create the sortition MARF index database with internal blobs.
+    ///
+    /// This function opens the SQLite-based MARF index at `marf_path`.
+    /// If the index database does not exist, it will be created.
+    /// This index stores all blobs internally within the SQLite database
+    /// (i.e., no separate `.blobs` file).
+    ///
+    /// # Arguments
+    /// * `marf_path` - Path to the MARF SQLite index database.
+    /// * `marf_opts` - Configuration options for opening the MARF.
+    ///
+    /// # Behavior
+    /// Given a `marf_path` such as `burnchain/sortition/marf.sqlite`,
+    /// the MARF blobs are stored internally within the SQLite database.
+    /// This function also enables SQLite foreign key enforcement.
     fn open_index(
-        index_path: &str,
+        marf_path: &str,
         marf_opts: Option<MARFOpenOpts>,
     ) -> Result<MARF<SortitionId>, db_error> {
-        test_debug!("Open index at {}", index_path);
+        test_debug!("Open MARF index at {}", marf_path);
         let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         open_opts.external_blobs = false;
         test_override_marf_compression(&mut open_opts);
-        let marf = MARF::from_path(index_path, open_opts).map_err(|_e| db_error::Corruption)?;
+        let marf = MARF::from_path(marf_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
         Ok(marf)
     }
