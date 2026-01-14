@@ -314,7 +314,7 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let mut event_dispatcher = EventDispatcher::new(Some(config.get_working_dir()));
+        let mut event_dispatcher = EventDispatcher::new(config.get_working_dir());
         for observer in config.events_observers.iter() {
             event_dispatcher.register_observer(observer);
         }

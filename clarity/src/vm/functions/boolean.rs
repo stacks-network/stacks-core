@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,19 +17,18 @@
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_arguments_at_least, CheckErrorKind, VmExecutionError};
+use crate::vm::errors::{CheckErrorKind, VmExecutionError, check_arguments_at_least};
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TypeSignature, Value};
 
-fn type_force_bool(value: &Value) -> Result<bool, VmExecutionError> {
+fn type_force_bool(value: &Value) -> Result<bool, CheckErrorKind> {
     match *value {
         Value::Bool(boolean) => Ok(boolean),
         _ => Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
             Box::new(value.clone()),
-        )
-        .into()),
+        )),
     }
 }
 
