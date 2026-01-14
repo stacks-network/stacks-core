@@ -19,10 +19,10 @@ extern crate stacks_common;
 use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
-use clarity_cli::DEFAULT_CLI_EPOCH;
+use clarity_cli::{DEFAULT_CLI_EPOCH, read_file_or_stdin, read_file_or_stdin_bytes};
 use stacks_inspect::{
     command_contract_hash, command_replay_mock_mining, command_try_mine, command_validate_block,
-    command_validate_block_nakamoto, drain_common_opts,
+    drain_common_opts,
 };
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
@@ -394,12 +394,21 @@ fn main() {
 
     if argv[1] == "decode-tx" {
         if argv.len() < 3 {
-            eprintln!("Usage: {} decode-tx TRANSACTION", argv[0]);
+            eprintln!(
+                "Usage: {} decode-tx <TX_HEX | TX_FILE | - (stdin)>",
+                argv[0]
+            );
             process::exit(1);
         }
 
-        let tx_str = &argv[2];
-        let tx_bytes = hex_bytes(tx_str)
+        let tx_arg = &argv[2];
+        let tx_str = if tx_arg == "-" || std::path::Path::new(tx_arg).exists() {
+            read_file_or_stdin(tx_arg).trim().to_string()
+        } else {
+            // Treat as hex string directly
+            tx_arg.clone()
+        };
+        let tx_bytes = hex_bytes(&tx_str)
             .map_err(|_e| {
                 eprintln!("Failed to decode transaction: must be a hex string");
                 process::exit(1);
@@ -430,13 +439,12 @@ fn main() {
 
     if argv[1] == "decode-block" {
         if argv.len() < 3 {
-            eprintln!("Usage: {} decode-block BLOCK_PATH", argv[0]);
+            eprintln!("Usage: {} decode-block <BLOCK_PATH | - (stdin)>", argv[0]);
             process::exit(1);
         }
 
         let block_path = &argv[2];
-        let block_data =
-            fs::read(block_path).unwrap_or_else(|_| panic!("Failed to open {block_path}"));
+        let block_data = read_file_or_stdin_bytes(block_path);
 
         let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
             .map_err(|_e| {
@@ -451,12 +459,21 @@ fn main() {
 
     if argv[1] == "decode-nakamoto-block" {
         if argv.len() < 3 {
-            eprintln!("Usage: {} decode-nakamoto-block BLOCK_HEX", argv[0]);
+            eprintln!(
+                "Usage: {} decode-nakamoto-block <BLOCK_HEX | HEX_FILE | - (stdin)>",
+                argv[0]
+            );
             process::exit(1);
         }
 
-        let block_hex = &argv[2];
-        let block_data = hex_bytes(block_hex).unwrap_or_else(|_| panic!("Failed to decode hex"));
+        let block_arg = &argv[2];
+        let block_hex = if block_arg == "-" || std::path::Path::new(block_arg).exists() {
+            read_file_or_stdin(block_arg).trim().to_string()
+        } else {
+            // Treat as hex string directly
+            block_arg.clone()
+        };
+        let block_data = hex_bytes(&block_hex).unwrap_or_else(|_| panic!("Failed to decode hex"));
         let block = NakamotoBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
             .map_err(|_e| {
                 eprintln!("Failed to decode block");
@@ -470,11 +487,10 @@ fn main() {
 
     if argv[1] == "decode-net-message" {
         let data: String = argv[2].clone();
-        let buf = if data == "-" {
-            let mut buffer = vec![];
-            io::stdin().read_to_end(&mut buffer).unwrap();
-            buffer
+        let buf = if data == "-" || std::path::Path::new(&data).exists() {
+            read_file_or_stdin_bytes(&data)
         } else {
+            // Parse as JSON array of bytes
             let data: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
             let data_array = data.as_array().unwrap();
             let mut buf = vec![];
@@ -804,15 +820,14 @@ check if the associated microblocks can be downloaded
     if argv[1] == "decode-microblocks" {
         if argv.len() < 3 {
             eprintln!(
-                "Usage: {} decode-microblocks MICROBLOCK_STREAM_PATH",
+                "Usage: {} decode-microblocks <MICROBLOCK_STREAM_PATH | - (stdin)>",
                 argv[0]
             );
             process::exit(1);
         }
 
         let mblock_path = &argv[2];
-        let mblock_data =
-            fs::read(mblock_path).unwrap_or_else(|_| panic!("Failed to open {mblock_path}"));
+        let mblock_data = read_file_or_stdin_bytes(mblock_path);
 
         let mut cursor = io::Cursor::new(&mblock_data);
         let mut debug_cursor = LogReader::from_reader(&mut cursor);
@@ -975,11 +990,6 @@ check if the associated microblocks can be downloaded
         return;
     }
 
-    if argv[1] == "local" {
-        clarity_cli::invoke_command(&format!("{} {}", argv[0], argv[1]), &argv[2..]);
-        return;
-    }
-
     if argv[1] == "deserialize-db" {
         if argv.len() < 4 {
             eprintln!("Usage: {} clarity_sqlite_db [byte-prefix]", &argv[0]);
@@ -1033,7 +1043,7 @@ check if the associated microblocks can be downloaded
     if argv[1] == "post-stackerdb" {
         if argv.len() < 4 {
             eprintln!(
-                "Usage: {} post-stackerdb slot_id slot_version privkey data",
+                "Usage: {} post-stackerdb slot_id slot_version privkey <DATA | DATA_FILE | - (stdin)>",
                 &argv[0]
             );
             process::exit(1);
@@ -1043,11 +1053,10 @@ check if the associated microblocks can be downloaded
         let privkey: String = argv[4].clone();
         let data: String = argv[5].clone();
 
-        let buf = if data == "-" {
-            let mut buffer = vec![];
-            io::stdin().read_to_end(&mut buffer).unwrap();
-            buffer
+        let buf = if data == "-" || std::path::Path::new(&data).exists() {
+            read_file_or_stdin_bytes(&data)
         } else {
+            // Use the argument directly as data
             data.as_bytes().to_vec()
         };
 
@@ -1226,7 +1235,7 @@ check if the associated microblocks can be downloaded
     if argv[1] == "shadow-chainstate-patch" {
         if argv.len() < 5 {
             eprintln!(
-                "Usage: {} shadow-chainstate-patch CHAINSTATE_DIR NETWORK SHADOW_BLOCKS_PATH.JSON",
+                "Usage: {} shadow-chainstate-patch CHAINSTATE_DIR NETWORK <SHADOW_BLOCKS.JSON | - (stdin)>",
                 &argv[0]
             );
             process::exit(1);
@@ -1237,10 +1246,7 @@ check if the associated microblocks can be downloaded
         let shadow_blocks_json_path = argv[4].as_str();
 
         let shadow_blocks_hex = {
-            let mut blocks_json_file =
-                File::open(shadow_blocks_json_path).expect("Unable to open file");
-            let mut buffer = vec![];
-            blocks_json_file.read_to_end(&mut buffer).unwrap();
+            let buffer = read_file_or_stdin_bytes(shadow_blocks_json_path);
             let shadow_blocks_hex: Vec<String> = serde_json::from_slice(&buffer).unwrap();
             shadow_blocks_hex
         };
@@ -1587,11 +1593,6 @@ check if the associated microblocks can be downloaded
 
     if argv[1] == "validate-block" {
         command_validate_block(&argv[1..], common_opts.config.as_ref());
-        process::exit(0);
-    }
-
-    if argv[1] == "validate-naka-block" {
-        command_validate_block_nakamoto(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 

@@ -11,6 +11,16 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
 - Added the `events` array to readonly endpoints output.
+- Improved block validation in `stacks-inspect`.
+
+### Changed
+
+- Removed `validate-naka-block` option in `stacks-inspect`, merging it with `validate-block` so that users do not need to differentiate between the two.
+
+### Fixed
+
+- When mining, do not try to extend (or initiate) a tenure that did not commit to the ongoing chain tip (see #6744)
+- When mock-mining, retry when hitting the `ParentNotFound` error. This can happen at the beginning of a new tenure, but should resolve with retries.
 
 ## [3.3.0.0.2]
 
