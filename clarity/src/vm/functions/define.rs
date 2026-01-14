@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,15 +19,15 @@ use std::collections::BTreeMap;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, CommonCheckErrorKind,
-    SyntaxBindingErrorType, VmExecutionError,
+    CheckErrorKind, CommonCheckErrorKind, SyntaxBindingErrorType, VmExecutionError,
+    check_argument_count, check_arguments_at_least,
 };
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
-    parse_name_type_pairs, TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value,
+    TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value, parse_name_type_pairs,
 };
 
 define_named_enum!(DefineFunctions {
@@ -111,9 +111,9 @@ pub enum DefineResult {
 fn check_legal_define(
     name: &str,
     contract_context: &ContractContext,
-) -> Result<(), VmExecutionError> {
+) -> Result<(), CheckErrorKind> {
     if contract_context.is_name_used(name) {
-        Err(CheckErrorKind::NameAlreadyUsed(name.to_string()).into())
+        Err(CheckErrorKind::NameAlreadyUsed(name.to_string()))
     } else {
         Ok(())
     }
@@ -401,7 +401,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                     .match_atom()
                     .ok_or(CommonCheckErrorKind::ExpectedName)?;
                 match &args[1].expr {
-                    Field(ref field) => DefineFunctionsParsed::UseTrait {
+                    Field(field) => DefineFunctionsParsed::UseTrait {
                         name,
                         trait_identifier: field,
                     },
@@ -411,7 +411,7 @@ impl<'a> DefineFunctionsParsed<'a> {
             DefineFunctions::ImplTrait => {
                 check_argument_count(1, args)?;
                 match &args[0].expr {
-                    Field(ref field) => DefineFunctionsParsed::ImplTrait {
+                    Field(field) => DefineFunctionsParsed::ImplTrait {
                         trait_identifier: field,
                     },
                     _ => return Err(CommonCheckErrorKind::ExpectedTraitIdentifier),
@@ -477,10 +477,10 @@ pub fn evaluate_define(
 
 #[cfg(test)]
 mod test {
+    use clarity_types::Value;
     use clarity_types::errors::CheckErrorKind;
     use clarity_types::representations::SymbolicExpression;
     use clarity_types::types::QualifiedContractIdentifier;
-    use clarity_types::{Value, VmExecutionError};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
@@ -489,6 +489,7 @@ mod test {
     use crate::vm::contexts::GlobalContext;
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
+    use crate::vm::errors::VmExecutionError;
     use crate::vm::functions::define::{handle_define_function, handle_define_trait};
     use crate::vm::tests::test_clarity_versions;
     use crate::vm::{CallStack, ClarityVersion, ContractContext, Environment, LocalContext};

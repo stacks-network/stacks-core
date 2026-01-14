@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,7 @@
 use std::{error, fmt};
 
 use crate::diagnostic::{DiagnosableError, Diagnostic};
-use crate::errors::CostErrors;
+use crate::errors::{ClarityTypeError, CostErrors};
 use crate::execution_cost::ExecutionCost;
 use crate::representations::SymbolicExpression;
 use crate::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
@@ -193,19 +193,14 @@ pub enum CommonCheckErrorKind {
     TypeSignatureTooDeep,
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
     ExpectedName,
-    /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
-    /// This error indicates a transaction would invalidate a block if included.
-    SupertypeTooLarge,
 
     // Unexpected interpreter behavior
     /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    /// This error indicates a transaction would invalidate a block if included.
-    Expects(String),
-
-    // Type mismatch errors
-    /// Expected type does not match the actual type during analysis.
-    /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
-    TypeError(Box<TypeSignature>, Box<TypeSignature>),
+    ExpectsRejectable(String),
+    // Unexpected interpreter behavior
+    /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
+    /// This error does NOT indicate a transaction would invalidate a block if included.
+    ExpectsAcceptable(String),
 
     /// Type description is invalid or malformed, preventing proper type-checking.
     InvalidTypeDescription,
@@ -287,13 +282,15 @@ pub enum StaticCheckErrorKind {
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
     ExpectedName,
     /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
-    /// This error indicates a transaction would invalidate a block if included.
     SupertypeTooLarge,
 
     // Unexpected interpreter behavior
     /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    /// This error indicates a transaction would invalidate a block if included.
-    Expects(String),
+    ExpectsRejectable(String),
+    // Unexpected interpreter behavior
+    /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
+    /// This error does NOT indicate a transaction would invalidate a block if included.
+    ExpectsAcceptable(String),
 
     // Match expression errors
     /// Invalid syntax in an `option` match expression.
@@ -600,13 +597,13 @@ pub enum CheckErrorKind {
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
     ExpectedName,
     /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
-    /// This error indicates a transaction would invalidate a block if included.
     SupertypeTooLarge,
 
     // Unexpected interpreter behavior
-    /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    /// This error indicates a transaction would invalidate a block if included.
-    Expects(String),
+    /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
+    ExpectsRejectable(String),
+    /// Unexpected condition or failure in the type-checker, indicating a noncatastrophic bug or invalid state.
+    ExpectsAcceptable(String),
 
     // Match expression errors
     /// Invalid syntax in an `option` match expression.
@@ -759,8 +756,10 @@ pub enum CheckErrorKind {
     NonFunctionApplication,
     /// Expected a list application but found a different expression.
     ExpectedListApplication,
-    /// Expected a sequence type (e.g., list, buffer) but found a different type.
-    /// The `Box<TypeSignature>` wraps the actual type provided.
+    /// Expected a sequence type (e.g., list, buffer) but encountered a non-sequence value.
+    ///
+    /// The boxed [`TypeSignature`] represents the **actual type provided**, if known.
+    /// If the type could not be determined, this will be [`TypeSignature::NoType`].
     ExpectedSequence(Box<TypeSignature>),
 
     // Let syntax
@@ -863,7 +862,7 @@ impl CheckErrorKind {
     pub fn rejectable(&self) -> bool {
         matches!(
             self,
-            CheckErrorKind::SupertypeTooLarge | CheckErrorKind::Expects(_)
+            CheckErrorKind::SupertypeTooLarge | CheckErrorKind::ExpectsRejectable(_)
         )
     }
 }
@@ -873,7 +872,7 @@ impl StaticCheckErrorKind {
     pub fn rejectable(&self) -> bool {
         matches!(
             self,
-            StaticCheckErrorKind::SupertypeTooLarge | StaticCheckErrorKind::Expects(_)
+            StaticCheckErrorKind::SupertypeTooLarge | StaticCheckErrorKind::ExpectsRejectable(_)
         )
     }
 }
@@ -909,6 +908,60 @@ impl StaticCheckError {
     }
 }
 
+impl From<ClarityTypeError> for StaticCheckErrorKind {
+    fn from(err: ClarityTypeError) -> Self {
+        match err {
+            ClarityTypeError::ValueTooLarge => Self::ValueTooLarge,
+            ClarityTypeError::TypeSignatureTooDeep => Self::TypeSignatureTooDeep,
+            ClarityTypeError::ValueOutOfBounds => Self::ValueOutOfBounds,
+            ClarityTypeError::DuplicateTupleField(name) => Self::NameAlreadyUsed(name),
+            ClarityTypeError::NoSuchTupleField(field, tuple_sig) => {
+                Self::NoSuchTupleField(field, tuple_sig)
+            }
+            ClarityTypeError::TypeMismatch(expected, found) => Self::TypeError(expected, found),
+            ClarityTypeError::EmptyTuplesNotAllowed => Self::EmptyTuplesNotAllowed,
+            ClarityTypeError::SupertypeTooLarge => Self::SupertypeTooLarge,
+            ClarityTypeError::InvalidTypeDescription => Self::InvalidTypeDescription,
+            ClarityTypeError::InvalidUrlString(_)
+            | ClarityTypeError::InvalidClarityName(_)
+            | ClarityTypeError::InvalidContractName(_)
+            | ClarityTypeError::QualifiedContractEmptyIssuer
+            | ClarityTypeError::QualifiedContractMissingDot
+            | ClarityTypeError::InvalidPrincipalEncoding(_)
+            | ClarityTypeError::InvalidPrincipalLength(_)
+            | ClarityTypeError::ListTypeMismatch
+            | ClarityTypeError::SequenceElementArityMismatch { .. }
+            | ClarityTypeError::ExpectedSequenceValue
+            | ClarityTypeError::TypeMismatchValue(_, _)
+            | ClarityTypeError::ResponseTypeMismatch { .. }
+            | ClarityTypeError::InvalidAsciiCharacter(_)
+            | ClarityTypeError::InvalidUtf8Encoding => Self::ExpectsAcceptable(format!(
+                "Unexpected error type during static analysis: {err}"
+            )),
+            ClarityTypeError::InvariantViolation(_)
+            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::ExpectsRejectable(format!(
+                "Unexpected error type during static analysis: {err}"
+            )),
+            ClarityTypeError::CouldNotDetermineSerializationType => {
+                Self::CouldNotDetermineSerializationType
+            }
+            ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
+            ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
+                Self::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
+            }
+            ClarityTypeError::UnsupportedEpoch(epoch) => {
+                Self::ExpectsRejectable(format!("{epoch} is not supported"))
+            }
+        }
+    }
+}
+
+impl From<ClarityTypeError> for StaticCheckError {
+    fn from(err: ClarityTypeError) -> Self {
+        StaticCheckErrorKind::from(err).into()
+    }
+}
+
 impl From<(CommonCheckErrorKind, &SymbolicExpression)> for StaticCheckError {
     fn from(e: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         Self::with_expression(e.0.into(), e.1)
@@ -930,6 +983,96 @@ impl From<(CommonCheckErrorKind, &SymbolicExpression)> for CommonCheckErrorKind 
 impl From<(CommonCheckErrorKind, &SymbolicExpression)> for CheckErrorKind {
     fn from(e: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         e.0.into()
+    }
+}
+
+impl From<ClarityTypeError> for CheckErrorKind {
+    fn from(err: ClarityTypeError) -> Self {
+        match err {
+            ClarityTypeError::ValueTooLarge => Self::ValueTooLarge,
+            ClarityTypeError::TypeSignatureTooDeep => Self::TypeSignatureTooDeep,
+            ClarityTypeError::ValueOutOfBounds => Self::ValueOutOfBounds,
+            ClarityTypeError::DuplicateTupleField(name) => Self::NameAlreadyUsed(name),
+            ClarityTypeError::NoSuchTupleField(field, tuple_sig) => {
+                Self::NoSuchTupleField(field, tuple_sig)
+            }
+            ClarityTypeError::TypeMismatchValue(ty, value) => Self::TypeValueError(ty, value),
+            ClarityTypeError::TypeMismatch(expected, found) => Self::TypeError(expected, found),
+            ClarityTypeError::EmptyTuplesNotAllowed => Self::EmptyTuplesNotAllowed,
+            ClarityTypeError::SupertypeTooLarge => Self::SupertypeTooLarge,
+            ClarityTypeError::InvalidTypeDescription => Self::InvalidTypeDescription,
+            ClarityTypeError::ListTypeMismatch => Self::ListTypesMustMatch,
+            ClarityTypeError::InvalidAsciiCharacter(_) => Self::InvalidCharactersDetected,
+            ClarityTypeError::InvalidUtf8Encoding => Self::InvalidUTF8Encoding,
+            ClarityTypeError::ExpectedSequenceValue
+            | ClarityTypeError::SequenceElementArityMismatch { .. }
+            | ClarityTypeError::CouldNotDetermineSerializationType
+            | ClarityTypeError::InvalidUrlString(_)
+            | ClarityTypeError::InvalidClarityName(_)
+            | ClarityTypeError::InvalidContractName(_)
+            | ClarityTypeError::QualifiedContractEmptyIssuer
+            | ClarityTypeError::QualifiedContractMissingDot
+            | ClarityTypeError::InvalidPrincipalEncoding(_)
+            | ClarityTypeError::InvalidPrincipalLength(_)
+            | ClarityTypeError::ResponseTypeMismatch { .. } => Self::ExpectsAcceptable(format!(
+                "Unexpected error type during runtime analysis: {err}"
+            )),
+            ClarityTypeError::InvariantViolation(_)
+            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::ExpectsRejectable(format!(
+                "Unexpected error type during runtime analysis: {err}"
+            )),
+            ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
+            ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
+                Self::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
+            }
+            ClarityTypeError::UnsupportedEpoch(epoch) => {
+                Self::ExpectsRejectable(format!("{epoch} is not supported"))
+            }
+        }
+    }
+}
+
+impl From<ClarityTypeError> for CommonCheckErrorKind {
+    fn from(err: ClarityTypeError) -> Self {
+        match err {
+            ClarityTypeError::ValueTooLarge => Self::ValueTooLarge,
+            ClarityTypeError::TypeSignatureTooDeep => Self::TypeSignatureTooDeep,
+            ClarityTypeError::ValueOutOfBounds => Self::ValueOutOfBounds,
+            ClarityTypeError::DuplicateTupleField(name) => Self::NameAlreadyUsed(name),
+            ClarityTypeError::EmptyTuplesNotAllowed => Self::EmptyTuplesNotAllowed,
+            ClarityTypeError::InvalidTypeDescription => Self::InvalidTypeDescription,
+            ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
+            ClarityTypeError::ListTypeMismatch
+            | ClarityTypeError::TypeMismatch(_, _)
+            | ClarityTypeError::SequenceElementArityMismatch { .. }
+            | ClarityTypeError::ExpectedSequenceValue
+            | ClarityTypeError::InvalidAsciiCharacter(_)
+            | ClarityTypeError::InvalidUtf8Encoding
+            | ClarityTypeError::NoSuchTupleField(_, _)
+            | ClarityTypeError::TypeMismatchValue(_, _)
+            | ClarityTypeError::CouldNotDetermineSerializationType
+            | ClarityTypeError::InvalidUrlString(_)
+            | ClarityTypeError::InvalidClarityName(_)
+            | ClarityTypeError::InvalidContractName(_)
+            | ClarityTypeError::QualifiedContractEmptyIssuer
+            | ClarityTypeError::QualifiedContractMissingDot
+            | ClarityTypeError::InvalidPrincipalEncoding(_)
+            | ClarityTypeError::InvalidPrincipalLength(_)
+            | ClarityTypeError::ResponseTypeMismatch { .. } => Self::ExpectsAcceptable(format!(
+                "Unexpected but acceptable error type during analysis: {err}"
+            )),
+            ClarityTypeError::SupertypeTooLarge
+            | ClarityTypeError::InvariantViolation(_)
+            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::ExpectsRejectable(format!(
+                "Unexpected and unacceptable error type during analysis: {err}"
+            )),
+            ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
+                Self::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
+            }
+            ClarityTypeError::UnsupportedEpoch(epoch) => {
+                Self::ExpectsRejectable(format!("{epoch} is not supported"))
+            }
+        }
     }
 }
 
@@ -983,10 +1126,10 @@ impl From<CostErrors> for StaticCheckErrorKind {
             CostErrors::CostContractLoadFailure => {
                 StaticCheckErrorKind::CostComputationFailed("Failed to load cost contract".into())
             }
-            CostErrors::InterpreterFailure => StaticCheckErrorKind::Expects(
+            CostErrors::InterpreterFailure => StaticCheckErrorKind::ExpectsRejectable(
                 "Unexpected interpreter failure in cost computation".into(),
             ),
-            CostErrors::Expect(s) => StaticCheckErrorKind::Expects(s),
+            CostErrors::Expect(s) => StaticCheckErrorKind::ExpectsRejectable(s),
             CostErrors::ExecutionTimeExpired => StaticCheckErrorKind::ExecutionTimeExpired,
         }
     }
@@ -1002,10 +1145,10 @@ impl From<CostErrors> for CheckErrorKind {
             CostErrors::CostContractLoadFailure => {
                 CheckErrorKind::CostComputationFailed("Failed to load cost contract".into())
             }
-            CostErrors::InterpreterFailure => {
-                CheckErrorKind::Expects("Unexpected interpreter failure in cost computation".into())
-            }
-            CostErrors::Expect(s) => CheckErrorKind::Expects(s),
+            CostErrors::InterpreterFailure => CheckErrorKind::ExpectsRejectable(
+                "Unexpected interpreter failure in cost computation".into(),
+            ),
+            CostErrors::Expect(s) => CheckErrorKind::ExpectsRejectable(s),
             CostErrors::ExecutionTimeExpired => CheckErrorKind::ExecutionTimeExpired,
         }
     }
@@ -1025,10 +1168,10 @@ impl From<CostErrors> for CommonCheckErrorKind {
             CostErrors::CostContractLoadFailure => {
                 CommonCheckErrorKind::CostComputationFailed("Failed to load cost contract".into())
             }
-            CostErrors::InterpreterFailure => CommonCheckErrorKind::Expects(
+            CostErrors::InterpreterFailure => CommonCheckErrorKind::ExpectsRejectable(
                 "Unexpected interpreter failure in cost computation".into(),
             ),
-            CostErrors::Expect(s) => CommonCheckErrorKind::Expects(s),
+            CostErrors::Expect(s) => CommonCheckErrorKind::ExpectsRejectable(s),
             CostErrors::ExecutionTimeExpired => CommonCheckErrorKind::ExecutionTimeExpired,
         }
     }
@@ -1097,7 +1240,8 @@ impl From<CommonCheckErrorKind> for CheckErrorKind {
             CommonCheckErrorKind::ExpectedTraitIdentifier => {
                 CheckErrorKind::ExpectedTraitIdentifier
             }
-            CommonCheckErrorKind::Expects(s) => CheckErrorKind::Expects(s),
+            CommonCheckErrorKind::ExpectsRejectable(s) => CheckErrorKind::ExpectsRejectable(s),
+            CommonCheckErrorKind::ExpectsAcceptable(s) => CheckErrorKind::ExpectsAcceptable(s),
             CommonCheckErrorKind::CouldNotDetermineType => CheckErrorKind::CouldNotDetermineType,
             CommonCheckErrorKind::ValueTooLarge => CheckErrorKind::ValueTooLarge,
             CommonCheckErrorKind::TypeSignatureTooDeep => CheckErrorKind::TypeSignatureTooDeep,
@@ -1111,8 +1255,6 @@ impl From<CommonCheckErrorKind> for CheckErrorKind {
                 CheckErrorKind::DefineTraitBadSignature
             }
             CommonCheckErrorKind::InvalidTypeDescription => CheckErrorKind::InvalidTypeDescription,
-            CommonCheckErrorKind::SupertypeTooLarge => CheckErrorKind::SupertypeTooLarge,
-            CommonCheckErrorKind::TypeError(a, b) => CheckErrorKind::TypeError(a, b),
             CommonCheckErrorKind::BadSyntaxBinding(e) => CheckErrorKind::BadSyntaxBinding(e),
             CommonCheckErrorKind::ValueOutOfBounds => CheckErrorKind::ValueOutOfBounds,
             CommonCheckErrorKind::EmptyTuplesNotAllowed => CheckErrorKind::EmptyTuplesNotAllowed,
@@ -1157,7 +1299,12 @@ impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
             CommonCheckErrorKind::ExpectedTraitIdentifier => {
                 StaticCheckErrorKind::ExpectedTraitIdentifier
             }
-            CommonCheckErrorKind::Expects(s) => StaticCheckErrorKind::Expects(s),
+            CommonCheckErrorKind::ExpectsRejectable(s) => {
+                StaticCheckErrorKind::ExpectsRejectable(s)
+            }
+            CommonCheckErrorKind::ExpectsAcceptable(s) => {
+                StaticCheckErrorKind::ExpectsAcceptable(s)
+            }
             CommonCheckErrorKind::CouldNotDetermineType => {
                 StaticCheckErrorKind::CouldNotDetermineType
             }
@@ -1177,8 +1324,6 @@ impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
             CommonCheckErrorKind::InvalidTypeDescription => {
                 StaticCheckErrorKind::InvalidTypeDescription
             }
-            CommonCheckErrorKind::SupertypeTooLarge => StaticCheckErrorKind::SupertypeTooLarge,
-            CommonCheckErrorKind::TypeError(a, b) => StaticCheckErrorKind::TypeError(a, b),
             CommonCheckErrorKind::BadSyntaxBinding(e) => StaticCheckErrorKind::BadSyntaxBinding(e),
             CommonCheckErrorKind::ValueOutOfBounds => StaticCheckErrorKind::ValueOutOfBounds,
             CommonCheckErrorKind::EmptyTuplesNotAllowed => {
@@ -1258,7 +1403,8 @@ impl DiagnosableError for StaticCheckErrorKind {
     fn message(&self) -> String {
         match &self {
             StaticCheckErrorKind::SupertypeTooLarge => "supertype of two types is too large".into(),
-            StaticCheckErrorKind::Expects(s) => format!("unexpected interpreter behavior: {s}"),
+            StaticCheckErrorKind::ExpectsRejectable(s) => format!("unexpected and unacceptable interpreter behavior: {s}"),
+            StaticCheckErrorKind::ExpectsAcceptable(s) => format!("unexpected but acceptable interpreter behaviour: {s}"),
             StaticCheckErrorKind::BadMatchOptionSyntax(source) =>
                 format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
                         source.message()),

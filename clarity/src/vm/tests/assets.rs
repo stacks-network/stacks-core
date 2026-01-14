@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,15 +24,15 @@ use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 #[cfg(test)]
 use crate::vm::{
+    ContractContext,
     contexts::AssetMapEntry,
     errors::{CheckErrorKind, RuntimeError},
     tests::{
-        execute, is_committed, is_err_code, symbols_from_values, tl_env_factory as env_factory,
-        TopLevelMemoryEnvironmentGenerator,
+        TopLevelMemoryEnvironmentGenerator, execute, is_committed, is_err_code,
+        symbols_from_values, tl_env_factory as env_factory,
     },
     types::AssetIdentifier,
     version::ClarityVersion,
-    ContractContext,
 };
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)

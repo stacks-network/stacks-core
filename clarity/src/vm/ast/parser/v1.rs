@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,13 +18,13 @@ use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use stacks_common::util::hash::hex_bytes;
 
+use crate::vm::MAX_CALL_STACK_DEPTH;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use crate::vm::representations::{
-    ClarityName, ContractName, PreSymbolicExpression, MAX_STRING_LEN,
+    ClarityName, ContractName, MAX_STRING_LEN, PreSymbolicExpression,
 };
 use crate::vm::types::{PrincipalData, TraitIdentifier, Value};
-use crate::vm::MAX_CALL_STACK_DEPTH;
 
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
@@ -201,14 +201,14 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
     let mut nesting_depth = 0;
 
     while did_match && munch_index < input.len() {
-        if let Some(next_line_ix) = next_line_break {
-            if munch_index > next_line_ix {
-                next_line_break = line_indices.pop();
-                column_pos = 1;
-                current_line = current_line
-                    .checked_add(1)
-                    .ok_or(ParseError::new(ParseErrorKind::ProgramTooLarge))?;
-            }
+        if let Some(next_line_ix) = next_line_break
+            && munch_index > next_line_ix
+        {
+            next_line_break = line_indices.pop();
+            column_pos = 1;
+            current_line = current_line
+                .checked_add(1)
+                .ok_or(ParseError::new(ParseErrorKind::ProgramTooLarge))?;
         }
 
         did_match = false;
@@ -506,7 +506,7 @@ fn handle_expression(
         // no open lists on stack, add current to outputs.
         None => outputs.push(expr),
         // there's an open list or tuple on the stack.
-        Some((ref mut list, _, _, _)) => list.push(ParseStackItem::Expression(expr)),
+        Some((list, _, _, _)) => list.push(ParseStackItem::Expression(expr)),
     }
 }
 
@@ -686,7 +686,7 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
             LexItem::ColonSeparator => {
                 match parse_stack.last_mut() {
                     None => return Err(ParseError::new(ParseErrorKind::ColonSeparatorUnexpected)),
-                    Some((ref mut list, ..)) => {
+                    Some((list, ..)) => {
                         list.push(ParseStackItem::Colon);
                     }
                 };
@@ -694,7 +694,7 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
             LexItem::CommaSeparator => {
                 match parse_stack.last_mut() {
                     None => return Err(ParseError::new(ParseErrorKind::CommaSeparatorUnexpected)),
-                    Some((ref mut list, ..)) => {
+                    Some((list, ..)) => {
                         list.push(ParseStackItem::Comma);
                     }
                 };
@@ -738,7 +738,7 @@ mod test {
     use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use crate::vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
     use crate::vm::types::{CharType, PrincipalData, SequenceData, Value};
-    use crate::vm::{ast, MAX_CALL_STACK_DEPTH};
+    use crate::vm::{MAX_CALL_STACK_DEPTH, ast};
 
     fn make_atom(
         x: &str,
