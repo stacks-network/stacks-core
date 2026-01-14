@@ -1593,7 +1593,6 @@ impl StacksChainState {
 
             let payer_address = payer_account.principal.clone();
             let payer_nonce = payer_account.nonce;
-
             StacksChainState::pay_transaction_fee(&mut transaction, fee, payer_account)?;
 
             // origin balance may have changed (e.g. if the origin paid the tx fee), so reload the account
