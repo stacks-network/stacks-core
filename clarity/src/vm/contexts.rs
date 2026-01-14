@@ -202,6 +202,7 @@ impl AssetMap {
 /// EventBatchHook defines an interface for hooks to execute before and/or after each event push.
 pub trait EventBatchHook {
     fn on_push(&mut self, event: &StacksTransactionEvent);
+    fn on_rollback(&mut self, event_batch: &EventBatch, reason: RollbackReason);
 }
 
 #[derive(Debug, Clone, Default)]
@@ -717,7 +718,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 Ok((return_value, asset_map, event_batch.events))
             }
             Err(e) => {
-                self.context.roll_back()?;
+                self.context.roll_back(RollbackReason::VmError)?;
                 Err(e)
             }
         }
@@ -1056,7 +1057,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             .database
             .get_contract(contract_identifier)
             .or_else(|e| {
-                self.global_context.roll_back()?;
+                self.global_context.roll_back(RollbackReason::VmError)?;
                 Err(e)
             })?;
 
@@ -1073,7 +1074,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             eval(&parsed[0], &mut nested_env, &local_context)
         };
 
-        self.global_context.roll_back()?;
+        self.global_context.roll_back(if result.is_ok() {
+            RollbackReason::Readonly
+        } else {
+            RollbackReason::VmError
+        })?;
 
         result
     }
@@ -1271,7 +1276,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         };
 
         if make_read_only {
-            self.global_context.roll_back()?;
+            self.global_context.roll_back(if result.is_ok() {
+                RollbackReason::Readonly
+            } else {
+                RollbackReason::VmError
+            })?;
             result
         } else {
             self.global_context.handle_tx_result(result, allow_private)
@@ -1303,7 +1312,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 result
             });
 
-        self.global_context.roll_back()?;
+        self.global_context.roll_back(if result.is_ok() {
+            RollbackReason::Readonly
+        } else {
+            RollbackReason::VmError
+        })?;
 
         result
     }
@@ -1392,7 +1405,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 Ok(())
             }
             Err(e) => {
-                self.global_context.roll_back()?;
+                self.global_context.roll_back(RollbackReason::VmError)?;
                 Err(e)
             }
         }
@@ -1418,12 +1431,12 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                     Ok(value)
                 }
                 Err(_) => {
-                    self.global_context.roll_back()?;
+                    self.global_context.roll_back(RollbackReason::VmError)?;
                     Err(VmInternalError::InsufficientBalance.into())
                 }
             },
             Err(e) => {
-                self.global_context.roll_back()?;
+                self.global_context.roll_back(RollbackReason::VmError)?;
                 Err(e)
             }
         }
@@ -1442,7 +1455,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 Ok(ret)
             }
             Err(e) => {
-                self.global_context.roll_back()?;
+                self.global_context.roll_back(RollbackReason::VmError)?;
                 Err(e)
             }
         }
@@ -1639,6 +1652,14 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum RollbackReason {
+    // normal rollback for readonly calls
+    Readonly,
+    // caused by an error
+    VmError,
+}
+
 impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     // Instantiate a new Global Context
     pub fn new(
@@ -1748,7 +1769,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     {
         self.begin();
         let result = f(self).or_else(|e| {
-            self.roll_back()?;
+            self.roll_back(RollbackReason::VmError)?;
             Err(e)
         })?;
         self.commit()?;
@@ -1785,7 +1806,11 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             );
             f(&mut exec_env)
         };
-        self.roll_back()?;
+        self.roll_back(if result.is_ok() {
+            RollbackReason::Readonly
+        } else {
+            RollbackReason::VmError
+        })?;
 
         match result {
             Ok(return_value) => Ok(return_value),
@@ -1857,7 +1882,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         Ok((out_map, out_batch))
     }
 
-    pub fn roll_back(&mut self) -> Result<(), VmExecutionError> {
+    pub fn roll_back(&mut self, reason: RollbackReason) -> Result<(), VmExecutionError> {
         let popped = self.asset_maps.pop();
         if popped.is_none() {
             return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
@@ -1866,8 +1891,17 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         if popped.is_none() {
             return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
         }
+
         let popped = self.event_batches.pop();
-        if popped.is_none() {
+        if let Some((event_batch, _size)) = popped {
+            if let Some(event_batch_hooks) = &mut self.event_batch_hooks {
+                event_batch_hooks.iter_mut().for_each(|event_batch_hook| {
+                    event_batch_hook
+                        .borrow_mut()
+                        .on_rollback(&event_batch, reason.clone())
+                });
+            }
+        } else {
             return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
         }
 
@@ -1887,7 +1921,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 if data.committed {
                     self.commit()?;
                 } else {
-                    self.roll_back()?;
+                    self.roll_back(RollbackReason::VmError)?;
                 }
                 Ok(Value::Response(data))
             } else if allow_private && cfg!(feature = "devtools") {
@@ -1900,7 +1934,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 .into())
             }
         } else {
-            self.roll_back()?;
+            self.roll_back(RollbackReason::VmError)?;
             result
         }
     }

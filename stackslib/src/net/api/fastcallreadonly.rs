@@ -221,7 +221,13 @@ impl StacksHttpRequest {
                 serde_json::to_value(CallReadOnlyRequestBody {
                     sender: sender.to_string(),
                     sponsor: sponsor.map(|s| s.to_string()),
-                    arguments: function_args.into_iter().map(|v| v.to_string()).collect(),
+                    arguments: function_args
+                        .into_iter()
+                        .map(|v| {
+                            v.serialize_to_hex()
+                                .expect("FATAL: failed to deserialize argument")
+                        })
+                        .collect(),
                 })
                 .expect("FATAL: failed to encode infallible data"),
             ),

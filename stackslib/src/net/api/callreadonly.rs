@@ -20,7 +20,7 @@ use std::rc::Rc;
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::contexts::EventBatchHook;
+use clarity::vm::contexts::{EventBatch, EventBatchHook, RollbackReason};
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::errors::VmExecutionError::Unchecked;
 use clarity::vm::events::StacksTransactionEvent;
@@ -90,6 +90,17 @@ struct RPCCallReadOnlyEventsCollector {
 impl EventBatchHook for RPCCallReadOnlyEventsCollector {
     fn on_push(&mut self, event: &StacksTransactionEvent) {
         self.events.push(event.clone());
+    }
+
+    fn on_rollback(&mut self, event_batch: &EventBatch, reason: RollbackReason) {
+        match reason {
+            RollbackReason::VmError => {
+                // let's remove the last N events from the list (this is safe as we are appending all of the events with on_push)
+                let new_len = self.events.len().saturating_sub(event_batch.events.len());
+                self.events.truncate(new_len);
+            }
+            RollbackReason::Readonly => (),
+        }
     }
 }
 
@@ -432,7 +443,13 @@ impl StacksHttpRequest {
                 serde_json::to_value(CallReadOnlyRequestBody {
                     sender: sender.to_string(),
                     sponsor: sponsor.map(|s| s.to_string()),
-                    arguments: function_args.into_iter().map(|v| v.to_string()).collect(),
+                    arguments: function_args
+                        .into_iter()
+                        .map(|v| {
+                            v.serialize_to_hex()
+                                .expect("FATAL: failed to deserialize argument")
+                        })
+                        .collect(),
                 })
                 .expect("FATAL: failed to encode infallible data"),
             ),

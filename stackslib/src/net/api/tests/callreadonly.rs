@@ -191,7 +191,22 @@ fn test_try_make_response() {
             .to_account_principal(),
         None,
         "printer".try_into().unwrap(),
-        vec![],
+        vec![clarity::vm::Value::Bool(false)],
+        TipRequest::UseLatestAnchoredTip,
+    );
+    requests.push(request);
+
+    // call function generating events but rolling them back
+    let request = StacksHttpRequest::new_callreadonlyfunction(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R")
+            .unwrap()
+            .to_account_principal(),
+        None,
+        "printer".try_into().unwrap(),
+        vec![clarity::vm::Value::Bool(true)],
         TipRequest::UseLatestAnchoredTip,
     );
     requests.push(request);
@@ -294,7 +309,7 @@ fn test_try_make_response() {
 
     let events = resp.events.unwrap();
 
-    assert_eq!(events.len(), 7);
+    assert_eq!(events.len(), 10);
     assert_eq!(
         events[0].sender,
         "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world"
@@ -319,6 +334,7 @@ fn test_try_make_response() {
     );
     assert_eq!(events[3].key, "print");
     assert_eq!(events[3].value, "03"); // true
+
     assert_eq!(
         events[4].sender,
         "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world"
@@ -337,4 +353,70 @@ fn test_try_make_response() {
     );
     assert_eq!(events[6].key, "print");
     assert_eq!(events[6].value, "0d0000000471757578"); // "quux"
+
+    assert_eq!(events[7].key, "print");
+    assert_eq!(
+        events[7].value,
+        "0d000000166d617962652d6578656375746573206576656e742031"
+    ); // "maybe-executes event 1"
+
+    assert_eq!(events[8].key, "print");
+    assert_eq!(
+        events[8].value,
+        "0d000000166d617962652d6578656375746573206576656e742032"
+    ); // "maybe-executes event 2"
+
+    assert_eq!(events[9].key, "print");
+    assert_eq!(
+        events[9].value,
+        "0d000000166d617962652d6578656375746573206576656e742033"
+    ); // "maybe-executes event 3"
+
+    // rolled-back events
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let resp = response.decode_call_readonly_response().unwrap();
+
+    assert!(resp.okay);
+    assert!(resp.result.is_some());
+    assert!(resp.cause.is_none());
+
+    // Ok(u1)
+    assert_eq!(
+        resp.result.unwrap(),
+        "0x080100000000000000000000000000000002"
+    );
+
+    let events = resp.events.unwrap();
+
+    assert_eq!(events.len(), 4);
+    assert_eq!(
+        events[0].sender,
+        "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world"
+    );
+    assert_eq!(events[0].key, "print");
+    assert_eq!(events[0].value, "0000000000000000000000000000000064"); // 100
+    assert_eq!(
+        events[1].sender,
+        "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world"
+    );
+
+    assert_eq!(events[1].key, "print");
+    assert_eq!(events[1].value, "01000000000000000000000000000003e8"); // u1000
+    assert_eq!(
+        events[2].sender,
+        "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world"
+    );
+    assert_eq!(events[2].key, "print");
+    assert_eq!(events[2].value, "0d0000000474657374"); // "test"
+    assert_eq!(
+        events[3].sender,
+        "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world"
+    );
+    assert_eq!(events[3].key, "print");
+    assert_eq!(events[3].value, "03"); // true
 }

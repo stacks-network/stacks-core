@@ -202,7 +202,7 @@ fn test_try_make_response() {
     requests.push(request);
 
     // call function generating events
-    let request = StacksHttpRequest::new_callreadonlyfunction(
+    let request = StacksHttpRequest::new_fastcallreadonlyfunction(
         addr.into(),
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
         "hello-world".try_into().unwrap(),
