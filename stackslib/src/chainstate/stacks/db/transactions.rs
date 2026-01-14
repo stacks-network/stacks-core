@@ -564,7 +564,6 @@ impl StacksChainState {
         }
 
         StacksChainState::account_debit(clarity_tx, &payer_account.principal, fee);
-
         Ok(fee)
     }
 
