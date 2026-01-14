@@ -2311,10 +2311,24 @@ paths:
         content:
           application/json:
             schema:
-              type: array
-              items:
-                type: string
-                description: SIP-003-encoded Transaction in hex format
+              type: object
+              properties:
+                transactions_hex:
+                  type: array
+                  items:
+                    type: string
+                    description: SIP-003-encoded Transaction in hex format
+                mint:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      principal:
+                        type: string
+                        description: Principal address receiving STX
+                      amount:
+                        type: integer
+                        description: amount of microSTX to mint for the block simulation
       responses:
         "200":
           description: Content of the simulated block
