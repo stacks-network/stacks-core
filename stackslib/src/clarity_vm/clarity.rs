@@ -117,7 +117,6 @@ pub struct ClarityBlockConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
-    pub no_fees: bool,
 }
 
 ///
@@ -319,7 +318,6 @@ impl ClarityBlockConnection<'_, '_> {
             mainnet: false,
             chain_id: CHAIN_ID_TESTNET,
             epoch,
-            no_fees: false,
         }
     }
 
@@ -446,7 +444,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
-            no_fees: false,
         }
     }
 
@@ -471,7 +468,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
-            no_fees: false,
         }
     }
 
@@ -498,7 +494,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
-            no_fees: false,
         };
 
         let use_mainnet = self.mainnet;
@@ -595,7 +590,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
-            no_fees: false,
         };
 
         let use_mainnet = self.mainnet;
@@ -704,7 +698,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
-            no_fees: false,
         }
     }
 
@@ -745,7 +738,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
-            no_fees: false,
         }
     }
 

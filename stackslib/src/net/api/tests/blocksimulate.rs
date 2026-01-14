@@ -17,6 +17,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::types::chainstate::StacksPrivateKey;
+use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
@@ -41,8 +42,12 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let mut request =
-        StacksHttpRequest::new_block_simulate(addr.into(), &StacksBlockId([0x01; 32]), &vec![]);
+    let mut request = StacksHttpRequest::new_block_simulate(
+        addr.into(),
+        &StacksBlockId([0x01; 32]),
+        &vec![],
+        &vec![],
+    );
 
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
@@ -84,6 +89,7 @@ fn test_try_parse_request_with_profiler() {
         addr.into(),
         &StacksBlockId([0x01; 32]),
         true,
+        &vec![],
         &vec![],
     );
 
@@ -170,10 +176,14 @@ fn test_try_make_response() {
     );
 
     // query existing, non-empty Nakamoto block
-    let mut request = StacksHttpRequest::new_block_simulate_with_no_fees(
+    let mut request = StacksHttpRequest::new_block_simulate(
         addr.clone().into(),
         &rpc_test.canonical_tip,
         &vec![deploy_tx1.clone(), deploy_tx2.clone()],
+        &vec![blocksimulate::RPCNakamotoBlockSimulateMint {
+            principal: PrincipalData::from(&private_key),
+            amount: 3000,
+        }],
     );
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
@@ -184,6 +194,7 @@ fn test_try_make_response() {
         addr.clone().into(),
         &StacksBlockId([0x01; 32]),
         &vec![],
+        &vec![],
     );
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
@@ -193,6 +204,7 @@ fn test_try_make_response() {
     let request = StacksHttpRequest::new_block_simulate(
         addr.clone().into(),
         &StacksBlockId([0x00; 32]),
+        &vec![],
         &vec![],
     );
     requests.push(request);
@@ -348,6 +360,7 @@ fn simulate_block_with_pc_failure() {
         addr.clone().into(),
         &rpc_test.canonical_tip,
         &vec![contract_call],
+        &vec![],
     );
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
@@ -446,10 +459,11 @@ fn test_try_make_response_with_unsuccessful_transaction() {
 
     let mut requests = vec![];
 
-    let mut request = StacksHttpRequest::new_block_simulate_with_no_fees(
+    let mut request = StacksHttpRequest::new_block_simulate(
         addr.clone().into(),
         &rpc_test.canonical_tip,
         &vec![deploy_tx.clone()],
+        &vec![],
     );
     // add the authorization header
     request.add_header("authorization".into(), "password".into());

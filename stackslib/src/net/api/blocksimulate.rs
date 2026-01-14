@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::util::hash::bytes_to_hex;
+use clarity::vm::types::PrincipalData;
 use regex::{Captures, Regex};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::types::chainstate::StacksBlockId;
@@ -33,13 +34,25 @@ use crate::net::http::{
 use crate::net::httpcore::{RPCRequestHandler, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksHttpRequest, StacksNodeState};
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RPCNakamotoBlockSimulateMint {
+    pub principal: PrincipalData,
+    pub amount: u128,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RPCNakamotoBlockSimulateBody {
+    pub mint: Vec<RPCNakamotoBlockSimulateMint>,
+    pub transactions_hex: Vec<String>,
+}
+
 #[derive(Clone)]
 pub struct RPCNakamotoBlockSimulateRequestHandler {
     pub block_id: Option<StacksBlockId>,
     pub auth: Option<String>,
     pub profiler: bool,
-    pub disable_fees: bool,
     pub transactions: Vec<StacksTransaction>,
+    pub mint: Vec<RPCNakamotoBlockSimulateMint>,
 }
 
 impl RPCNakamotoBlockSimulateRequestHandler {
@@ -48,18 +61,20 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             block_id: None,
             auth,
             profiler: false,
-            disable_fees: false,
             transactions: vec![],
+            mint: vec![],
         }
     }
 
-    fn parse_json(body: &[u8]) -> Result<Vec<StacksTransaction>, Error> {
-        let transactions_hex: Vec<String> = serde_json::from_slice(body)
+    fn parse_json(
+        body: &[u8],
+    ) -> Result<(Vec<StacksTransaction>, Vec<RPCNakamotoBlockSimulateMint>), Error> {
+        let block_simulate_body: RPCNakamotoBlockSimulateBody = serde_json::from_slice(body)
             .map_err(|e| Error::DecodeError(format!("Failed to parse body: {e}")))?;
 
         let mut transactions = vec![];
 
-        for tx_hex in transactions_hex {
+        for tx_hex in block_simulate_body.transactions_hex {
             let tx_bytes =
                 hex_bytes(&tx_hex).map_err(|_e| Error::DecodeError("Failed to parse tx".into()))?;
             let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).map_err(|e| {
@@ -72,7 +87,7 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             transactions.push(tx);
         }
 
-        Ok(transactions)
+        Ok((transactions, block_simulate_body.mint))
     }
 
     pub fn block_simulate(
@@ -89,8 +104,22 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             sortdb,
             chainstate,
             self.profiler,
-            self.disable_fees,
             |_| self.transactions.clone(),
+            |tenure_tx| {
+                if !self.mint.is_empty() {
+                    tenure_tx.connection().as_transaction(|tx| {
+                        tx.with_clarity_db(|ref mut db| {
+                            for mint in &self.mint {
+                                let mut balance = db.get_stx_balance_snapshot(&mint.principal)?;
+                                balance.credit(mint.amount)?;
+                                balance.save()?;
+                            }
+                            Ok(())
+                        })
+                    })?;
+                }
+                Ok(())
+            },
         )?;
 
         Ok(rpc_simulated_block)
@@ -148,10 +177,7 @@ impl HttpRequest for RPCNakamotoBlockSimulateRequestHandler {
                 if key == "profiler" {
                     if value == "1" {
                         self.profiler = true;
-                    }
-                } else if key == "disable_fees" {
-                    if value == "1" {
-                        self.disable_fees = true;
+                        break;
                     }
                 }
             }
@@ -169,7 +195,7 @@ impl HttpRequest for RPCNakamotoBlockSimulateRequestHandler {
             ));
         }
 
-        self.transactions = match preamble.content_type {
+        (self.transactions, self.mint) = match preamble.content_type {
             Some(HttpContentType::JSON) => Self::parse_json(body)?,
             Some(_) => {
                 return Err(Error::DecodeError(
@@ -242,17 +268,26 @@ impl StacksHttpRequest {
         host: PeerHost,
         block_id: &StacksBlockId,
         transactions: &Vec<StacksTransaction>,
+        mint: &Vec<RPCNakamotoBlockSimulateMint>,
     ) -> StacksHttpRequest {
         let transactions_hex = transactions
             .iter()
             .map(|transaction| bytes_to_hex(&transaction.serialize_to_vec()))
             .collect();
 
+        let block_simulate_body = RPCNakamotoBlockSimulateBody {
+            mint: mint.clone(),
+            transactions_hex,
+        };
+
         StacksHttpRequest::new_for_peer(
             host,
             "POST".into(),
             format!("/v3/blocks/simulate/{block_id}"),
-            HttpRequestContents::new().payload_json(transactions_hex),
+            HttpRequestContents::new().payload_json(
+                serde_json::to_value(block_simulate_body)
+                    .expect("FATAL: failed to encode RPCNakamotoBlockSimulateBody"),
+            ),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }
@@ -262,11 +297,17 @@ impl StacksHttpRequest {
         block_id: &StacksBlockId,
         profiler: bool,
         transactions: &Vec<StacksTransaction>,
+        mint: &Vec<RPCNakamotoBlockSimulateMint>,
     ) -> StacksHttpRequest {
         let transactions_hex = transactions
             .iter()
             .map(|transaction| bytes_to_hex(&transaction.serialize_to_vec()))
             .collect();
+
+        let block_simulate_body = RPCNakamotoBlockSimulateBody {
+            mint: mint.clone(),
+            transactions_hex,
+        };
         StacksHttpRequest::new_for_peer(
             host,
             "POST".into(),
@@ -276,27 +317,10 @@ impl StacksHttpRequest {
                     "profiler".into(),
                     if profiler { "1".into() } else { "0".into() },
                 )
-                .payload_json(transactions_hex),
-        )
-        .expect("FATAL: failed to construct request from infallible data")
-    }
-
-    pub fn new_block_simulate_with_no_fees(
-        host: PeerHost,
-        block_id: &StacksBlockId,
-        transactions: &Vec<StacksTransaction>,
-    ) -> StacksHttpRequest {
-        let transactions_hex = transactions
-            .iter()
-            .map(|transaction| bytes_to_hex(&transaction.serialize_to_vec()))
-            .collect();
-        StacksHttpRequest::new_for_peer(
-            host,
-            "POST".into(),
-            format!("/v3/blocks/simulate/{block_id}"),
-            HttpRequestContents::new()
-                .query_arg("disable_fees".into(), "1".into())
-                .payload_json(transactions_hex),
+                .payload_json(
+                    serde_json::to_value(block_simulate_body)
+                        .expect("FATAL: failed to encode RPCNakamotoBlockSimulateBody"),
+                ),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }

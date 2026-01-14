@@ -28,7 +28,7 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
@@ -150,16 +150,17 @@ pub struct RPCNakamotoBlockReplayRequestHandler {
     pub profiler: bool,
 }
 
-pub fn remine_nakamoto_block<F>(
+pub fn remine_nakamoto_block<F0, F1>(
     block_id: &StacksBlockId,
     sortdb: &SortitionDB,
     chainstate: &mut StacksChainState,
     enable_profiler: bool,
-    disable_fees: bool,
-    get_transactions: F,
+    get_transactions: F0,
+    before_mining: F1,
 ) -> Result<RPCReplayedBlock, ChainError>
 where
-    F: FnOnce(&NakamotoBlock) -> Vec<StacksTransaction>,
+    F0: FnOnce(&NakamotoBlock) -> Vec<StacksTransaction>,
+    F1: FnOnce(&mut ClarityTx) -> Result<(), ChainError>,
 {
     let Some((tenure_id, parent_block_id)) = chainstate
         .nakamoto_blocks_db()
@@ -250,9 +251,7 @@ where
         Err(e) => return Err(e),
     };
 
-    if disable_fees {
-        tenure_tx.disable_fees();
-    }
+    before_mining(&mut tenure_tx)?;
 
     let mut block_fees: u128 = 0;
     let mut txs_receipts = vec![];
@@ -352,11 +351,11 @@ impl RPCNakamotoBlockReplayRequestHandler {
             sortdb,
             chainstate,
             self.profiler,
-            false,
             |block| {
                 tx_merkle_root = Some(block.header.tx_merkle_root.clone());
                 block.txs.clone()
             },
+            |_| Ok(()),
         )?;
 
         if let Some(tx_merkle_root) = tx_merkle_root {
