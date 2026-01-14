@@ -238,16 +238,16 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v2/contracts/interface/{contract_address}/{contract_name}:
+  /v2/contracts/interface/{deployer_address}/{contract_name}:
     get:
       summary: Get contract interface
-      description: Get contract interface using a `contract_address` and `contract name`
+      description: Get contract interface using a `deployer_address` and `contract name`
       tags:
         - Smart Contracts
       security: []
       operationId: getContractInterface
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - $ref: ./components/parameters/tip.yaml
       responses:
@@ -267,7 +267,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v2/map_entry/{contract_address}/{contract_name}/{map_name}:
+  /v2/map_entry/{deployer_address}/{contract_name}/{map_name}:
     post:
       summary: Get specific data-map inside a contract
       tags:
@@ -291,7 +291,7 @@ paths:
         - `proof`: The hex serialization of the Merkle proof for the data.
 
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: map_name
           in: path
@@ -329,7 +329,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v2/contracts/source/{contract_address}/{contract_name}:
+  /v2/contracts/source/{deployer_address}/{contract_name}:
     get:
       summary: Get contract source
       tags:
@@ -340,7 +340,7 @@ paths:
         Returns the Clarity source code of a given contract, along with the
         block height it was published in, and the MARF proof for the data.
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - $ref: ./components/parameters/proof.yaml
         - $ref: ./components/parameters/tip.yaml
@@ -361,7 +361,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v2/contracts/call-read/{contract_address}/{contract_name}/{function_name}:
+  /v2/contracts/call-read/{deployer_address}/{contract_name}/{function_name}:
     post:
       summary: Call read-only function
       description: |
@@ -379,7 +379,7 @@ paths:
       security: []
       operationId: callReadOnlyFunction
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: function_name
           in: path
@@ -412,7 +412,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v3/contracts/fast-call-read/{contract_address}/{contract_name}/{function_name}:
+  /v3/contracts/fast-call-read/{deployer_address}/{contract_name}/{function_name}:
     post:
       summary: Call read-only function in fast mode (no cost and memory tracking)
       description: |
@@ -433,7 +433,7 @@ paths:
         - rpcAuth: []
       operationId: fastCallReadOnlyFunction
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: function_name
           in: path
@@ -692,7 +692,7 @@ paths:
       parameters:
         - $ref: ./components/parameters/tip.yaml
 
-  /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_contract_name}/{trait_name}:
+  /v2/traits/{deployer_address}/{contract_name}/{trait_deployer_address}/{trait_contract_name}/{trait_name}:
     get:
       summary: Get trait implementation details
       description: |
@@ -703,9 +703,9 @@ paths:
       security: []
       operationId: checkTraitImplementation
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
-        - name: trait_contract_address
+        - name: trait_deployer_address
           in: path
           required: true
           description: |
@@ -781,7 +781,7 @@ paths:
         - $ref: ./components/parameters/proof.yaml
         - $ref: ./components/parameters/tip.yaml
 
-  /v2/clarity/metadata/{contract_address}/{contract_name}/{clarity_metadata_key}:
+  /v2/clarity/metadata/{deployer_address}/{contract_name}/{clarity_metadata_key}:
     get:
       summary: Get the contract metadata for the metadata key
       tags:
@@ -811,7 +811,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: clarity_metadata_key
           in: path
@@ -827,7 +827,7 @@ paths:
             example: analysis
         - $ref: ./components/parameters/tip.yaml
 
-  /v2/constant_val/{contract_address}/{contract_name}/{constant_name}:
+  /v2/constant_val/{deployer_address}/{contract_name}/{constant_name}:
     get:
       summary: Get the value of a constant inside a contract
       tags:
@@ -857,7 +857,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: constant_name
           in: path

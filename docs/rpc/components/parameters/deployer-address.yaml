@@ -1,5 +1,5 @@
 # Deployer address for contract endpoints (standard principal format)
-name: contract_address
+name: deployer_address
 in: path
 required: true
 description: |
