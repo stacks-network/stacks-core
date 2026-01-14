@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,8 +23,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
 
 use super::{ListTypeData, TupleTypeSignature};
-use crate::errors::analysis::StaticCheckErrorKind;
-use crate::errors::{CheckErrorKind, IncomparableError, VmInternalError};
+use crate::errors::{ClarityTypeError, IncomparableError};
 use crate::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::types::{
     BOUND_VALUE_SERIALIZATION_BYTES, BufferLength, CallableData, CharType, MAX_TYPE_DEPTH,
@@ -34,18 +33,18 @@ use crate::types::{
 
 /// Errors that may occur in serialization or deserialization
 /// If deserialization failed because the described type is a bad type and
-///   a CheckErrorKind is thrown, it gets wrapped in BadTypeError.
+///   a ClarityTypeError is thrown, it gets wrapped in BadTypeError.
 /// Any IOErrrors from the supplied buffer will manifest as IOError variants,
 ///   except for EOF -- if the deserialization code experiences an EOF, it is caught
 ///   and rethrown as DeserializationError
 #[derive(Debug, PartialEq)]
 pub enum SerializationError {
     IOError(IncomparableError<std::io::Error>),
-    BadTypeError(CheckErrorKind),
-    DeserializationError(String),
+    BadTypeError(ClarityTypeError),
     DeserializeExpected(Box<TypeSignature>),
     LeftoverBytesInDeserialization,
-    SerializationError(String),
+    SerializationFailure(String),
+    DeserializationFailure(String),
     UnexpectedSerialization,
 }
 
@@ -79,11 +78,11 @@ impl std::fmt::Display for SerializationError {
             SerializationError::BadTypeError(e) => {
                 write!(f, "Deserialization error, bad type, caused by: {e}")
             }
-            SerializationError::DeserializationError(e) => {
-                write!(f, "Deserialization error: {e}")
+            SerializationError::DeserializationFailure(e) => {
+                write!(f, "Deserialization failure: {e}")
             }
-            SerializationError::SerializationError(e) => {
-                write!(f, "Serialization error: {e}")
+            SerializationError::SerializationFailure(e) => {
+                write!(f, "Serialization failure: {e}")
             }
             SerializationError::DeserializeExpected(e) => write!(
                 f,
@@ -119,12 +118,12 @@ impl From<std::io::Error> for SerializationError {
 
 impl From<&str> for SerializationError {
     fn from(e: &str) -> Self {
-        SerializationError::DeserializationError(e.into())
+        SerializationError::DeserializationFailure(e.into())
     }
 }
 
-impl From<CheckErrorKind> for SerializationError {
-    fn from(e: CheckErrorKind) -> Self {
+impl From<ClarityTypeError> for SerializationError {
+    fn from(e: ClarityTypeError) -> Self {
         SerializationError::BadTypeError(e)
     }
 }
@@ -232,7 +231,7 @@ macro_rules! serialize_guarded_string {
                 r.read_exact(&mut len)?;
                 let len = u8::from_be_bytes(len);
                 if len > MAX_STRING_LEN {
-                    return Err(SerializationError::DeserializationError(
+                    return Err(SerializationError::DeserializationFailure(
                         "String too long".to_string(),
                     ));
                 }
@@ -395,7 +394,7 @@ impl TypeSignature {
     /// size of a `(buff 1024*1024)` is `1+1024*1024` because of the
     /// type prefix byte. However, that is 1 byte larger than the maximum
     /// buffer size in Clarity.
-    pub fn max_serialized_size(&self) -> Result<u32, StaticCheckErrorKind> {
+    pub fn max_serialized_size(&self) -> Result<u32, ClarityTypeError> {
         let type_prefix_size = 1;
 
         let max_output_size = match self {
@@ -406,7 +405,7 @@ impl TypeSignature {
                 // `some` or similar with `result` types).  So, when
                 // serializing an object with a `NoType`, the other
                 // branch should always be used.
-                return Err(StaticCheckErrorKind::CouldNotDetermineSerializationType);
+                return Err(ClarityTypeError::CouldNotDetermineSerializationType);
             }
             TypeSignature::IntType => 16,
             TypeSignature::UIntType => 16,
@@ -418,14 +417,14 @@ impl TypeSignature {
                     .get_max_len()
                     .checked_mul(list_type.get_list_item_type().max_serialized_size()?)
                     .and_then(|x| x.checked_add(list_length_encode))
-                    .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)?
+                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::BufferType(buff_length)) => {
                 // u32 length as big-endian bytes
                 let buff_length_encode = 4;
                 u32::from(buff_length)
                     .checked_add(buff_length_encode)
-                    .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)?
+                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
                 length,
@@ -435,7 +434,7 @@ impl TypeSignature {
                 // ascii is 1-byte per character
                 u32::from(length)
                     .checked_add(str_length_encode)
-                    .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)?
+                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
                 length,
@@ -446,7 +445,7 @@ impl TypeSignature {
                 u32::from(length)
                     .checked_mul(4)
                     .and_then(|x| x.checked_add(str_length_encode))
-                    .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)?
+                    .ok_or_else(|| ClarityTypeError::ValueTooLarge)?
             }
             TypeSignature::PrincipalType
             | TypeSignature::CallableType(_)
@@ -469,7 +468,7 @@ impl TypeSignature {
                         .checked_add(1) // length of key-name
                         .and_then(|x| x.checked_add(key.len() as u32)) // ClarityName is ascii-only, so 1 byte per length
                         .and_then(|x| x.checked_add(value_size))
-                        .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)?;
+                        .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
                 }
                 total_size
             }
@@ -478,7 +477,7 @@ impl TypeSignature {
                     Ok(size) => size,
                     // if NoType, then this is just serializing a none
                     // value, which is only the type prefix
-                    Err(StaticCheckErrorKind::CouldNotDetermineSerializationType) => 0,
+                    Err(ClarityTypeError::CouldNotDetermineSerializationType) => 0,
                     Err(e) => return Err(e),
                 }
             }
@@ -486,17 +485,17 @@ impl TypeSignature {
                 let (ok_type, err_type) = response_types.as_ref();
                 let (ok_type_max_size, no_ok_type) = match ok_type.max_serialized_size() {
                     Ok(size) => (size, false),
-                    Err(StaticCheckErrorKind::CouldNotDetermineSerializationType) => (0, true),
+                    Err(ClarityTypeError::CouldNotDetermineSerializationType) => (0, true),
                     Err(e) => return Err(e),
                 };
                 let err_type_max_size = match err_type.max_serialized_size() {
                     Ok(size) => size,
-                    Err(StaticCheckErrorKind::CouldNotDetermineSerializationType) => {
+                    Err(ClarityTypeError::CouldNotDetermineSerializationType) => {
                         if no_ok_type {
                             // if both the ok type and the error type are NoType,
-                            //  throw a StaticCheckErrorKind. This should not be possible, but the check
+                            //  throw a ClarityTypeError. This should not be possible, but the check
                             //  is done out of caution.
-                            return Err(StaticCheckErrorKind::CouldNotDetermineSerializationType);
+                            return Err(ClarityTypeError::CouldNotDetermineSerializationType);
                         } else {
                             0
                         }
@@ -506,13 +505,13 @@ impl TypeSignature {
                 cmp::max(ok_type_max_size, err_type_max_size)
             }
             TypeSignature::ListUnionType(_) => {
-                return Err(StaticCheckErrorKind::CouldNotDetermineSerializationType);
+                return Err(ClarityTypeError::CouldNotDetermineSerializationType);
             }
         };
 
         max_output_size
             .checked_add(type_prefix_size)
-            .ok_or_else(|| StaticCheckErrorKind::ValueTooLarge)
+            .ok_or_else(|| ClarityTypeError::ValueTooLarge)
     }
 }
 
@@ -584,7 +583,7 @@ impl Value {
                 UNSANITIZED_DEPTH_CHECK
             };
             if stack.len() > depth_check {
-                return Err(CheckErrorKind::TypeSignatureTooDeep.into());
+                return Err(ClarityTypeError::TypeSignatureTooDeep.into());
             }
 
             #[allow(clippy::expect_used)]
@@ -613,8 +612,7 @@ impl Value {
                 TypePrefix::Buffer => {
                     let mut buffer_len = [0; 4];
                     r.read_exact(&mut buffer_len)?;
-                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))
-                        .map_err(CheckErrorKind::from)?;
+                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))?;
                     if let Some(x) = &expected_type {
                         let passed_test = match x {
                             TypeSignature::SequenceType(SequenceSubtype::BufferType(
@@ -768,7 +766,7 @@ impl Value {
                     let expected_len = u64::from(len);
 
                     if len > MAX_VALUE_SIZE {
-                        return Err(SerializationError::DeserializationError(
+                        return Err(SerializationError::DeserializationFailure(
                             "Illegal tuple type".to_string(),
                         ));
                     }
@@ -845,8 +843,7 @@ impl Value {
                 TypePrefix::StringASCII => {
                     let mut buffer_len = [0; 4];
                     r.read_exact(&mut buffer_len)?;
-                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))
-                        .map_err(CheckErrorKind::from)?;
+                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))?;
 
                     if let Some(x) = &expected_type {
                         let passed_test = match x {
@@ -871,8 +868,7 @@ impl Value {
                 TypePrefix::StringUTF8 => {
                     let mut total_len = [0; 4];
                     r.read_exact(&mut total_len)?;
-                    let total_len = BufferLength::try_from(u32::from_be_bytes(total_len))
-                        .map_err(CheckErrorKind::from)?;
+                    let total_len = BufferLength::try_from(u32::from_be_bytes(total_len))?;
 
                     let mut data: Vec<u8> = vec![0; u32::from(total_len) as usize];
 
@@ -1034,7 +1030,7 @@ impl Value {
             }
         }
 
-        Err(SerializationError::DeserializationError(
+        Err(SerializationError::DeserializationFailure(
             "Invalid data: stack ran out before finishing parsing".into(),
         ))
     }
@@ -1069,7 +1065,7 @@ impl Value {
             Sequence(List(data)) => {
                 let len_bytes = data
                     .len()
-                    .map_err(|e| SerializationError::SerializationError(e.to_string()))?
+                    .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?
                     .to_be_bytes();
                 w.write_all(&len_bytes)?;
                 for item in data.data.iter() {
@@ -1080,7 +1076,7 @@ impl Value {
                 let len_bytes = u32::from(
                     value
                         .len()
-                        .map_err(|e| SerializationError::SerializationError(e.to_string()))?,
+                        .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?,
                 )
                 .to_be_bytes();
                 w.write_all(&len_bytes)?;
@@ -1097,7 +1093,7 @@ impl Value {
                 let len_bytes = u32::from(
                     value
                         .len()
-                        .map_err(|e| SerializationError::SerializationError(e.to_string()))?,
+                        .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?,
                 )
                 .to_be_bytes();
                 w.write_all(&len_bytes)?;
@@ -1105,7 +1101,7 @@ impl Value {
             }
             Tuple(data) => {
                 let len_bytes = u32::try_from(data.data_map.len())
-                    .map_err(|e| SerializationError::SerializationError(e.to_string()))?
+                    .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?
                     .to_be_bytes();
                 w.write_all(&len_bytes)?;
                 for (key, value) in data.data_map.iter() {
@@ -1186,7 +1182,7 @@ impl Value {
     pub fn serialized_size(&self) -> Result<u32, SerializationError> {
         let mut counter = WriteCounter { count: 0 };
         self.serialize_write(&mut counter).map_err(|_| {
-            SerializationError::DeserializationError(
+            SerializationError::DeserializationFailure(
                 "Error: Failed to count serialization length of Clarity value".into(),
             )
         })?;
@@ -1218,15 +1214,14 @@ impl Write for WriteCounter {
 }
 
 impl Value {
-    pub fn serialize_to_vec(&self) -> Result<Vec<u8>, VmInternalError> {
+    pub fn serialize_to_vec(&self) -> Result<Vec<u8>, SerializationError> {
         let mut byte_serialization = Vec::new();
-        self.serialize_write(&mut byte_serialization)
-            .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?;
+        self.serialize_write(&mut byte_serialization)?;
         Ok(byte_serialization)
     }
 
     /// This does *not* perform any data sanitization
-    pub fn serialize_to_hex(&self) -> Result<String, VmInternalError> {
+    pub fn serialize_to_hex(&self) -> Result<String, SerializationError> {
         let byte_serialization = self.serialize_to_vec()?;
         Ok(to_hex(byte_serialization.as_slice()))
     }

@@ -128,9 +128,9 @@ use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
     call_read_only, get_account, get_account_result, get_chain_info_opt, get_chain_info_result,
-    get_constant, get_neighbors, get_node_health, get_pox_info, get_sortition_info,
-    next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
-    wait_for_runloop,
+    get_chain_tip_height, get_constant, get_neighbors, get_node_health, get_pox_info,
+    get_sortition_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
+    submit_tx_fallible, test_observer, wait_for_runloop, wait_for_tenure_change_tx,
 };
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
@@ -18288,6 +18288,126 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
             assert!(!has_tenure_extend, "Unexpected tenure extend transaction");
         }
     }
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// The goal of this test is to ensure that a nakamoto miner is able to extend
+/// its tenure when a new Bitcoin block arrives with no block commits (and thus
+/// no new miner election). This should be true whether or not the miner has
+/// submitted a valid block commit. We test:
+/// 1. An empty Bitcoin block with no commits, even though the miner had
+///    submitted a valid commit
+/// 2. A Bitcoin block with an old commit from the previous tenure
+/// 3. An empty Bitcoin block with no commits, and the miner never submitted
+///    one.
+
+fn tenure_extend_no_commits() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.connection_options.block_proposal_max_age_secs = u64::MAX;
+    naka_conf.miner.block_commit_delay = Duration::from_secs(600);
+    let http_origin = naka_conf.node.data_url.clone();
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // Mine a regular nakamoto tenure
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+
+    let expected_height = get_chain_tip_height(&http_origin) + 1;
+    test_observer::clear();
+
+    // Skip block commits so that for the next block, there is no new commit
+    counters.naka_skip_commit_op.set(true);
+
+    // Mine an empty Bitcoin block (no commits)
+    info!("1. Mining an empty Bitcoin block, even though the miner had submitted a valid commit");
+
+    btc_regtest_controller.build_empty_block();
+
+    // Wait for a Stacks block with a tenure extend
+    wait_for_tenure_change_tx(30, TenureChangeCause::Extended, expected_height)
+        .expect("Timed out waiting for tenure extend");
+
+    // assert that this produced a sortition without a winner
+    let sortition = get_sortition_info(&naka_conf);
+    assert!(!sortition.was_sortition);
+
+    info!("2. Mining another Bitcoin block, which will contain the old block commit");
+    let expected_height = get_chain_tip_height(&http_origin) + 1;
+    btc_regtest_controller.build_next_block(1);
+
+    wait_for_tenure_change_tx(30, TenureChangeCause::Extended, expected_height)
+        .expect("Timed out waiting for tenure extend");
+
+    // assert that this produced a sortition without a winner
+    let sortition = get_sortition_info(&naka_conf);
+    assert!(!sortition.was_sortition);
+
+    info!("3. Mining another Bitcoin block, which will contain no block commits");
+    let expected_height = get_chain_tip_height(&http_origin) + 1;
+    btc_regtest_controller.build_next_block(1);
+
+    wait_for_tenure_change_tx(30, TenureChangeCause::Extended, expected_height)
+        .expect("Timed out waiting for tenure extend");
+
+    // assert that this produced a sortition without a winner
+    let sortition = get_sortition_info(&naka_conf);
+    assert!(!sortition.was_sortition);
 
     coord_channel
         .lock()

@@ -14,9 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::Read;
 use std::path::PathBuf;
-use std::{fs, io, process};
+use std::process;
 
 use clap::{Parser, Subcommand};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
@@ -24,36 +23,10 @@ use clarity::vm::{ClarityVersion, SymbolicExpression};
 use clarity_cli::{
     DEFAULT_CLI_EPOCH, execute_check, execute_eval, execute_eval_at_block,
     execute_eval_at_chaintip, execute_eval_raw, execute_execute, execute_generate_address,
-    execute_initialize, execute_launch, execute_repl, vm_execute_in_epoch,
+    execute_initialize, execute_launch, execute_repl, read_file_or_stdin,
+    read_optional_file_or_stdin, vm_execute_in_epoch,
 };
 use stacks_common::types::StacksEpochId;
-
-/// Read content from a file path or stdin if path is "-"
-fn read_file_or_stdin(path: &str) -> String {
-    if path == "-" {
-        let mut buffer = String::new();
-        io::stdin()
-            .read_to_string(&mut buffer)
-            .expect("Error reading from stdin");
-        buffer
-    } else {
-        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
-    }
-}
-
-/// Read content from an optional file path, defaulting to stdin if None or "-"
-fn read_optional_file_or_stdin(path: Option<&PathBuf>) -> String {
-    match path {
-        Some(p) => read_file_or_stdin(p.to_str().expect("Invalid UTF-8 in path")),
-        None => {
-            let mut buffer = String::new();
-            io::stdin()
-                .read_to_string(&mut buffer)
-                .expect("Error reading from stdin");
-            buffer
-        }
-    }
-}
 
 /// Parse epoch string to StacksEpochId
 fn parse_epoch(epoch_str: Option<&String>) -> StacksEpochId {
@@ -244,10 +217,6 @@ enum Commands {
         #[arg(long)]
         costs: bool,
 
-        /// Coverage folder path
-        #[arg(short = 'c', long)]
-        coverage: Option<PathBuf>,
-
         /// Stacks epoch
         #[arg(long)]
         epoch: Option<String>,
@@ -322,10 +291,6 @@ enum Commands {
         #[arg(long)]
         output_analysis: bool,
 
-        /// Coverage folder path
-        #[arg(short = 'c', long)]
-        coverage: Option<PathBuf>,
-
         /// Contract identifier
         #[arg(value_name = "CONTRACT_ID")]
         contract_id: String,
@@ -360,10 +325,6 @@ enum Commands {
         /// Output asset changes
         #[arg(long)]
         assets: bool,
-
-        /// Coverage folder path
-        #[arg(short = 'c', long)]
-        coverage: Option<PathBuf>,
 
         /// Clarity version
         #[arg(long)]
@@ -509,7 +470,6 @@ fn main() {
 
         Commands::EvalAtChaintip {
             costs,
-            coverage,
             epoch,
             clarity_version,
             contract_id,
@@ -525,20 +485,8 @@ fn main() {
             let content = read_optional_file_or_stdin(program_file.as_ref());
 
             let db_path_str = db_path.to_str().expect("Invalid UTF-8 in db_path");
-            let coverage_str = coverage
-                .as_ref()
-                .and_then(|p| p.to_str())
-                .map(|s| s.to_string());
 
-            execute_eval_at_chaintip(
-                &cid,
-                &content,
-                *costs,
-                epoch_id,
-                clarity_ver,
-                db_path_str,
-                coverage_str,
-            )
+            execute_eval_at_chaintip(&cid, &content, *costs, epoch_id, clarity_ver, db_path_str)
         }
 
         Commands::EvalAtBlock {
@@ -575,7 +523,6 @@ fn main() {
             costs,
             assets,
             output_analysis,
-            coverage,
             contract_id,
             contract_file,
             clarity_version,
@@ -594,14 +541,9 @@ fn main() {
             let contract_content = read_file_or_stdin(contract_src_file);
 
             let db_path_str = db_path.to_str().expect("Invalid UTF-8 in db_path");
-            let coverage_str = coverage
-                .as_ref()
-                .and_then(|p| p.to_str())
-                .map(|s| s.to_string());
 
             execute_launch(
                 &cid,
-                contract_src_file,
                 &contract_content,
                 *costs,
                 *assets,
@@ -609,14 +551,12 @@ fn main() {
                 epoch_id,
                 clarity_ver,
                 db_path_str,
-                coverage_str,
             )
         }
 
         Commands::Execute {
             costs,
             assets,
-            coverage,
             clarity_version,
             epoch,
             db_path,
@@ -648,10 +588,6 @@ fn main() {
                 .collect();
 
             let db_path_str = db_path.to_str().expect("Invalid UTF-8 in db_path");
-            let coverage_str = coverage
-                .as_ref()
-                .and_then(|p| p.to_str())
-                .map(|s| s.to_string());
 
             execute_execute(
                 db_path_str,
@@ -662,7 +598,6 @@ fn main() {
                 *costs,
                 *assets,
                 epoch_id,
-                coverage_str,
             )
         }
     };
