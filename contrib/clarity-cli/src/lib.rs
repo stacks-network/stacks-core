@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::Write;
+use std::io::{Read as _, Write};
 use std::path::PathBuf;
 use std::{fs, io};
 
@@ -112,6 +112,46 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
         eprintln!("{msg}");
         panic_test!();
     })
+}
+
+/// Read text content from a file path or stdin if path is "-"
+pub fn read_file_or_stdin(path: &str) -> String {
+    if path == "-" {
+        let mut buffer = String::new();
+        io::stdin()
+            .read_to_string(&mut buffer)
+            .expect("Error reading from stdin");
+        buffer
+    } else {
+        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
+    }
+}
+
+/// Read binary content from a file path or stdin if path is "-"
+pub fn read_file_or_stdin_bytes(path: &str) -> Vec<u8> {
+    if path == "-" {
+        let mut buffer = vec![];
+        io::stdin()
+            .read_to_end(&mut buffer)
+            .expect("Error reading from stdin");
+        buffer
+    } else {
+        fs::read(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
+    }
+}
+
+/// Read content from an optional file path, defaulting to stdin if None or "-"
+pub fn read_optional_file_or_stdin(path: Option<&PathBuf>) -> String {
+    match path {
+        Some(p) => read_file_or_stdin(p.to_str().expect("Invalid UTF-8 in path")),
+        None => {
+            let mut buffer = String::new();
+            io::stdin()
+                .read_to_string(&mut buffer)
+                .expect("Error reading from stdin");
+            buffer
+        }
+    }
 }
 
 /// Represents an initial allocation entry from JSON
