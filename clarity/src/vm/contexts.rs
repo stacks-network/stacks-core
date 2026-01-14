@@ -1016,10 +1016,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Value, ClarityEvalError> {
-        let parsed = self.parse_nonempty_program(
-            &contract_identifier,
-            program
-        )?;
+        let parsed = self.parse_nonempty_program(contract_identifier, program)?;
 
         self.global_context.begin();
 
@@ -1052,10 +1049,8 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     }
 
     pub fn eval_raw(&mut self, program: &str) -> Result<Value, ClarityEvalError> {
-        let parsed = self.parse_nonempty_program(
-            &QualifiedContractIdentifier::transient(),
-            program
-        )?;
+        let parsed =
+            self.parse_nonempty_program(&QualifiedContractIdentifier::transient(), program)?;
         let local_context = LocalContext::new();
         eval(&parsed[0], self, &local_context).map_err(ClarityEvalError::from)
     }
