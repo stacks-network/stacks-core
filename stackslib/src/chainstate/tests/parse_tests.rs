@@ -37,6 +37,10 @@ use crate::core::BLOCK_LIMIT_MAINNET_21;
 /// - ✅ **Tested** — verified through consensus tests.
 /// - ⚙️ **Ignored** — not tested on purpose. (e.g. parser v1 errors).
 /// - 🚫 **Unreachable** — not testable from consensus test side for reasons.
+///
+/// Note: Cost-related errors (`CostOverflow`, `CostBalanceExceeded`, `MemoryBalanceExceeded`,
+/// `CostComputationFailed`, `ExecutionTimeExpired`) are now in `CostErrors` enum and wrapped
+/// in `AstError::Cost`. See `test_cost_balance_exceeded` for coverage.
 #[allow(dead_code)]
 fn variant_coverage_report(variant: ParseErrorKind) {
     enum VariantCoverage {
@@ -56,13 +60,6 @@ fn variant_coverage_report(variant: ParseErrorKind) {
     use VariantCoverage::*;
 
     _ = match variant {
-        // Costs
-        CostOverflow => Unreachable_ExpectLike,
-        CostBalanceExceeded(_, _) => Tested(vec![test_cost_balance_exceeded]),
-        MemoryBalanceExceeded(_, _) => Unreachable_NotUsed,
-        CostComputationFailed(_) => Unreachable_ExpectLike,
-        ExecutionTimeExpired => Unreachable_NotUsed,
-
         TooManyExpressions => Unreachable_ExpectLike,
         ExpressionStackDepthTooDeep => Tested(vec![
             test_stack_depth_too_deep_case_2_list_only_parsing,
@@ -78,9 +75,9 @@ fn variant_coverage_report(variant: ParseErrorKind) {
         DefineTraitBadSignature => Tested(vec![test_define_trait_bad_signature]),
         ImplTraitBadSignature => Tested(vec![test_impl_trait_bad_signature]),
         TraitReferenceUnknown(_) => Tested(vec![test_trait_reference_unknown]),
-        Lexer(LexerError) => Tested(vec![test_lexer_unknown_symbol]),
-        ContractNameTooLong(String) => Tested(vec![test_contract_name_too_long]),
-        ExpectedClosing(Token) => Tested(vec![test_expected_closing]),
+        Lexer(_) => Tested(vec![test_lexer_unknown_symbol]),
+        ContractNameTooLong(_) => Tested(vec![test_contract_name_too_long]),
+        ExpectedClosing(_) => Tested(vec![test_expected_closing]),
         ExpectedContractIdentifier => Tested(vec![test_expected_contract_identifier]),
         ExpectedTraitIdentifier => Tested(vec![test_expected_trait_identifier]),
         ExpectedWhitespace => Tested(vec![test_expected_white_space]),
@@ -125,7 +122,7 @@ fn variant_coverage_report(variant: ParseErrorKind) {
     }
 }
 
-/// ParserError: [`ParseErrorKind::CostBalanceExceeded`]
+/// AstError: `AstError::Cost(CostErrors::CostBalanceExceeded(_, _))`
 /// Caused by: exceeding runtime cost limit [`BLOCK_LIMIT_MAINNET_21`] during contract deploy parsing
 /// Outcome: block rejected
 /// Note: This cost error is remapped as [`crate::chainstate::stacks::Error::CostOverflowError`]

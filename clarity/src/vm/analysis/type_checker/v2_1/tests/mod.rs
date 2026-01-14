@@ -27,7 +27,7 @@ use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
-use crate::vm::ast::errors::ParseErrorKind;
+use crate::vm::ast::errors::{AstError, ParseErrorKind};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
@@ -490,7 +490,10 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         let res = build_ast(&contract_identifier, bad_test, &mut (), version, epoch).unwrap_err();
-        assert_eq!(*expected, *res.err);
+        match res {
+            AstError::Parse(ref e) => assert_eq!(*expected, *e.err),
+            _ => panic!("Expected AstError::Parse, got {res:?}"),
+        }
     }
 
     // Tests that fail only after epoch 3.3
@@ -550,7 +553,10 @@ fn test_use_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId)
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         let res = build_ast(&contract_identifier, bad_test, &mut (), version, epoch).unwrap_err();
-        assert_eq!(*expected, *res.err);
+        match res {
+            AstError::Parse(ref e) => assert_eq!(*expected, *e.err),
+            _ => panic!("Expected AstError::Parse, got {res:?}"),
+        }
     }
 }
 
@@ -565,7 +571,10 @@ fn test_impl_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         let res = build_ast(&contract_identifier, bad_test, &mut (), version, epoch).unwrap_err();
-        assert_eq!(*expected, *res.err);
+        match res {
+            AstError::Parse(ref e) => assert_eq!(*expected, *e.err),
+            _ => panic!("Expected AstError::Parse, got {res:?}"),
+        }
     }
 }
 
@@ -946,7 +955,10 @@ fn test_trait_reference_unknown(#[case] version: ClarityVersion, #[case] epoch: 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter() {
         let res = build_ast(&contract_identifier, bad_test, &mut (), version, epoch).unwrap_err();
-        assert_eq!(*expected, *res.err);
+        match res {
+            AstError::Parse(ref e) => assert_eq!(*expected, *e.err),
+            _ => panic!("Expected AstError::Parse, got {res:?}"),
+        }
     }
 }
 

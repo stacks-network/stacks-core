@@ -18,7 +18,6 @@ use std::{error, fmt};
 use crate::MAX_CALL_STACK_DEPTH;
 use crate::diagnostic::{DiagnosableError, Diagnostic, Level};
 use crate::errors::{CostErrors, LexerError};
-use crate::execution_cost::ExecutionCost;
 use crate::representations::{PreSymbolicExpression, Span};
 use crate::token::Token;
 
@@ -27,21 +26,6 @@ pub type ParseResult<T> = Result<T, ParseError>;
 /// when constructing the abstract syntax tree (AST).
 #[derive(Debug, PartialEq)]
 pub enum ParseErrorKind {
-    // Cost-related errors
-    /// Arithmetic overflow in cost computation during AST construction, exceeding the maximum threshold.
-    CostOverflow,
-    /// Cumulative parsing cost exceeds the allocated budget.
-    /// The first `ExecutionCost` represents the total consumed cost, and the second represents the budget limit.
-    CostBalanceExceeded(ExecutionCost, ExecutionCost),
-    /// Memory usage during AST construction exceeds the allocated budget.
-    /// The first `u64` represents the total consumed memory, and the second represents the memory limit.
-    MemoryBalanceExceeded(u64, u64),
-    /// Failure in cost-tracking due to an unexpected condition or invalid state.
-    /// The `String` represents the specific reason for the failure.
-    CostComputationFailed(String),
-    /// Parsing time exceeds the allowed budget, halting AST construction to ensure responsiveness.
-    ExecutionTimeExpired,
-
     // Structural errors
     /// Number of expressions exceeds the maximum allowed limit.
     TooManyExpressions,
@@ -250,42 +234,9 @@ impl From<ParseErrorKind> for ParseError {
     }
 }
 
-impl From<CostErrors> for ParseError {
-    fn from(err: CostErrors) -> Self {
-        match err {
-            CostErrors::CostOverflow => ParseError::new(ParseErrorKind::CostOverflow),
-            CostErrors::CostBalanceExceeded(a, b) => {
-                ParseError::new(ParseErrorKind::CostBalanceExceeded(a, b))
-            }
-            CostErrors::MemoryBalanceExceeded(a, b) => {
-                ParseError::new(ParseErrorKind::MemoryBalanceExceeded(a, b))
-            }
-            CostErrors::CostComputationFailed(s) => {
-                ParseError::new(ParseErrorKind::CostComputationFailed(s))
-            }
-            CostErrors::CostContractLoadFailure => ParseError::new(
-                ParseErrorKind::CostComputationFailed("Failed to load cost contract".into()),
-            ),
-            CostErrors::InterpreterFailure | CostErrors::Expect(_) => {
-                ParseError::new(ParseErrorKind::InterpreterFailure)
-            }
-            CostErrors::ExecutionTimeExpired => {
-                ParseError::new(ParseErrorKind::ExecutionTimeExpired)
-            }
-        }
-    }
-}
-
 impl DiagnosableError for ParseErrorKind {
     fn message(&self) -> String {
         match &self {
-            ParseErrorKind::CostOverflow => "Used up cost budget during the parse".into(),
-            ParseErrorKind::CostBalanceExceeded(bal, used) => {
-                format!("Used up cost budget during the parse: {bal} balance, {used} used")
-            }
-            ParseErrorKind::MemoryBalanceExceeded(bal, used) => {
-                format!("Used up memory budget during the parse: {bal} balance, {used} used")
-            }
             ParseErrorKind::TooManyExpressions => "Too many expressions".into(),
             ParseErrorKind::FailedCapturingInput => "Failed to capture value from input".into(),
             ParseErrorKind::SeparatorExpected(found) => {
@@ -371,7 +322,6 @@ impl DiagnosableError for ParseErrorKind {
             ),
             ParseErrorKind::InvalidCharactersDetected => "invalid characters detected".into(),
             ParseErrorKind::InvalidEscaping => "invalid escaping detected in string".into(),
-            ParseErrorKind::CostComputationFailed(s) => format!("Cost computation failed: {s}"),
 
             // Parser v2 errors
             ParseErrorKind::Lexer(le) => le.message(),
@@ -399,7 +349,6 @@ impl DiagnosableError for ParseErrorKind {
                 "unexpected failure while parsing".to_string()
             }
             ParseErrorKind::InterpreterFailure => "unexpected failure while parsing".to_string(),
-            ParseErrorKind::ExecutionTimeExpired => "max execution time expired".to_string(),
         }
     }
 
@@ -413,6 +362,52 @@ impl DiagnosableError for ParseErrorKind {
             ParseErrorKind::Lexer(lexer_error) => lexer_error.level(),
             _ => Level::Error,
         }
+    }
+}
+
+/// Composite error type for AST construction that can represent either a cost-related error
+/// or a parse-related error. This provides explicit separation of error origins at the type level.
+#[derive(Debug, PartialEq)]
+pub enum AstError {
+    /// Cost tracking error that occurred during AST construction.
+    Cost(CostErrors),
+    /// Parse error that occurred during lexical or syntactic analysis.
+    Parse(ParseError),
+}
+
+impl fmt::Display for AstError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AstError::Cost(e) => write!(f, "{e}"),
+            AstError::Parse(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl error::Error for AstError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            AstError::Cost(_) => None,
+            AstError::Parse(e) => e.source(),
+        }
+    }
+}
+
+impl From<CostErrors> for AstError {
+    fn from(err: CostErrors) -> Self {
+        AstError::Cost(err)
+    }
+}
+
+impl From<ParseError> for AstError {
+    fn from(err: ParseError) -> Self {
+        AstError::Parse(err)
+    }
+}
+
+impl From<ParseErrorKind> for AstError {
+    fn from(err: ParseErrorKind) -> Self {
+        AstError::Parse(ParseError::new(err))
     }
 }
 

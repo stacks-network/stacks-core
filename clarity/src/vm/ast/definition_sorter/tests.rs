@@ -22,7 +22,7 @@ use rstest_reuse::{self, *};
 use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check as run_analysis_helper;
 use crate::vm::ast::definition_sorter::DefinitionSorter;
-use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
+use crate::vm::ast::errors::{AstError, ParseErrorKind};
 use crate::vm::ast::expression_identifier::ExpressionIdentifier;
 use crate::vm::ast::parser;
 use crate::vm::ast::types::ContractAST;
@@ -34,11 +34,15 @@ use crate::vm::types::QualifiedContractIdentifier;
 #[case(ClarityVersion::Clarity2)]
 fn test_clarity_versions_definition_sorter(#[case] version: ClarityVersion) {}
 
-fn run_scoped_parsing_helper(contract: &str, version: ClarityVersion) -> ParseResult<ContractAST> {
+fn run_scoped_parsing_helper(
+    contract: &str,
+    version: ClarityVersion,
+) -> Result<ContractAST, AstError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let pre_expressions = parser::v1::parse(contract)?;
+    let pre_expressions = parser::v1::parse(contract).map_err(AstError::Parse)?;
     let mut contract_ast = ContractAST::new(contract_identifier, pre_expressions);
-    ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast, version)?;
+    ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast, version)
+        .map_err(AstError::Parse)?;
     DefinitionSorter::run_pass(&mut contract_ast, &mut (), version)?;
     Ok(contract_ast)
 }
@@ -96,7 +100,9 @@ fn should_raise_dependency_cycle_case_1(#[case] version: ClarityVersion) {
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    assert!(
+        matches!(err, AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::CircularReference(_)))
+    );
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -109,7 +115,9 @@ fn should_raise_dependency_cycle_case_2(#[case] version: ClarityVersion) {
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    assert!(
+        matches!(err, AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::CircularReference(_)))
+    );
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -131,7 +139,9 @@ fn should_raise_dependency_cycle_case_let(#[case] version: ClarityVersion) {
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    assert!(
+        matches!(err, AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::CircularReference(_)))
+    );
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -153,7 +163,9 @@ fn should_raise_dependency_cycle_case_get(#[case] version: ClarityVersion) {
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    assert!(
+        matches!(err, AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::CircularReference(_)))
+    );
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -177,7 +189,9 @@ fn should_raise_dependency_cycle_case_fetch_entry(#[case] version: ClarityVersio
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    assert!(
+        matches!(err, AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::CircularReference(_)))
+    );
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -201,7 +215,9 @@ fn should_raise_dependency_cycle_case_delete_entry(#[case] version: ClarityVersi
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    assert!(
+        matches!(err, AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::CircularReference(_)))
+    );
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -225,7 +241,9 @@ fn should_raise_dependency_cycle_case_set_entry(#[case] version: ClarityVersion)
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    assert!(
+        matches!(err, AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::CircularReference(_)))
+    );
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -249,7 +267,9 @@ fn should_raise_dependency_cycle_case_insert_entry(#[case] version: ClarityVersi
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    assert!(
+        matches!(err, AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::CircularReference(_)))
+    );
 }
 
 #[apply(test_clarity_versions_definition_sorter)]
@@ -260,7 +280,9 @@ fn should_raise_dependency_cycle_case_fetch_contract_entry(#[case] version: Clar
     "#;
 
     let err = run_scoped_parsing_helper(contract, version).unwrap_err();
-    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    assert!(
+        matches!(err, AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::CircularReference(_)))
+    );
 }
 
 #[apply(test_clarity_versions_definition_sorter)]

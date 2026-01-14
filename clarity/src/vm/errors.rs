@@ -16,8 +16,8 @@
 use std::{error, fmt};
 
 use clarity_types::Value;
+use clarity_types::errors::{AstError, CostErrors, ParseError, ParseErrorKind};
 pub use clarity_types::errors::{ClarityTypeError, IncomparableError};
-use clarity_types::errors::{CostErrors, ParseError, ParseErrorKind};
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::FunctionIdentifier;
 #[cfg(feature = "rusqlite")]
@@ -138,8 +138,8 @@ pub enum RuntimeError {
     /// The `String` represents the specific parsing issue, such as invalid data formats.
     TypeParseFailure(String),
     /// Failure to parse the abstract syntax tree (AST) during dynamic evaluation.
-    /// The `Box<ParseError>` wraps the specific parsing error encountered, detailing code interpretation issues.
-    ASTError(Box<ParseError>),
+    /// The `Box<AstError>` wraps the specific AST error encountered, which can be either a parse error or a cost error.
+    ASTError(Box<AstError>),
     /// The call stack exceeded the virtual machine's maximum depth.
     MaxStackDepthReached,
     /// The execution context depth exceeded the virtual machine's limit.
@@ -254,7 +254,17 @@ impl From<ParseError> for VmExecutionError {
             ParseErrorKind::InterpreterFailure => VmExecutionError::from(VmInternalError::Expect(
                 "Unexpected interpreter failure during parsing".into(),
             )),
-            _ => VmExecutionError::from(RuntimeError::ASTError(Box::new(err))),
+            _ => VmExecutionError::from(RuntimeError::ASTError(Box::new(AstError::Parse(err)))),
+        }
+    }
+}
+
+// TODO: Remove this once https://github.com/stacks-network/stacks-core/pull/6806 is merged.
+impl From<AstError> for VmExecutionError {
+    fn from(err: AstError) -> Self {
+        match err {
+            AstError::Cost(cost_err) => VmExecutionError::from(cost_err),
+            AstError::Parse(parse_err) => VmExecutionError::from(parse_err),
         }
     }
 }
