@@ -340,8 +340,8 @@ impl From<RuntimeError> for ClarityEvalError {
 impl fmt::Display for ClarityEvalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ClarityEvalError::Vm(err) => write!(f, "VM Execution Error: {err}"),
-            ClarityEvalError::Parse(err) => write!(f, "Parse Error: {err}"),
+            ClarityEvalError::Vm(err) => write!(f, "{err}"),
+            ClarityEvalError::Parse(err) => write!(f, "{err}"),
         }
     }
 }

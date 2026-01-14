@@ -1478,7 +1478,7 @@ mod test {
 
         assert!(
             format!("{}", main_handler(to_string_vec(&cc_args)).unwrap_err())
-                .contains("Clarity error")
+                .contains("Clarity execution error")
         );
 
         let cc_args = [
