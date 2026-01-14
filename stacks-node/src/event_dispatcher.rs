@@ -84,61 +84,18 @@ lazy_static! {
     pub static ref TEST_SKIP_BLOCK_ANNOUNCEMENT: TestFlag<bool> = TestFlag::default();
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 enum EventDispatcherError {
-    SerializationError(serde_json::Error),
-    HttpError(std::io::Error),
-    DbError(stacks::util_lib::db::Error),
-    RecvError(std::sync::mpsc::RecvError),
+    #[error("Serialization error: {0}")]
+    SerializationError(#[from] serde_json::Error),
+    #[error("HTTP error: {0}")]
+    HttpError(#[from] std::io::Error),
+    #[error("Database error: {0}")]
+    DbError(#[from] stacks::util_lib::db::Error),
+    #[error("Channel receive error: {0}")]
+    RecvError(#[from] std::sync::mpsc::RecvError),
+    #[error("Channel send error: {0}")]
     SendError(String), // not capturing the underlying because it's a generic type
-}
-
-impl fmt::Display for EventDispatcherError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            EventDispatcherError::SerializationError(ref e) => fmt::Display::fmt(e, f),
-            EventDispatcherError::HttpError(ref e) => fmt::Display::fmt(e, f),
-            EventDispatcherError::DbError(ref e) => fmt::Display::fmt(e, f),
-            EventDispatcherError::RecvError(ref e) => fmt::Display::fmt(e, f),
-            EventDispatcherError::SendError(ref s) => fmt::Display::fmt(s, f),
-        }
-    }
-}
-
-impl core::error::Error for EventDispatcherError {
-    fn cause(&self) -> Option<&dyn core::error::Error> {
-        match *self {
-            EventDispatcherError::SerializationError(ref e) => Some(e),
-            EventDispatcherError::HttpError(ref e) => Some(e),
-            EventDispatcherError::DbError(ref e) => Some(e),
-            EventDispatcherError::RecvError(ref e) => Some(e),
-            EventDispatcherError::SendError(_) => None,
-        }
-    }
-}
-
-impl From<serde_json::Error> for EventDispatcherError {
-    fn from(value: serde_json::Error) -> Self {
-        EventDispatcherError::SerializationError(value)
-    }
-}
-
-impl From<stacks::util_lib::db::Error> for EventDispatcherError {
-    fn from(value: stacks::util_lib::db::Error) -> Self {
-        EventDispatcherError::DbError(value)
-    }
-}
-
-impl From<std::io::Error> for EventDispatcherError {
-    fn from(value: std::io::Error) -> Self {
-        EventDispatcherError::HttpError(value)
-    }
-}
-
-impl From<std::sync::mpsc::RecvError> for EventDispatcherError {
-    fn from(value: std::sync::mpsc::RecvError) -> Self {
-        EventDispatcherError::RecvError(value)
-    }
 }
 
 impl<T> From<std::sync::mpsc::SendError<T>> for EventDispatcherError {
