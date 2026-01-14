@@ -14,4 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub use clarity_types::errors::ast::{ParseError, ParseErrorKind, ParseResult, PlacedError};
+pub use clarity_types::errors::ast::{
+    AstError, ParseError, ParseErrorKind, ParseResult, PlacedError,
+};

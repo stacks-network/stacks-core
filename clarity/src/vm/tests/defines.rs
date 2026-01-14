@@ -26,7 +26,10 @@ use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
     analysis::errors::SyntaxBindingError,
-    ast::{build_ast, errors::ParseErrorKind},
+    ast::{
+        build_ast,
+        errors::{AstError, ParseErrorKind},
+    },
     errors::RuntimeError,
     types::{QualifiedContractIdentifier, TypeSignature, TypeSignatureExt as _, Value},
     {ClarityVersion, execute},
@@ -35,6 +38,18 @@ use crate::vm::{
 fn assert_eq_err(e1: CheckErrorKind, e2: VmExecutionError) {
     let e1: VmExecutionError = e1.into();
     assert_eq!(e1, e2)
+}
+
+// TODO: remove this once https://github.com/stacks-network/stacks-core/pull/6806 is merged.
+#[cfg(test)]
+fn assert_parse_error(expected: ParseErrorKind, err: VmExecutionError) {
+    let VmExecutionError::Runtime(RuntimeError::ASTError(ast_err), _) = err else {
+        panic!("Expected ASTError, got {err:?}");
+    };
+    let AstError::Parse(ref e) = *ast_err else {
+        panic!("Expected Parse error, got {ast_err:?}");
+    };
+    assert_eq!(*e.err, expected);
 }
 
 #[test]
@@ -201,15 +216,17 @@ fn test_recursive_panic(#[case] version: ClarityVersion, #[case] epoch: StacksEp
               (* a (factorial (- a 1)))))
          (factorial 10)";
 
-    let err = build_ast(
+    let AstError::Parse(ref e) = build_ast(
         &QualifiedContractIdentifier::transient(),
         tests,
         &mut (),
         version,
         epoch,
     )
-    .unwrap_err();
-    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+    .unwrap_err() else {
+        panic!("Expected AstError::Parse");
+    };
+    assert!(matches!(*e.err, ParseErrorKind::CircularReference(_)));
 }
 
 #[test]
@@ -475,22 +492,19 @@ fn test_define_trait_arg_count() {
     let test3 = "(define-trait foo () ())";
 
     // These errors are hit in the trait resolver, before reaching the type-checker
-    match execute(test0).unwrap_err() {
-        VmExecutionError::Runtime(RuntimeError::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrorKind::DefineTraitBadSignature => {}
-        e => panic!("{e:?}"),
-    };
-    match execute(test1).unwrap_err() {
-        VmExecutionError::Runtime(RuntimeError::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrorKind::DefineTraitBadSignature => {}
-        e => panic!("{e}"),
-    };
+    assert_parse_error(
+        ParseErrorKind::DefineTraitBadSignature,
+        execute(test0).unwrap_err(),
+    );
+    assert_parse_error(
+        ParseErrorKind::DefineTraitBadSignature,
+        execute(test1).unwrap_err(),
+    );
     execute(test2).unwrap();
-    match execute(test3).unwrap_err() {
-        VmExecutionError::Runtime(RuntimeError::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrorKind::DefineTraitBadSignature => {}
-        e => panic!("{e}"),
-    };
+    assert_parse_error(
+        ParseErrorKind::DefineTraitBadSignature,
+        execute(test3).unwrap_err(),
+    );
 }
 
 #[test]
@@ -501,22 +515,19 @@ fn test_use_trait_arg_count() {
     let test3 = "(use-trait foo .bar.baz .goo)";
 
     // These errors are hit in the trait resolver, before reaching the type-checker
-    match execute(test0).unwrap_err() {
-        VmExecutionError::Runtime(RuntimeError::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrorKind::ImportTraitBadSignature => {}
-        e => panic!("{e:?}"),
-    };
-    match execute(test1).unwrap_err() {
-        VmExecutionError::Runtime(RuntimeError::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrorKind::ImportTraitBadSignature => {}
-        e => panic!("{e}"),
-    };
+    assert_parse_error(
+        ParseErrorKind::ImportTraitBadSignature,
+        execute(test0).unwrap_err(),
+    );
+    assert_parse_error(
+        ParseErrorKind::ImportTraitBadSignature,
+        execute(test1).unwrap_err(),
+    );
     execute(test2).unwrap();
-    match execute(test3).unwrap_err() {
-        VmExecutionError::Runtime(RuntimeError::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrorKind::ImportTraitBadSignature => {}
-        e => panic!("{e}"),
-    };
+    assert_parse_error(
+        ParseErrorKind::ImportTraitBadSignature,
+        execute(test3).unwrap_err(),
+    );
 }
 
 #[test]
@@ -526,15 +537,13 @@ fn test_impl_trait_arg_count() {
     let test2 = "(impl-trait .foo.bar .bar.baz)";
 
     // These errors are hit in the trait resolver, before reaching the type-checker
-    match execute(test0).unwrap_err() {
-        VmExecutionError::Runtime(RuntimeError::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrorKind::ImplTraitBadSignature => {}
-        e => panic!("{e:?}"),
-    };
+    assert_parse_error(
+        ParseErrorKind::ImplTraitBadSignature,
+        execute(test0).unwrap_err(),
+    );
     execute(test1).unwrap();
-    match execute(test2).unwrap_err() {
-        VmExecutionError::Runtime(RuntimeError::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrorKind::ImplTraitBadSignature => {}
-        e => panic!("{e}"),
-    };
+    assert_parse_error(
+        ParseErrorKind::ImplTraitBadSignature,
+        execute(test2).unwrap_err(),
+    );
 }

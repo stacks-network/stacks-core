@@ -20,7 +20,7 @@ use crate::vm::ClarityVersion;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check;
 use crate::vm::ast::build_ast;
-use crate::vm::ast::errors::ParseErrorKind;
+use crate::vm::ast::errors::{AstError, ParseErrorKind};
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, UIntType};
@@ -139,7 +139,10 @@ fn test_define_trait() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert_eq!(*expected, *res.err);
+        match res {
+            AstError::Parse(ref e) => assert_eq!(*expected, *e.err),
+            _ => panic!("Expected AstError::Parse, got {res:?}"),
+        }
     }
 }
 
@@ -168,7 +171,10 @@ fn test_use_trait() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert_eq!(*expected, *res.err);
+        match res {
+            AstError::Parse(ref e) => assert_eq!(*expected, *e.err),
+            _ => panic!("Expected AstError::Parse, got {res:?}"),
+        }
     }
 }
 
@@ -190,7 +196,10 @@ fn test_impl_trait() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert_eq!(*expected, *res.err);
+        match res {
+            AstError::Parse(ref e) => assert_eq!(*expected, *e.err),
+            _ => panic!("Expected AstError::Parse, got {res:?}"),
+        }
     }
 }
 
@@ -508,7 +517,10 @@ fn test_trait_reference_unknown() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert_eq!(*expected, *res.err);
+        match res {
+            AstError::Parse(ref e) => assert_eq!(*expected, *e.err),
+            _ => panic!("Expected AstError::Parse, got {res:?}"),
+        }
     }
 }
 

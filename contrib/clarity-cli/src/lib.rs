@@ -26,7 +26,7 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
 };
-use clarity::vm::errors::{RuntimeError, StaticCheckError, VmExecutionError};
+use clarity::vm::errors::{StaticCheckError, VmExecutionError};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{
     ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
@@ -150,8 +150,7 @@ fn parse(
         &mut (),
         clarity_version,
         epoch,
-    )
-    .map_err(|e| RuntimeError::ASTError(Box::new(e)))?;
+    )?;
     Ok(ast.expressions)
 }
 

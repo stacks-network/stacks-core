@@ -14,13 +14,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
 
+use clarity_types::errors::CostErrors;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{
     AnalysisDatabase, CheckErrorKind, ContractAnalysis, StaticCheckError, StaticCheckErrorKind,
 };
 use crate::vm::ast::ContractAST;
-use crate::vm::ast::errors::{ParseError, ParseErrorKind};
+use crate::vm::ast::errors::{AstError, ParseError};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
@@ -149,21 +150,35 @@ impl From<VmExecutionError> for ClarityError {
     }
 }
 
+impl From<AstError> for ClarityError {
+    fn from(e: AstError) -> Self {
+        match e {
+            AstError::Cost(cost_err) => match cost_err {
+                CostErrors::CostOverflow => {
+                    ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+                }
+                CostErrors::CostBalanceExceeded(a, b) => ClarityError::CostError(a, b),
+                CostErrors::MemoryBalanceExceeded(_, _) => {
+                    ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+                }
+                CostErrors::ExecutionTimeExpired => {
+                    ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+                }
+                CostErrors::CostContractLoadFailure
+                | CostErrors::CostComputationFailed(_)
+                | CostErrors::InterpreterFailure
+                | CostErrors::Expect(_) => {
+                    ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+                }
+            },
+            AstError::Parse(e) => ClarityError::Parse(e),
+        }
+    }
+}
+
 impl From<ParseError> for ClarityError {
     fn from(e: ParseError) -> Self {
-        match *e.err {
-            ParseErrorKind::CostOverflow => {
-                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
-            ParseErrorKind::CostBalanceExceeded(a, b) => ClarityError::CostError(a, b),
-            ParseErrorKind::MemoryBalanceExceeded(_a, _b) => {
-                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
-            ParseErrorKind::ExecutionTimeExpired => {
-                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
-            _ => ClarityError::Parse(e),
-        }
+        ClarityError::Parse(e)
     }
 }
 

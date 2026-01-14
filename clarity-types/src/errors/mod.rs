@@ -21,7 +21,7 @@ pub mod lexer;
 use std::{error, fmt};
 
 pub use analysis::{CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind};
-pub use ast::{ParseError, ParseErrorKind, ParseResult};
+pub use ast::{AstError, ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
 use stacks_common::types::StacksEpochId;

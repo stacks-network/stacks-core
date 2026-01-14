@@ -16,10 +16,11 @@
 
 use std::collections::{HashMap, HashSet};
 
+use clarity_types::errors::CostErrors;
 use clarity_types::representations::ClarityName;
 
 use crate::vm::ClarityVersion;
-use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
+use crate::vm::ast::errors::{AstError, ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::types::ContractAST;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, runtime_cost};
@@ -51,7 +52,7 @@ impl DefinitionSorter {
         contract_ast: &mut ContractAST,
         accounting: &mut T,
         version: ClarityVersion,
-    ) -> ParseResult<()> {
+    ) -> Result<(), AstError> {
         let mut pass = DefinitionSorter::new();
         pass.run(contract_ast, accounting, version)?;
         Ok(())
@@ -62,7 +63,7 @@ impl DefinitionSorter {
         contract_ast: &mut ContractAST,
         accounting: &mut T,
         version: ClarityVersion,
-    ) -> ParseResult<()> {
+    ) -> Result<(), AstError> {
         let exprs = contract_ast.pre_expressions[..].to_vec();
         for (expr_index, expr) in exprs.iter().enumerate() {
             self.graph.add_node(expr_index);
@@ -103,7 +104,7 @@ impl DefinitionSorter {
             function_names.sort();
 
             let error = ParseError::new(ParseErrorKind::CircularReference(function_names));
-            return Err(error);
+            return Err(AstError::Parse(error));
         }
 
         contract_ast.top_level_expression_sorting = Some(sorted_indexes);
@@ -441,12 +442,12 @@ impl Graph {
         self.adjacency_list.len()
     }
 
-    fn edges_count(&self) -> ParseResult<u64> {
+    fn edges_count(&self) -> Result<u64, CostErrors> {
         let mut total: u64 = 0;
         for node in self.adjacency_list.iter() {
             total = total
                 .checked_add(node.len() as u64)
-                .ok_or(ParseErrorKind::CostOverflow)?;
+                .ok_or(CostErrors::CostOverflow)?;
         }
         Ok(total)
     }

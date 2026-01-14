@@ -26,7 +26,7 @@ pub mod types;
 use stacks_common::types::StacksEpochId;
 
 use self::definition_sorter::DefinitionSorter;
-use self::errors::ParseResult;
+use self::errors::{AstError, ParseResult};
 use self::expression_identifier::ExpressionIdentifier;
 use self::parser::v1::parse as parse_v1;
 use self::parser::v2::parse as parse_v2;
@@ -113,13 +113,13 @@ fn inner_build_ast<T: CostTracker>(
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
     error_early: bool,
-) -> ParseResult<(ContractAST, Vec<Diagnostic>, bool)> {
+) -> Result<(ContractAST, Vec<Diagnostic>, bool), AstError> {
     let cost_err = match runtime_cost(
         ClarityCostFunction::AstParse,
         cost_track,
         source_code.len() as u64,
     ) {
-        Err(e) if error_early => return Err(e.into()),
+        Err(e) if error_early => return Err(AstError::Cost(e)),
         Err(e) => Some(e),
         _ => None,
     };
@@ -135,7 +135,7 @@ fn inner_build_ast<T: CostTracker>(
         let parse_result = parse_v1(source_code);
         match parse_result {
             Ok(pre_expressions) => (pre_expressions, vec![], true),
-            Err(error) if error_early => return Err(error),
+            Err(error) if error_early => return Err(AstError::Parse(error)),
             Err(error) => (vec![], vec![error.diagnostic], false),
         }
     };
@@ -154,7 +154,7 @@ fn inner_build_ast<T: CostTracker>(
 
     let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
     match StackDepthChecker::run_pass(&mut contract_ast, clarity_version) {
-        Err(e) if error_early => return Err(e),
+        Err(e) if error_early => return Err(AstError::Parse(e)),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
@@ -164,7 +164,7 @@ fn inner_build_ast<T: CostTracker>(
 
     // run extra stack-depth pass for tuples
     match VaryStackDepthChecker::run_pass(&mut contract_ast, clarity_version) {
-        Err(e) if error_early => return Err(e),
+        Err(e) if error_early => return Err(AstError::Parse(e)),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
@@ -173,7 +173,7 @@ fn inner_build_ast<T: CostTracker>(
     }
 
     match ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast, clarity_version) {
-        Err(e) if error_early => return Err(e),
+        Err(e) if error_early => return Err(AstError::Parse(e)),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
@@ -182,14 +182,24 @@ fn inner_build_ast<T: CostTracker>(
     }
     match DefinitionSorter::run_pass(&mut contract_ast, cost_track, clarity_version) {
         Err(e) if error_early => return Err(e),
-        Err(e) => {
+        Err(AstError::Parse(e)) => {
             diagnostics.push(e.diagnostic);
+            success = false;
+        }
+        // Should this even be possible?
+        Err(AstError::Cost(e)) => {
+            diagnostics.push(Diagnostic {
+                level: Level::Error,
+                message: format!("Cost error in definition sorter: {e}"),
+                spans: vec![],
+                suggestion: None,
+            });
             success = false;
         }
         _ => (),
     }
     match TraitsResolver::run_pass(&mut contract_ast, clarity_version) {
-        Err(e) if error_early => return Err(e),
+        Err(e) if error_early => return Err(AstError::Parse(e)),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
@@ -197,7 +207,7 @@ fn inner_build_ast<T: CostTracker>(
         _ => (),
     }
     match SugarExpander::run_pass(&mut contract_ast, clarity_version) {
-        Err(e) if error_early => return Err(e),
+        Err(e) if error_early => return Err(AstError::Parse(e)),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
@@ -205,7 +215,7 @@ fn inner_build_ast<T: CostTracker>(
         _ => (),
     }
     match ExpressionIdentifier::run_expression_pass(&mut contract_ast, clarity_version) {
-        Err(e) if error_early => return Err(e),
+        Err(e) if error_early => return Err(AstError::Parse(e)),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
@@ -222,7 +232,7 @@ pub fn build_ast<T: CostTracker>(
     cost_track: &mut T,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-) -> ParseResult<ContractAST> {
+) -> Result<ContractAST, AstError> {
     let (contract, _, _) = inner_build_ast(
         contract_identifier,
         source_code,
@@ -242,7 +252,7 @@ mod test {
     use stacks_common::types::StacksEpochId;
 
     use crate::vm::ast::build_ast;
-    use crate::vm::ast::errors::ParseErrorKind;
+    use crate::vm::ast::errors::{AstError, ParseErrorKind};
     use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use crate::vm::costs::{LimitedCostTracker, *};
     use crate::vm::representations::depth_traverse;
@@ -329,7 +339,10 @@ mod test {
             cost_addition_count: 1,
         };
 
-        assert_eq!(expected_err, *err.err);
+        match err {
+            AstError::Parse(e) => assert_eq!(expected_err, *e.err),
+            _ => panic!("Expected AstError::Parse, got {err:?}"),
+        }
         assert_eq!(expected_list_cost_state, cost_track);
 
         let mut cost_track = UnitTestTracker::new();
@@ -349,7 +362,10 @@ mod test {
             cost_addition_count: 1,
         };
 
-        assert_eq!(expected_err, *err.err);
+        match err {
+            AstError::Parse(e) => assert_eq!(expected_err, *e.err),
+            _ => panic!("Expected AstError::Parse, got {err:?}"),
+        }
         assert_eq!(expected_list_cost_state, cost_track);
     }
 
@@ -391,7 +407,10 @@ mod test {
                 cost_addition_count: 1,
             };
 
-            assert_eq!(expected_err, *err.err);
+            match err {
+                AstError::Parse(e) => assert_eq!(expected_err, *e.err),
+                _ => panic!("Expected AstError::Parse, got {err:?}"),
+            }
             assert_eq!(expected_list_cost_state, cost_track);
 
             let mut cost_track = UnitTestTracker::new();
@@ -411,7 +430,10 @@ mod test {
                 cost_addition_count: 1,
             };
 
-            assert_eq!(expected_err, *err.err);
+            match err {
+                AstError::Parse(e) => assert_eq!(expected_err, *e.err),
+                _ => panic!("Expected AstError::Parse, got {err:?}"),
+            }
             assert_eq!(expected_list_cost_state, cost_track);
         }
     }
@@ -470,7 +492,7 @@ mod test {
         .unwrap_err();
 
         assert!(
-            matches!(*err.err, ParseErrorKind::CostBalanceExceeded(_, _)),
+            matches!(err, AstError::Cost(CostErrors::CostBalanceExceeded(_, _))),
             "Instead found: {err}"
         );
     }
@@ -499,8 +521,8 @@ mod test {
         )
         .expect_err("Expected parse error, but found success!");
 
-        let total = match *err.err {
-            ParseErrorKind::CostBalanceExceeded(total, _) => total,
+        let total = match err {
+            AstError::Cost(CostErrors::CostBalanceExceeded(total, _)) => total,
             _ => panic!("Expected CostBalanceExceeded, but found: {err}"),
         };
 
@@ -531,8 +553,8 @@ mod test {
         )
         .expect_err("Expected parse error, but found success!");
 
-        let total = match *err.err {
-            ParseErrorKind::CostBalanceExceeded(total, _) => total,
+        let total = match err {
+            AstError::Cost(CostErrors::CostBalanceExceeded(total, _)) => total,
             _ => panic!("Expected CostBalanceExceeded, but found: {err}"),
         };
 
@@ -558,10 +580,12 @@ mod test {
         )
         .expect_err("Expected parse error, but found success!");
 
-        assert!(
-            matches!(*err.err, ParseErrorKind::VaryExpressionStackDepthTooDeep),
-            "Instead found: {err}"
-        );
+        match err {
+            AstError::Parse(e) => {
+                assert_eq!(*e.err, ParseErrorKind::VaryExpressionStackDepthTooDeep)
+            }
+            _ => panic!("Expected AstError::Parse, got {err:?}"),
+        }
     }
 
     #[test]
@@ -580,9 +604,9 @@ mod test {
         )
         .expect_err("Expected parse error, but found success!");
 
-        assert!(
-            matches!(*err.err, ParseErrorKind::IllegalASCIIString(_)),
-            "Instead found: {err}"
-        );
+        match err {
+            AstError::Parse(e) => assert!(matches!(*e.err, ParseErrorKind::IllegalASCIIString(_))),
+            _ => panic!("Expected AstError::Parse, got {err:?}"),
+        }
     }
 }

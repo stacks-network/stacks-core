@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
 use crate::vm::analysis::{StaticCheckError, StaticCheckErrorKind, type_check};
-use crate::vm::ast::errors::ParseErrorKind;
+use crate::vm::ast::errors::{AstError, ParseErrorKind};
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
@@ -357,8 +357,8 @@ fn test_define_map_storing_trait_references(
     )
     .unwrap_err();
 
-    match *err.err {
-        ParseErrorKind::TraitReferenceNotAllowed => {}
+    match err {
+        AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::TraitReferenceNotAllowed) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -381,8 +381,8 @@ fn test_cycle_in_traits_1_contract(#[case] version: ClarityVersion, #[case] epoc
         epoch,
     )
     .unwrap_err();
-    match *err.err {
-        ParseErrorKind::CircularReference(_) => {}
+    match err {
+        AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::CircularReference(_)) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -668,8 +668,8 @@ fn test_dynamic_dispatch_collision_trait(
         epoch,
     )
     .unwrap_err();
-    match *err.err {
-        ParseErrorKind::NameAlreadyUsed(_) => {}
+    match err {
+        AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::NameAlreadyUsed(_)) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -697,8 +697,8 @@ fn test_dynamic_dispatch_collision_defined_trait(
         epoch,
     )
     .unwrap_err();
-    match *err.err {
-        ParseErrorKind::NameAlreadyUsed(_) => {}
+    match err {
+        AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::NameAlreadyUsed(_)) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -737,8 +737,8 @@ fn test_dynamic_dispatch_collision_imported_trait(
         epoch,
     )
     .unwrap_err();
-    match *err.err {
-        ParseErrorKind::NameAlreadyUsed(_) => {}
+    match err {
+        AstError::Parse(ref e) if matches!(*e.err, ParseErrorKind::NameAlreadyUsed(_)) => {}
         _ => panic!("{err:?}"),
     }
 }
