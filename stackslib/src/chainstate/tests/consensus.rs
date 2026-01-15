@@ -1824,7 +1824,7 @@ fn test_append_stx_transfers_success() {
         StacksPrivateKey::from_hex(SK_2).unwrap(),
         StacksPrivateKey::from_hex(SK_3).unwrap(),
     ];
-    let total_epochs = EPOCHS_TO_TEST.len() as u64;
+    let total_epochs = 2;
     let send_amount = 1_000;
     let tx_fee = 180;
     // initialize balances

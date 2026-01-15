@@ -2613,8 +2613,8 @@ impl StacksEpochExtension for StacksEpoch {
             .iter()
             .max()
             .expect("FATAL: expect at least one epoch");
-        if max_epoch.epoch_id == StacksEpochId::Epoch33 {
-            assert!(PEER_NETWORK_EPOCH >= u32::from(PEER_VERSION_EPOCH_3_2));
+        if max_epoch.epoch_id == StacksEpochId::Epoch34 {
+            assert!(PEER_NETWORK_EPOCH >= u32::from(PEER_VERSION_EPOCH_3_3));
         } else {
             assert!(
                 max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,

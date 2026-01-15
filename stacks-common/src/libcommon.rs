@@ -92,7 +92,7 @@ pub mod consts {
 
     /// this should be updated to the latest network epoch version supported by
     ///  this node. this will be checked by the `validate_epochs()` method.
-    pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_3_2 as u32;
+    pub const PEER_NETWORK_EPOCH: u32 = PEER_VERSION_EPOCH_3_3 as u32;
 
     /// set the fourth byte of the peer version
     pub const PEER_VERSION_MAINNET: u32 = PEER_VERSION_MAINNET_MAJOR | PEER_NETWORK_EPOCH;

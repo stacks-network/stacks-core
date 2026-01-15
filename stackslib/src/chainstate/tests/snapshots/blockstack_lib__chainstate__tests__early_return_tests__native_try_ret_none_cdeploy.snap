@@ -123,4 +123,154 @@ expression: result
       runtime: 10149,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "dd09650c7711eeda7859f69434a410a456aecc27406575857bf7e5c818eb29c3",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-try-opt-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Optional(OptionalData { data: None })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 54,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10150,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 54,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10150,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "61ced852e29172f1e872cd16eca9b7e2c82e9bfde4e3058e32cf57307196645b",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-try-opt-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Optional(OptionalData { data: None })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 54,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10149,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 54,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10149,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ad5fd5996220feb6b927b0fd6e5ad65010126742eae274df1ad92e2c9f2f8c08",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-try-opt-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Optional(OptionalData { data: None })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 54,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10149,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 54,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10149,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1058c534e6182bdbf14a1a77797f0e8f9720925ba5663c3cc0de6150ebd9d0ee",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-try-opt-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Optional(OptionalData { data: None })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 54,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10149,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 54,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10149,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2f325671b7e30219403daf920816b1bb623dc4e7b1c81ce2e0418d7e1aa29f9a",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unwrap-try-opt-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(EarlyReturn(UnwrapFailed(Optional(OptionalData { data: None })))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 54,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10149,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 54,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10149,
+    ),
+  )),
 ]
