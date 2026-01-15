@@ -2161,6 +2161,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_set_variable_fn(linker)?;
     link_tx_sender_fn(linker)?;
     link_contract_caller_fn(linker)?;
+    link_current_contract_fn(linker)?;
     link_tx_sponsor_fn(linker)?;
     link_block_height_fn(linker)?;
     link_stacks_block_height_fn(linker)?;
@@ -2994,6 +2995,45 @@ fn link_contract_caller_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "contract_caller".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `current_contract`, into the Wasm module.
+/// This function is called for use of the builtin variable, `current-contract`.
+fn link_current_contract_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "current_contract",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             return_offset: i32,
+             _return_length: i32| {
+                let contract = caller.data().contract_context().contract_identifier.clone();
+
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let (_, bytes_written) = write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &TypeSignature::PrincipalType,
+                    return_offset,
+                    return_offset,
+                    &Value::Principal(PrincipalData::Contract(contract)),
+                    false,
+                )?;
+
+                Ok((return_offset, bytes_written))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "current_contract".to_string(),
                 e,
             ))
         })
