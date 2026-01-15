@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Bound::Included;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -75,6 +75,34 @@ pub struct SignerCoordinator {
     block_rejection_timeout_steps: BTreeMap<u32, Duration>,
 }
 
+/// Helper function to build block_rejection_timeout_steps BTreeMap from config.
+///
+/// When multiple percentages truncate to the same rejections_amount
+/// (common with small total_weight), keeps the longest timeout (from the lowest percentage).
+fn build_block_rejection_timeout_steps(
+    total_weight: u32,
+    config_steps: &HashMap<u32, Duration>,
+) -> BTreeMap<u32, Duration> {
+    let mut block_rejection_timeout_steps = BTreeMap::<u32, Duration>::new();
+    for (percentage, duration) in config_steps.iter() {
+        let rejections_amount = ((f64::from(total_weight) / 100.0) * f64::from(*percentage)) as u32;
+        // If multiple percentages collapse to the same weight, keep the longest timeout.
+        if let Some(existing) = block_rejection_timeout_steps.get_mut(&rejections_amount) {
+            warn!(
+                "block_rejection_timeout_steps collision: percentages map to same rejection weight";
+                "rejections_amount" => rejections_amount,
+                "existing_timeout_secs" => existing.as_secs(),
+                "new_timeout_secs" => duration.as_secs(),
+            );
+            *existing = (*existing).max(*duration);
+        } else {
+            block_rejection_timeout_steps.insert(rejections_amount, *duration);
+        }
+    }
+
+    block_rejection_timeout_steps
+}
+
 impl SignerCoordinator {
     /// Create a new `SignerCoordinator` instance.
     /// This will spawn a new thread to listen for messages from the signer DB.
@@ -114,12 +142,10 @@ impl SignerCoordinator {
         );
 
         // build a BTreeMap of the various timeout steps
-        let mut block_rejection_timeout_steps = BTreeMap::<u32, Duration>::new();
-        for (percentage, duration) in config.miner.block_rejection_timeout_steps.iter() {
-            let rejections_amount =
-                ((f64::from(listener.total_weight) / 100.0) * f64::from(*percentage)) as u32;
-            block_rejection_timeout_steps.insert(rejections_amount, *duration);
-        }
+        let block_rejection_timeout_steps = build_block_rejection_timeout_steps(
+            listener.total_weight,
+            &config.miner.block_rejection_timeout_steps,
+        );
 
         let mut sc = Self {
             message_key,
@@ -551,5 +577,43 @@ impl SignerCoordinator {
             }
             debug!("SignerCoordinator: stacker db listener thread has shut down");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    use super::build_block_rejection_timeout_steps;
+
+    #[test]
+    fn timeout_steps_keep_longest_on_collisions() {
+        let mut steps = HashMap::new();
+        steps.insert(0, Duration::from_secs(180));
+        steps.insert(10, Duration::from_secs(90));
+        steps.insert(20, Duration::from_secs(45));
+        steps.insert(30, Duration::from_secs(0));
+
+        let built = build_block_rejection_timeout_steps(3, &steps);
+
+        assert_eq!(built.len(), 1);
+        assert_eq!(built.get(&0), Some(&Duration::from_secs(180)));
+    }
+
+    #[test]
+    fn timeout_steps_distinct_with_normal_weight() {
+        let mut steps = HashMap::new();
+        steps.insert(0, Duration::from_secs(180));
+        steps.insert(10, Duration::from_secs(90));
+        steps.insert(20, Duration::from_secs(45));
+        steps.insert(30, Duration::from_secs(0));
+
+        let built = build_block_rejection_timeout_steps(100, &steps);
+
+        assert_eq!(built.get(&0), Some(&Duration::from_secs(180)));
+        assert_eq!(built.get(&10), Some(&Duration::from_secs(90)));
+        assert_eq!(built.get(&20), Some(&Duration::from_secs(45)));
+        assert_eq!(built.get(&30), Some(&Duration::from_secs(0)));
     }
 }
