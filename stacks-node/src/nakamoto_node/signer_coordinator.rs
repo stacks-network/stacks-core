@@ -78,7 +78,7 @@ pub struct SignerCoordinator {
 /// Helper function to build block_rejection_timeout_steps BTreeMap from config.
 ///
 /// When multiple percentages truncate to the same rejections_amount
-/// (common with small total_weight), keeps the longest timeout (from the lowest percentage).
+/// (common with small total_weight), keeps the longest timeout.
 fn build_block_rejection_timeout_steps(
     total_weight: u32,
     config_steps: &HashMap<u32, Duration>,
