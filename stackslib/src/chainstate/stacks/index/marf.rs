@@ -111,7 +111,7 @@ struct WriteChainTip<T> {
 }
 
 /// Options for opening a MARF
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct MARFOpenOpts {
     /// Hash calculation mode for calculating a trie root hash
     pub hash_calculation_mode: TrieHashCalculationMode,

@@ -256,7 +256,7 @@ pub struct BurnchainBlockHeader {
     pub timestamp: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Burnchain {
     pub peer_version: u32,
     pub network_id: u32,
@@ -273,7 +273,7 @@ pub struct Burnchain {
     pub marf_opts: Option<MARFOpenOpts>,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PoxConstants {
     /// the length (in burn blocks) of the reward cycle
     pub reward_cycle_length: u32,
