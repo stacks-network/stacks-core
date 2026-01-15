@@ -60,16 +60,20 @@ struct WorkerMessage {
 /// may take longer than only the handling of this very request.
 pub struct EventDispatcherResult {
     /// The worker thread will send a one-time message to this channel to notify of completion.
-    /// Afterwards, it will drop the sender and thus close the channel.
-    receiver: Receiver<()>,
+    /// Afterwards, it will drop the sender and thus close the channel. If this is `None`, then
+    /// the operation is already complete, and `wait_until_complete` returns immediately.
+    receiver: Option<Receiver<()>>,
 }
 
 impl EventDispatcherResult {
     pub fn wait_until_complete(self) {
+        let Some(receiver) = self.receiver else {
+            return;
+        };
         // There is no codepath that would drop the sender without sending the acknowledgenent
         // first. And this method consumes `self`, so it can only be called once.
         // So if despite all that, `recv()` returns an error, that means the worker thread panicked.
-        self.receiver
+        receiver
             .recv()
             .expect("EventDispatcherWorker thread has terminated mid-operation");
     }
@@ -91,20 +95,33 @@ impl EventDispatcherResult {
 #[derive(Clone)]
 pub struct EventDispatcherWorker {
     sender: SyncSender<WorkerMessage>,
+    must_block: bool,
 }
 
 static NEXT_THREAD_NUM: AtomicU64 = AtomicU64::new(1);
 
 impl EventDispatcherWorker {
-    pub fn new(db_path: PathBuf) -> Result<EventDispatcherWorker, EventDispatcherError> {
-        Self::new_with_custom_queue_size(db_path, 1_000)
-    }
-
-    pub fn new_with_custom_queue_size(
+    /// The custom queue size indicates how many requests are allowed to be pending (i.e. not
+    /// complete) before a call to initiate_send starts blocking. A value of 0 thus means that
+    /// every request blocks.
+    pub fn new(
         db_path: PathBuf,
         queue_size: usize,
     ) -> Result<EventDispatcherWorker, EventDispatcherError> {
-        let (message_tx, message_rx) = sync_channel(queue_size);
+        // If the channel bound is 0, then the send operation will
+        // block until the *message was received*, not until the
+        // payload was sent. Only the next send will then block (until
+        // the previous request was completed).
+        //
+        // In other words, the channel's bound has to be one less than
+        // the desired queue size. If the queue size is 0, then the bound
+        // is also set to zero, and *in addition* we block until the
+        // request has happend.
+
+        let channel_bound = if queue_size > 0 { queue_size - 1 } else { 0 };
+        let must_block = queue_size == 0;
+
+        let (message_tx, message_rx) = sync_channel(channel_bound);
         let (ready_tx, ready_rx) = channel();
 
         let thread_num = NEXT_THREAD_NUM.fetch_add(1, Ordering::SeqCst);
@@ -140,7 +157,10 @@ impl EventDispatcherWorker {
         // might be sent across that channel
         ready_rx.recv()??;
 
-        Ok(EventDispatcherWorker { sender: message_tx })
+        Ok(EventDispatcherWorker {
+            sender: message_tx,
+            must_block,
+        })
     }
 
     /// Let the worker know that it should send the request that is stored in the DB under the given
@@ -170,7 +190,18 @@ impl EventDispatcherWorker {
             completion: sender,
         })?;
 
-        Ok(EventDispatcherResult { receiver })
+        let result = EventDispatcherResult {
+            receiver: Some(receiver),
+        };
+
+        if !self.must_block {
+            return Ok(result);
+        }
+
+        result.wait_until_complete();
+
+        let result = EventDispatcherResult { receiver: None };
+        Ok(result)
     }
 
     #[cfg(test)]
@@ -183,7 +214,12 @@ impl EventDispatcherWorker {
             completion: sender,
         })?;
 
-        Ok(EventDispatcherResult { receiver })
+        // we're ignoring `must_block` here -- the only point of `noop()` is to call
+        // `wait_until_complete()` immedately anyway, so we'll let the caller do that.
+
+        Ok(EventDispatcherResult {
+            receiver: Some(receiver),
+        })
     }
 
     fn main_thread_loop(conn: EventDispatcherDbConnection, message_rx: Receiver<WorkerMessage>) {

@@ -242,7 +242,7 @@ fn test_process_pending_payloads() {
     info!("endpoint: {}", endpoint);
     let timeout = Duration::from_secs(5);
 
-    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 0);
 
     dispatcher.register_observer(&EventObserverConfig {
         endpoint: endpoint.clone(),
@@ -1053,6 +1053,187 @@ fn test_http_delivery_non_blocking() {
     assert!(end_count.load(Ordering::SeqCst) == 0);
 
     thread::sleep(Duration::from_secs(2));
+
+    assert!(start_count.load(Ordering::SeqCst) == 1);
+    assert!(end_count.load(Ordering::SeqCst) == 1);
+
+    mock.assert();
+}
+
+#[test]
+fn test_http_delivery_blocks_once_queue_is_full() {
+    let mut slow_server = mockito::Server::new();
+
+    let start_count = Arc::new(AtomicU32::new(0));
+    let end_count = Arc::new(AtomicU32::new(0));
+
+    let start_count2 = start_count.clone();
+    let end_count2 = end_count.clone();
+
+    // this server takes 2 seconds until it finally responds
+    let mock = slow_server
+        .mock("POST", "/mined_nakamoto_block")
+        .expect(4)
+        .with_body_from_request(move |_| {
+            start_count2.fetch_add(1, Ordering::SeqCst);
+            thread::sleep(Duration::from_secs(2));
+            end_count2.fetch_add(1, Ordering::SeqCst);
+            "".into()
+        })
+        .create();
+
+    let endpoint = slow_server
+        .url()
+        .strip_prefix("http://")
+        .unwrap()
+        .to_string();
+
+    let dir = tempdir().unwrap();
+
+    // Create a dispatcher with a queue size of 3, so that three pending requests
+    // don't block, but the fourth one does.
+    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 3);
+
+    dispatcher.register_observer(&EventObserverConfig {
+        endpoint: endpoint.clone(),
+        events_keys: vec![EventKeyType::MinedBlocks],
+        timeout_ms: 3_000,
+        disable_retries: false,
+    });
+
+    let nakamoto_block = NakamotoBlock {
+        header: NakamotoBlockHeader::empty(),
+        txs: vec![],
+    };
+
+    let start = Instant::now();
+
+    // send the first three requests
+    for _ in 1..=3 {
+        dispatcher.process_mined_nakamoto_block_event(
+            0,
+            &nakamoto_block,
+            0,
+            &ExecutionCost::max_value(),
+            vec![],
+        );
+    }
+
+    let elapsed = start.elapsed();
+    // this shouldn't block because they fit in the queue
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "dispatcher blocked while sending first three events"
+    );
+
+    thread::sleep(Duration::from_millis(500) - elapsed);
+
+    assert_eq!(start_count.load(Ordering::SeqCst), 1);
+    assert_eq!(end_count.load(Ordering::SeqCst), 0);
+
+    let start = Instant::now();
+
+    // send the fourth request -- this should now block until the first request is complete
+    dispatcher.process_mined_nakamoto_block_event(
+        0,
+        &nakamoto_block,
+        0,
+        &ExecutionCost::max_value(),
+        vec![],
+    );
+
+    // we waited 500ms previously, so it should take on the order of 1.5s until
+    // the first request is complete
+    assert!(
+        start.elapsed() > Duration::from_millis(1000),
+        "dispatcher did not block when sending fourth event"
+    );
+
+    assert!(
+        start.elapsed() < Duration::from_millis(2000),
+        "dispatcher blocked unexpectedly long after sending fourth event"
+    );
+
+    thread::sleep(Duration::from_millis(100));
+
+    assert_eq!(start_count.load(Ordering::SeqCst), 2);
+    assert_eq!(end_count.load(Ordering::SeqCst), 1);
+
+    thread::sleep(Duration::from_secs(2));
+
+    assert_eq!(start_count.load(Ordering::SeqCst), 3);
+    assert_eq!(end_count.load(Ordering::SeqCst), 2);
+
+    thread::sleep(Duration::from_secs(2));
+
+    assert_eq!(start_count.load(Ordering::SeqCst), 4);
+    assert_eq!(end_count.load(Ordering::SeqCst), 3);
+
+    thread::sleep(Duration::from_secs(2));
+
+    assert_eq!(start_count.load(Ordering::SeqCst), 4);
+    assert_eq!(end_count.load(Ordering::SeqCst), 4);
+
+    mock.assert();
+}
+
+#[test]
+fn test_http_delivery_always_blocks_if_queue_size_is_zero() {
+    let mut slow_server = mockito::Server::new();
+
+    let start_count = Arc::new(AtomicU32::new(0));
+    let end_count = Arc::new(AtomicU32::new(0));
+
+    let start_count2 = start_count.clone();
+    let end_count2 = end_count.clone();
+
+    let mock = slow_server
+        .mock("POST", "/mined_nakamoto_block")
+        .with_body_from_request(move |_| {
+            start_count2.fetch_add(1, Ordering::SeqCst);
+            thread::sleep(Duration::from_secs(2));
+            end_count2.fetch_add(1, Ordering::SeqCst);
+            "".into()
+        })
+        .create();
+
+    let endpoint = slow_server
+        .url()
+        .strip_prefix("http://")
+        .unwrap()
+        .to_string();
+
+    let dir = tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 0);
+
+    dispatcher.register_observer(&EventObserverConfig {
+        endpoint: endpoint.clone(),
+        events_keys: vec![EventKeyType::MinedBlocks],
+        timeout_ms: 3_000,
+        disable_retries: false,
+    });
+
+    let nakamoto_block = NakamotoBlock {
+        header: NakamotoBlockHeader::empty(),
+        txs: vec![],
+    };
+
+    let start = Instant::now();
+
+    dispatcher.process_mined_nakamoto_block_event(
+        0,
+        &nakamoto_block,
+        0,
+        &ExecutionCost::max_value(),
+        vec![],
+    );
+
+    assert!(
+        start.elapsed() > Duration::from_millis(1900),
+        "dispatcher did not block while sending event"
+    );
+
+    thread::sleep(Duration::from_millis(100));
 
     assert!(start_count.load(Ordering::SeqCst) == 1);
     assert!(end_count.load(Ordering::SeqCst) == 1);

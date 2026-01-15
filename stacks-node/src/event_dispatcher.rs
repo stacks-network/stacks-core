@@ -418,12 +418,15 @@ pub fn catch_up_all_event_dispatchers() {
 
 impl EventDispatcher {
     pub fn new(working_dir: PathBuf) -> EventDispatcher {
+        Self::new_with_custom_queue_size(working_dir, 1_000)
+    }
+    pub fn new_with_custom_queue_size(working_dir: PathBuf, queue_size: usize) -> EventDispatcher {
         let mut db_path = working_dir;
         db_path.push("event_observers.sqlite");
         EventDispatcherDbConnection::new(&db_path).expect("Failed to initialize database");
 
-        let worker =
-            EventDispatcherWorker::new(db_path.clone()).expect("Failed to start worker thread");
+        let worker = EventDispatcherWorker::new(db_path.clone(), queue_size)
+            .expect("Failed to start worker thread");
 
         let worker = Arc::new(worker);
 
