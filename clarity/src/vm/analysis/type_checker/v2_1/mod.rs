@@ -1283,15 +1283,15 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 };
             }
         }
-        if let Err(mut check_error) = check_result {
+        if let Err(mut static_check_error) = check_result {
             if let StaticCheckErrorKind::IncorrectArgumentCount(expected, _actual) =
-                *check_error.err
+                *static_check_error.err
             {
-                check_error.err = Box::new(StaticCheckErrorKind::IncorrectArgumentCount(
+                static_check_error.err = Box::new(StaticCheckErrorKind::IncorrectArgumentCount(
                     expected,
                     args.len(),
                 ));
-                check_error.diagnostic = Diagnostic::err(check_error.err.as_ref());
+                static_check_error.diagnostic = Diagnostic::err(static_check_error.err.as_ref());
             }
             // accumulate the checking costs
             // the reason we do this now (instead of within the loop) is for backwards compatibility
@@ -1299,7 +1299,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 self.add_cost(cost?)?;
             }
 
-            return Err(check_error);
+            return Err(static_check_error);
         }
         // otherwise, just invoke the normal checking routine
         func_type.check_args(self, &accumulated_types, epoch, clarity_version)
