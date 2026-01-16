@@ -2145,6 +2145,30 @@ pub struct NodeConfig {
     /// @default: `300` (5 minutes)
     /// @units: seconds
     pub chain_liveness_poll_time_secs: u64,
+    /// By default, HTTP requests to event observers block the operation of the node
+    /// until a successful response is received from the observer. This creates a
+    /// predictable order of operations, but it also means that an event observer that
+    /// is slow to respond might stall the node. This can be prevented by changing this
+    /// setting to `false`, in which case those requests are enqueued to be delivered
+    /// on a background thread. Only if the queue is full will new requests cause
+    /// blocking again. The size of that queue can be controlled with the
+    /// `event_dispatcher_queue_size` setting.
+    ///
+    /// Pending requests are persisted across restarts of the node. On restart, the
+    /// node will deliver all remaining event payloads before resuming normal operations.
+    /// ---
+    /// @default: `true`
+    pub event_dispatcher_blocking: bool,
+    /// This setting does nothing if the `event_dispatcher_blocking` has its default
+    /// value of `true`. But if the event dispatcher is set to be non-blocking, this
+    /// queue size controls how many events can be in-flight (not yet delivered) before
+    /// the event dispatcher becomes blocking again until space becomes available.
+    ///
+    /// Setting this value to `0` is equivalent to setting `event_dispatcher_blocking`
+    /// to `true`, as no in-flight requests are allowed.
+    /// ---
+    /// @default: `1_000`
+    pub event_dispatcher_queue_size: usize,
     /// A list of specific StackerDB contracts (identified by their qualified contract
     /// identifiers, e.g., "SP000000000000000000002Q6VF78.pox-3") that this node
     /// should actively replicate.
@@ -2429,6 +2453,8 @@ impl Default for NodeConfig {
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
+            event_dispatcher_blocking: true,
+            event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
             txindex: false,
         }
@@ -2589,6 +2615,14 @@ impl NodeConfig {
             self.marf_cache_strategy.as_deref().unwrap_or("noop"),
             false,
         )
+    }
+
+    pub fn effective_event_dispatcher_queue_size(&self) -> usize {
+        if self.event_dispatcher_blocking {
+            0
+        } else {
+            self.event_dispatcher_queue_size
+        }
     }
 }
 
@@ -3841,6 +3875,9 @@ pub struct NodeConfigFile {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
+    pub event_dispatcher_blocking: Option<bool>,
+    /// Only relevant if `event_dispatcher_blocking` is false
+    pub event_dispatcher_queue_size: Option<usize>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
     /// fault injection: fail to push blocks with this probability (0-100)
@@ -3921,6 +3958,12 @@ impl NodeConfigFile {
             chain_liveness_poll_time_secs: self
                 .chain_liveness_poll_time_secs
                 .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
+            event_dispatcher_blocking: self
+                .event_dispatcher_blocking
+                .unwrap_or(default_node_config.event_dispatcher_blocking),
+            event_dispatcher_queue_size: self
+                .event_dispatcher_queue_size
+                .unwrap_or(default_node_config.event_dispatcher_queue_size),
             stacker_dbs: self
                 .stacker_dbs
                 .unwrap_or_default()

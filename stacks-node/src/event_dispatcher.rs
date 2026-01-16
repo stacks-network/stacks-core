@@ -417,9 +417,18 @@ pub fn catch_up_all_event_dispatchers() {
 }
 
 impl EventDispatcher {
+    /// The default behavior is to create a non-blocking dispatcher with a
+    /// queue size of 1,000. Note however that the default *node* configuration
+    /// is to always block (i.e. an effective queue size of 0).
+    ///
+    /// See the `event_dispatcher_blocking` and `event_dispatcher_queue_size`
+    /// config values.
     pub fn new(working_dir: PathBuf) -> EventDispatcher {
         Self::new_with_custom_queue_size(working_dir, 1_000)
     }
+    /// The queue size specifies how many events may be in-flight without
+    /// blocking the calling thread when sending additional events. A value
+    /// of 0 means they always block.
     pub fn new_with_custom_queue_size(working_dir: PathBuf, queue_size: usize) -> EventDispatcher {
         let mut db_path = working_dir;
         db_path.push("event_observers.sqlite");
