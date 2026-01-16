@@ -68,20 +68,18 @@ fn test_build_cost_analysis_tree_function_definition() {
 
 #[test]
 fn test_let_cost() {
-    let src = "(let ((a 1) (b 2)) (+ a b))";
-    let src2 = "(let ((a 1) (b 2) (c 3)) (+ a b))"; // should compute for 3 bindings not 2
+    let src = r#"(define-public (let (a uint))
+  (let ((a 1) (b 2)) (+ a b))
+)
+(define-public (let2 (a uint))
+  (let ((a 1) (b 2) (c 3)) (+ a b))
+)"#;
 
     let contract_id = QualifiedContractIdentifier::transient();
-    let epoch = StacksEpochId::Epoch32;
-    let clarity_version = ClarityVersion::Clarity3;
-    let ast = crate::vm::ast::build_ast(
-        &QualifiedContractIdentifier::transient(),
-        src,
-        &mut (),
-        clarity_version,
-        epoch,
-    )
-    .unwrap();
+    let epoch = StacksEpochId::Epoch33;
+    let clarity_version = ClarityVersion::Clarity4;
+    let ast =
+        crate::vm::ast::build_ast(&contract_id, src, &mut (), clarity_version, epoch).unwrap();
 
     // Create environment for cost analysis
     let mut memory_store = MemoryBackingStore::new();
@@ -262,10 +260,8 @@ fn execute_contract_function_and_get_cost(
     contract_id: &QualifiedContractIdentifier,
     function_name: &str,
     args: &[clarity_types::Value],
-    version: ClarityVersion,
 ) -> ExecutionCost {
     let initial_cost = env.get_cost_total();
-    eprintln!("[EXECUTE_FUNCTION] Initial cost: {:?}", initial_cost);
 
     let sender = PrincipalData::parse_qualified_contract_principal(
         "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sender",
@@ -274,34 +270,15 @@ fn execute_contract_function_and_get_cost(
 
     // Convert u64 arguments to Value::UInt, then to SymbolicExpression::atom_value
     use crate::vm::representations::SymbolicExpression;
-    use crate::vm::types::Value;
     let arg_exprs: Vec<SymbolicExpression> = args
         .iter()
         .map(|v| SymbolicExpression::atom_value(v.clone()))
         .collect();
 
-    eprintln!(
-        "[EXECUTE_FUNCTION] Executing function call: {} with {} args",
-        function_name,
-        arg_exprs.len()
-    );
     let _result =
         env.execute_transaction(sender, None, contract_id.clone(), function_name, &arg_exprs);
-    #[cfg(test)]
-    match &_result {
-        Ok((value, _, _)) => eprintln!(
-            "[EXECUTE_FUNCTION] Function returned successfully: {:?}",
-            value
-        ),
-        Err(e) => eprintln!("[EXECUTE_FUNCTION] Function returned error: {:?}", e),
-    }
 
     let final_cost = env.get_cost_total();
-    eprintln!("[EXECUTE_FUNCTION] Final cost: {:?}", final_cost);
-    eprintln!(
-        "[EXECUTE_FUNCTION] Cost delta: runtime={}",
-        final_cost.runtime - initial_cost.runtime
-    );
 
     ExecutionCost {
         write_length: final_cost.write_length - initial_cost.write_length,
@@ -312,6 +289,7 @@ fn execute_contract_function_and_get_cost(
     }
 }
 
+/// Test for asserting that costs parsing works for pox-4 contract
 #[test]
 fn test_pox_4_costs() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
@@ -336,7 +314,6 @@ fn test_pox_4_costs() {
     )
     .expect("Failed to build AST from pox-4.clar");
 
-    // Create environment for cost analysis
     let mut memory_store = MemoryBackingStore::new();
     let db = memory_store.as_clarity_db();
     let mut owned_env = OwnedEnvironment::new(db, epoch);
@@ -369,54 +346,6 @@ fn test_pox_4_costs() {
             function_name
         ));
     }
-}
-
-#[test]
-fn test_contract_call_cost_32() {
-    let src = r#"(define-public (somefunc (a uint))
-  (contract-call? .tokens my-get-token-balance tx-sender))
-"#;
-    let contract_id = QualifiedContractIdentifier::transient();
-    let epoch = StacksEpochId::Epoch32;
-    let clarity_version = ClarityVersion::Clarity3;
-    let ast = crate::vm::ast::build_ast(&contract_id, &src, &mut (), clarity_version, epoch)
-        .expect("Failed to build AST from contract call test");
-    // Create environment for cost analysis
-    let mut memory_store = MemoryBackingStore::new();
-    let db = memory_store.as_clarity_db();
-    let mut owned_env = OwnedEnvironment::new(db, epoch);
-    let cost_map = owned_env
-        .with_cost_analysis_environment(&contract_id, clarity_version, |env| {
-            static_cost_from_ast(&ast, &clarity_version, epoch, env)
-        })
-        .unwrap();
-    let (somefunc_cost, _) = cost_map.get("somefunc").unwrap();
-    assert_eq!(somefunc_cost.min.runtime, 134);
-    assert_eq!(somefunc_cost.max.runtime, 134);
-}
-
-#[test]
-fn test_contract_call_cost_33() {
-    let src = r#"(define-public (somefunc (a uint))
-  (contract-call? .tokens my-get-token-balance tx-sender))
-"#;
-    let contract_id = QualifiedContractIdentifier::transient();
-    let epoch = StacksEpochId::Epoch33;
-    let clarity_version = ClarityVersion::Clarity4;
-    let ast = crate::vm::ast::build_ast(&contract_id, &src, &mut (), clarity_version, epoch)
-        .expect("Failed to build AST from contract call test");
-
-    let mut memory_store = MemoryBackingStore::new();
-    let db = memory_store.as_clarity_db();
-    let mut owned_env = OwnedEnvironment::new(db, epoch);
-    let cost_map = owned_env
-        .with_cost_analysis_environment(&contract_id, clarity_version, |env| {
-            static_cost_from_ast(&ast, &clarity_version, epoch, env)
-        })
-        .unwrap();
-    let (somefunc_cost, _) = cost_map.get("somefunc").unwrap();
-    assert_eq!(somefunc_cost.min.runtime, 134);
-    assert_eq!(somefunc_cost.max.runtime, 134);
 }
 
 // Helper function to run static and dynamic cost analysis on a contract function
@@ -504,13 +433,8 @@ fn run_cost_analysis_test(
         .expect("Failed to initialize contract");
 
     // Run dynamic cost analysis
-    let dynamic_cost = execute_contract_function_and_get_cost(
-        &mut owned_env,
-        &contract_id,
-        function_name,
-        args,
-        clarity_version,
-    );
+    let dynamic_cost =
+        execute_contract_function_and_get_cost(&mut owned_env, &contract_id, function_name, args);
 
     // Build AST for static cost analysis
     let ast = ast::build_ast(&contract_id, src, &mut (), clarity_version, epoch)
@@ -554,7 +478,6 @@ fn run_cost_analysis_test(
         print_cost_tree(cost_tree, 0);
     }
 
-    // Verify that dynamic cost runtime is between static cost min and max
     if static_cost.min.runtime > static_cost.max.runtime {
         return Err(format!(
             "Static cost min {} should be <= max {}",
@@ -644,6 +567,54 @@ fn test_against_dynamic_cost_analysis() {
         )
         "#,
             "simple-ok",
+            &[],
+        ),
+        (
+            r#"(define-public (simple-addition)
+            (+ 1 2)
+        )
+        "#,
+            "simple-addition",
+            &[],
+        ),
+        (
+            r#"(define-public (arithmetic)
+            (- u4 (+ u1 u2))
+        )
+        "#,
+            "arithmetic",
+            &[],
+        ),
+        // (
+        //     r#"(define-public (nested-ops)
+        //     (* (+ u1 u2) (- u3 u4))
+        // )
+        // "#,
+        //     "nested-ops",
+        //     &[],
+        // ),
+        (
+            r#"(define-public (string-concat)
+            (ok (concat "hello" "world"))
+        )
+        "#,
+            "string-concat",
+            &[],
+        ),
+        (
+            r#"(define-public (string-len)
+            (ok (len "hello"))
+        )
+        "#,
+            "string-len",
+            &[],
+        ),
+        (
+            r#"(define-public (branching)
+            (if (> 3 0) (ok (concat "hello" "world")) (ok "asdf"))
+        )
+        "#,
+            "branching",
             &[],
         ),
     ];

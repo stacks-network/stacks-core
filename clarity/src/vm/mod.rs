@@ -281,23 +281,9 @@ pub fn apply(
         env.call_stack.insert(&identifier, track_recursion);
         let mut resp = match function {
             CallableType::NativeFunction(_, function, cost_function) => {
-                #[cfg(test)]
-                let before_cost = env.global_context.cost_track.get_total();
-                #[cfg(test)]
-                eprintln!("[APPLY_NATIVE] Before {}: total runtime={}, input_size={}",
-                    cost_function.get_name(), before_cost.runtime, evaluated_args.len());
                 runtime_cost(cost_function.clone(), env, evaluated_args.len())
                     .map_err(VmExecutionError::from)
-                    .and_then(|_| {
-                        #[cfg(test)]
-                        {
-                            let after_cost = env.global_context.cost_track.get_total();
-                            eprintln!("[APPLY_NATIVE] After {}: total runtime={}, delta={}",
-                                cost_function.get_name(), after_cost.runtime,
-                                after_cost.runtime - before_cost.runtime);
-                        }
-                        function.apply(evaluated_args, env)
-                    })
+                    .and_then(|_| function.apply(evaluated_args, env))
             }
             CallableType::NativeFunction205(_, function, cost_function, cost_input_handle) => {
                 let cost_input = if env.epoch() >= &StacksEpochId::Epoch2_05 {
@@ -305,23 +291,9 @@ pub fn apply(
                 } else {
                     evaluated_args.len() as u64
                 };
-                #[cfg(test)]
-                let before_cost = env.global_context.cost_track.get_total();
-                #[cfg(test)]
-                eprintln!("[APPLY_NATIVE205] Before {}: total runtime={}, input_size={}",
-                    cost_function.get_name(), before_cost.runtime, cost_input);
                 runtime_cost(cost_function.clone(), env, cost_input)
                     .map_err(VmExecutionError::from)
-                    .and_then(|_| {
-                        #[cfg(test)]
-                        {
-                            let after_cost = env.global_context.cost_track.get_total();
-                            eprintln!("[APPLY_NATIVE205] After {}: total runtime={}, delta={}",
-                                cost_function.get_name(), after_cost.runtime,
-                                after_cost.runtime - before_cost.runtime);
-                        }
-                        function.apply(evaluated_args, env)
-                    })
+                    .and_then(|_| function.apply(evaluated_args, env))
             }
             CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
             _ => return Err(VmInternalError::Expect("Should be unreachable.".into()).into()),

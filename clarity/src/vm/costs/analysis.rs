@@ -272,9 +272,32 @@ pub fn static_cost_tree(
     static_cost_tree_from_ast(&ast, clarity_version, epoch, env)
 }
 
+/// Extract function signature arguments from a function definition expression.
+///
+/// Function definition structure: (define-public (function-name (arg1 type1) (arg2 type2)) body)
+/// Returns (2, [(arg1, type1), (arg2, type2)]) where args excludes the function name.
+///
+/// Note: Returns `Some((0, &[]))` for functions with no arguments
+fn extract_function_signature(expr: &SymbolicExpression) -> Option<(usize, &[SymbolicExpression])> {
+    let list = expr.match_list()?;
+    if list.len() < 2 {
+        return None;
+    }
+
+    let signature = list[1].match_list()?;
+    if signature.len() <= 1 {
+        // Only function name (or empty)
+        return Some((0, &[]));
+    }
+
+    // Skip the first element (function name), get the rest (arguments)
+    let args = &signature[1..];
+    Some((args.len(), args))
+}
+
 /// Compute overhead costs for executing a function.
 ///
-/// When a function is called, there are two types of overhead costs that are charged
+/// When a function is called, there are overhead costs that are charged
 /// before the function body is executed:
 ///
 /// 1. **Contract Loading Cost** (`cost_load_contract`):
@@ -283,31 +306,27 @@ pub fn static_cost_tree(
 /// 2. **Function Application Cost** (`cost_user_function_application`):
 ///    - Charged when applying a user-defined function (not native functions)
 ///
-/// These overhead costs are added to the function body cost to get the total execution cost.
-/// Note: `cost_inner_type_check_cost` for argument type checking is part of the function
-/// body cost, not overhead since it depends on the actual argument values/types.
+/// 3. **Inner Type Check Cost** (`cost_inner_type_check_cost`):
+///    - Charged when type checking the arguments of a user-defined function
 fn compute_function_overhead_costs(
     contract_size: Option<u64>,
-    args: Vec<SymbolicExpression>,
+    function_name: &str,
+    ast_expressions: &[SymbolicExpression],
     epoch: StacksEpochId,
 ) -> (ExecutionCost, ExecutionCost) {
     let mut overhead = (ExecutionCost::ZERO, ExecutionCost::ZERO);
 
-    println!("raw args: {:?}", args);
-    // TODO clean up this disgusting mess
-    let args = args
-        .get(0)
-        .unwrap()
-        .match_list()
-        .unwrap()
-        .get(1)
-        .unwrap()
-        .match_list()
-        .unwrap()
-        .get(1..)
-        .unwrap();
-    println!("args: {:?}", args);
-    let arg_count = args.len();
+    // Find the function definition in the AST that matches the function name
+    let function_def = ast_expressions.iter().find(|expr| {
+        extract_function_name(expr)
+            .map(|name| name == function_name)
+            .unwrap_or(false)
+    });
+
+    // Extract the function signature (argument list) from the function definition
+    let (arg_count, signature_args) = function_def
+        .and_then(extract_function_signature)
+        .unwrap_or((0, &[]));
 
     // cost_load_contract
     if let Some(size) = contract_size {
@@ -316,58 +335,49 @@ fn compute_function_overhead_costs(
             .unwrap_or_else(|_| ExecutionCost::ZERO);
         overhead.0.add(&load_cost).ok();
         overhead.1.add(&load_cost).ok();
-        println!("load_cost: {:?}", load_cost);
     }
 
     // cost_user_function_application
     let application_cost = ClarityCostFunction::UserFunctionApplication
         .eval_for_epoch(arg_count as u64, epoch)
         .unwrap_or_else(|_| ExecutionCost::ZERO);
-    println!("application_cost: {:?}", application_cost);
 
     overhead.0.add(&application_cost).ok();
     overhead.1.add(&application_cost).ok();
 
-    let sigs = parse_name_type_pairs::<(), clarity_types::errors::CommonCheckErrorKind>(
-        epoch,
-        &args,
-        SyntaxBindingErrorType::Eval,
-        &mut (),
-    );
-    match sigs {
-        Ok(sigs) => {
-            for (_, sig) in sigs.iter() {
-                let type_check_cost = ClarityCostFunction::InnerTypeCheckCost
-                    .eval_for_epoch(sig.size().unwrap_or(0) as u64, epoch)
-                    .unwrap_or_else(|_| ExecutionCost::ZERO);
-                let type_check_min_cost = ClarityCostFunction::InnerTypeCheckCost
-                    .eval_for_epoch(sig.min_size().unwrap_or(0) as u64, epoch)
-                    .unwrap_or_else(|_| ExecutionCost::ZERO);
-                println!("type_check_cost: {:?}", type_check_cost);
-                println!("type_check_min_cost: {:?}", type_check_min_cost);
-                overhead.0.add(&type_check_min_cost).ok();
-                overhead.1.add(&type_check_cost).ok();
+    // Parse function signature for type checking costs
+    if !signature_args.is_empty() {
+        match parse_name_type_pairs::<(), clarity_types::errors::CommonCheckErrorKind>(
+            epoch,
+            signature_args,
+            SyntaxBindingErrorType::Eval,
+            &mut (),
+        ) {
+            Ok(sigs) => {
+                for (_, sig) in sigs.iter() {
+                    let type_check_cost = ClarityCostFunction::InnerTypeCheckCost
+                        .eval_for_epoch(sig.size().unwrap_or(0) as u64, epoch)
+                        .unwrap_or_else(|_| ExecutionCost::ZERO);
+                    let type_check_min_cost = ClarityCostFunction::InnerTypeCheckCost
+                        .eval_for_epoch(sig.min_size().unwrap_or(0) as u64, epoch)
+                        .unwrap_or_else(|_| ExecutionCost::ZERO);
+                    overhead.0.add(&type_check_min_cost).ok();
+                    overhead.1.add(&type_check_cost).ok();
+                }
+            }
+            Err(e) => {
+                // This should probably only be hit for contracts that don't
+                // type check anyway. We continue so the other costs are still
+                // calculated.
+                eprintln!(
+                    "[STATIC_COST] Warning: Failed to parse function signature '{}' for type checking costs: {:?}",
+                    function_name, e
+                );
             }
         }
-        Err(e) => {
-            println!("Error parsing signatures: {:?}", e);
-        }
     }
-    overhead
-}
 
-/// Extract function argument count from a function definition expression
-fn extract_function_arg_count(expr: &SymbolicExpression) -> Option<u64> {
-    expr.match_list().and_then(|list| {
-        if list.len() >= 2 {
-            list[1].match_list().map(|signature| {
-                // Skip the first element: function name
-                (signature.len().saturating_sub(1)) as u64
-            })
-        } else {
-            None
-        }
-    })
+    overhead
 }
 
 pub fn static_cost_from_ast(
@@ -386,7 +396,6 @@ pub fn static_cost_from_ast_with_source(
     contract_source: Option<&str>,
     env: &mut Environment,
 ) -> Result<HashMap<String, (StaticCost, Option<TraitCount>)>, String> {
-    // Use actual contract source size if provided, otherwise estimate
     let contract_size = contract_source.map(|s| s.len() as u64);
 
     let cost_trees_with_traits =
@@ -407,7 +416,8 @@ pub fn static_cost_from_ast_with_source(
             // Add overhead costs to both min and max
             let overhead = compute_function_overhead_costs(
                 contract_size,
-                contract_ast.expressions.clone(),
+                name,
+                &contract_ast.expressions,
                 epoch,
             );
             static_cost.min.add(&overhead.0).ok()?;
@@ -809,7 +819,6 @@ fn build_function_definition_cost_analysis_tree(
                     min: lookup_cost.clone(),
                     max: lookup_cost,
                 };
-                eprintln!("[STATIC_COST] Excluding ConsOkay function cost (return value of let), keeping lookup cost");
             }
         }
     }
@@ -1057,6 +1066,23 @@ fn build_listlike_cost_analysis_tree(
         }
     };
 
+    // Zero out string literal costs for functions where string arguments have zero cost
+    // because the function cost includes their processing (concat, len)
+    if let CostExprNode::NativeFunction(native_function) = &expr_node {
+        if matches!(
+            native_function,
+            NativeFunctions::Concat | NativeFunctions::Len
+        ) {
+            for child in &mut children {
+                // Check if this child is a string literal value
+                if let CostExprNode::AtomValue(Value::Sequence(_)) = &child.expr {
+                    // Zero out the cost - the function cost already includes processing the string
+                    child.cost = StaticCost::ZERO;
+                }
+            }
+        }
+    }
+
     Ok(CostAnalysisNode::new(expr_node, cost, children))
 }
 
@@ -1189,62 +1215,6 @@ mod tests {
         let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
         assert_eq!(cost.min.runtime, 0);
         assert_eq!(cost.max.runtime, 0);
-    }
-
-    #[test]
-    fn test_simple_addition() {
-        let source = "(+ 1 2)";
-        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
-
-        // Min: linear(2, 11, 125) = 11*2 + 125 = 147
-        assert_eq!(cost.min.runtime, 147);
-        assert_eq!(cost.max.runtime, 147);
-    }
-
-    #[test]
-    fn test_arithmetic() {
-        let source = "(- u4 (+ u1 u2))";
-        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
-        assert_eq!(cost.min.runtime, 147 + 147);
-        assert_eq!(cost.max.runtime, 147 + 147);
-    }
-
-    #[test]
-    fn test_nested_operations() {
-        let source = "(* (+ u1 u2) (- u3 u4))";
-        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
-        // multiplication: 13*2 + 125 = 151
-        assert_eq!(cost.min.runtime, 151 + 147 + 147);
-        assert_eq!(cost.max.runtime, 151 + 147 + 147);
-    }
-
-    #[test]
-    fn test_string_concat_min_max() {
-        let source = r#"(concat "hello" "world")"#;
-        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
-
-        assert_eq!(cost.min.runtime, 366);
-        assert_eq!(cost.max.runtime, 366);
-    }
-
-    #[test]
-    fn test_string_len_min_max() {
-        let source = r#"(len "hello")"#;
-        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
-
-        assert_eq!(cost.min.runtime, 612);
-        assert_eq!(cost.max.runtime, 612);
-    }
-
-    #[test]
-    fn test_branching() {
-        let source = "(if (> 3 0) (ok (concat \"hello\" \"world\")) (ok \"asdf\"))";
-        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
-        // min: raw string
-        // max: concat
-
-        assert_eq!(cost.min.runtime, 346);
-        assert_eq!(cost.max.runtime, 565);
     }
 
     //  ----  ExprTreee building specific tests

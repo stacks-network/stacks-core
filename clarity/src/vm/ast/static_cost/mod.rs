@@ -159,7 +159,6 @@ pub(crate) fn calculate_total_cost_with_summing(node: &CostAnalysisNode) -> Summ
         let child_summing = calculate_total_cost_with_summing(child);
         summing_cost.add_summing(&child_summing);
     }
-
     summing_cost
 }
 
@@ -207,10 +206,6 @@ pub(crate) fn calculate_total_cost_with_branching(node: &CostAnalysisNode) -> Su
     } else {
         // For non-branching, recursively process children (which may be branching)
         let mut total_cost = node.cost.min.clone();
-        eprintln!(
-            "[STATIC_COST] Non-branching: starting with node cost {}",
-            total_cost.runtime
-        );
         let mut has_branching_children = false;
         for child_cost_node in &node.children {
             // Recursively call calculate_total_cost_with_branching on children
@@ -233,18 +228,9 @@ pub(crate) fn calculate_total_cost_with_branching(node: &CostAnalysisNode) -> Su
                 // For non-branching children, add sequentially
                 let child_static_cost: StaticCost = child_summing.into();
                 let combined_cost = child_static_cost.max;
-                eprintln!(
-                    "[STATIC_COST] Non-branching: adding child cost {} (child node type: {:?})",
-                    combined_cost.runtime,
-                    format!("{:?}", child_cost_node.expr)
-                );
                 let _ = total_cost.add(&combined_cost);
             }
         }
-        eprintln!(
-            "[STATIC_COST] Non-branching: final total {}",
-            total_cost.runtime
-        );
         // Only add total_cost if we didn't have any branching children
         // (if we had branching children, we already added all paths above)
         if !has_branching_children {

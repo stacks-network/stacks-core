@@ -89,9 +89,6 @@ pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
     let size: u64 = input.try_into().map_err(|_| CostErrors::CostOverflow)?;
     let cost = tracker.compute_cost(cost_function.clone(), &[size])?;
 
-    #[cfg(test)]
-    eprintln!("[RUNTIME_COST] {}: input={}, computed_cost={:?}", cost_function.get_name(), size, cost);
-
     tracker.add_cost(cost)
 }
 
@@ -1155,11 +1152,7 @@ pub fn compute_cost(
 }
 
 fn add_cost(s: &mut TrackerData, cost: ExecutionCost) -> Result<(), CostErrors> {
-    #[cfg(test)]
-    eprintln!("[ADD_COST] Adding cost {:?}, current total runtime: {}", cost, s.total.runtime);
     s.total.add(&cost)?;
-    #[cfg(test)]
-    eprintln!("[ADD_COST] New total runtime: {}", s.total.runtime);
     if cfg!(feature = "disable-costs") {
         // Disable check for exceeding the cost limit to allow mining large blocks for profiling purposes.
         return Ok(());
