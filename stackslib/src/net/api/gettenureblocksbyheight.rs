@@ -18,7 +18,9 @@ use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::Error as ChainstateError;
-use crate::net::api::gettenureblocks::{RPCTenure, RPCTenureStream};
+use crate::net::api::gettenureblocks::{
+    create_rpc_tenure, create_tenure_stream_response, get_last_sortition_consensus_hash, RPCTenure,
+};
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
@@ -121,32 +123,21 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHeightRequestHandler {
                             ));
                         }
                     };
+                let last_sortition_ch = get_last_sortition_consensus_hash(
+                    &sortdb,
+                    header_info.burn_header_height,
+                    &preamble,
+                )?;
 
-                let tenure = RPCTenure {
-                    consensus_hash: header_info.consensus_hash.clone(),
-                    burn_block_height: header_info.burn_header_height.into(),
-                    burn_block_hash: header_info.burn_header_hash.to_hex(),
-                    stacks_blocks: vec![],
-                };
+                let tenure = create_rpc_tenure(&header_info, last_sortition_ch);
 
-                match RPCTenureStream::new(chainstate, header_info.index_block_hash(), tenure) {
-                    Ok(stream) => Ok(stream),
-                    Err(e) => {
-                        let msg = format!("Failed to create tenure stream: {e:?}");
-                        error!("{msg}");
-                        return Err(StacksHttpResponse::new_error(
-                            &preamble,
-                            &HttpServerError::new(msg),
-                        ));
-                    }
-                }
+                create_tenure_stream_response(chainstate, header_info, tenure, &preamble)
             });
 
         let stream = match stream_res {
             Ok(stream) => stream,
             Err(e) => {
-                let msg = format!("Failed to create tenure stream: {e:?}");
-                error!("{msg}");
+                error!("Failed to create tenure stream: {e:?}");
                 return e.into();
             }
         };

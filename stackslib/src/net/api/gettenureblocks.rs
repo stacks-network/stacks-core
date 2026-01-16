@@ -19,9 +19,10 @@ use serde_json;
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash};
 use stacks_common::types::net::PeerHost;
 
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::db::DBConn;
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::http::{
     parse_json, Error, HttpChunkGenerator, HttpNotFound, HttpRequest, HttpRequestContents,
@@ -30,6 +31,64 @@ use crate::net::http::{
 };
 use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
+
+/// Performs a MARF lookup to find the last snapshot with a sortition prior to the given burn block height
+/// Will return an empty consensus hash if no prior sorititon exists (i.e., this is the Genesis tenure)
+pub fn get_last_sortition_consensus_hash(
+    sortdb: &SortitionDB,
+    burn_block_height: u32,
+    preamble: &HttpRequestPreamble,
+) -> Result<ConsensusHash, StacksHttpResponse> {
+    let handle = sortdb.index_handle_at_tip();
+
+    // search backwards from the chain tip on the canonical fork to find the sortition
+    // that occurred before this burn block height.
+    match handle.get_last_snapshot_with_sortition(burn_block_height.saturating_sub(1).into()) {
+        Ok(last_sortition) => Ok(last_sortition.consensus_hash),
+        Err(e) => {
+            let msg = format!("Failed to get last sortition at block '{burn_block_height}': {e:?}");
+            error!("{msg}");
+            Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpServerError::new(msg),
+            ))
+        }
+    }
+}
+
+/// Helper function to create RPCTenure from header info
+pub fn create_rpc_tenure(
+    header_info: &StacksHeaderInfo,
+    last_sortition_ch: ConsensusHash,
+) -> RPCTenure {
+    RPCTenure {
+        last_sortition_ch,
+        consensus_hash: header_info.consensus_hash.clone(),
+        burn_block_height: header_info.burn_header_height.into(),
+        burn_block_hash: header_info.burn_header_hash.to_hex(),
+        stacks_blocks: vec![],
+    }
+}
+
+/// Helper function to create tenure stream response
+pub fn create_tenure_stream_response(
+    chainstate: &StacksChainState,
+    header_info: StacksHeaderInfo,
+    tenure: RPCTenure,
+    preamble: &HttpRequestPreamble,
+) -> Result<RPCTenureStream, StacksHttpResponse> {
+    match RPCTenureStream::new(chainstate, header_info.index_block_hash(), tenure) {
+        Ok(stream) => Ok(stream),
+        Err(e) => {
+            let msg = format!("Failed to create tenure stream: {e:?}");
+            error!("{msg}");
+            Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpServerError::new(msg),
+            ))
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct RPCNakamotoTenureBlocksRequestHandler {
@@ -56,6 +115,9 @@ pub struct RPCTenureBlock {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RPCTenure {
     pub consensus_hash: ConsensusHash,
+    /// The consensus hash corresponding to the last successful sortition prior to this tenure.
+    /// If no prior sorititions exist, it will be the Genesis tenure consensus hash.
+    pub last_sortition_ch: ConsensusHash,
     pub burn_block_height: u64,
     pub burn_block_hash: String,
     pub stacks_blocks: Vec<RPCTenureBlock>,
@@ -88,9 +150,10 @@ impl RPCTenureStream {
     ) -> Result<Self, ChainError> {
         let headers_conn = chainstate.reopen_db()?;
         let consensus_hash = tenure.consensus_hash;
+        let last_sortition_ch = tenure.last_sortition_ch;
         let burn_block_height = tenure.burn_block_height;
         let burn_block_hash = tenure.burn_block_hash;
-        let tenure_first_chunk = format!("{{\"consensus_hash\": \"{consensus_hash}\", \"burn_block_height\": {burn_block_height}, \"burn_block_hash\": \"{burn_block_hash}\", \"stacks_blocks\": [");
+        let tenure_first_chunk = format!("{{\"consensus_hash\": \"{consensus_hash}\", \"last_sortition_ch\": \"{last_sortition_ch}\", \"burn_block_height\": {burn_block_height}, \"burn_block_hash\": \"{burn_block_hash}\", \"stacks_blocks\": [");
         Ok(RPCTenureStream {
             headers_conn,
             consensus_hash,
@@ -263,8 +326,8 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
                         }
                         Err(e) => {
                             let msg = format!(
-                        "Failed to query tenure blocks by consensus '{consensus_hash}': {e:?}"
-                    );
+                                "Failed to query tenure blocks by consensus '{consensus_hash}': {e:?}"
+                            );
                             error!("{msg}");
                             return Err(StacksHttpResponse::new_error(
                                 &preamble,
@@ -273,31 +336,21 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
                         }
                     };
 
-                let tenure = RPCTenure {
-                    consensus_hash: header_info.consensus_hash.clone(),
-                    burn_block_height: header_info.burn_header_height.into(),
-                    burn_block_hash: header_info.burn_header_hash.to_hex(),
-                    stacks_blocks: vec![],
-                };
+                let last_sortition_ch = get_last_sortition_consensus_hash(
+                    &sortdb,
+                    header_info.burn_header_height,
+                    &preamble,
+                )?;
 
-                match RPCTenureStream::new(chainstate, header_info.index_block_hash(), tenure) {
-                    Ok(stream) => Ok(stream),
-                    Err(e) => {
-                        let msg = format!("Failed to create tenure stream: {e:?}");
-                        error!("{msg}");
-                        return Err(StacksHttpResponse::new_error(
-                            &preamble,
-                            &HttpServerError::new(msg),
-                        ));
-                    }
-                }
+                let tenure = create_rpc_tenure(&header_info, last_sortition_ch);
+
+                create_tenure_stream_response(chainstate, header_info, tenure, &preamble)
             });
 
         let stream = match stream_res {
             Ok(stream) => stream,
             Err(e) => {
-                let msg = format!("Failed to create tenure stream: {e:?}");
-                error!("{msg}");
+                error!("Failed to create tenure stream: {e:?}");
                 return e.into();
             }
         };
