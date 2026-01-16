@@ -26,7 +26,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrinc
 #[cfg(test)]
 use crate::vm::{
     ast::errors::ParseErrorKind,
-    errors::{CheckErrorKind, ClarityEvalError, RuntimeError, VmExecutionError},
+    errors::{ClarityEvalError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError},
     tests::{
         MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator, env_factory, execute,
         is_committed, is_err_code_i128 as is_err_code, symbols_from_values, tl_env_factory,
@@ -113,12 +113,12 @@ fn test_get_block_info_eval(
         Ok(Value::none()),
         Ok(Value::none()),
         Ok(Value::none()),
-        Err(CheckErrorKind::TypeValueError(
+        Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(Value::Int(-1)),
         )
         .into()),
-        Err(CheckErrorKind::TypeValueError(
+        Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(Value::Bool(true)),
         )
@@ -960,7 +960,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        VmExecutionError::Unchecked(CheckErrorKind::NoSuchPublicFunction(_, _))
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchPublicFunction(_, _))
     ));
 
     let err_result = env
@@ -973,7 +973,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(_, _))
     ));
 }
 
@@ -1161,7 +1161,7 @@ fn test_eval_with_non_existing_contract(
     );
     assert_eq!(
         result.as_ref().unwrap_err(),
-        &VmExecutionError::Unchecked(CheckErrorKind::NoSuchContract(
+        &VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchContract(
             QualifiedContractIdentifier::local("absent")
                 .unwrap()
                 .to_string()
@@ -1352,9 +1352,9 @@ fn test_contract_hash_type_check(
         .unwrap_err();
     assert_eq!(
         err,
-        VmExecutionError::Unchecked(CheckErrorKind::ExpectedContractPrincipalValue(Box::new(
-            Value::UInt(123)
-        )))
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectedContractPrincipalValue(
+            Box::new(Value::UInt(123))
+        ))
     );
 }
 
@@ -1406,7 +1406,7 @@ fn test_contract_hash_pre_clarity4(
 
     assert_eq!(
         err,
-        VmExecutionError::Unchecked(CheckErrorKind::UndefinedFunction(
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::UndefinedFunction(
             "contract-hash?".to_string()
         ))
     );

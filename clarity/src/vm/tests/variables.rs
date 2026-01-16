@@ -27,7 +27,7 @@ use crate::vm::{
     analysis::type_checker::v2_1::tests::contracts::type_check_version,
     ast::parse,
     database::MemoryBackingStore,
-    errors::{CheckErrorKind, StaticCheckErrorKind, VmExecutionError},
+    errors::{RuntimeCheckErrorKind, StaticCheckErrorKind, VmExecutionError},
     tests::{TopLevelMemoryEnvironmentGenerator, tl_env_factory},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
 };
@@ -81,8 +81,8 @@ fn test_block_height(
     if version >= ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            ClarityEvalError::Vm(VmExecutionError::Unchecked(
-                CheckErrorKind::UndefinedVariable("block-height".to_string(),)
+            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::UndefinedVariable("block-height".to_string(),)
             )),
             err
         );
@@ -140,8 +140,8 @@ fn test_stacks_block_height(
     if version < ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            ClarityEvalError::Vm(VmExecutionError::Unchecked(
-                CheckErrorKind::UndefinedVariable("stacks-block-height".to_string(),)
+            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::UndefinedVariable("stacks-block-height".to_string(),)
             )),
             err
         );
@@ -199,8 +199,8 @@ fn test_tenure_height(
     if version < ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            ClarityEvalError::Vm(VmExecutionError::Unchecked(
-                CheckErrorKind::UndefinedVariable("tenure-height".to_string(),)
+            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::UndefinedVariable("tenure-height".to_string(),)
             )),
             err
         );
@@ -213,8 +213,8 @@ fn test_tenure_height(
 #[derive(Debug, PartialEq)]
 enum ExpectedContractError {
     Analysis(StaticCheckErrorKind),
-    Initialization(CheckErrorKind),
-    Runtime(CheckErrorKind),
+    Initialization(RuntimeCheckErrorKind),
+    Runtime(RuntimeCheckErrorKind),
 }
 
 #[cfg(test)]
@@ -273,14 +273,16 @@ fn expect_contract_error(
     );
 
     for (err_condition, expected_error) in expected_errors {
-        if let ExpectedContractError::Initialization(expected_error) = expected_error
-            && err_condition(version, epoch)
-        {
-            let err = init_result.unwrap_err();
-            if let ClarityEvalError::Vm(VmExecutionError::Unchecked(inner_err)) = &err {
-                assert_eq!(expected_error, inner_err);
-            } else {
-                panic!("Expected an Unchecked error, but got a different error");
+        if let ExpectedContractError::Initialization(expected_error) = expected_error {
+            if err_condition(version, epoch) {
+                let err = init_result.unwrap_err();
+                if let ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(inner_err)) = &err {
+                    assert_eq!(expected_error, inner_err);
+                } else {
+                    panic!("Expected a RuntimeCheck error, but got a different error");
+                }
+                // Do not continue with the test if the initialization failed.
+                return;
             }
             // Do not continue with the test if the initialization failed.
             return;
@@ -293,14 +295,17 @@ fn expect_contract_error(
     let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
 
     for (err_condition, expected_error) in expected_errors {
-        if let ExpectedContractError::Runtime(expected_error) = expected_error
-            && err_condition(version, epoch)
-        {
-            let err = eval_result.unwrap_err();
-            if let ClarityEvalError::Vm(VmExecutionError::Unchecked(inner_err)) = &err {
-                assert_eq!(expected_error, inner_err);
-            } else {
-                panic!("Expected an Unchecked error, but got a different error");
+        if let ExpectedContractError::Runtime(expected_error) = expected_error {
+            if err_condition(version, epoch) {
+                let err = eval_result.unwrap_err();
+                if let ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(inner_err)) = &err {
+                    assert_eq!(expected_error, inner_err);
+                } else {
+                    panic!("Expected a RuntimeCheck error, but got a different error");
+                }
+
+                // Do not continue with the test if the evaluation failed.
+                return;
             }
 
             // Do not continue with the test if the evaluation failed.
@@ -332,7 +337,7 @@ fn reuse_block_height(
         &[
             (
                 |version, _| version < ClarityVersion::Clarity3,
-                ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                     "block-height".to_string(),
                 )),
             ),
@@ -361,7 +366,7 @@ fn reuse_block_height(
         &[
             (
                 |version, _| version < ClarityVersion::Clarity3,
-                ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                     "block-height".to_string(),
                 )),
             ),
@@ -391,7 +396,7 @@ fn reuse_block_height(
         &[
             (
                 |version, _| version < ClarityVersion::Clarity3,
-                ExpectedContractError::Runtime(CheckErrorKind::NameAlreadyUsed(
+                ExpectedContractError::Runtime(RuntimeCheckErrorKind::NameAlreadyUsed(
                     "block-height".to_string(),
                 )),
             ),
@@ -424,7 +429,7 @@ fn reuse_block_height(
         &[
             (
                 |version, _| version < ClarityVersion::Clarity3,
-                ExpectedContractError::Runtime(CheckErrorKind::NameAlreadyUsed(
+                ExpectedContractError::Runtime(RuntimeCheckErrorKind::NameAlreadyUsed(
                     "block-height".to_string(),
                 )),
             ),
@@ -451,7 +456,7 @@ fn reuse_block_height(
         &[
             (
                 |version, _| version < ClarityVersion::Clarity3,
-                ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                     "block-height".to_string(),
                 )),
             ),
@@ -478,7 +483,7 @@ fn reuse_block_height(
         &[
             (
                 |version, _| version < ClarityVersion::Clarity3,
-                ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                     "block-height".to_string(),
                 )),
             ),
@@ -505,7 +510,7 @@ fn reuse_block_height(
         &[
             (
                 |version, _| version < ClarityVersion::Clarity3,
-                ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                     "block-height".to_string(),
                 )),
             ),
@@ -547,7 +552,7 @@ fn reuse_block_height(
         &[
             (
                 |version, _| version < ClarityVersion::Clarity3,
-                ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                     "block-height".to_string(),
                 )),
             ),
@@ -574,7 +579,7 @@ fn reuse_block_height(
         &[
             (
                 |version, _| version < ClarityVersion::Clarity3,
-                ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                     "block-height".to_string(),
                 )),
             ),
@@ -601,7 +606,7 @@ fn reuse_block_height(
         &[
             (
                 |version, _| version < ClarityVersion::Clarity3,
-                ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                     "block-height".to_string(),
                 )),
             ),
@@ -628,7 +633,7 @@ fn reuse_block_height(
         &[
             (
                 |version, _| version < ClarityVersion::Clarity3,
-                ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                     "block-height".to_string(),
                 )),
             ),
@@ -663,7 +668,7 @@ fn reuse_stacks_block_height(
         "#,
         &[(
             |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "stacks-block-height".to_string(),
             )),
         )],
@@ -684,7 +689,7 @@ fn reuse_stacks_block_height(
         "#,
         &[(
             |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "stacks-block-height".to_string(),
             )),
         )],
@@ -706,7 +711,7 @@ fn reuse_stacks_block_height(
         "#,
         &[(
             |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Runtime(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Runtime(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "stacks-block-height".to_string(),
             )),
         )],
@@ -731,7 +736,7 @@ fn reuse_stacks_block_height(
         "#,
         &[(
             |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Runtime(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Runtime(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "stacks-block-height".to_string(),
             )),
         )],
@@ -750,7 +755,7 @@ fn reuse_stacks_block_height(
         "#,
         &[(
             |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "stacks-block-height".to_string(),
             )),
         )],
@@ -769,7 +774,7 @@ fn reuse_stacks_block_height(
             "#,
         &[(
             |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "stacks-block-height".to_string(),
             )),
         )],
@@ -788,7 +793,7 @@ fn reuse_stacks_block_height(
             "#,
         &[(
             |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "stacks-block-height".to_string(),
             )),
         )],
@@ -822,7 +827,7 @@ fn reuse_stacks_block_height(
             "#,
         &[(
             |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "stacks-block-height".to_string(),
             )),
         )],
@@ -841,7 +846,7 @@ fn reuse_stacks_block_height(
             "#,
         &[(
             |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "stacks-block-height".to_string(),
             )),
         )],
@@ -860,7 +865,7 @@ fn reuse_stacks_block_height(
         "#,
         &[(
             |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "stacks-block-height".to_string(),
             )),
         )],
@@ -879,7 +884,7 @@ fn reuse_stacks_block_height(
         "#,
         &[(
             |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 "stacks-block-height".to_string(),
             )),
         )],
@@ -911,7 +916,7 @@ fn reuse_builtin_name(
         ),
         &[(
             version_check,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 name.to_string(),
             )),
         )],
@@ -934,7 +939,7 @@ fn reuse_builtin_name(
         ),
         &[(
             version_check,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 name.to_string(),
             )),
         )],
@@ -958,7 +963,9 @@ fn reuse_builtin_name(
         ),
         &[(
             version_check,
-            ExpectedContractError::Runtime(CheckErrorKind::NameAlreadyUsed(name.to_string())),
+            ExpectedContractError::Runtime(RuntimeCheckErrorKind::NameAlreadyUsed(
+                name.to_string(),
+            )),
         )],
         Value::Int(32),
     );
@@ -983,7 +990,9 @@ fn reuse_builtin_name(
         ),
         &[(
             version_check,
-            ExpectedContractError::Runtime(CheckErrorKind::NameAlreadyUsed(name.to_string())),
+            ExpectedContractError::Runtime(RuntimeCheckErrorKind::NameAlreadyUsed(
+                name.to_string(),
+            )),
         )],
         Value::Int(3),
     );
@@ -1002,7 +1011,7 @@ fn reuse_builtin_name(
         ),
         &[(
             version_check,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 name.to_string(),
             )),
         )],
@@ -1023,7 +1032,7 @@ fn reuse_builtin_name(
         ),
         &[(
             version_check,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 name.to_string(),
             )),
         )],
@@ -1044,7 +1053,7 @@ fn reuse_builtin_name(
         ),
         &[(
             version_check,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 name.to_string(),
             )),
         )],
@@ -1082,7 +1091,7 @@ fn reuse_builtin_name(
         ),
         &[(
             version_check,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 name.to_string(),
             )),
         )],
@@ -1103,7 +1112,7 @@ fn reuse_builtin_name(
         ),
         &[(
             version_check,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 name.to_string(),
             )),
         )],
@@ -1124,7 +1133,7 @@ fn reuse_builtin_name(
         ),
         &[(
             version_check,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 name.to_string(),
             )),
         )],
@@ -1145,7 +1154,7 @@ fn reuse_builtin_name(
         ),
         &[(
             version_check,
-            ExpectedContractError::Initialization(CheckErrorKind::NameAlreadyUsed(
+            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
                 name.to_string(),
             )),
         )],
@@ -1205,8 +1214,8 @@ fn test_block_time(
     if version < ClarityVersion::Clarity4 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            ClarityEvalError::Vm(VmExecutionError::Unchecked(
-                CheckErrorKind::UndefinedVariable("stacks-block-time".to_string(),)
+            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::UndefinedVariable("stacks-block-time".to_string(),)
             )),
             err
         );
@@ -1331,8 +1340,8 @@ fn test_current_contract(
     if version < ClarityVersion::Clarity4 {
         let err = eval_result.unwrap_err();
         assert_eq!(
-            ClarityEvalError::Vm(VmExecutionError::Unchecked(
-                CheckErrorKind::UndefinedVariable("current-contract".to_string(),)
+            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::UndefinedVariable("current-contract".to_string(),)
             )),
             err
         );

@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use clarity::vm::analysis::errors::CheckErrorKind;
+use clarity::vm::analysis::errors::RuntimeCheckErrorKind;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::errors::{ClarityEvalError, RuntimeError, VmExecutionError};
 use clarity::vm::test_util::{
@@ -244,7 +244,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
             let err = initialize_2(env);
             assert_eq!(
                 err,
-                CheckErrorKind::NoSuchContract(
+                RuntimeCheckErrorKind::NoSuchContract(
                     "S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()
                 )
                 .into()
