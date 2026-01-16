@@ -11,6 +11,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
 - Improved block validation in `stacks-inspect`.
+- Added `marf_compress` as a node configuration parameter to enable MARF compression feature ([#6811](https://github.com/stacks-network/stacks-core/pull/6811))
 
 ### Changed
 
