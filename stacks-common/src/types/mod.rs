@@ -460,12 +460,12 @@ impl SIP031EmissionInterval {
 impl StacksEpochId {
     #[cfg(any(test, feature = "testing"))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch33
+        StacksEpochId::Epoch34
     }
 
     #[cfg(not(any(test, feature = "testing")))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch34
+        StacksEpochId::Epoch33
     }
 
     /// In this epoch, how should the mempool perform garbage collection?
