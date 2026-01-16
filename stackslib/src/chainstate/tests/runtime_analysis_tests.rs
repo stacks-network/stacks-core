@@ -13,13 +13,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! This module contains consensus tests related to Clarity CheckErrorKind errors that happens during runtime analysis.
+//! This module contains consensus tests related to Clarity RuntimeCheckErrorKind errors that happens during runtime analysis.
 
 use std::collections::HashMap;
 
 use clarity::types::StacksEpochId;
 #[allow(unused_imports)]
-use clarity::vm::analysis::CheckErrorKind;
+use clarity::vm::analysis::RuntimeCheckErrorKind;
 #[allow(unused_imports)]
 use clarity::vm::costs::CostErrors;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DEPTH};
@@ -32,7 +32,7 @@ use crate::chainstate::tests::consensus::{
 use crate::core::test_util::to_addr;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 
-/// Generates a coverage classification report for a specific [`CheckErrorKind`] variant.
+/// Generates a coverage classification report for a specific [`RuntimeCheckErrorKind`] variant.
 ///
 /// This method exists purely for **documentation and tracking purposes**.
 /// It helps maintainers understand which error variants have been:
@@ -41,7 +41,7 @@ use crate::core::BLOCK_LIMIT_MAINNET_21;
 /// - ⚙️ **Ignored** — not tested on purpose. (e.g. parser v1 related errors).
 /// - 🚫 **Unreachable** — not testable from consensus test side for reasons.
 #[allow(dead_code)]
-fn variant_coverage_report(variant: CheckErrorKind) {
+fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
     enum VariantCoverage {
         // Cannot occur through valid execution. The string is to explain the reason.
         Unreachable_Functionally(&'static str),
@@ -55,18 +55,18 @@ fn variant_coverage_report(variant: CheckErrorKind) {
         Tested(Vec<fn()>),
     }
 
-    use CheckErrorKind::*;
+    use RuntimeCheckErrorKind::*;
     use VariantCoverage::*;
 
     _ = match variant {
         CostOverflow => Unreachable_ExpectLike, // Should exceed u64
         CostBalanceExceeded(_, _) => Tested(vec![
-            check_error_cost_balance_exceeded_cdeploy,
-            check_error_cost_balance_exceeded_ccall
+            runtime_check_error_cost_balance_exceeded_cdeploy,
+            runtime_check_error_cost_balance_exceeded_ccall
         ]),
         MemoryBalanceExceeded(_, _) => Tested(vec![
-            check_error_memory_balance_exceeded_cdeploy,
-            check_error_memory_balance_exceeded_ccall
+            runtime_check_error_memory_balance_exceeded_cdeploy,
+            runtime_check_error_memory_balance_exceeded_ccall
         ]),
         CostComputationFailed(_) => Tested(vec![
             empty_consensus_buff,
@@ -79,13 +79,13 @@ fn variant_coverage_report(variant: CheckErrorKind) {
              is NoTracking. Execution time limits are only enforced in RPC API calls
              and miner-local transaction filtering."),
         ValueTooLarge => Tested(vec![
-            check_error_kind_value_too_large_cdeploy,
-            check_error_kind_value_too_large_ccall
+            runtime_check_error_kind_value_too_large_cdeploy,
+            runtime_check_error_kind_value_too_large_ccall
         ]),
         ValueOutOfBounds => todo!(),
         TypeSignatureTooDeep => Tested(vec![
-            check_error_kind_type_signature_too_deep_cdeploy,
-            check_error_kind_type_signature_too_deep_ccall
+            runtime_check_error_kind_type_signature_too_deep_cdeploy,
+            runtime_check_error_kind_type_signature_too_deep_ccall
         ]),
         ExpectedName => Unreachable_Functionally(
             "Every place in the runtime where ExpectedName is raised comes from a direct
@@ -109,14 +109,14 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "Both the analyzer and the runtime examine the exact same match AST slice.
              The static pass invokes check_special_match, which enforces the 2 argument
              structure and the input type before any code is accepted."),
-        ListTypesMustMatch => Tested(vec![check_error_kind_list_types_must_match_cdeploy]),
+        ListTypesMustMatch => Tested(vec![runtime_check_error_kind_list_types_must_match_cdeploy]),
         TypeError(_, _) => Tested(vec![
-            check_error_kind_type_error_cdeploy,
-            check_error_kind_type_error_ccall
+            runtime_check_error_kind_type_error_cdeploy,
+            runtime_check_error_kind_type_error_ccall
         ]),
         TypeValueError(_, _) => Tested(vec![
-            check_error_kind_type_value_error_cdeploy,
-            check_error_kind_type_value_error_ccall
+            runtime_check_error_kind_type_value_error_cdeploy,
+            runtime_check_error_kind_type_value_error_ccall
         ]),
         InvalidTypeDescription => Unreachable_Functionally(
             "Every invalid type literal is parsed both by the analyzer and by the runtime.
@@ -131,8 +131,8 @@ fn variant_coverage_report(variant: CheckErrorKind) {
              `FunctionArgSignature::Union(IntType, UIntType)` and the
              `TypeSignature::admits_type` checks in `type_checker::check_function_arg_signature`)"),
         UnionTypeValueError(_, _) => Tested(vec![
-            check_error_kind_union_type_value_error_cdeploy,
-            check_error_kind_union_type_value_error_ccall
+            runtime_check_error_kind_union_type_value_error_cdeploy,
+            runtime_check_error_kind_union_type_value_error_ccall
         ]),
         ExpectedOptionalValue(_) => Unreachable_Functionally(
             "Every optional primitive (`is-some`, `default-to`, `unwrap!`, etc.)
@@ -150,10 +150,10 @@ fn variant_coverage_report(variant: CheckErrorKind) {
              There is no runtime path where a plain value reaches `native_try_ret` or the
              option/response matchers"),
         ExpectedContractPrincipalValue(_) => Tested(vec![
-            check_error_kind_expected_contract_principal_value_cdeploy,
-            check_error_kind_expected_contract_principal_value_ccall
+            runtime_check_error_kind_expected_contract_principal_value_cdeploy,
+            runtime_check_error_kind_expected_contract_principal_value_ccall
         ]),
-        CouldNotDetermineType => Tested(vec![check_error_kind_could_not_determine_type_ccall]),
+        CouldNotDetermineType => Tested(vec![runtime_check_error_kind_could_not_determine_type_ccall]),
         BadTokenName => Unreachable_Functionally(
             "Asset natives call `match_atom()` on their token arg during analysis."),
         NoSuchNFT(_) => Unreachable_Functionally(
@@ -197,18 +197,18 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)"),
         NoSuchDataVariable(_) => Unreachable_Functionally(
             "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)"),
-        ReturnTypesMustMatch(_, _) => Tested(vec![check_error_kind_return_types_must_match_ccall]),
-        CircularReference(_) => Tested(vec![check_error_kind_circular_reference_ccall]), // Possible only during contract call. On contract deploy checked during parsing.
-        NoSuchContract(_) => Tested(vec![check_error_kind_no_such_contract_ccall]),
-        NoSuchPublicFunction(_, _) => Tested(vec![check_error_kind_no_such_public_function_ccall]),
+        ReturnTypesMustMatch(_, _) => Tested(vec![runtime_check_error_kind_return_types_must_match_ccall]),
+        CircularReference(_) => Tested(vec![runtime_check_error_kind_circular_reference_ccall]), // Possible only during contract call. On contract deploy checked during parsing.
+        NoSuchContract(_) => Tested(vec![runtime_check_error_kind_no_such_contract_ccall]),
+        NoSuchPublicFunction(_, _) => Tested(vec![runtime_check_error_kind_no_such_public_function_ccall]),
         PublicFunctionNotReadOnly(_, _) => Unreachable_Functionally("Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped."),
         ContractAlreadyExists(_) => Unreachable_Functionally(
             "Contracts can only be created via SmartContract deployment transactions. \
              The runtime never performs contract installation or replacement.",
         ),
         ContractCallExpectName => Tested(vec![
-            check_error_kind_contract_call_expect_name_cdeploy,
-            check_error_kind_contract_call_expect_name_ccall
+            runtime_check_error_kind_contract_call_expect_name_cdeploy,
+            runtime_check_error_kind_contract_call_expect_name_ccall
         ]),
         NoSuchBurnBlockInfoProperty(_) => Unreachable_Functionally(
             "Burn block info property names are validated during static analysis; \
@@ -231,8 +231,8 @@ fn variant_coverage_report(variant: CheckErrorKind) {
              non-atom arguments are rejected during static analysis.",
         ),
         NameAlreadyUsed(_) => Tested(vec![
-            check_error_kind_name_already_used_cdeploy,
-            check_error_kind_name_already_used_ccall
+            runtime_check_error_kind_name_already_used_cdeploy,
+            runtime_check_error_kind_name_already_used_ccall
         ]),
         NonFunctionApplication => Unreachable_Functionally(
             "Malformed function applications are syntactically rejected by the parser \
@@ -254,7 +254,7 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "Binding syntax errors are detected during parsing and analysis; \
              runtime never re-parses bindings.",
         ),
-        UndefinedFunction(_) => Tested(vec![check_error_kind_undefined_function_ccall]),
+        UndefinedFunction(_) => Tested(vec![runtime_check_error_kind_undefined_function_ccall]),
         UndefinedVariable(_) => Unreachable_Functionally(
             "All variable references are resolved during static analysis; \
              undefined variables cannot appear in executable code.",
@@ -268,7 +268,7 @@ fn variant_coverage_report(variant: CheckErrorKind) {
              calls with too many arguments cannot reach execution.",
         ),
         IncorrectArgumentCount(_, _) => {
-            Tested(vec![check_error_kind_incorrect_argument_count_ccall])
+            Tested(vec![runtime_check_error_kind_incorrect_argument_count_ccall])
         }
         TooManyFunctionParameters(_, _) => Unreachable_Functionally(
             "Trait function parameter limits are enforced during trait parsing at deploy time; \
@@ -323,14 +323,14 @@ fn variant_coverage_report(variant: CheckErrorKind) {
     };
 }
 
-/// CheckErrorKind: [`CheckErrorKind::CostBalanceExceeded`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::CostBalanceExceeded`]
 /// Caused by: exceeding the cost analysis budget during contract initialization.
 ///   The contract repeatedly performs `var-get` lookups on a data variable,
 ///   forcing the type checker to fetch the variable enough times to exceed
 ///   the read-count limit in [`BLOCK_LIMIT_MAINNET_21`].
 /// Outcome: block rejected.
 #[test]
-fn check_error_cost_balance_exceeded_cdeploy() {
+fn runtime_check_error_cost_balance_exceeded_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "cost-balance-exceeded",
         contract_code: &format!("
@@ -343,13 +343,13 @@ fn check_error_cost_balance_exceeded_cdeploy() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::MemoryBalanceExceeded`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::MemoryBalanceExceeded`]
 /// Caused by: This test creates a contract that successfully passes analysis but fails during initialization
 ///   The contract defines large buffer constants (buff-20 = 1MB) and then creates many references
 ///   to it in a top-level `is-eq` expression, which exhausts the 100MB memory limit during initialization.
 /// Outcome: block accepted.
 #[test]
-fn check_error_memory_balance_exceeded_cdeploy() {
+fn runtime_check_error_memory_balance_exceeded_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "test-exceeds",
         contract_code: &{
@@ -378,13 +378,13 @@ fn check_error_memory_balance_exceeded_cdeploy() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::MemoryBalanceExceeded`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::MemoryBalanceExceeded`]
 /// Caused by: This test creates a contract that successfully passes analysis but fails during contract call.
 ///   The contract defines large buffer constants (buff-20 = 1MB) and then creates many references
 ///   to it in a top-level `is-eq` expression, which exhausts the 100MB memory limit during contract call.
 /// Outcome: block accepted.
 #[test]
-fn check_error_memory_balance_exceeded_ccall() {
+fn runtime_check_error_memory_balance_exceeded_ccall() {
     contract_call_consensus_test!(
         contract_name: "memory-test-contract",
         contract_code: &{
@@ -422,14 +422,14 @@ fn check_error_memory_balance_exceeded_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::CostBalanceExceeded`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::CostBalanceExceeded`]
 /// Caused by: exceeding the cost analysis budget during contract initialization.
 ///   The contract repeatedly performs `var-get` lookups on a data variable,
 ///   forcing the type checker to fetch the variable enough times to exceed
 ///   the read-count limit in [`BLOCK_LIMIT_MAINNET_21`].
 /// Outcome: block rejected.
 #[test]
-fn check_error_cost_balance_exceeded_ccall() {
+fn runtime_check_error_cost_balance_exceeded_ccall() {
     contract_call_consensus_test!(
         contract_name: "cost-balance-exceeded",
         contract_code: &format!("
@@ -445,11 +445,11 @@ fn check_error_cost_balance_exceeded_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::NoSuchPublicFunction`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::NoSuchPublicFunction`]
 /// Caused by: Attempted to invoke a private function from outside the contract.
 /// Outcome: block accepted
 #[test]
-fn check_error_kind_no_such_public_function_ccall() {
+fn runtime_check_error_kind_no_such_public_function_ccall() {
     contract_call_consensus_test!(
         contract_name: "target-contract",
         contract_code: "(define-private (get-one) (ok u1))",
@@ -458,24 +458,24 @@ fn check_error_kind_no_such_public_function_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::NameAlreadyUsed`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::NameAlreadyUsed`]
 /// Caused by: name is already used by a standard clarity function.
 /// Outcome: block rejected.
 #[test]
-fn check_error_kind_name_already_used_cdeploy() {
+fn runtime_check_error_kind_name_already_used_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "name-already-used",
         contract_code: "(define-private (ft-get-supply) 1)",
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::NameAlreadyUsed`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::NameAlreadyUsed`]
 /// Caused by: a `let` binding attempts to shadow the reserved keyword `stacks-block-height`.
 ///     The analyzer accepts the contract, but binding happens only when the public
 ///     function executes, so the runtime raises `NameAlreadyUsed`.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_name_already_used_ccall() {
+fn runtime_check_error_kind_name_already_used_ccall() {
     contract_call_consensus_test!(
         contract_name: "name-already-used",
         contract_code: "
@@ -487,13 +487,13 @@ fn check_error_kind_name_already_used_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::ValueTooLarge`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ValueTooLarge`]
 /// Caused by: `(as-max-len? …)` wraps a buffer whose serialized size plus the optional wrapper
 ///   exceeds `MAX_VALUE_SIZE`. Static analysis allows this construction, but initialization fails
 ///   at runtime when `Value::some` detects the oversized payload.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_value_too_large_cdeploy() {
+fn runtime_check_error_kind_value_too_large_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "value-too-large",
         contract_code: r#"
@@ -536,13 +536,13 @@ fn check_error_kind_value_too_large_cdeploy() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::ValueTooLarge`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ValueTooLarge`]
 /// Caused by: `(as-max-len? …)` wraps a buffer whose serialized size plus the optional wrapper
 ///   exceeds `MAX_VALUE_SIZE`. Static analysis allows this construction, but initialization fails
 ///   at runtime when `Value::some` detects the oversized payload.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_value_too_large_ccall() {
+fn runtime_check_error_kind_value_too_large_ccall() {
     contract_call_consensus_test!(
         contract_name: "value-too-large",
         contract_code: r#"
@@ -588,12 +588,12 @@ fn check_error_kind_value_too_large_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::TypeSignatureTooDeep`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeSignatureTooDeep`]
 /// Caused by: inserting into a map whose value type already has depth `MAX_TYPE_DEPTH`.
 ///   The runtime wraps stored entries in an optional, pushing the depth past the limit.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_type_signature_too_deep_cdeploy() {
+fn runtime_check_error_kind_type_signature_too_deep_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "type-depth-runtime",
         contract_code: &{
@@ -630,12 +630,12 @@ fn check_error_kind_type_signature_too_deep_cdeploy() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::TypeSignatureTooDeep`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeSignatureTooDeep`]
 /// Caused by: inserting into a map whose value type already has depth `MAX_TYPE_DEPTH`.
 ///   The runtime wraps stored entries in an optional, pushing the depth past the limit.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_type_signature_too_deep_ccall() {
+fn runtime_check_error_kind_type_signature_too_deep_ccall() {
     contract_call_consensus_test!(
         contract_name: "type-depth-runtime",
         contract_code: &{
@@ -674,14 +674,14 @@ fn check_error_kind_type_signature_too_deep_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::TypeError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeError`]
 /// Caused by: `(at-block … (ok (var-get zero)))` returns `none` when evaluated at
 /// a block where the contract state doesn't exist yet. The code immediately feeds
 /// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
 /// runtime `TypeError(UIntType, OptionalType(NoType))`.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_type_error_cdeploy() {
+fn runtime_check_error_kind_type_error_cdeploy() {
     let contract_1 = SetupContract::new(
         "pool-trait",
         "
@@ -730,14 +730,14 @@ fn check_error_kind_type_error_cdeploy() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::TypeError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeError`]
 /// Caused by: `(at-block … (ok (var-get zero)))` returns `none` when evaluated at
 /// a block where the contract state doesn't exist yet. The code immediately feeds
 /// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
 /// runtime `TypeError(UIntType, OptionalType(NoType))`.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_type_error_ccall() {
+fn runtime_check_error_kind_type_error_ccall() {
     let contract_1 = SetupContract::new(
         "pool-trait",
         "
@@ -788,26 +788,25 @@ fn check_error_kind_type_error_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::TypeValueError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeValueError`]
 /// Caused by: passing a value of the wrong type to a function.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_type_value_error_cdeploy() {
+fn runtime_check_error_kind_type_value_error_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "check-error-kind",
-        contract_code: "
-        ;; `as-max-len?` widens `0x` to type `(buff 33)` even though it contains 0 bytes.
-        ;; This passes the analyzer but fails at runtime when `principal-of` enforces
-        ;; the exact length, raising `CheckErrorKind::TypeValueError`.
-        (principal-of? (unwrap-panic (as-max-len? 0x u33)))",
+        // `as-max-len?` widens `0x` to type `(buff 33)` even though it contains 0 bytes.
+        // This passes the analyzer but fails at runtime when `principal-of` enforces
+        // the exact length, raising `RuntimeCheckErrorKind::TypeValueError`.
+        contract_code: "(principal-of? (unwrap-panic (as-max-len? 0x u33)))",
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::TypeValueError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TypeValueError`]
 /// Caused by: passing a value of the wrong type to a function.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_type_value_error_ccall() {
+fn runtime_check_error_kind_type_value_error_ccall() {
     contract_call_consensus_test!(
         contract_name: "check-error-kind",
         contract_code: "(define-public (trigger-error (x uint)) (ok true))",
@@ -816,7 +815,7 @@ fn check_error_kind_type_value_error_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::ContractCallExpectName`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ContractCallExpectName`]
 /// Caused by: the trait reference is stored as a constant, so the runtime never
 ///     binds it in `LocalContext::callable_contracts` and `special_contract_call`
 ///     cannot resolve the callee.
@@ -824,7 +823,7 @@ fn check_error_kind_type_value_error_ccall() {
 /// Note: This test only works for Clarity 2 and later.
 ///     Clarity 1 will not be able to upload contract-3.
 #[test]
-fn check_error_kind_contract_call_expect_name_cdeploy() {
+fn runtime_check_error_kind_contract_call_expect_name_cdeploy() {
     let contract_1 = SetupContract::new(
         "contract-1",
         "(define-trait simple-trait (
@@ -852,7 +851,7 @@ fn check_error_kind_contract_call_expect_name_cdeploy() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::ContractCallExpectName`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ContractCallExpectName`]
 /// Caused by: the trait reference is stored as a constant, so the runtime never
 ///     binds it in `LocalContext::callable_contracts` and `special_contract_call`
 ///     cannot resolve the callee.
@@ -860,7 +859,7 @@ fn check_error_kind_contract_call_expect_name_cdeploy() {
 /// Note: This test only works for Clarity 2 and later.
 ///     Clarity 1 will not be able to upload contract-3.
 #[test]
-fn check_error_kind_contract_call_expect_name_ccall() {
+fn runtime_check_error_kind_contract_call_expect_name_ccall() {
     let contract_1 = SetupContract::new(
         "contract-1",
         "(define-trait simple-trait (
@@ -893,7 +892,7 @@ fn check_error_kind_contract_call_expect_name_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::UnionTypeValueError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::UnionTypeValueError`]
 /// Caused by: evaluating `to-ascii?` with a `(contract <trait-1>)` argument while the contract
 ///     is being initialized. The static analysis accepts the form, but the runtime encounters a
 ///     `CallableContract` value and the runtime rejects it with the union type error.
@@ -901,7 +900,7 @@ fn check_error_kind_contract_call_expect_name_ccall() {
 /// Note: This test only works for Clarity 4 and later.
 ///     Clarity 1, 2, 3 will return a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
-fn check_error_kind_union_type_value_error_cdeploy() {
+fn runtime_check_error_kind_union_type_value_error_cdeploy() {
     let contract_1 = SetupContract::new(
         "contract-1",
         "(define-public (dummy)
@@ -924,7 +923,7 @@ fn check_error_kind_union_type_value_error_cdeploy() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::UnionTypeValueError`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::UnionTypeValueError`]
 /// Caused by: executing `to-ascii?` inside a public function with a `(contract <trait-1>)`
 ///     argument. Deployment succeeds, but calling `trigger-runtime-error` binds a
 ///     `CallableContract` value and the runtime rejects it with the union type error.
@@ -932,7 +931,7 @@ fn check_error_kind_union_type_value_error_cdeploy() {
 /// Note: This test only works for Clarity 4 and later.
 ///     Clarity 1, 2, 3 will return a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
-fn check_error_kind_union_type_value_error_ccall() {
+fn runtime_check_error_kind_union_type_value_error_ccall() {
     let contract_1 = SetupContract::new(
         "contract-1",
         "(define-public (dummy)
@@ -958,14 +957,14 @@ fn check_error_kind_union_type_value_error_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::ListTypesMustMatch`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ListTypesMustMatch`]
 /// Caused by: Contract initialization creates a constant list that mixes callable values
 ///     implementing different traits (`trait-a` vs `trait-b`). Runtime sanitization tries to
 ///     coerce that mixed list into a single entry type and fails with `ListTypesMustMatch`.
 /// Outcome: block accepted.
 /// Note: The error is only triggered since Clarity 2. In Clarity 1 the tx is valid and accepted.
 #[test]
-fn check_error_kind_list_types_must_match_cdeploy() {
+fn runtime_check_error_kind_list_types_must_match_cdeploy() {
     let contract_1 = SetupContract::new(
         "contract-1",
         "
@@ -1024,12 +1023,12 @@ fn check_error_kind_list_types_must_match_cdeploy() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::ReturnTypesMustMatch`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ReturnTypesMustMatch`]
 /// Caused by: dynamic dispatch through a trait argument returns a value whose type does not
 ///     conform to the trait specification.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_return_types_must_match_ccall() {
+fn runtime_check_error_kind_return_types_must_match_ccall() {
     let trait_contract = SetupContract::new(
         "trait-contract",
         "(define-trait simple-trait (
@@ -1057,12 +1056,12 @@ fn check_error_kind_return_types_must_match_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::ExpectedContractPrincipalValue`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ExpectedContractPrincipalValue`]
 /// Caused by: Supplying tx-sender to with-ft inside as-contract? forces eval_allowance to inspect a standard principal
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 4 and later. 'as-contract?' is not supported in earlier versions.
 #[test]
-fn check_error_kind_expected_contract_principal_value_cdeploy() {
+fn runtime_check_error_kind_expected_contract_principal_value_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "contract",
         contract_code: r#"
@@ -1074,12 +1073,12 @@ fn check_error_kind_expected_contract_principal_value_cdeploy() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::ExpectedContractPrincipalValue`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::ExpectedContractPrincipalValue`]
 /// Caused by: Supplying tx-sender to with-ft inside as-contract? forces eval_allowance to inspect a standard principal
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 4 and later. 'as-contract?' is not supported in earlier versions.
 #[test]
-fn check_error_kind_expected_contract_principal_value_ccall() {
+fn runtime_check_error_kind_expected_contract_principal_value_ccall() {
     contract_call_consensus_test!(
         contract_name: "contract",
         contract_code: r#"
@@ -1094,11 +1093,11 @@ fn check_error_kind_expected_contract_principal_value_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::UndefinedFunction`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::UndefinedFunction`]
 /// Caused by: invoking a public function name that is not defined in the contract.
 /// Outcome: block accepted (transaction aborts with the runtime error).
 #[test]
-fn check_error_kind_undefined_function_ccall() {
+fn runtime_check_error_kind_undefined_function_ccall() {
     contract_call_consensus_test!(
         contract_name: "undef-fn-call",
         contract_code: "
@@ -1109,11 +1108,11 @@ fn check_error_kind_undefined_function_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::NoSuchContract`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::NoSuchContract`]
 /// Caused by: calling a contract that does not exist.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_no_such_contract_ccall() {
+fn runtime_check_error_kind_no_such_contract_ccall() {
     let mut nonce = 0;
 
     let mut epochs_blocks = HashMap::new();
@@ -1138,14 +1137,14 @@ fn check_error_kind_no_such_contract_ccall() {
     insta::assert_ron_snapshot!(result);
 }
 
-/// CheckErrorKind: [`CheckErrorKind::CouldNotDetermineType`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::CouldNotDetermineType`]
 /// Caused by: reading a constant that was created in a pre-2.4 epoch without
 ///     value sanitization. The constant stores a mixed list of callable
 ///     references which cannot be sanitized once sanitization is enforced.
 /// Outcome: block accepted.
 /// Note: This test only works in Clarity 2 deployed in Epoch 2.3.
 #[test]
-fn check_error_kind_could_not_determine_type_ccall() {
+fn runtime_check_error_kind_could_not_determine_type_ccall() {
     let trait_contract = SetupContract::new(
         "contract-traits",
         "
@@ -1200,11 +1199,11 @@ fn check_error_kind_could_not_determine_type_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::CircularReference`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::CircularReference`]
 /// Caused by: circular reference forcing a contract calling itself using a contract call.
 /// Outcome: block accepted
 #[test]
-fn check_error_kind_circular_reference_ccall() {
+fn runtime_check_error_kind_circular_reference_ccall() {
     let trait_contract = SetupContract::new(
         "trait-contract",
         "(define-trait trait-1 (
@@ -1239,11 +1238,11 @@ fn check_error_kind_circular_reference_ccall() {
     );
 }
 
-/// CheckErrorKind: [`CheckErrorKind::IncorrectArgumentCount`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::IncorrectArgumentCount`]
 /// Caused by: passing the wrong number of arguments to a function.
 /// Outcome: block accepted.
 #[test]
-fn check_error_kind_incorrect_argument_count_ccall() {
+fn runtime_check_error_kind_incorrect_argument_count_ccall() {
     contract_call_consensus_test!(
         contract_name: "check-error-kind",
         contract_code: "(define-public (trigger-error (x uint)) (ok true))",
@@ -1252,7 +1251,7 @@ fn check_error_kind_incorrect_argument_count_ccall() {
     );
 }
 
-/// Error: [`CheckErrorKind::BadTraitImplementation`]
+/// Error: [`RuntimeCheckErrorKind::BadTraitImplementation`]
 /// Caused by: Dynamic trait dispatch to a concrete contract that has the function,
 /// but with a mismatched argument type (int instead of uint)
 /// Outcome: Block accepted
@@ -1294,10 +1293,10 @@ fn bad_trait_implementation_mismatched_args() {
     );
 }
 
-/// Error: [`CheckErrorKind::InvalidCharactersDetected`]
+/// Error: [`RuntimeCheckErrorKind::InvalidCharactersDetected`]
 /// Caused by: deserializing an invalid ascii string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
 /// Outcome: Block accepted
-/// Note: [`CheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
+/// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
 #[test]
 fn invalid_characters_detected_invalid_ascii() {
@@ -1313,10 +1312,10 @@ fn invalid_characters_detected_invalid_ascii() {
     );
 }
 
-/// Error: [`CheckErrorKind::InvalidCharactersDetected`]
+/// Error: [`RuntimeCheckErrorKind::InvalidCharactersDetected`]
 /// Caused by: deserializing an invalid utf8 string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
 /// Outcome: Block accepted
-/// Note: [`CheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
+/// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
 #[test]
 fn invalid_characters_detected_invalid_utf8() {
