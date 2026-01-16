@@ -1276,11 +1276,18 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         };
 
         if make_read_only {
-            self.global_context.roll_back(if result.is_ok() {
-                RollbackReason::Readonly
-            } else {
-                RollbackReason::VmError
-            })?;
+            let reason = match &result {
+                Ok(Value::Response(response_data)) => {
+                    if response_data.committed {
+                        RollbackReason::Readonly
+                    } else {
+                        RollbackReason::VmError
+                    }
+                }
+                Ok(_) => RollbackReason::Readonly,
+                Err(_) => RollbackReason::VmError,
+            };
+            self.global_context.roll_back(reason)?;
             result
         } else {
             self.global_context.handle_tx_result(result, allow_private)
