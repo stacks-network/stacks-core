@@ -160,6 +160,28 @@ const TEST_CONTRACT: &str = "
             max-neighbors: u32,
             hint-replicas: (list )
         }))
+
+    (define-public (maybe-executes (trigger-rollback bool))
+        (begin
+            (print \"maybe-executes event 1\")
+            (print \"maybe-executes event 2\")
+            (print \"maybe-executes event 3\")
+            (if trigger-rollback (err u2) (ok u1))))
+
+    (define-public (quux (trigger-rollback bool))
+        (begin (print \"quux\") (maybe-executes trigger-rollback)))
+    (define-public (xyzzw (trigger-rollback bool) )
+        (begin (print \"xyzzw\") (quux trigger-rollback)))
+    (define-public (xyzzy (trigger-rollback bool))
+        (begin (print \"xyzzy\") (xyzzw trigger-rollback)))
+
+    (define-read-only (printer (trigger-rollback bool))
+        (begin
+        (print 100)
+        (print u1000)
+        (print \"test\")
+        (print true)
+        (xyzzy trigger-rollback)))
 ";
 
 const TEST_CONTRACT_UNCONFIRMED: &str = "
@@ -322,9 +344,9 @@ impl<'a> TestRPC<'a> {
         peer_1_config.connection_opts.read_only_call_limit = ExecutionCost {
             write_length: 0,
             write_count: 0,
-            read_length: 2000,
+            read_length: 3000,
             read_count: 3,
-            runtime: 2000000,
+            runtime: 3000000,
         };
         peer_1_config.connection_opts.maximum_call_argument_size = 4096;
         peer_1_config.connection_opts.auth_token = Some("password".to_string());
@@ -332,9 +354,9 @@ impl<'a> TestRPC<'a> {
         peer_2_config.connection_opts.read_only_call_limit = ExecutionCost {
             write_length: 0,
             write_count: 0,
-            read_length: 2000,
+            read_length: 3000,
             read_count: 3,
-            runtime: 2000000,
+            runtime: 3000000,
         };
         peer_2_config.connection_opts.maximum_call_argument_size = 4096;
         peer_2_config.connection_opts.auth_token = Some("password".to_string());

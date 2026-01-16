@@ -15,14 +15,11 @@
 
 use std::time::Duration;
 
-use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
-use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::errors::VmExecutionError::Unchecked;
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
+use clarity::vm::{ClarityName, ContractName, Value};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
@@ -31,13 +28,11 @@ use crate::net::api::callreadonly::{
     CallReadOnlyRequestBody, CallReadOnlyResponse, RPCCallReadOnlyRequestHandler,
 };
 use crate::net::http::{
-    parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
-    HttpRequestPreamble, HttpRequestTimeout, HttpResponse, HttpResponseContents,
-    HttpResponsePayload, HttpResponsePreamble,
+    parse_json, Error, HttpContentType, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
     request, HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest,
-    StacksHttpResponse,
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
@@ -177,131 +172,17 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
         contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
-            Ok(tip) => tip,
-            Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
-            }
-        };
-
-        let contract_identifier = self
-            .call_read_only_handler
-            .contract_identifier
-            .take()
-            .ok_or(NetError::SendError("Missing `contract_identifier`".into()))?;
-        let function = self
-            .call_read_only_handler
-            .function
-            .take()
-            .ok_or(NetError::SendError("Missing `function`".into()))?;
-        let sender = self
-            .call_read_only_handler
-            .sender
-            .take()
-            .ok_or(NetError::SendError("Missing `sender`".into()))?;
-        let sponsor = self.call_read_only_handler.sponsor.clone();
-        let arguments = self
-            .call_read_only_handler
-            .arguments
-            .take()
-            .ok_or(NetError::SendError("Missing `arguments`".into()))?;
-
-        // run the read-only call
-        let data_resp =
-            node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-                let args: Vec<_> = arguments
-                    .iter()
-                    .map(|x| SymbolicExpression::atom_value(x.clone()))
-                    .collect();
-
-                let mainnet = chainstate.mainnet;
-                let chain_id = chainstate.chain_id;
-
-                chainstate.maybe_read_only_clarity_tx(
-                    &sortdb.index_handle_at_block(chainstate, &tip)?,
-                    &tip,
-                    |clarity_tx| {
-                        clarity_tx.with_readonly_clarity_env(
-                            mainnet,
-                            chain_id,
-                            sender,
-                            sponsor,
-                            LimitedCostTracker::new_free(),
-                            |env| {
-                                // cost tracking in read only calls is meamingful mainly from a security point of view
-                                // for this reason we enforce max_execution_time when cost tracking is disabled/free
-
-                                env.global_context
-                                    .set_max_execution_time(self.read_only_max_execution_time);
-
-                                // we want to execute any function as long as no actual writes are made as
-                                // opposed to be limited to purely calling `define-read-only` functions,
-                                // so use `read_only = false`.  This broadens the number of functions that
-                                // can be called, and also circumvents limitations on `define-read-only`
-                                // functions that can not use `contrac-call?`, even when calling other
-                                // read-only functions
-                                env.execute_contract(
-                                    &contract_identifier,
-                                    function.as_str(),
-                                    &args,
-                                    false,
-                                )
-                            },
-                        )
-                    },
-                )
-            });
-
-        // decode the response
-        let data_resp = match data_resp {
-            Ok(Some(Ok(data))) => {
-                let hex_result = data
-                    .serialize_to_hex()
-                    .map_err(|e| NetError::SerializeError(format!("{:?}", &e)))?;
-
-                CallReadOnlyResponse {
-                    okay: true,
-                    result: Some(format!("0x{}", hex_result)),
-                    cause: None,
-                }
-            }
-            Ok(Some(Err(e))) => match e {
-                Unchecked(CheckErrorKind::CostBalanceExceeded(actual_cost, _))
-                    if actual_cost.write_count > 0 =>
-                {
-                    CallReadOnlyResponse {
-                        okay: false,
-                        result: None,
-                        cause: Some("NotReadOnly".to_string()),
-                    }
-                }
-                Unchecked(CheckErrorKind::ExecutionTimeExpired) => {
-                    return StacksHttpResponse::new_error(
-                        &preamble,
-                        &HttpRequestTimeout::new("ExecutionTime expired".to_string()),
-                    )
-                    .try_into_contents()
-                    .map_err(NetError::from)
-                }
-                _ => CallReadOnlyResponse {
-                    okay: false,
-                    result: None,
-                    cause: Some(e.to_string()),
-                },
+        //
+        self.call_read_only_handler.execute_contract_function(
+            preamble,
+            contents,
+            node,
+            Some(LimitedCostTracker::new_free()),
+            |env| {
+                env.global_context
+                    .set_max_execution_time(self.read_only_max_execution_time);
             },
-            Ok(None) | Err(_) => {
-                return StacksHttpResponse::new_error(
-                    &preamble,
-                    &HttpNotFound::new("Chain tip not found".to_string()),
-                )
-                .try_into_contents()
-                .map_err(NetError::from);
-            }
-        };
-
-        let preamble = HttpResponsePreamble::ok_json(&preamble);
-        let body = HttpResponseContents::try_from_json(&data_resp)?;
-        Ok((preamble, body))
+        )
     }
 }
 
@@ -340,7 +221,13 @@ impl StacksHttpRequest {
                 serde_json::to_value(CallReadOnlyRequestBody {
                     sender: sender.to_string(),
                     sponsor: sponsor.map(|s| s.to_string()),
-                    arguments: function_args.into_iter().map(|v| v.to_string()).collect(),
+                    arguments: function_args
+                        .into_iter()
+                        .map(|v| {
+                            v.serialize_to_hex()
+                                .expect("FATAL: failed to deserialize argument")
+                        })
+                        .collect(),
                 })
                 .expect("FATAL: failed to encode infallible data"),
             ),

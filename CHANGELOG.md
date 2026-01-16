@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
+- Added the `events` array to readonly endpoints output.
 - Improved block validation in `stacks-inspect`.
 
 ### Changed

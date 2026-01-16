@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use clarity_types::types::{AssetIdentifier, PrincipalData, StandardPrincipalData};
 
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
-use crate::vm::contexts::AssetMap;
+use crate::vm::contexts::{AssetMap, RollbackReason};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
 use crate::vm::errors::{
@@ -281,11 +281,11 @@ pub fn special_restrict_assets(
     match check_allowances(&asset_owner, allowances, asset_maps) {
         Ok(None) => {}
         Ok(Some(violation_index)) => {
-            env.global_context.roll_back()?;
+            env.global_context.roll_back(RollbackReason::VmError)?;
             return Ok(Value::error(Value::UInt(violation_index))?);
         }
         Err(e) => {
-            env.global_context.roll_back()?;
+            env.global_context.roll_back(RollbackReason::VmError)?;
             return Err(e);
         }
     }
@@ -375,11 +375,11 @@ pub fn special_as_contract(
         match check_allowances(&contract_principal, allowances, asset_maps) {
             Ok(None) => {}
             Ok(Some(violation_index)) => {
-                nested_env.global_context.roll_back()?;
+                nested_env.global_context.roll_back(RollbackReason::VmError)?;
                 return Ok(Value::error(Value::UInt(violation_index))?);
             }
             Err(e) => {
-                nested_env.global_context.roll_back()?;
+                nested_env.global_context.roll_back(RollbackReason::VmError)?;
                 return Err(e);
             }
         }
