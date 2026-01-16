@@ -17,7 +17,7 @@
 use clarity_types::representations::ClarityName;
 
 pub use super::errors::{
-    CheckErrorKind, StaticCheckError, check_argument_count, check_arguments_at_least,
+    RuntimeCheckErrorKind, StaticCheckError, check_argument_count, check_arguments_at_least,
 };
 use crate::vm::ClarityVersion;
 use crate::vm::analysis::types::ContractAnalysis;
