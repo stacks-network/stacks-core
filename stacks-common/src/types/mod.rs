@@ -875,6 +875,29 @@ impl StacksEpochId {
         }
     }
 
+    /// Beginning in epoch 3.4, cost functions that call `logn` are ensured to
+    /// always pass an argument greater than zero, to avoid hitting a runtime
+    /// error during cost computation. After reviewing the usage, the only
+    /// function that requires this protection is `from-consensus-buff?`, other
+    /// cost functions that call `logn` are already protected from zeros.
+    pub fn protects_logn_cost_fn(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => false,
+            StacksEpochId::Epoch34 => true,
+        }
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {

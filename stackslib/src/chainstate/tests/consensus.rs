@@ -1036,7 +1036,7 @@ impl ContractConsensusTest<'_> {
     /// * `contract_code` - Clarity source code of the contract
     /// * `function_name` - Contract function to test
     /// * `function_args` - Arguments passed to `function_name` on every call
-    /// * `exclude_clarity_versions` - List of Clarity versions to exclude from testing. For each epoch to test, at least a clarity version must available.
+    /// * `exclude_clarity_versions` - List of Clarity versions to exclude from testing. For each epoch to test, at least one clarity version must be available.
     /// * `setup_contracts` - Contracts that must be deployed before epoch-specific logic runs
     ///
     /// # Panics
@@ -1600,7 +1600,7 @@ impl TestTxFactory {
 /// * `function_args` — Function arguments, provided as a slice of [`ClarityValue`].
 /// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 2.0.
 /// * `call_epochs` — *(optional)* Epochs in which to call the function. Defaults to [`EPOCHS_TO_TEST`].
-/// * `clarity_versions` — *(optional)* Clarity versions to test. For each epoch to test, at least one of the clarity versions must be supported. Defaults to all Clarity versions.
+/// * `exclude_clarity_versions` — *(optional)* Clarity versions to exclude from testing. For each epoch to test, at least one clarity version must be available. Defaults to an empty list (all versions tested).
 /// * `setup_contracts` — *(optional)* Slice of [`SetupContract`] values to deploy once before the main contract logic.
 ///
 /// # Example
@@ -1682,7 +1682,7 @@ pub(crate) use contract_call_consensus_test;
 /// * `contract_name` — Name of the contract being tested.
 /// * `contract_code` — The Clarity source code of the contract.
 /// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to [`EPOCHS_TO_TEST`].
-/// * `clarity_versions` — *(optional)* Clarity versions to test. For each epoch to test, at least one of the clarity versions must be supported. Defaults to all Clarity versions.
+/// * `exclude_clarity_versions` — *(optional)* Clarity versions to exclude from testing. For each epoch to test, at least one clarity version must be available. Defaults to an empty list (all versions tested).
 /// * `setup_contracts` — *(optional)* Slice of [`SetupContract`] values to deploy before the main contract.
 ///
 /// # Example
