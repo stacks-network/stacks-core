@@ -18,8 +18,6 @@ use rstest::rstest;
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
-#[cfg(test)]
-use crate::vm::errors::ClarityEvalError;
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
@@ -27,7 +25,7 @@ use crate::vm::{
     analysis::type_checker::v2_1::tests::contracts::type_check_version,
     ast::parse,
     database::MemoryBackingStore,
-    errors::{RuntimeCheckErrorKind, StaticCheckErrorKind, VmExecutionError},
+    errors::{ClarityEvalError, RuntimeCheckErrorKind, StaticCheckErrorKind, VmExecutionError},
     tests::{TopLevelMemoryEnvironmentGenerator, tl_env_factory},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
 };

@@ -456,7 +456,7 @@ fn test_name_too_long() {
 /// Caused by: valid principal chars but wrong format (due to the starting "AAA")
 /// Outcome: block accepted
 #[test]
-pub fn test_invalid_principal_literal() {
+fn test_invalid_principal_literal() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: "(define-constant my-principal 'AAAST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA)",
@@ -467,7 +467,7 @@ pub fn test_invalid_principal_literal() {
 /// Caused by: invalid standard principal literal (wrong byte length)
 /// Outcome: block accepted.
 #[test]
-pub fn principal_wrong_byte_length() {
+fn principal_wrong_byte_length() {
     contract_deploy_consensus_test!(
         contract_name: "wrong-byte-length",
         contract_code: "

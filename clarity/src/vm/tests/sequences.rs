@@ -18,9 +18,7 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
-#[cfg(test)]
-use crate::vm::errors::ClarityEvalError;
-use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError};
+use crate::vm::errors::{ClarityEvalError, RuntimeCheckErrorKind, VmExecutionError};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::TypeSignature::{self, BoolType, IntType, SequenceType, UIntType};
 use crate::vm::types::signatures::SequenceSubtype::{self, BufferType, StringType};

@@ -306,7 +306,7 @@ impl From<EarlyReturnError> for Value {
     }
 }
 
-/// Helper error for testing both clarity parse and vm execution errors.
+/// An error that occurs during Clarity evaluation, either a VM execution error or a parse error.
 #[derive(Debug, PartialEq)]
 pub enum ClarityEvalError {
     Vm(VmExecutionError),

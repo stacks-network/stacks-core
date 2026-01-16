@@ -114,8 +114,8 @@ impl From<StaticCheckError> for ClarityError {
 impl From<ClarityEvalError> for ClarityError {
     fn from(e: ClarityEvalError) -> Self {
         match e {
-            ClarityEvalError::Parse(err) => ClarityError::Parse(err),
-            ClarityEvalError::Vm(err) => ClarityError::Interpreter(err),
+            ClarityEvalError::Parse(err) => ClarityError::from(err),
+            ClarityEvalError::Vm(err) => ClarityError::from(err),
         }
     }
 }
