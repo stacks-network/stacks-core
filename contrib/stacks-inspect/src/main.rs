@@ -20,7 +20,7 @@ use clap::Parser;
 use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
-use clarity_cli::{DEFAULT_CLI_EPOCH, read_file_or_stdin, read_file_or_stdin_bytes};
+use clarity_cli::{DEFAULT_CLI_EPOCH, read_file_or_stdin, read_file_or_stdin_bytes, vm_execute};
 use stacks_inspect::cli::{Cli, Command};
 use stacks_inspect::{
     CommonOpts, command_contract_hash, command_replay_mock_mining, command_try_mine,
@@ -1446,7 +1446,7 @@ fn main() {
             let program: String = fs::read_to_string(&program_file)
                 .unwrap_or_else(|_| panic!("Error reading file: {}", program_file));
             let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
-            match clarity_cli::vm_execute(&program, clarity_version) {
+            match vm_execute(&program, clarity_version) {
                 Ok(Some(result)) => println!("{result}"),
                 Ok(None) => println!(),
                 Err(error) => {

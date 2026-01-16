@@ -568,7 +568,7 @@ pub enum Command {
     Docgen,
 
     /// Generate boot contracts reference as JSON
-    #[command(name = "docgen_boot")]
+    #[command(name = "docgen-boot")]
     DocgenBoot,
 
     /// Execute a Clarity program file
@@ -597,8 +597,23 @@ mod tests {
         let cli = Cli::try_parse_from(["stacks-inspect", "decode-tx", "0x00000001"]).unwrap();
 
         match cli.command {
-            Command::DecodeTx { tx_input } => {
+            Command::DecodeTx { tx_input, file } => {
                 assert_eq!(tx_input, "0x00000001");
+                assert!(!file);
+            }
+            _ => panic!("Expected DecodeTx command"),
+        }
+    }
+
+    #[test]
+    fn test_decode_tx_with_file_flag() {
+        let cli =
+            Cli::try_parse_from(["stacks-inspect", "decode-tx", "--file", "/path/to/tx"]).unwrap();
+
+        match cli.command {
+            Command::DecodeTx { tx_input, file } => {
+                assert_eq!(tx_input, "/path/to/tx");
+                assert!(file);
             }
             _ => panic!("Expected DecodeTx command"),
         }
@@ -606,10 +621,10 @@ mod tests {
 
     #[test]
     fn test_global_options() {
-        let cli =
-            Cli::try_parse_from(["stacks-inspect", "--network", "mainnet", "docgen"]).unwrap();
+        let cli = Cli::try_parse_from(["stacks-inspect", "--network-config", "mainnet", "docgen"])
+            .unwrap();
 
-        assert_eq!(cli.network, Some("mainnet".to_string()));
+        assert_eq!(cli.network_config, Some("mainnet".to_string()));
         assert!(matches!(cli.command, Command::Docgen));
     }
 

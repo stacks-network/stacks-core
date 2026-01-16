@@ -170,7 +170,7 @@ pub fn parse_allocations_json(json_content: &str) -> Result<Vec<(PrincipalData, 
         .collect()
 }
 
-pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
+pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::latest();
 
 fn parse(
     contract_identifier: &QualifiedContractIdentifier,

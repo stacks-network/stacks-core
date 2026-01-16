@@ -9608,7 +9608,10 @@ fn mock_miner_replay() {
     // Run `mock_miner_replay()`
     let blocks_dir = blocks_dir.into_os_string().into_string().unwrap();
     let db_path = format!("{}/neon", conf.node.working_dir);
-    let args: Vec<String> = vec!["replay-mock-mining".into(), db_path, blocks_dir];
+    let args = stacks_inspect::ReplayMockMiningArgs {
+        chainstate_path: db_path,
+        mock_mining_output_path: blocks_dir,
+    };
 
     info!("Replaying mock mined blocks...");
     stacks_inspect::command_replay_mock_mining(&args, Some(&conf));
