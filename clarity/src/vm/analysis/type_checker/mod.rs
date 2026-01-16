@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,9 +20,9 @@ pub mod v2_1;
 
 use stacks_common::types::StacksEpochId;
 
+use super::AnalysisDatabase;
 use super::errors::{StaticCheckError, StaticCheckErrorKind};
 pub use super::types::{AnalysisPass, ContractAnalysis};
-use super::AnalysisDatabase;
 use crate::vm::costs::CostTracker;
 use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::{ClarityVersion, Value};
@@ -49,9 +49,10 @@ impl FunctionType {
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
             | StacksEpochId::Epoch34 => self.check_args_2_1(accounting, args, clarity_version),
-            StacksEpochId::Epoch10 => {
-                Err(StaticCheckErrorKind::Expects("Epoch10 is not supported".into()).into())
-            }
+            StacksEpochId::Epoch10 => Err(StaticCheckErrorKind::ExpectsRejectable(
+                "Epoch10 is not supported".into(),
+            )
+            .into()),
         }
     }
 
@@ -78,9 +79,10 @@ impl FunctionType {
             | StacksEpochId::Epoch34 => {
                 self.check_args_by_allowing_trait_cast_2_1(db, clarity_version, func_args)
             }
-            StacksEpochId::Epoch10 => {
-                Err(StaticCheckErrorKind::Expects("Epoch10 is not supported".into()).into())
-            }
+            StacksEpochId::Epoch10 => Err(StaticCheckErrorKind::ExpectsRejectable(
+                "Epoch10 is not supported".into(),
+            )
+            .into()),
         }
     }
 }

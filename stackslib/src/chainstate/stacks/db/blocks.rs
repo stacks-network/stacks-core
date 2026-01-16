@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -4597,55 +4597,60 @@ impl StacksChainState {
     ) -> Result<(u128, Vec<StacksTransactionEvent>), Error> {
         let mainnet = clarity_tx.config.mainnet;
         let lockup_contract_id = boot_code_id("lockup", mainnet);
-        clarity_tx
-            .connection()
-            .as_transaction(|tx_connection| {
-                let epoch = tx_connection.get_epoch();
-                let result = tx_connection.with_clarity_db(|db| {
-                    let block_height = Value::UInt(db.get_current_block_height().into());
-                    let res = db.fetch_entry_unknown_descriptor(
-                        &lockup_contract_id,
-                        "lockups",
-                        &block_height,
-                        &epoch,
-                    )?;
-                    Ok(res)
-                })?;
+        clarity_tx.connection().as_transaction(|tx_connection| {
+            let epoch = tx_connection.get_epoch();
+            let result = tx_connection.with_clarity_db(|db| {
+                let block_height = Value::UInt(db.get_current_block_height().into());
+                let res = db.fetch_entry_unknown_descriptor(
+                    &lockup_contract_id,
+                    "lockups",
+                    &block_height,
+                    &epoch,
+                )?;
+                Ok(res)
+            })?;
 
-                let entries = match result {
-                    Value::Optional(_) => match result.expect_optional()? {
-                        Some(Value::Sequence(SequenceData::List(entries))) => entries.data,
-                        _ => return Ok((0, vec![])),
-                    },
+            let entries = match result {
+                Value::Optional(_) => match result
+                    .expect_optional()
+                    .map_err(|_| Error::Expects("expected lockups to return an optional".into()))?
+                {
+                    Some(Value::Sequence(SequenceData::List(entries))) => entries.data,
                     _ => return Ok((0, vec![])),
-                };
+                },
+                _ => return Ok((0, vec![])),
+            };
 
-                let mut total_minted = 0;
-                let mut events = vec![];
-                for entry in entries.into_iter() {
-                    let schedule: TupleData = entry.expect_tuple()?;
-                    let amount = schedule
-                        .get("amount")
-                        .expect("Lockup malformed")
-                        .to_owned()
-                        .expect_u128()?;
-                    let recipient = schedule
-                        .get("recipient")
-                        .expect("Lockup malformed")
-                        .to_owned()
-                        .expect_principal()?;
-                    total_minted += amount;
-                    StacksChainState::account_credit(
-                        tx_connection,
-                        &recipient,
-                        u64::try_from(amount).expect("FATAL: transferred more STX than exist"),
-                    );
-                    let event = STXEventType::STXMintEvent(STXMintEventData { recipient, amount });
-                    events.push(StacksTransactionEvent::STXEvent(event));
-                }
-                Ok((total_minted, events))
-            })
-            .map_err(Error::ClarityError)
+            let mut total_minted = 0;
+            let mut events = vec![];
+            for entry in entries.into_iter() {
+                let schedule: TupleData = entry
+                    .expect_tuple()
+                    .map_err(|_| Error::Expects("expected unlock schedule tuple".into()))?;
+                let amount = schedule
+                    .get("amount")
+                    .map_err(|_| Error::Expects("missing amount in unlock schedule".into()))?
+                    .to_owned()
+                    .expect_u128()
+                    .map_err(|_| Error::Expects("invalid amount in unlock schedule".into()))?;
+                let recipient = schedule
+                    .get("recipient")
+                    .map_err(|_| Error::Expects("missing recipient in unlock schedule".into()))?
+                    .to_owned()
+                    .expect_principal()
+                    .map_err(|_| Error::Expects("invalid recipient in unlock schedule".into()))?;
+                total_minted += amount;
+                StacksChainState::account_credit(
+                    tx_connection,
+                    &recipient,
+                    u64::try_from(amount)
+                        .map_err(|_| Error::Expects("transferred more STX than exists".into()))?,
+                );
+                let event = STXEventType::STXMintEvent(STXMintEventData { recipient, amount });
+                events.push(StacksTransactionEvent::STXEvent(event));
+            }
+            Ok((total_minted, events))
+        })
     }
 
     /// Given the list of matured miners, find the miner reward schedule that produced the parent

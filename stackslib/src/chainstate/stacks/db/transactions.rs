@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -956,11 +956,9 @@ impl StacksChainState {
             .get_microblock_poison_report(mblock_pubk_height)?
         {
             // account for report loaded
-            env.add_memory(u64::from(
-                TypeSignature::PrincipalType
-                    .size()
-                    .map_err(VmExecutionError::from)?,
-            ))
+            env.add_memory(u64::from(TypeSignature::PrincipalType.size().map_err(
+                |_| Error::Expects("Failed to get size of PrincipalType".into()),
+            )?))
             .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
 
             // u128 sequence

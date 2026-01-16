@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,19 +20,19 @@ use clarity_types::representations::ClarityName;
 use clarity_types::types::{PrincipalData, Value};
 use stacks_common::types::StacksEpochId;
 
-pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, StaticCheckError,
-    StaticCheckErrorKind, SyntaxBindingError,
-};
 use super::AnalysisDatabase;
+pub use super::errors::{
+    CheckErrorKind, StaticCheckError, StaticCheckErrorKind, SyntaxBindingError,
+    check_argument_count, check_arguments_at_least,
+};
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
-use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use crate::vm::ClarityVersion;
 
 #[cfg(test)]
 mod tests;
@@ -88,10 +88,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         // Iterate over all the top-level statements in a contract.
         for exp in contract_analysis.expressions.iter() {
             let mut result = self.check_top_level_expression(exp);
-            if let Err(ref mut error) = result {
-                if !error.has_expression() {
-                    error.set_expression(exp);
-                }
+            if let Err(ref mut error) = result
+                && !error.has_expression()
+            {
+                error.set_expression(exp);
             }
             result?
         }
@@ -494,7 +494,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
                 let is_function_read_only = match &args[0].expr {
                     SymbolicExpressionType::LiteralValue(Value::Principal(
-                        PrincipalData::Contract(ref contract_identifier),
+                        PrincipalData::Contract(contract_identifier),
                     )) => self
                         .db
                         .get_read_only_function_type(
@@ -512,7 +512,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     _ => {
                         return Err(StaticCheckError::new(
                             StaticCheckErrorKind::ContractCallExpectName,
-                        ))
+                        ));
                     }
                 };
 
