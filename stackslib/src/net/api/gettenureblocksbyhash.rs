@@ -126,7 +126,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHashRequestHandler {
 
                 let last_sortition_ch = get_last_sortition_consensus_hash(
                     &sortdb,
-                    header_info.burn_header_height,
+                    &header_info,
                     &preamble,
                 )?;
 

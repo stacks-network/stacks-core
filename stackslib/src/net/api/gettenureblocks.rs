@@ -36,17 +36,35 @@ use crate::net::{Error as NetError, StacksNodeState};
 /// Will return an empty consensus hash if no prior sorititon exists (i.e., this is the Genesis tenure)
 pub fn get_last_sortition_consensus_hash(
     sortdb: &SortitionDB,
-    burn_block_height: u32,
+    header_info: &StacksHeaderInfo,
     preamble: &HttpRequestPreamble,
 ) -> Result<ConsensusHash, StacksHttpResponse> {
-    let handle = sortdb.index_handle_at_tip();
+    let handle = match sortdb.index_handle_at_ch(&header_info.consensus_hash) {
+        Ok(handle) => handle,
+        Err(e) => {
+            let msg = format!(
+                "Failed to get sortition DB handle for tenure '{}': {e:?}",
+                header_info.consensus_hash
+            );
+            error!("{msg}");
+            return Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpServerError::new(msg),
+            ));
+        }
+    };
 
     // search backwards from the chain tip on the canonical fork to find the sortition
     // that occurred before this burn block height.
-    match handle.get_last_snapshot_with_sortition(burn_block_height.saturating_sub(1).into()) {
+    match handle
+        .get_last_snapshot_with_sortition(header_info.burn_header_height.saturating_sub(1).into())
+    {
         Ok(last_sortition) => Ok(last_sortition.consensus_hash),
         Err(e) => {
-            let msg = format!("Failed to get last sortition at block '{burn_block_height}': {e:?}");
+            let msg = format!(
+                "Failed to get last sortition at block '{}': {e:?}",
+                header_info.burn_header_height
+            );
             error!("{msg}");
             Err(StacksHttpResponse::new_error(
                 preamble,
@@ -338,7 +356,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
 
                 let last_sortition_ch = get_last_sortition_consensus_hash(
                     &sortdb,
-                    header_info.burn_header_height,
+                    &header_info,
                     &preamble,
                 )?;
 
