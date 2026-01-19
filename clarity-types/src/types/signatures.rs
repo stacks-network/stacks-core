@@ -22,6 +22,7 @@ use std::{cmp, fmt};
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
+use crate::errors::CommonCheckErrorKind;
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
     CharType, ClarityTypeError, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
@@ -1437,7 +1438,7 @@ impl TypeSignature {
     }
     pub fn min_size(&self) -> Result<u32, CommonCheckErrorKind> {
         self.inner_min_size()?.ok_or_else(|| {
-            CommonCheckErrorKind::Expects(
+            CommonCheckErrorKind::ExpectsAcceptable(
                 "FAIL: .size() overflowed on too large of a type. construction should have failed!"
                     .into(),
             )

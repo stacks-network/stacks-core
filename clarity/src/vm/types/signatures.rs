@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use clarity_types::errors::analysis::{CommonCheckErrorKind, StaticCheckErrorKind};
+use clarity_types::errors::analysis::StaticCheckErrorKind;
 pub use clarity_types::types::Value;
 pub use clarity_types::types::signatures::{
     AssetIdentifier, BufferLength, CallableSubtype, ListTypeData, SequenceSubtype, StringSubtype,
@@ -28,7 +28,7 @@ use stacks_common::types::StacksEpochId;
 use self::TypeSignature::SequenceType;
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::costs::{CostOverflowingMath, runtime_cost};
-use crate::vm::errors::{SyntaxBindingError, SyntaxBindingErrorType};
+use crate::vm::errors::{CommonCheckErrorKind, SyntaxBindingError, SyntaxBindingErrorType};
 use crate::vm::representations::{
     ClarityName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
 };
