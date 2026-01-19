@@ -152,12 +152,22 @@ pub(crate) fn calculate_function_cost_from_native_function(
 }
 
 /// total cost handling branching
+/// For non-branching we combine all paths
 pub(crate) fn calculate_total_cost_with_summing(node: &CostAnalysisNode) -> SummingExecutionCost {
     let mut summing_cost = SummingExecutionCost::from_single(node.cost.min.clone());
 
     for child in &node.children {
         let child_summing = calculate_total_cost_with_summing(child);
-        summing_cost.add_summing(&child_summing);
+        // Combine each existing path with each child path (cartesian product)
+        let current_paths = summing_cost.costs.clone();
+        summing_cost = SummingExecutionCost::new();
+        for current_path in current_paths {
+            for child_path in &child_summing.costs {
+                let mut combined_path = current_path.clone();
+                let _ = combined_path.add(child_path);
+                summing_cost.add_cost(combined_path);
+            }
+        }
     }
     summing_cost
 }
@@ -183,12 +193,13 @@ pub(crate) fn calculate_total_cost_with_branching(node: &CostAnalysisNode) -> Su
 
                     for child_cost_node in node.children.iter().skip(1) {
                         let branch_cost = calculate_total_cost_with_summing(child_cost_node);
-                        let branch_total = branch_cost.add_all();
-
-                        let mut path_cost = root_and_condition.clone();
-                        let _ = path_cost.add(&branch_total);
-
-                        summing_cost.add_cost(path_cost);
+                        // For each path in the branch, add root_and_condition to create a full path
+                        // This preserves all branch paths so we can correctly compute min/max
+                        for branch_path in &branch_cost.costs {
+                            let mut path_cost = root_and_condition.clone();
+                            let _ = path_cost.add(branch_path);
+                            summing_cost.add_cost(path_cost);
+                        }
                     }
                 }
             }

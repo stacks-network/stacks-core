@@ -341,7 +341,6 @@ fn compute_function_overhead_costs(
     let application_cost = ClarityCostFunction::UserFunctionApplication
         .eval_for_epoch(arg_count as u64, epoch)
         .unwrap_or_else(|_| ExecutionCost::ZERO);
-
     overhead.0.add(&application_cost).ok();
     overhead.1.add(&application_cost).ok();
 
@@ -354,6 +353,8 @@ fn compute_function_overhead_costs(
             &mut (),
         ) {
             Ok(sigs) => {
+                let mut total_type_check_cost = ExecutionCost::ZERO;
+                let mut total_type_check_min_cost = ExecutionCost::ZERO;
                 for (_, sig) in sigs.iter() {
                     let type_check_cost = ClarityCostFunction::InnerTypeCheckCost
                         .eval_for_epoch(sig.size().unwrap_or(0) as u64, epoch)
@@ -361,18 +362,80 @@ fn compute_function_overhead_costs(
                     let type_check_min_cost = ClarityCostFunction::InnerTypeCheckCost
                         .eval_for_epoch(sig.min_size().unwrap_or(0) as u64, epoch)
                         .unwrap_or_else(|_| ExecutionCost::ZERO);
+                    total_type_check_cost.add(&type_check_cost).ok();
+                    total_type_check_min_cost.add(&type_check_min_cost).ok();
                     overhead.0.add(&type_check_min_cost).ok();
                     overhead.1.add(&type_check_cost).ok();
                 }
             }
-            Err(e) => {
+            Err(_e) => {
                 // This should probably only be hit for contracts that don't
                 // type check anyway. We continue so the other costs are still
                 // calculated.
-                eprintln!(
-                    "[STATIC_COST] Warning: Failed to parse function signature '{}' for type checking costs: {:?}",
-                    function_name, e
-                );
+            }
+        }
+    }
+
+    overhead
+}
+
+/// Compute function overhead costs without LoadContract (for when contract is already loaded)
+fn compute_function_overhead_costs_without_load(
+    function_name: &str,
+    ast_expressions: &[SymbolicExpression],
+    epoch: StacksEpochId,
+) -> (ExecutionCost, ExecutionCost) {
+    let mut overhead = (ExecutionCost::ZERO, ExecutionCost::ZERO);
+
+    // Find the function definition in the AST that matches the function name
+    let function_def = ast_expressions.iter().find(|expr| {
+        extract_function_name(expr)
+            .map(|name| name == function_name)
+            .unwrap_or(false)
+    });
+
+    // Extract the function signature (argument list) from the function definition
+    let (arg_count, signature_args) = function_def
+        .and_then(extract_function_signature)
+        .unwrap_or((0, &[]));
+
+    // Skip LoadContract - contract is already loaded
+
+    // cost_user_function_application
+    let application_cost = ClarityCostFunction::UserFunctionApplication
+        .eval_for_epoch(arg_count as u64, epoch)
+        .unwrap_or_else(|_| ExecutionCost::ZERO);
+    overhead.0.add(&application_cost).ok();
+    overhead.1.add(&application_cost).ok();
+
+    // Parse function signature for type checking costs
+    if !signature_args.is_empty() {
+        match parse_name_type_pairs::<(), clarity_types::errors::CommonCheckErrorKind>(
+            epoch,
+            signature_args,
+            SyntaxBindingErrorType::Eval,
+            &mut (),
+        ) {
+            Ok(sigs) => {
+                let mut total_type_check_cost = ExecutionCost::ZERO;
+                let mut total_type_check_min_cost = ExecutionCost::ZERO;
+                for (_, sig) in sigs.iter() {
+                    let type_check_cost = ClarityCostFunction::InnerTypeCheckCost
+                        .eval_for_epoch(sig.size().unwrap_or(0) as u64, epoch)
+                        .unwrap_or_else(|_| ExecutionCost::ZERO);
+                    let type_check_min_cost = ClarityCostFunction::InnerTypeCheckCost
+                        .eval_for_epoch(sig.min_size().unwrap_or(0) as u64, epoch)
+                        .unwrap_or_else(|_| ExecutionCost::ZERO);
+                    total_type_check_cost.add(&type_check_cost).ok();
+                    total_type_check_min_cost.add(&type_check_min_cost).ok();
+                    overhead.0.add(&type_check_min_cost).ok();
+                    overhead.1.add(&type_check_cost).ok();
+                }
+            }
+            Err(_e) => {
+                // This should probably only be hit for contracts that don't
+                // type check anyway. We continue so the other costs are still
+                // calculated.
             }
         }
     }
@@ -406,6 +469,8 @@ pub fn static_cost_from_ast_with_source(
         .next()
         .and_then(|(_, trait_count)| trait_count.clone());
 
+    let contract_already_loaded = false;
+
     // Convert CostAnalysisNode to StaticCost and add overhead costs
     let costs: HashMap<String, StaticCost> = cost_trees_with_traits
         .iter()
@@ -413,13 +478,18 @@ pub fn static_cost_from_ast_with_source(
             let summing_cost = calculate_total_cost_with_branching(cost_analysis_node);
             let mut static_cost: StaticCost = summing_cost.into();
 
-            // Add overhead costs to both min and max
-            let overhead = compute_function_overhead_costs(
-                contract_size,
-                name,
-                &contract_ast.expressions,
-                epoch,
-            );
+            // If contract is already loaded, exclude LoadContract from overhead
+            // (it's charged but may not be included in the final cost difference)
+            let overhead = if contract_already_loaded {
+                compute_function_overhead_costs_without_load(name, &contract_ast.expressions, epoch)
+            } else {
+                compute_function_overhead_costs(
+                    contract_size,
+                    name,
+                    &contract_ast.expressions,
+                    epoch,
+                )
+            };
             static_cost.min.add(&overhead.0).ok()?;
             static_cost.max.add(&overhead.1).ok()?;
 
@@ -816,6 +886,35 @@ fn build_function_definition_cost_analysis_tree(
                     .unwrap_or_else(|_| ExecutionCost::ZERO);
                 let last_idx = body_tree.children.len() - 1;
                 body_tree.children[last_idx].cost = StaticCost {
+                    min: lookup_cost.clone(),
+                    max: lookup_cost,
+                };
+            }
+        }
+    }
+
+    // If the body is a native function
+    // exclude its execution cost but keep its lookup cost.
+    if let CostExprNode::NativeFunction(native_fn) = &body_tree.expr {
+        // TODO need more test cases
+        if *native_fn != NativeFunctions::ConsOkay
+            && *native_fn != NativeFunctions::If
+            && *native_fn != NativeFunctions::Match
+        {
+            // Check if ALL children are nested expressions (not simple values)
+            let all_nested_expressions = !body_tree.children.is_empty()
+                && body_tree.children.iter().all(|child| {
+                    matches!(
+                        child.expr,
+                        CostExprNode::NativeFunction(_) | CostExprNode::UserFunction(_)
+                    )
+                });
+            if all_nested_expressions {
+                // Keep only the lookup cost and exclude the function execution cost
+                let lookup_cost = ClarityCostFunction::LookupFunction
+                    .eval_for_epoch(0, epoch)
+                    .unwrap_or_else(|_| ExecutionCost::ZERO);
+                body_tree.cost = StaticCost {
                     min: lookup_cost.clone(),
                     max: lookup_cost,
                 };

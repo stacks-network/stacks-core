@@ -562,58 +562,87 @@ fn test_against_dynamic_cost_analysis() {
             &multi_arg_value,
         ),
         (
-            r#"(define-public (simple-ok)
-            (ok true)
-        )
-        "#,
-            "simple-ok",
+            r#"(define-public (simple-constant)
+                (ok u1)
+            )"#,
+            "simple-constant",
             &[],
         ),
         (
-            r#"(define-public (simple-addition)
-            (+ 1 2)
-        )
-        "#,
-            "simple-addition",
+            r#"(define-public (nested-ops)
+                (* (+ u1 u2) (- u3 u4))
+            )"#,
+            "nested-ops",
             &[],
         ),
-        (
-            r#"(define-public (arithmetic)
-            (- u4 (+ u1 u2))
-        )
-        "#,
-            "arithmetic",
-            &[],
-        ),
-        // (
-        //     r#"(define-public (nested-ops)
-        //     (* (+ u1 u2) (- u3 u4))
-        // )
-        // "#,
-        //     "nested-ops",
-        //     &[],
-        // ),
         (
             r#"(define-public (string-concat)
-            (ok (concat "hello" "world"))
-        )
-        "#,
+                (ok (concat "hello" "world"))
+            )"#,
             "string-concat",
             &[],
         ),
         (
             r#"(define-public (string-len)
-            (ok (len "hello"))
-        )
-        "#,
+                (ok (len "hello"))
+            )"#,
             "string-len",
+            &[],
+        ),
+        // Test cases to narrow down branching issue
+        (
+            r#"(define-public (if-simple)
+                (if (> 3 0) (ok u1) (ok u2))
+            )"#,
+            "if-simple",
+            &[],
+        ),
+        (
+            r#"(define-public (if-no-ok)
+                (if (> 3 0) u1 u2)
+            )"#,
+            "if-no-ok",
+            &[],
+        ),
+        (
+            r#"(define-public (if-one-ok)
+                (if (> 3 0) (ok u1) u2)
+            )"#,
+            "if-one-ok",
+            &[],
+        ),
+        (
+            r#"(define-public (if-other-branch-ok)
+                (if (> 3 0) u1 (ok u2))
+            )"#,
+            "if-other-branch-ok",
+            &[],
+        ),
+        (
+            r#"(define-public (if-with-ok-concat)
+                (if (> 3 0) (ok (concat "hello" "world")) (ok u1))
+            )"#,
+            "if-with-ok-concat",
+            &[],
+        ),
+        (
+            r#"(define-public (if-with-ok-string)
+                (if (> 3 0) (ok "asdf") (ok u1))
+            )"#,
+            "if-with-ok-string",
+            &[],
+        ),
+        (
+            r#"(define-public (if-both-ok-concat)
+                (if (> 3 0) (ok (concat "hello" "world")) (ok (concat "foo" "bar")))
+            )"#,
+            "if-both-ok-concat",
             &[],
         ),
         (
             r#"(define-public (branching)
-            (if (> 3 0) (ok (concat "hello" "world")) (ok "asdf"))
-        )
-        "#,
+                (if (> 3 0) (ok (concat "hello" "world")) (ok "asdf"))
+            )"#,
             "branching",
             &[],
         ),
