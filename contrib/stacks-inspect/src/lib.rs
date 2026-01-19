@@ -20,6 +20,7 @@ use std::{fs, io, process};
 
 use clarity::types::chainstate::SortitionId;
 use clarity::util::hash::{Sha512Trunc256Sum, to_hex};
+use clarity_cli::read_file_or_stdin;
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
@@ -773,18 +774,22 @@ pub fn command_contract_hash(argv: &[String], _conf: Option<&Config>) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
-        eprintln!("  {n} <path-to-contract>");
+        eprintln!("  {n} <CONTRACT_PATH | - (stdin)>");
         process::exit(1);
     };
 
     // Process CLI args
     let contract_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
-    let contract_source = fs::read_to_string(contract_path)
-        .unwrap_or_else(|e| panic!("Failed to read contract file {contract_path:?}: {e}"));
+    let contract_source = read_file_or_stdin(contract_path);
 
     let hash = Sha512Trunc256Sum::from_data(contract_source.as_bytes());
     let hex_string = to_hex(hash.as_bytes());
-    println!("Contract hash for {contract_path}:\n{hex_string}");
+    let source_name = if contract_path == "-" {
+        "stdin"
+    } else {
+        contract_path
+    };
+    println!("Contract hash for {source_name}:\n{hex_string}");
 }
 
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
@@ -959,11 +964,10 @@ fn replay_block(
     };
     let parent_block_hash = parent_block_header.block_hash();
 
-    let Some(cost) =
-        StacksChainState::get_stacks_block_anchored_cost(chainstate_tx.conn(), block_id).unwrap()
-    else {
-        return Err(format!("No header info found for {block_id}"));
-    };
+    // We don't ensure that the cost is found here, because when replaying mock-mined blocks
+    // there may not be a stored cost for the block.
+    let cost_opt =
+        StacksChainState::get_stacks_block_anchored_cost(chainstate_tx.conn(), block_id).unwrap();
 
     let Some(next_microblocks) = StacksChainState::inner_find_parent_microblock_stream(
         &chainstate_tx.tx,
@@ -1051,13 +1055,16 @@ fn replay_block(
         true,
     ) {
         Ok((receipt, _, _)) => {
-            if receipt.anchored_block_cost != cost {
-                return Err(format!(
-                    "Failed processing block! block = {block_id}. Unexpected cost. expected = {cost}, evaluated = {}",
-                    receipt.anchored_block_cost
-                ));
+            if let Some(cost) = cost_opt {
+                if receipt.anchored_block_cost != cost {
+                    return Err(format!(
+                        "Failed processing block! block = {block_id}. Unexpected cost. expected = {cost}, evaluated = {}",
+                        receipt.anchored_block_cost
+                    ));
+                }
+            } else {
+                info!("No stored cost for {block_id}; skipping cost check");
             }
-
             info!("Block processed successfully! block = {block_id}");
             Ok(())
         }

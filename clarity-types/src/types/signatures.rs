@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -22,11 +22,9 @@ use std::{cmp, fmt};
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
-use crate::errors::CheckErrorKind;
-use crate::errors::analysis::{CommonCheckErrorKind, StaticCheckErrorKind};
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
-    CharType, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
+    CharType, ClarityTypeError, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
     MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
     SequencedValue, StandardPrincipalData, TraitIdentifier, Value, WRAPPER_VALUE_SIZE,
 };
@@ -122,11 +120,11 @@ impl BufferLength {
     ///
     /// This function is primarily intended for internal runtime use,
     /// and serves as the central place for all integer validation logic.
-    fn try_from_i128(data: i128) -> Result<Self, CommonCheckErrorKind> {
+    fn try_from_i128(data: i128) -> Result<Self, ClarityTypeError> {
         if data > (MAX_VALUE_SIZE as i128) {
-            Err(CommonCheckErrorKind::ValueTooLarge)
+            Err(ClarityTypeError::ValueTooLarge)
         } else if data < 0 {
-            Err(CommonCheckErrorKind::ValueOutOfBounds)
+            Err(ClarityTypeError::ValueOutOfBounds)
         } else {
             Ok(BufferLength(data as u32))
         }
@@ -162,22 +160,22 @@ impl From<BufferLength> for u32 {
 }
 
 impl TryFrom<u32> for BufferLength {
-    type Error = CommonCheckErrorKind;
-    fn try_from(data: u32) -> Result<BufferLength, CommonCheckErrorKind> {
+    type Error = ClarityTypeError;
+    fn try_from(data: u32) -> Result<BufferLength, ClarityTypeError> {
         Self::try_from(data as i128)
     }
 }
 
 impl TryFrom<usize> for BufferLength {
-    type Error = CommonCheckErrorKind;
-    fn try_from(data: usize) -> Result<BufferLength, CommonCheckErrorKind> {
+    type Error = ClarityTypeError;
+    fn try_from(data: usize) -> Result<BufferLength, ClarityTypeError> {
         Self::try_from(data as i128)
     }
 }
 
 impl TryFrom<i128> for BufferLength {
-    type Error = CommonCheckErrorKind;
-    fn try_from(data: i128) -> Result<BufferLength, CommonCheckErrorKind> {
+    type Error = ClarityTypeError;
+    fn try_from(data: i128) -> Result<BufferLength, ClarityTypeError> {
         Self::try_from_i128(data)
     }
 }
@@ -203,11 +201,11 @@ impl StringUTF8Length {
     ///
     /// This function is primarily intended for internal runtime use,
     /// and serves as the central place for all integer validation logic.
-    fn try_from_i128(value: i128) -> Result<Self, CommonCheckErrorKind> {
+    fn try_from_i128(value: i128) -> Result<Self, ClarityTypeError> {
         if value > MAX_UTF8_VALUE_SIZE as i128 {
-            Err(CommonCheckErrorKind::ValueTooLarge)
+            Err(ClarityTypeError::ValueTooLarge)
         } else if value < 0 {
-            Err(CommonCheckErrorKind::ValueOutOfBounds)
+            Err(ClarityTypeError::ValueOutOfBounds)
         } else {
             Ok(StringUTF8Length(value as u32))
         }
@@ -243,22 +241,22 @@ impl From<StringUTF8Length> for u32 {
 }
 
 impl TryFrom<u32> for StringUTF8Length {
-    type Error = CommonCheckErrorKind;
-    fn try_from(data: u32) -> Result<StringUTF8Length, CommonCheckErrorKind> {
+    type Error = ClarityTypeError;
+    fn try_from(data: u32) -> Result<StringUTF8Length, ClarityTypeError> {
         Self::try_from(data as i128)
     }
 }
 
 impl TryFrom<usize> for StringUTF8Length {
-    type Error = CommonCheckErrorKind;
-    fn try_from(data: usize) -> Result<StringUTF8Length, CommonCheckErrorKind> {
+    type Error = ClarityTypeError;
+    fn try_from(data: usize) -> Result<StringUTF8Length, ClarityTypeError> {
         Self::try_from(data as i128)
     }
 }
 
 impl TryFrom<i128> for StringUTF8Length {
-    type Error = CommonCheckErrorKind;
-    fn try_from(data: i128) -> Result<StringUTF8Length, CommonCheckErrorKind> {
+    type Error = ClarityTypeError;
+    fn try_from(data: i128) -> Result<StringUTF8Length, ClarityTypeError> {
         Self::try_from_i128(data)
     }
 }
@@ -359,10 +357,10 @@ impl ListTypeData {
     pub fn new_list(
         entry_type: TypeSignature,
         max_len: u32,
-    ) -> Result<ListTypeData, CommonCheckErrorKind> {
+    ) -> Result<ListTypeData, ClarityTypeError> {
         let would_be_depth = 1 + entry_type.depth();
         if would_be_depth > MAX_TYPE_DEPTH {
-            return Err(CommonCheckErrorKind::TypeSignatureTooDeep);
+            return Err(ClarityTypeError::TypeSignatureTooDeep);
         }
 
         let list_data = ListTypeData {
@@ -371,9 +369,9 @@ impl ListTypeData {
         };
         let would_be_size = list_data
             .inner_size()?
-            .ok_or_else(|| CommonCheckErrorKind::ValueTooLarge)?;
+            .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
         if would_be_size > MAX_VALUE_SIZE {
-            Err(CommonCheckErrorKind::ValueTooLarge)
+            Err(ClarityTypeError::ValueTooLarge)
         } else {
             Ok(list_data)
         }
@@ -401,13 +399,13 @@ impl ListTypeData {
 }
 
 impl TypeSignature {
-    pub fn new_option(inner_type: TypeSignature) -> Result<TypeSignature, CommonCheckErrorKind> {
+    pub fn new_option(inner_type: TypeSignature) -> Result<TypeSignature, ClarityTypeError> {
         let new_size = WRAPPER_VALUE_SIZE + inner_type.size()?;
         let new_depth = 1 + inner_type.depth();
         if new_size > MAX_VALUE_SIZE {
-            Err(CommonCheckErrorKind::ValueTooLarge)
+            Err(ClarityTypeError::ValueTooLarge)
         } else if new_depth > MAX_TYPE_DEPTH {
-            Err(CommonCheckErrorKind::TypeSignatureTooDeep)
+            Err(ClarityTypeError::TypeSignatureTooDeep)
         } else {
             Ok(OptionalType(Box::new(inner_type)))
         }
@@ -416,14 +414,14 @@ impl TypeSignature {
     pub fn new_response(
         ok_type: TypeSignature,
         err_type: TypeSignature,
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, ClarityTypeError> {
         let new_size = WRAPPER_VALUE_SIZE + cmp::max(ok_type.size()?, err_type.size()?);
         let new_depth = 1 + cmp::max(ok_type.depth(), err_type.depth());
 
         if new_size > MAX_VALUE_SIZE {
-            Err(CommonCheckErrorKind::ValueTooLarge)
+            Err(ClarityTypeError::ValueTooLarge)
         } else if new_depth > MAX_TYPE_DEPTH {
-            Err(CommonCheckErrorKind::TypeSignatureTooDeep)
+            Err(ClarityTypeError::TypeSignatureTooDeep)
         } else {
             Ok(ResponseType(Box::new((ok_type, err_type))))
         }
@@ -437,7 +435,7 @@ impl TypeSignature {
         &TypeSignature::NoType == self
     }
 
-    pub fn admits(&self, epoch: &StacksEpochId, x: &Value) -> Result<bool, CommonCheckErrorKind> {
+    pub fn admits(&self, epoch: &StacksEpochId, x: &Value) -> Result<bool, ClarityTypeError> {
         let x_type = TypeSignature::type_of(x)?;
         self.admits_type(epoch, &x_type)
     }
@@ -446,7 +444,7 @@ impl TypeSignature {
         &self,
         epoch: &StacksEpochId,
         other: &TypeSignature,
-    ) -> Result<bool, CommonCheckErrorKind> {
+    ) -> Result<bool, ClarityTypeError> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(other),
             StacksEpochId::Epoch21
@@ -458,13 +456,11 @@ impl TypeSignature {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33 => self.admits_type_v2_1(other),
-            StacksEpochId::Epoch10 => Err(CommonCheckErrorKind::Expects(
-                "epoch 1.0 not supported".into(),
-            )),
+            StacksEpochId::Epoch10 => Err(ClarityTypeError::UnsupportedEpoch(*epoch)),
         }
     }
 
-    pub fn admits_type_v2_0(&self, other: &TypeSignature) -> Result<bool, CommonCheckErrorKind> {
+    pub fn admits_type_v2_0(&self, other: &TypeSignature) -> Result<bool, ClarityTypeError> {
         match self {
             SequenceType(SequenceSubtype::ListType(my_list_type)) => {
                 if let SequenceType(SequenceSubtype::ListType(other_list_type)) = other {
@@ -546,18 +542,16 @@ impl TypeSignature {
                     Ok(false)
                 }
             }
-            NoType => Err(CommonCheckErrorKind::CouldNotDetermineType),
-            CallableType(_) => Err(CommonCheckErrorKind::Expects(
-                "CallableType should not be used in epoch v2.0".into(),
-            )),
-            ListUnionType(_) => Err(CommonCheckErrorKind::Expects(
-                "ListUnionType should not be used in epoch v2.0".into(),
+            NoType => Err(ClarityTypeError::CouldNotDetermineType),
+            CallableType(_) | ListUnionType(_) => Err(ClarityTypeError::UnsupportedTypeInEpoch(
+                Box::new(self.clone()),
+                StacksEpochId::Epoch20,
             )),
             _ => Ok(other == self),
         }
     }
 
-    fn admits_type_v2_1(&self, other: &TypeSignature) -> Result<bool, CommonCheckErrorKind> {
+    fn admits_type_v2_1(&self, other: &TypeSignature) -> Result<bool, ClarityTypeError> {
         let other = match other.concretize() {
             Ok(other) => other,
             Err(_) => {
@@ -646,7 +640,7 @@ impl TypeSignature {
                     Ok(false)
                 }
             }
-            NoType => Err(CommonCheckErrorKind::CouldNotDetermineType),
+            NoType => Err(ClarityTypeError::CouldNotDetermineType),
             _ => Ok(&other == self),
         }
     }
@@ -703,7 +697,7 @@ impl TypeSignature {
     /// Concretize the type. The input to this method may include
     /// `ListUnionType` and the `CallableType` variant for a `principal.
     /// This method turns these "temporary" types into actual types.
-    pub fn concretize(&self) -> Result<TypeSignature, StaticCheckErrorKind> {
+    pub fn concretize(&self) -> Result<TypeSignature, ClarityTypeError> {
         match self {
             ListUnionType(types) => {
                 let mut is_trait = None;
@@ -712,7 +706,7 @@ impl TypeSignature {
                     match partial {
                         CallableSubtype::Principal(_) => {
                             if is_trait.is_some() {
-                                return Err(StaticCheckErrorKind::TypeError(
+                                return Err(ClarityTypeError::TypeMismatch(
                                     Box::new(TypeSignature::CallableType(partial.clone())),
                                     Box::new(TypeSignature::PrincipalType),
                                 ));
@@ -722,7 +716,7 @@ impl TypeSignature {
                         }
                         CallableSubtype::Trait(t) => {
                             if is_principal {
-                                return Err(StaticCheckErrorKind::TypeError(
+                                return Err(ClarityTypeError::TypeMismatch(
                                     Box::new(TypeSignature::PrincipalType),
                                     Box::new(TypeSignature::CallableType(partial.clone())),
                                 ));
@@ -745,12 +739,12 @@ impl TypeSignature {
 }
 
 impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
-    type Error = CommonCheckErrorKind;
+    type Error = ClarityTypeError;
     fn try_from(
         type_data: Vec<(ClarityName, TypeSignature)>,
-    ) -> Result<TupleTypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TupleTypeSignature, ClarityTypeError> {
         if type_data.is_empty() {
-            return Err(CommonCheckErrorKind::EmptyTuplesNotAllowed);
+            return Err(ClarityTypeError::EmptyTuplesNotAllowed);
         }
 
         let mut type_map = BTreeMap::new();
@@ -758,7 +752,7 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
             if let Entry::Vacant(e) = type_map.entry(name.clone()) {
                 e.insert(type_info);
             } else {
-                return Err(CommonCheckErrorKind::NameAlreadyUsed(name.into()));
+                return Err(ClarityTypeError::DuplicateTupleField(name.into()));
             }
         }
         TupleTypeSignature::try_from(type_map)
@@ -766,25 +760,25 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
 }
 
 impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
-    type Error = CommonCheckErrorKind;
+    type Error = ClarityTypeError;
     fn try_from(
         type_map: BTreeMap<ClarityName, TypeSignature>,
-    ) -> Result<TupleTypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TupleTypeSignature, ClarityTypeError> {
         if type_map.is_empty() {
-            return Err(CommonCheckErrorKind::EmptyTuplesNotAllowed);
+            return Err(ClarityTypeError::EmptyTuplesNotAllowed);
         }
         for child_sig in type_map.values() {
             if (1 + child_sig.depth()) > MAX_TYPE_DEPTH {
-                return Err(CommonCheckErrorKind::TypeSignatureTooDeep);
+                return Err(ClarityTypeError::TypeSignatureTooDeep);
             }
         }
         let type_map = Arc::new(type_map.into_iter().collect());
         let result = TupleTypeSignature { type_map };
         let would_be_size = result
             .inner_size()?
-            .ok_or_else(|| CommonCheckErrorKind::ValueTooLarge)?;
+            .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
         if would_be_size > MAX_VALUE_SIZE {
-            Err(CommonCheckErrorKind::ValueTooLarge)
+            Err(ClarityTypeError::ValueTooLarge)
         } else {
             Ok(result)
         }
@@ -814,7 +808,7 @@ impl TupleTypeSignature {
         &self,
         epoch: &StacksEpochId,
         other: &TupleTypeSignature,
-    ) -> Result<bool, CommonCheckErrorKind> {
+    ) -> Result<bool, ClarityTypeError> {
         if self.type_map.len() != other.type_map.len() {
             return Ok(false);
         }
@@ -935,7 +929,7 @@ impl TypeSignature {
 
     /// Creates a string ASCII type with the specified length.
     /// Returns an error if the provided length is invalid.
-    pub fn new_ascii_type(len: i128) -> Result<Self, CommonCheckErrorKind> {
+    pub fn new_ascii_type(len: i128) -> Result<Self, ClarityTypeError> {
         Ok(SequenceType(SequenceSubtype::StringType(
             StringSubtype::ASCII(BufferLength::try_from_i128(len)?),
         )))
@@ -946,7 +940,7 @@ impl TypeSignature {
         epoch: &StacksEpochId,
         a: &TypeSignature,
         b: &TypeSignature,
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, ClarityTypeError> {
         if a.is_no_type() {
             Ok(b.clone())
         } else if b.is_no_type() {
@@ -997,7 +991,7 @@ impl TypeSignature {
         epoch: &StacksEpochId,
         a: &TypeSignature,
         b: &TypeSignature,
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, ClarityTypeError> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(a, b),
             StacksEpochId::Epoch21
@@ -1009,16 +1003,14 @@ impl TypeSignature {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33 => Self::least_supertype_v2_1(a, b),
-            StacksEpochId::Epoch10 => Err(CommonCheckErrorKind::Expects(
-                "epoch 1.0 not supported".into(),
-            )),
+            StacksEpochId::Epoch10 => Err(ClarityTypeError::UnsupportedEpoch(*epoch)),
         }
     }
 
     fn least_supertype_v2_0(
         a: &TypeSignature,
         b: &TypeSignature,
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, ClarityTypeError> {
         match (a, b) {
             (
                 TupleType(TupleTypeSignature { type_map: types_a }),
@@ -1026,7 +1018,7 @@ impl TypeSignature {
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
-                    let entry_b = types_b.get(name).ok_or(CommonCheckErrorKind::TypeError(
+                    let entry_b = types_b.get(name).ok_or(ClarityTypeError::TypeMismatch(
                         Box::new(a.clone()),
                         Box::new(b.clone()),
                     ))?;
@@ -1035,7 +1027,7 @@ impl TypeSignature {
                 }
                 Ok(TupleTypeSignature::try_from(type_map_out)
                     .map(|x| x.into())
-                    .map_err(|_| CommonCheckErrorKind::SupertypeTooLarge)?)
+                    .map_err(|_| ClarityTypeError::SupertypeTooLarge)?)
             }
             (
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
@@ -1056,7 +1048,7 @@ impl TypeSignature {
                 };
                 let max_len = cmp::max(len_a, len_b);
                 Ok(Self::list_of(entry_type, *max_len)
-                    .map_err(|_| CommonCheckErrorKind::SupertypeTooLarge)?)
+                    .map_err(|_| ClarityTypeError::SupertypeTooLarge)?)
             }
             (ResponseType(resp_a), ResponseType(resp_b)) => {
                 let ok_type =
@@ -1115,7 +1107,7 @@ impl TypeSignature {
                 if x == y {
                     Ok(x.clone())
                 } else {
-                    Err(CommonCheckErrorKind::TypeError(
+                    Err(ClarityTypeError::TypeMismatch(
                         Box::new(a.clone()),
                         Box::new(b.clone()),
                     ))
@@ -1127,7 +1119,7 @@ impl TypeSignature {
     pub(crate) fn least_supertype_v2_1(
         a: &TypeSignature,
         b: &TypeSignature,
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, ClarityTypeError> {
         match (a, b) {
             (
                 TupleType(TupleTypeSignature { type_map: types_a }),
@@ -1135,7 +1127,7 @@ impl TypeSignature {
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
-                    let entry_b = types_b.get(name).ok_or(CommonCheckErrorKind::TypeError(
+                    let entry_b = types_b.get(name).ok_or(ClarityTypeError::TypeMismatch(
                         Box::new(a.clone()),
                         Box::new(b.clone()),
                     ))?;
@@ -1144,7 +1136,7 @@ impl TypeSignature {
                 }
                 Ok(TupleTypeSignature::try_from(type_map_out)
                     .map(|x| x.into())
-                    .map_err(|_| CommonCheckErrorKind::SupertypeTooLarge)?)
+                    .map_err(|_| ClarityTypeError::SupertypeTooLarge)?)
             }
             (
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
@@ -1165,7 +1157,7 @@ impl TypeSignature {
                 };
                 let max_len = cmp::max(len_a, len_b);
                 Ok(Self::list_of(entry_type, *max_len)
-                    .map_err(|_| CommonCheckErrorKind::SupertypeTooLarge)?)
+                    .map_err(|_| ClarityTypeError::SupertypeTooLarge)?)
             }
             (ResponseType(resp_a), ResponseType(resp_b)) => {
                 let ok_type =
@@ -1246,7 +1238,7 @@ impl TypeSignature {
                 if all_principals {
                     Ok(PrincipalType)
                 } else {
-                    Err(CommonCheckErrorKind::TypeError(
+                    Err(ClarityTypeError::TypeMismatch(
                         Box::new(a.clone()),
                         Box::new(b.clone()),
                     ))
@@ -1259,7 +1251,7 @@ impl TypeSignature {
                 if x == y {
                     Ok(x.clone())
                 } else {
-                    Err(CommonCheckErrorKind::TypeError(
+                    Err(ClarityTypeError::TypeMismatch(
                         Box::new(a.clone()),
                         Box::new(b.clone()),
                     ))
@@ -1271,7 +1263,7 @@ impl TypeSignature {
     pub fn list_of(
         item_type: TypeSignature,
         max_len: u32,
-    ) -> Result<TypeSignature, CommonCheckErrorKind> {
+    ) -> Result<TypeSignature, ClarityTypeError> {
         ListTypeData::new_list(item_type, max_len).map(|x| x.into())
     }
 
@@ -1282,7 +1274,7 @@ impl TypeSignature {
         }
     }
 
-    pub fn type_of(x: &Value) -> Result<TypeSignature, CommonCheckErrorKind> {
+    pub fn type_of(x: &Value) -> Result<TypeSignature, ClarityTypeError> {
         let out = match x {
             Value::Principal(_) => PrincipalType,
             Value::Int(_v) => IntType,
@@ -1311,31 +1303,29 @@ impl TypeSignature {
         Ok(out)
     }
 
-    pub fn literal_type_of(x: &Value) -> Result<TypeSignature, StaticCheckErrorKind> {
+    pub fn literal_type_of(x: &Value) -> Result<TypeSignature, ClarityTypeError> {
         match x {
             Value::Principal(PrincipalData::Contract(contract_id)) => Ok(CallableType(
                 CallableSubtype::Principal(contract_id.clone()),
             )),
-            _ => Self::type_of(x).map_err(StaticCheckErrorKind::from),
+            _ => Self::type_of(x),
         }
     }
 
     // Checks if resulting type signature is of valid size.
-    pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData, CheckErrorKind> {
-        let children_types: Result<Vec<_>, _> = args.iter().map(TypeSignature::type_of).collect();
-        Ok(TypeSignature::parent_list_type(&children_types?)?)
+    pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData, ClarityTypeError> {
+        let children_types: Result<Vec<_>, ClarityTypeError> =
+            args.iter().map(TypeSignature::type_of).collect();
+        TypeSignature::parent_list_type(&children_types?)
     }
 
-    pub fn parent_list_type(
-        children: &[TypeSignature],
-    ) -> Result<ListTypeData, CommonCheckErrorKind> {
+    pub fn parent_list_type(children: &[TypeSignature]) -> Result<ListTypeData, ClarityTypeError> {
         if let Some((first, rest)) = children.split_first() {
             let mut current_entry_type = first.clone();
             for next_entry in rest.iter() {
                 current_entry_type = Self::least_supertype_v2_1(&current_entry_type, next_entry)?;
             }
-            let len =
-                u32::try_from(children.len()).map_err(|_| CommonCheckErrorKind::ValueTooLarge)?;
+            let len = u32::try_from(children.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?;
             ListTypeData::new_list(current_entry_type, len)
         } else {
             Ok(TypeSignature::empty_list())
@@ -1375,16 +1365,16 @@ impl TypeSignature {
         }
     }
 
-    pub fn size(&self) -> Result<u32, CommonCheckErrorKind> {
+    pub fn size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_size()?.ok_or_else(|| {
-            CommonCheckErrorKind::Expects(
-                "FAIL: .size() overflowed on too large of a type. construction should have failed!"
+            ClarityTypeError::InvariantViolation(
+                "FAIL: .size() overflowed on too large of a type. Construction should have failed!"
                     .into(),
             )
         })
     }
 
-    fn inner_size(&self) -> Result<Option<u32>, CommonCheckErrorKind> {
+    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
         let out = match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
@@ -1417,9 +1407,9 @@ impl TypeSignature {
         Ok(out)
     }
 
-    pub fn type_size(&self) -> Result<u32, CommonCheckErrorKind> {
+    pub fn type_size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_type_size()
-            .ok_or_else(|| CommonCheckErrorKind::ValueTooLarge)
+            .ok_or_else(|| ClarityTypeError::ValueTooLarge)
     }
 
     /// Returns the size of the _type signature_
@@ -1486,7 +1476,7 @@ impl TypeSignature {
 
 impl ListTypeData {
     /// List Size: type_signature_size + max_len * entry_type.size()
-    fn inner_size(&self) -> Result<Option<u32>, CommonCheckErrorKind> {
+    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
         let total_size = self
             .entry_type
             .size()?
@@ -1535,9 +1525,9 @@ impl TupleTypeSignature {
         }
     }
 
-    pub fn size(&self) -> Result<u32, CheckErrorKind> {
+    pub fn size(&self) -> Result<u32, ClarityTypeError> {
         self.inner_size()?.ok_or_else(|| {
-            CheckErrorKind::Expects("size() overflowed on a constructed type.".into())
+            ClarityTypeError::InvariantViolation("size() overflowed on a constructed type.".into())
         })
     }
 
@@ -1552,7 +1542,7 @@ impl TupleTypeSignature {
     /// Tuple Size:
     ///    size( btreemap<name, value> ) + type_size
     ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)
-    fn inner_size(&self) -> Result<Option<u32>, CommonCheckErrorKind> {
+    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
         let Some(mut total_size) = u32::try_from(self.type_map.len())
             .ok()
             .and_then(|x| x.checked_mul(2))
