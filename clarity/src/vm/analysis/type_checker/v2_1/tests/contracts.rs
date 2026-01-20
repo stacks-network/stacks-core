@@ -625,7 +625,7 @@ fn test_expects() {
 
     for unmatched_return_types in bad_return_types_tests.iter() {
         let err = mem_type_check(unmatched_return_types).unwrap_err();
-        eprintln!("unmatched_return_types returned check error: {err}");
+        eprintln!("unmatched_return_types returned StaticCheckErrorKind: {err}");
         assert!(matches!(
             *err.err,
             StaticCheckErrorKind::ReturnTypesMustMatch(_, _)
@@ -633,21 +633,21 @@ fn test_expects() {
     }
 
     let err = mem_type_check(bad_default_type).unwrap_err();
-    eprintln!("bad_default_types returned check error: {err}");
+    eprintln!("bad_default_types returned StaticCheckErrorKind: {err}");
     assert!(matches!(
         *err.err,
         StaticCheckErrorKind::DefaultTypesMustMatch(_, _)
     ));
 
     let err = mem_type_check(notype_response_type).unwrap_err();
-    eprintln!("notype_response_type returned check error: {err}");
+    eprintln!("notype_response_type returned StaticCheckErrorKind: {err}");
     assert!(matches!(
         *err.err,
         StaticCheckErrorKind::CouldNotDetermineResponseErrType
     ));
 
     let err = mem_type_check(notype_response_type_2).unwrap_err();
-    eprintln!("notype_response_type_2 returned check error: {err}");
+    eprintln!("notype_response_type_2 returned StaticCheckErrorKind: {err}");
     assert!(matches!(
         *err.err,
         StaticCheckErrorKind::CouldNotDetermineResponseOkType

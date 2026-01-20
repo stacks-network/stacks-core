@@ -19,7 +19,7 @@
 
 use std::convert::TryFrom;
 
-use clarity_types::errors::CheckErrorKind;
+use clarity_types::errors::RuntimeCheckErrorKind;
 use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
@@ -1661,10 +1661,9 @@ fn restrict_assets_too_many_allowances() {
             .collect::<Vec<_>>()
             .join(" ")
     );
-    let max_allowances_err = VmExecutionError::Unchecked(CheckErrorKind::TooManyAllowances(
-        MAX_ALLOWANCES,
-        MAX_ALLOWANCES + 1,
-    ));
+    let max_allowances_err = VmExecutionError::RuntimeCheck(
+        RuntimeCheckErrorKind::TooManyAllowances(MAX_ALLOWANCES, MAX_ALLOWANCES + 1),
+    );
     let err = execute(&snippet).expect_err("execution passed unexpectedly");
     assert_eq!(err, max_allowances_err);
 }
@@ -1677,8 +1676,9 @@ fn expected_allowance_expr_error() {
     // Construct a "fake" allowance expression that is invalid
     let snippet = "(restrict-assets? tx-sender ((bad-fn u1)) true)";
 
-    let expected_error =
-        VmExecutionError::Unchecked(CheckErrorKind::ExpectedAllowanceExpr("bad-fn".to_string()));
+    let expected_error = VmExecutionError::RuntimeCheck(
+        RuntimeCheckErrorKind::ExpectedAllowanceExpr("bad-fn".to_string()),
+    );
 
     // Execute and verify that the error is raised
     let err = execute(snippet).expect_err("execution passed unexpectedly");
@@ -1694,9 +1694,9 @@ fn expected_allowance_expr_error_unhandled_native() {
     // For example: `tx-sender` (or `caller`), which is a native function but not a handled allowance
     let snippet = "(restrict-assets? tx-sender ((tx-sender u1)) true)";
 
-    let expected_error = VmExecutionError::Unchecked(CheckErrorKind::ExpectedAllowanceExpr(
-        "tx-sender".to_string(),
-    ));
+    let expected_error = VmExecutionError::RuntimeCheck(
+        RuntimeCheckErrorKind::ExpectedAllowanceExpr("tx-sender".to_string()),
+    );
 
     let err = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(err, expected_error);
@@ -1709,7 +1709,7 @@ fn expected_allowance_expr_error_unhandled_native() {
 fn allowance_expr_not_allowed() {
     let snippet = "(with-stx u1)";
 
-    let expected = VmExecutionError::Unchecked(CheckErrorKind::AllowanceExprNotAllowed);
+    let expected = VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::AllowanceExprNotAllowed);
 
     let err = execute(snippet).expect_err("execution unexpectedly succeeded");
 
@@ -1728,10 +1728,9 @@ fn restrict_assets_expected_list_of_allowances() {
         )
     "#;
 
-    let expected_error = VmExecutionError::Unchecked(CheckErrorKind::ExpectedListOfAllowances(
-        "restrict-assets?".into(),
-        2,
-    ));
+    let expected_error = VmExecutionError::RuntimeCheck(
+        RuntimeCheckErrorKind::ExpectedListOfAllowances("restrict-assets?".into(), 2),
+    );
 
     let err = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(err, expected_error);
@@ -1750,10 +1749,9 @@ fn as_contract_expected_list_of_allowances() {
     "#;
 
     // The argument is `u42` (not a list), so we expect this error
-    let expected_error = VmExecutionError::Unchecked(CheckErrorKind::ExpectedListOfAllowances(
-        "as-contract?".to_string(),
-        1,
-    ));
+    let expected_error = VmExecutionError::RuntimeCheck(
+        RuntimeCheckErrorKind::ExpectedListOfAllowances("as-contract?".to_string(), 1),
+    );
 
     let err = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(err, expected_error);
