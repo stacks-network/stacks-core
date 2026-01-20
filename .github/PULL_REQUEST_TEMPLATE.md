@@ -6,17 +6,23 @@
   https://github.com/stacksgov/sips/blob/main/sips/sip-000/sip-000-stacks-improvement-proposal-process.md.
 -->
 
-### Description
+## Title
+```
+[PR Title Here]
+```
 
-### Applicable issues
+## Description
+```
+[PR Description Here]
+```
 
-- fixes #
+## Applicable issues
+- Fixes #
 
-### Additional info (benefits, drawbacks, caveats)
+## Additional info (benefits, drawbacks, caveats)
 
-### Checklist
-
+## Checklist
 - [ ] Test coverage for new or modified code paths
 - [ ] Changelog is updated
 - [ ] Required documentation changes (e.g., `docs/rpc/openapi.yaml` and `rpc-endpoints.md` for v2 endpoints, `event-dispatcher.md` for new events)
-- [ ] New clarity functions have corresponding PR in `clarity-benchmarking` repo
+- [ ] New Clarity functions have corresponding PR in `clarity-benchmarking` repo
