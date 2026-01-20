@@ -25,17 +25,7 @@ use crate::vm::variables::lookup_reserved_variable;
 use crate::vm::{ClarityVersion, LocalContext, Value};
 // TODO:
 // contract-call? - get source from database
-// type-checking
-// lookups
 // unwrap evaluates both branches (https://github.com/clarity-lang/reference/issues/59)
-// split up trait counting and expr node tree impl into separate module?
-
-const STRING_COST_BASE: u64 = 36;
-const STRING_COST_MULTIPLIER: u64 = 3;
-
-/// Functions where string arguments have zero cost because the function
-/// cost includes their processing
-const FUNCTIONS_WITH_ZERO_STRING_ARG_COST: &[&str] = &["concat", "len"];
 
 const FUNCTION_DEFINITION_KEYWORDS: &[&str] =
     &["define-public", "define-private", "define-read-only"];
@@ -379,70 +369,6 @@ fn compute_function_overhead_costs(
     overhead
 }
 
-/// Compute function overhead costs without LoadContract (for when contract is already loaded)
-fn compute_function_overhead_costs_without_load(
-    function_name: &str,
-    ast_expressions: &[SymbolicExpression],
-    epoch: StacksEpochId,
-) -> (ExecutionCost, ExecutionCost) {
-    let mut overhead = (ExecutionCost::ZERO, ExecutionCost::ZERO);
-
-    // Find the function definition in the AST that matches the function name
-    let function_def = ast_expressions.iter().find(|expr| {
-        extract_function_name(expr)
-            .map(|name| name == function_name)
-            .unwrap_or(false)
-    });
-
-    // Extract the function signature (argument list) from the function definition
-    let (arg_count, signature_args) = function_def
-        .and_then(extract_function_signature)
-        .unwrap_or((0, &[]));
-
-    // Skip LoadContract - contract is already loaded
-
-    // cost_user_function_application
-    let application_cost = ClarityCostFunction::UserFunctionApplication
-        .eval_for_epoch(arg_count as u64, epoch)
-        .unwrap_or_else(|_| ExecutionCost::ZERO);
-    overhead.0.add(&application_cost).ok();
-    overhead.1.add(&application_cost).ok();
-
-    // Parse function signature for type checking costs
-    if !signature_args.is_empty() {
-        match parse_name_type_pairs::<(), clarity_types::errors::CommonCheckErrorKind>(
-            epoch,
-            signature_args,
-            SyntaxBindingErrorType::Eval,
-            &mut (),
-        ) {
-            Ok(sigs) => {
-                let mut total_type_check_cost = ExecutionCost::ZERO;
-                let mut total_type_check_min_cost = ExecutionCost::ZERO;
-                for (_, sig) in sigs.iter() {
-                    let type_check_cost = ClarityCostFunction::InnerTypeCheckCost
-                        .eval_for_epoch(sig.size().unwrap_or(0) as u64, epoch)
-                        .unwrap_or_else(|_| ExecutionCost::ZERO);
-                    let type_check_min_cost = ClarityCostFunction::InnerTypeCheckCost
-                        .eval_for_epoch(sig.min_size().unwrap_or(0) as u64, epoch)
-                        .unwrap_or_else(|_| ExecutionCost::ZERO);
-                    total_type_check_cost.add(&type_check_cost).ok();
-                    total_type_check_min_cost.add(&type_check_min_cost).ok();
-                    overhead.0.add(&type_check_min_cost).ok();
-                    overhead.1.add(&type_check_cost).ok();
-                }
-            }
-            Err(_e) => {
-                // This should probably only be hit for contracts that don't
-                // type check anyway. We continue so the other costs are still
-                // calculated.
-            }
-        }
-    }
-
-    overhead
-}
-
 pub fn static_cost_from_ast(
     contract_ast: &crate::vm::ast::ContractAST,
     clarity_version: &ClarityVersion,
@@ -469,8 +395,6 @@ pub fn static_cost_from_ast_with_source(
         .next()
         .and_then(|(_, trait_count)| trait_count.clone());
 
-    let contract_already_loaded = false;
-
     // Convert CostAnalysisNode to StaticCost and add overhead costs
     let costs: HashMap<String, StaticCost> = cost_trees_with_traits
         .iter()
@@ -478,18 +402,12 @@ pub fn static_cost_from_ast_with_source(
             let summing_cost = calculate_total_cost_with_branching(cost_analysis_node);
             let mut static_cost: StaticCost = summing_cost.into();
 
-            // If contract is already loaded, exclude LoadContract from overhead
-            // (it's charged but may not be included in the final cost difference)
-            let overhead = if contract_already_loaded {
-                compute_function_overhead_costs_without_load(name, &contract_ast.expressions, epoch)
-            } else {
-                compute_function_overhead_costs(
-                    contract_size,
-                    name,
-                    &contract_ast.expressions,
-                    epoch,
-                )
-            };
+            let overhead = compute_function_overhead_costs(
+                contract_size,
+                name,
+                &contract_ast.expressions,
+                epoch,
+            );
             static_cost.min.add(&overhead.0).ok()?;
             static_cost.max.add(&overhead.1).ok()?;
 
@@ -656,6 +574,10 @@ pub fn build_cost_analysis_tree(
                         });
 
                     // Calculate cost from type signature
+                    // Note: In dynamic execution, LookupVariableDepth is charged BEFORE checking where
+                    // the variable is found, so depth is charged for all variables (local and contract storage).
+                    // However, the actual depth used depends on context.depth() at the lookup site.
+                    // For now, we use let_depth which tracks let-binding depth
                     type_sig
                         .as_ref()
                         .map(|sig| calculate_variable_lookup_cost_from_type(sig, let_depth, epoch))
@@ -717,6 +639,7 @@ fn calculate_variable_lookup_cost_from_type(
     let lookup_variable_depth_cost = ClarityCostFunction::LookupVariableDepth
         .eval_for_epoch(let_depth, epoch)
         .unwrap_or_else(|_| ExecutionCost::ZERO);
+
     variable_size_min_cost.add(&lookup_variable_depth_cost).ok();
     variable_size_cost.add(&lookup_variable_depth_cost).ok();
 
@@ -766,7 +689,7 @@ fn lookup_let_binding_types(
 
 /// Infer type from a SymbolicExpression by examining its structure.
 /// This is a fallback when type_map is not available.
-fn infer_type_from_expression(
+pub(crate) fn infer_type_from_expression(
     expr: &SymbolicExpression,
     epoch: StacksEpochId,
 ) -> Result<TypeSignature, String> {
@@ -827,7 +750,6 @@ fn build_function_definition_cost_analysis_tree(
     let signature = list[1]
         .match_list()
         .ok_or("Expected list for function signature")?;
-    // println!("signature: {:?}", signature);
     let body = &list[2];
 
     let mut children = Vec::new();
@@ -896,11 +818,15 @@ fn build_function_definition_cost_analysis_tree(
     // If the body is a native function
     // exclude its execution cost but keep its lookup cost.
     if let CostExprNode::NativeFunction(native_fn) = &body_tree.expr {
-        // TODO need more test cases
-        if *native_fn != NativeFunctions::ConsOkay
-            && *native_fn != NativeFunctions::If
-            && *native_fn != NativeFunctions::Match
-        {
+        // ConsOkay, If, Match, and Begin should always charge their execution cost
+        // control flow expressions are always executed
+        if !matches!(
+            native_fn,
+            NativeFunctions::ConsOkay
+                | NativeFunctions::If
+                | NativeFunctions::Match
+                | NativeFunctions::Begin
+        ) {
             // Check if ALL children are nested expressions (not simple values)
             let all_nested_expressions = !body_tree.children.is_empty()
                 && body_tree.children.iter().all(|child| {
@@ -938,13 +864,6 @@ fn build_function_definition_cost_analysis_tree(
             children,
         ),
     ))
-}
-
-fn get_function_name(expr: &SymbolicExpression) -> Result<ClarityName, String> {
-    match &expr.expr {
-        SymbolicExpressionType::Atom(name) => Ok(name.clone()),
-        _ => Err("First element must be an atom (function name)".to_string()),
-    }
 }
 
 /// Helper function to build expression trees for both lists and tuples
@@ -1035,7 +954,7 @@ fn build_listlike_cost_analysis_tree(
                         )?;
                         children.push(binding_tree);
                     }
-                    // Increment depth before processing body
+                    // Increment depth before processing body (let creates a new context)
                     let_depth += 1;
                     for expr in exprs[2..].iter() {
                         let (_, child_tree) = build_cost_analysis_tree(
@@ -1049,8 +968,23 @@ fn build_listlike_cost_analysis_tree(
                         )?;
                         children.push(child_tree);
                     }
+                } else if native_function == NativeFunctions::If {
+                    // `If` creates a nested context
+                    let nested_depth = let_depth + 1;
+                    for expr in exprs[1..].iter() {
+                        let (_, child_tree) = build_cost_analysis_tree(
+                            expr,
+                            user_args,
+                            cost_map,
+                            clarity_version,
+                            epoch,
+                            env,
+                            nested_depth,
+                        )?;
+                        children.push(child_tree);
+                    }
                 } else {
-                    // For non-Let functions, build all children with current depth
+                    // For other functions, build all children with current depth
                     for expr in exprs[1..].iter() {
                         let (_, child_tree) = build_cost_analysis_tree(
                             expr,
@@ -1071,6 +1005,7 @@ fn build_listlike_cost_analysis_tree(
                     &exprs[1..],
                     epoch,
                     Some(user_args),
+                    Some(env),
                 )?;
 
                 (CostExprNode::NativeFunction(native_function), cost)

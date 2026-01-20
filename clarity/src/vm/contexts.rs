@@ -680,8 +680,8 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     }
 
     /// Execute a closure with an Environment for cost analysis.
-    /// This creates a transient contract context and is
-    /// useful for static cost analysis that don't require a fully deployed contract context.
+    /// useful for static cost analysis tests thatdon't require a fully deployed
+    /// contract context.
     pub fn with_cost_analysis_environment<F, R>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,

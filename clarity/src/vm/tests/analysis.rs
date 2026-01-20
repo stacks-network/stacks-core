@@ -6,19 +6,19 @@ use rstest::rstest;
 use stacks_common::types::StacksEpochId;
 #[cfg(test)]
 use stackslib::chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_TESTNET,
+    BOOT_CODE_COST_VOTING_TESTNET, BOOT_CODE_COSTS, BOOT_CODE_COSTS_4,
 };
 
 use crate::boot_util::boot_code_id;
 use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::costs::analysis::{
-    build_cost_analysis_tree, static_cost_from_ast, static_cost_tree_from_ast, CostAnalysisNode,
-    CostExprNode, UserArgumentsContext,
-};
 use crate::vm::costs::ExecutionCost;
+use crate::vm::costs::analysis::{
+    CostAnalysisNode, CostExprNode, UserArgumentsContext, build_cost_analysis_tree,
+    static_cost_from_ast, static_cost_tree_from_ast,
+};
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use crate::vm::{ast, ClarityVersion};
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
+use crate::vm::{ClarityVersion, ast};
 
 #[test]
 fn test_build_cost_analysis_tree_function_definition() {
@@ -525,6 +525,12 @@ fn test_against_dynamic_cost_analysis() {
         clarity_types::Value::string_ascii_from_bytes("a".to_string().into_bytes()).unwrap(),
         clarity_types::Value::UInt(1),
     ];
+    let allow_contract_caller_args = [
+        clarity_types::Value::Principal(
+            PrincipalData::Standard(StandardPrincipalData::transient()),
+        ),
+        clarity_types::Value::none(),
+    ];
     // Define test cases as (source, function_name, args)
     let test_cases: Vec<(&str, &str, &[clarity_types::Value])> = vec![
         (
@@ -588,7 +594,6 @@ fn test_against_dynamic_cost_analysis() {
             "string-len",
             &[],
         ),
-        // Test cases to narrow down branching issue
         (
             r#"(define-public (if-simple)
                 (if (> 3 0) (ok u1) (ok u2))
@@ -645,13 +650,28 @@ fn test_against_dynamic_cost_analysis() {
             "branching",
             &[],
         ),
+        (
+            r#"(define-constant ERR_STACKING_PERMISSION_DENIED 9)
+(define-map allowance-contract-callers
+    { sender: principal, contract-caller: principal }
+    { until-burn-ht: (optional uint) })
+(define-public (allow-contract-caller (caller principal) (until-burn-ht (optional uint)))
+  (begin
+    (asserts! (is-eq tx-sender contract-caller)
+              (err ERR_STACKING_PERMISSION_DENIED))
+    (ok (map-set allowance-contract-callers
+               { sender: tx-sender, contract-caller: caller }
+               { until-burn-ht: until-burn-ht }))))
+"#,
+            "allow-contract-caller",
+            &allow_contract_caller_args,
+        ),
     ];
 
     let mut failures = Vec::new();
     for (src, function_name, args) in test_cases {
-        println!("\n\n=== Running test case: {} ===", function_name);
         match run_cost_analysis_test(src, function_name, args, epoch, clarity_version) {
-            Ok(()) => println!("✓ Test case {} passed", function_name),
+            Ok(()) => println!("Passed: {}", function_name),
             Err(e) => {
                 eprintln!("✗ Test case {} failed: {}", function_name, e);
                 failures.push((function_name, e));

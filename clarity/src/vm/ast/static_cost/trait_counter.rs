@@ -47,11 +47,7 @@ fn extract_list_multiplier_from_type(type_sig: &TypeSignature) -> (u64, u64) {
         let max_len = list_data.get_max_len() as u64;
         // If max_len is 0, it's an empty list, so multiplier is (0, 0)
         // Otherwise, use (0, max_len) to indicate a fixed-size list
-        if max_len == 0 {
-            (0, 0)
-        } else {
-            (0, max_len)
-        }
+        if max_len == 0 { (0, 0) } else { (0, max_len) }
     } else {
         // Not a list type, use default multiplier
         (1, 1)

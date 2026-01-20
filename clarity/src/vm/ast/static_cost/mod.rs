@@ -9,13 +9,13 @@ pub use trait_counter::{
 };
 
 use crate::vm::callables::CallableType;
+use crate::vm::costs::ExecutionCost;
 use crate::vm::costs::analysis::{
     CostAnalysisNode, CostExprNode, StaticCost, SummingExecutionCost,
 };
-use crate::vm::costs::cost_functions::{linear, ClarityCostFunction};
-use crate::vm::costs::ExecutionCost;
+use crate::vm::costs::cost_functions::{ClarityCostFunction, linear};
 use crate::vm::errors::VmExecutionError;
-use crate::vm::functions::{lookup_reserved_functions, special_costs, NativeFunctions};
+use crate::vm::functions::{NativeFunctions, lookup_reserved_functions, special_costs};
 use crate::vm::representations::ClarityName;
 use crate::vm::{ClarityVersion, Value};
 
@@ -36,10 +36,6 @@ pub(crate) fn calculate_function_cost(
             // Should be impossible..
             // Function exists but cost not yet computed, circular dependency?
             // For now, return zero cost to avoid infinite recursion
-            println!(
-                "Circular dependency detected for function: {}",
-                function_name
-            );
             Ok(StaticCost::ZERO)
         }
         None => {
@@ -108,9 +104,27 @@ pub(crate) fn calculate_function_cost_from_native_function(
     args: &[SymbolicExpression],
     epoch: StacksEpochId,
     user_args: Option<&crate::vm::costs::analysis::UserArgumentsContext>,
+    env: Option<&crate::vm::contexts::Environment>,
 ) -> Result<StaticCost, String> {
     // Derive clarity_version from epoch for lookup_reserved_functions
     let clarity_version = ClarityVersion::default_for_epoch(epoch);
+
+    // Handle Equals specially - it uses cost_input_sized_vararg which sums serialized sizes
+    if native_function == NativeFunctions::Equals {
+        let cost = special_costs::get_cost_for_special_function(
+            native_function,
+            args,
+            epoch,
+            user_args,
+            env,
+        );
+        let cost_with_lookup_min = add_lookup_cost(cost.min.clone(), epoch);
+        let cost_with_lookup_max = add_lookup_cost(cost.max.clone(), epoch);
+        return Ok(StaticCost {
+            min: cost_with_lookup_min,
+            max: cost_with_lookup_max,
+        });
+    }
 
     match lookup_reserved_functions(native_function.to_string().as_str(), &clarity_version) {
         Some(CallableType::NativeFunction(_, _, cost_fn)) => {
@@ -139,11 +153,13 @@ pub(crate) fn calculate_function_cost_from_native_function(
                 args,
                 epoch,
                 user_args,
+                env,
             );
-            let cost_with_lookup = add_lookup_cost(cost, epoch);
+            let cost_with_lookup_min = add_lookup_cost(cost.min.clone(), epoch);
+            let cost_with_lookup_max = add_lookup_cost(cost.max.clone(), epoch);
             Ok(StaticCost {
-                min: cost_with_lookup.clone(),
-                max: cost_with_lookup,
+                min: cost_with_lookup_min,
+                max: cost_with_lookup_max,
             })
         }
         Some(CallableType::UserFunction(_)) => Ok(StaticCost::ZERO), // TODO ?
@@ -154,7 +170,23 @@ pub(crate) fn calculate_function_cost_from_native_function(
 /// total cost handling branching
 /// For non-branching we combine all paths
 pub(crate) fn calculate_total_cost_with_summing(node: &CostAnalysisNode) -> SummingExecutionCost {
-    let mut summing_cost = SummingExecutionCost::from_single(node.cost.min.clone());
+    // If node has different min and max costs, create paths for both
+    // Otherwise, use a single path with the cost
+    let mut summing_cost = if node.cost.min.runtime != node.cost.max.runtime
+        || node.cost.min.write_length != node.cost.max.write_length
+        || node.cost.min.write_count != node.cost.max.write_count
+        || node.cost.min.read_length != node.cost.max.read_length
+        || node.cost.min.read_count != node.cost.max.read_count
+    {
+        // Node has a range, create paths for both min and max
+        let mut summing = SummingExecutionCost::new();
+        summing.add_cost(node.cost.min.clone());
+        summing.add_cost(node.cost.max.clone());
+        summing
+    } else {
+        // Node has fixed cost, use single path
+        SummingExecutionCost::from_single(node.cost.min.clone())
+    };
 
     for child in &node.children {
         let child_summing = calculate_total_cost_with_summing(child);
@@ -182,7 +214,8 @@ pub(crate) fn calculate_total_cost_with_branching(node: &CostAnalysisNode) -> Su
         match &node.expr {
             CostExprNode::NativeFunction(NativeFunctions::If)
             | CostExprNode::NativeFunction(NativeFunctions::Match) => {
-                // TODO match?
+                // Match expressions work similarly to If: evaluate condition, then evaluate matching branch
+                // The cost includes the condition evaluation plus the cost of the selected branch
                 if node.children.len() >= 2 {
                     let condition_cost = calculate_total_cost_with_summing(&node.children[0]);
                     let condition_total = condition_cost.add_all();
@@ -216,8 +249,11 @@ pub(crate) fn calculate_total_cost_with_branching(node: &CostAnalysisNode) -> Su
         }
     } else {
         // For non-branching, recursively process children (which may be branching)
-        let mut total_cost = node.cost.min.clone();
+        // Create separate paths for min and max to properly handle nodes with cost ranges
+        let mut total_cost_min = node.cost.min.clone();
+        let mut total_cost_max = node.cost.max.clone();
         let mut has_branching_children = false;
+
         for child_cost_node in &node.children {
             // Recursively call calculate_total_cost_with_branching on children
             // so that branching children (like If) are handled correctly
@@ -225,27 +261,35 @@ pub(crate) fn calculate_total_cost_with_branching(node: &CostAnalysisNode) -> Su
 
             if is_node_branching(child_cost_node) {
                 // For branching children, preserve all paths by combining each path
-                // with the current total_cost
+                // with both min and max node costs
                 has_branching_children = true;
                 for child_path_cost in &child_summing.costs {
-                    let mut combined_path = total_cost.clone();
-                    let _ = combined_path.add(child_path_cost);
-                    summing_cost.add_cost(combined_path);
+                    // Create paths with node min cost
+                    let mut combined_path_min = total_cost_min.clone();
+                    let _ = combined_path_min.add(child_path_cost);
+                    summing_cost.add_cost(combined_path_min);
+
+                    // Create paths with node max cost
+                    let mut combined_path_max = total_cost_max.clone();
+                    let _ = combined_path_max.add(child_path_cost);
+                    summing_cost.add_cost(combined_path_max);
                 }
                 // Update total_cost to the max child path for sequential addition with remaining children
                 let child_static_cost: StaticCost = child_summing.into();
-                let _ = total_cost.add(&child_static_cost.max);
+                let _ = total_cost_min.add(&child_static_cost.min);
+                let _ = total_cost_max.add(&child_static_cost.max);
             } else {
-                // For non-branching children, add sequentially
+                // For non-branching children, add sequentially using their min/max
                 let child_static_cost: StaticCost = child_summing.into();
-                let combined_cost = child_static_cost.max;
-                let _ = total_cost.add(&combined_cost);
+                let _ = total_cost_min.add(&child_static_cost.min);
+                let _ = total_cost_max.add(&child_static_cost.max);
             }
         }
         // Only add total_cost if we didn't have any branching children
         // (if we had branching children, we already added all paths above)
         if !has_branching_children {
-            summing_cost.add_cost(total_cost);
+            summing_cost.add_cost(total_cost_min);
+            summing_cost.add_cost(total_cost_max);
         }
     }
 
@@ -259,13 +303,4 @@ impl From<SummingExecutionCost> for StaticCost {
             max: summing.max(),
         }
     }
-}
-
-/// get min & max costs for a given cost function
-fn get_costs(
-    cost_fn: fn(u64) -> Result<ExecutionCost, VmExecutionError>,
-    arg_count: u64,
-) -> Result<ExecutionCost, String> {
-    let cost = cost_fn(arg_count).map_err(|e| format!("Cost calculation error: {:?}", e))?;
-    Ok(cost)
 }
