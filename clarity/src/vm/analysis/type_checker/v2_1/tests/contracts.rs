@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,8 +23,8 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{
-    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, ContractAnalysis,
-    StaticCheckError, StaticCheckErrorKind,
+    AnalysisDatabase, ContractAnalysis, StaticCheckError, StaticCheckErrorKind,
+    mem_type_check as mem_run_analysis, run_analysis,
 };
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
@@ -625,7 +625,7 @@ fn test_expects() {
 
     for unmatched_return_types in bad_return_types_tests.iter() {
         let err = mem_type_check(unmatched_return_types).unwrap_err();
-        eprintln!("unmatched_return_types returned check error: {err}");
+        eprintln!("unmatched_return_types returned StaticCheckErrorKind: {err}");
         assert!(matches!(
             *err.err,
             StaticCheckErrorKind::ReturnTypesMustMatch(_, _)
@@ -633,21 +633,21 @@ fn test_expects() {
     }
 
     let err = mem_type_check(bad_default_type).unwrap_err();
-    eprintln!("bad_default_types returned check error: {err}");
+    eprintln!("bad_default_types returned StaticCheckErrorKind: {err}");
     assert!(matches!(
         *err.err,
         StaticCheckErrorKind::DefaultTypesMustMatch(_, _)
     ));
 
     let err = mem_type_check(notype_response_type).unwrap_err();
-    eprintln!("notype_response_type returned check error: {err}");
+    eprintln!("notype_response_type returned StaticCheckErrorKind: {err}");
     assert!(matches!(
         *err.err,
         StaticCheckErrorKind::CouldNotDetermineResponseErrType
     ));
 
     let err = mem_type_check(notype_response_type_2).unwrap_err();
-    eprintln!("notype_response_type_2 returned check error: {err}");
+    eprintln!("notype_response_type_2 returned StaticCheckErrorKind: {err}");
     assert!(matches!(
         *err.err,
         StaticCheckErrorKind::CouldNotDetermineResponseOkType

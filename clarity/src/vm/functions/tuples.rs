@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,12 +16,12 @@
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, SyntaxBindingErrorType,
-    VmExecutionError, VmInternalError,
+    RuntimeCheckErrorKind, SyntaxBindingErrorType, VmExecutionError, VmInternalError,
+    check_argument_count, check_arguments_at_least,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TupleData, TypeSignature, Value};
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{Environment, LocalContext, eval};
 
 pub fn tuple_cons(
     args: &[SymbolicExpression],
@@ -37,7 +37,7 @@ pub fn tuple_cons(
     let bindings = parse_eval_bindings(args, SyntaxBindingErrorType::TupleCons, env, context)?;
     runtime_cost(ClarityCostFunction::TupleCons, env, bindings.len())?;
 
-    TupleData::from_data(bindings).map(Value::from)
+    Ok(TupleData::from_data(bindings).map(Value::from)?)
 }
 
 pub fn tuple_get(
@@ -49,7 +49,9 @@ pub fn tuple_get(
     //    if the tuple argument is an option type, then return option(field-name).
     check_argument_count(2, args)?;
 
-    let arg_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let arg_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let value = eval(&args[1], env, context)?;
 
@@ -66,8 +68,10 @@ pub fn tuple_get(
                         })?)
                     } else {
                         Err(
-                            CheckErrorKind::ExpectedTuple(Box::new(TypeSignature::type_of(&data)?))
-                                .into(),
+                            RuntimeCheckErrorKind::ExpectedTuple(Box::new(TypeSignature::type_of(
+                                &data,
+                            )?))
+                            .into(),
                         )
                     }
                 }
@@ -76,23 +80,25 @@ pub fn tuple_get(
         }
         Value::Tuple(tuple_data) => {
             runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
-            tuple_data.get_owned(arg_name)
+            Ok(tuple_data.get_owned(arg_name)?)
         }
-        _ => Err(CheckErrorKind::ExpectedTuple(Box::new(TypeSignature::type_of(&value)?)).into()),
+        _ => Err(
+            RuntimeCheckErrorKind::ExpectedTuple(Box::new(TypeSignature::type_of(&value)?)).into(),
+        ),
     }
 }
 
 pub fn tuple_merge(base: Value, update: Value) -> Result<Value, VmExecutionError> {
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
-        _ => Err(CheckErrorKind::ExpectedTuple(Box::new(
+        _ => Err(RuntimeCheckErrorKind::ExpectedTuple(Box::new(
             TypeSignature::type_of(&base)?,
         ))),
     }?;
 
     let new_values = match update {
         Value::Tuple(new_values) => Ok(new_values),
-        _ => Err(CheckErrorKind::ExpectedTuple(Box::new(
+        _ => Err(RuntimeCheckErrorKind::ExpectedTuple(Box::new(
             TypeSignature::type_of(&update)?,
         ))),
     }?;

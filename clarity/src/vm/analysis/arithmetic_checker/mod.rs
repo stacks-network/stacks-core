@@ -17,17 +17,17 @@
 use clarity_types::representations::ClarityName;
 
 pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, StaticCheckError,
+    RuntimeCheckErrorKind, StaticCheckError, check_argument_count, check_arguments_at_least,
 };
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
 use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::variables::NativeVariables;
-use crate::vm::ClarityVersion;
 
 #[cfg(test)]
 mod tests;
