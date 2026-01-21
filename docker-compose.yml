@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  stacks-node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stacks-core-node
+    ports:
+      - "20443:20443"
+      - "20444:20444"
+    environment:
+      - STACKS_NODE_CONFIG=/etc/stacks-node/dev-xenon-miner.toml
+      - RUST_BACKTRACE=1
+    volumes:
+      - ./stacks-node/conf:/etc/stacks-node:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:20443/v2/info || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  stacks-signer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stacks-core-signer
+    command: ["stacks-signer", "--help"]
+    profiles:
+      - tools
+
+  stacks-inspect:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stacks-core-inspect
+    command: ["stacks-inspect", "--help"]
+    profiles:
+      - tools

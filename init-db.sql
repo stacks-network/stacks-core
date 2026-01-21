@@ -1,0 +1,14 @@
+-- Stacks Core Database Initialization
+-- This file is a placeholder for any database setup required by tooling.
+-- If you are running components that require a database, add schema here.
+
+-- Example (PostgreSQL):
+-- CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- CREATE TABLE IF NOT EXISTS stacks_events (
+--   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+--   block_height BIGINT NOT NULL,
+--   txid VARCHAR(66) NOT NULL,
+--   event_type TEXT NOT NULL,
+--   payload JSONB,
+--   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+-- );
