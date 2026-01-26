@@ -40,7 +40,21 @@ pub fn get_prior_last_sortition_consensus_hash(
     block_snapshot: &BlockSnapshot,
     preamble: &HttpRequestPreamble,
 ) -> Result<ConsensusHash, StacksHttpResponse> {
-    let handle = sortdb.index_handle_at_tip();
+    let handle = match sortdb.index_handle_at_ch(&block_snapshot.consensus_hash) {
+        Ok(handle) => handle,
+        Err(e) => {
+            let msg = format!(
+                "Failed to get sortition DB handle for tenure '{}': {e:?}",
+                block_snapshot.consensus_hash
+            );
+            error!("{msg}");
+            return Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpServerError::new(msg),
+            ));
+        }
+    };
+
     // Search backwards from the chain tip on the canonical fork to find the sortition
     // that occurred BEFORE this burn block height (hence saturating_sub(1)).
     let block_height = block_snapshot.block_height.saturating_sub(1);
