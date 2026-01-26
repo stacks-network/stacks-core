@@ -27,12 +27,13 @@ use crate::net::ProtocolFamily;
 // A helper function to find two tenures with empty sortitions in between
 pub fn find_sortitions_with_empty_sortitions_between(
     rpc_test: &mut TestRPC,
-) -> (ConsensusHash, ConsensusHash) {
+) -> (ConsensusHash, ConsensusHash, Vec<ConsensusHash>) {
     // Find two tenures with empty sortitions in bewteen
     let snapshots = rpc_test.peer_1.sortdb().get_all_snapshots().unwrap();
 
     let mut first_sortition: Option<&_> = None;
     let mut saw_non_sortition_between = false;
+    let mut consensus_hashes_between = vec![];
 
     let mut result: Option<(&_, &_)> = None;
 
@@ -57,12 +58,17 @@ pub fn find_sortitions_with_empty_sortitions_between(
             }
         } else if first_sortition.is_some() {
             saw_non_sortition_between = true;
+            consensus_hashes_between.push(s.consensus_hash.clone());
         }
     }
 
     let (first, second) = result
         .expect("Did not find sortition, non-sortition(s), sortition pattern required for test");
-    (first.consensus_hash.clone(), second.consensus_hash.clone())
+    (
+        first.consensus_hash.clone(),
+        second.consensus_hash.clone(),
+        consensus_hashes_between,
+    )
 }
 
 #[test]
@@ -130,8 +136,18 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query tenure with empty sortitions in between
-    let (first, second) = find_sortitions_with_empty_sortitions_between(&mut rpc_test);
+    let (first, second, consensus_hashes_between) =
+        find_sortitions_with_empty_sortitions_between(&mut rpc_test);
+    assert!(
+        !consensus_hashes_between.is_empty(),
+        "Test requires at least one empty sortition between tenures"
+    );
     let request = StacksHttpRequest::new_get_tenure_blocks(addr.clone().into(), &second);
+    requests.push(request);
+
+    // Query an empty tenure directly
+    let empty_tenure_ch = consensus_hashes_between.first().unwrap();
+    let request = StacksHttpRequest::new_get_tenure_blocks(addr.into(), empty_tenure_ch);
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -209,7 +225,7 @@ fn test_try_make_response() {
     );
 
     let (preamble, _body) = response.destruct();
-    assert_eq!(preamble.status_code, 404);
+    assert_eq!(preamble.status_code, 500);
 
     // got tenure with empty sortitions in between
     let response = responses.remove(0);
@@ -221,4 +237,15 @@ fn test_try_make_response() {
     let resp = response.decode_tenure_blocks().unwrap();
     assert_eq!(resp.consensus_hash, second);
     assert_eq!(resp.last_sortition_ch, first);
+
+    // got a tenure with no blocks (empty sortition)
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+    let resp = response.decode_tenure_blocks().unwrap();
+    assert_eq!(&resp.consensus_hash, empty_tenure_ch);
+    assert_eq!(resp.last_sortition_ch, first);
+    assert!(resp.stacks_blocks.is_empty());
 }

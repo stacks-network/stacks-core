@@ -98,8 +98,18 @@ fn test_try_make_response() {
     requests.push(request);
 
     // query tenure with empty sortitions in between
-    let (first, second) = find_sortitions_with_empty_sortitions_between(&mut rpc_test);
+    let (first, second, consensus_hashes_between) =
+        find_sortitions_with_empty_sortitions_between(&mut rpc_test);
+    assert!(
+        !consensus_hashes_between.is_empty(),
+        "Test requires at least one empty sortition between tenures"
+    );
     let request = StacksHttpRequest::new_get_tenure_blocks(addr.clone().into(), &second);
+    requests.push(request);
+
+    // Query an empty tenure directly
+    let empty_tenure_ch = consensus_hashes_between.first().unwrap();
+    let request = StacksHttpRequest::new_get_tenure_blocks(addr.into(), empty_tenure_ch);
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -146,7 +156,7 @@ fn test_try_make_response() {
     );
 
     let (preamble, body) = response.destruct();
-    assert_eq!(preamble.status_code, 404);
+    assert_eq!(preamble.status_code, 500);
 
     // got a failure
     let response = responses.remove(0);
@@ -156,7 +166,7 @@ fn test_try_make_response() {
     );
 
     let (preamble, body) = response.destruct();
-    assert_eq!(preamble.status_code, 404);
+    assert_eq!(preamble.status_code, 500);
 
     // got tenure with empty sortitions in between
     let response = responses.remove(0);
@@ -168,4 +178,15 @@ fn test_try_make_response() {
     let resp = response.decode_tenure_blocks().unwrap();
     assert_eq!(resp.consensus_hash, second);
     assert_eq!(resp.last_sortition_ch, first);
+
+    // got empty tenure directly
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+    let resp = response.decode_tenure_blocks().unwrap();
+    assert_eq!(&resp.consensus_hash, empty_tenure_ch);
+    assert_eq!(resp.last_sortition_ch, first);
+    assert!(resp.stacks_blocks.is_empty());
 }

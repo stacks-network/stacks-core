@@ -2078,7 +2078,8 @@ impl<'a> SortitionHandleConn<'a> {
         self.get_indexed(&self.context.chain_tip, key)
     }
 
-    fn get_sortition_id_for_bhh(
+    /// Get the sortition ID for a particular burn header hash in the current fork.
+    pub fn get_sortition_id_for_bhh(
         &self,
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<SortitionId>, db_error> {
