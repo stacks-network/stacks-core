@@ -20,7 +20,6 @@ use std::sync::{Arc, Mutex};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::STXEventType;
 use lazy_static::lazy_static;
-use neon_integrations::test_observer::EVENT_OBSERVER_PORT;
 use rand::Rng;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::events::StacksTransactionEvent;
@@ -40,6 +39,7 @@ use super::neon_node::{BlockMinerThread, TipCandidate};
 use super::Config;
 use crate::helium::RunLoop;
 use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait};
+use crate::tests::test_observer::TestObserver;
 use crate::BitcoinRegtestController;
 
 mod atlas;
@@ -56,6 +56,7 @@ pub mod nakamoto_integrations;
 pub mod neon_integrations;
 mod signer;
 mod stackerdb;
+mod test_observer;
 
 // $ cat /tmp/out.clar
 pub const STORE_CONTRACT: &str = r#"(define-map store { key: (string-ascii 32) } { value: (string-ascii 32) })
@@ -95,7 +96,7 @@ lazy_static! {
 lazy_static! {
     static ref USED_PORTS: Mutex<HashSet<u16>> = Mutex::new({
         let mut set = HashSet::new();
-        set.insert(EVENT_OBSERVER_PORT);
+        set.insert(TestObserver::EVENT_OBSERVER_PORT);
         set
     });
 }

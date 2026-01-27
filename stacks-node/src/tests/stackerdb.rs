@@ -27,8 +27,9 @@ use {reqwest, serde_json};
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::BurnchainController;
 use crate::tests::neon_integrations::{
-    neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
+    neon_integration_test_conf, next_block_and_wait, submit_tx, wait_for_runloop,
 };
+use crate::tests::test_observer::TestObserver;
 use crate::tests::{make_contract_publish, to_addr};
 use crate::{neon, BitcoinRegtestController};
 
@@ -106,7 +107,8 @@ fn test_stackerdb_load_store() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let privks = [
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
@@ -160,8 +162,6 @@ fn test_stackerdb_load_store() {
         "hello-world".into(),
     ));
     let contract_id = conf.node.stacker_dbs[0].clone();
-
-    test_observer::spawn();
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -243,7 +243,9 @@ fn test_stackerdb_event_observer() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    test_observer::register(&mut conf, &[EventKeyType::StackerDBChunks]);
+
+    let test_observer = TestObserver::spawn();
+    test_observer.register(&mut conf, &[EventKeyType::StackerDBChunks]);
 
     let privks = [
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
@@ -297,8 +299,6 @@ fn test_stackerdb_event_observer() {
         "hello-world".into(),
     ));
     let contract_id = conf.node.stacker_dbs[0].clone();
-
-    test_observer::spawn();
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -374,7 +374,8 @@ fn test_stackerdb_event_observer() {
     }
 
     // get events, verifying that they're all for the same contract (i.e. this one)
-    let stackerdb_events: Vec<_> = test_observer::get_stackerdb_chunks()
+    let stackerdb_events: Vec<_> = test_observer
+        .get_stackerdb_chunks()
         .into_iter()
         .flat_map(|stackerdb_event| {
             assert_eq!(stackerdb_event.contract_id, contract_id);

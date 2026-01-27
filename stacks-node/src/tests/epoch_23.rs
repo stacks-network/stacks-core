@@ -26,6 +26,7 @@ use stacks_common::util::sleep_ms;
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
+use crate::tests::test_observer::TestObserver;
 use crate::tests::*;
 use crate::{neon, BitcoinRegtestController, BurnchainController};
 
@@ -100,8 +101,8 @@ fn trait_invocation_behavior() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
@@ -511,7 +512,7 @@ fn trait_invocation_behavior() {
 
     info!("Total spender txs = {spender_nonce}");
 
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
 
     let mut transaction_receipts = Vec::new();
 
@@ -633,6 +634,6 @@ fn trait_invocation_behavior() {
         eprintln!("{key} => {} of {}", value.0, value.1);
     }
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }

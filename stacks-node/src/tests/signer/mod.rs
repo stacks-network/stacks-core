@@ -79,10 +79,10 @@ use crate::tests::nakamoto_integrations::{
     naka_neon_integration_conf, next_block_and_wait_for_commits, POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
-    get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
-    wait_for_runloop,
+    get_chain_info, next_block_and_wait, run_until_burnchain_height, wait_for_runloop,
 };
 use crate::tests::signer::v0::wait_for_state_machine_update_by_miner_tenure_id;
+use crate::tests::test_observer::TestObserver;
 use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
 
@@ -96,6 +96,7 @@ pub struct RunningNodes {
     pub counters: Counters,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
+    pub test_observer: TestObserver,
 }
 
 impl RunningNodes {
@@ -1145,6 +1146,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             timeout.as_secs(),
             &get_chain_info(&self.running_nodes.conf).pox_consensus,
             &self.signer_addresses_versions_majority(),
+            &self.running_nodes.test_observer,
         )
         .expect("Failed to update signer state machine");
 
@@ -1193,7 +1195,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         node_counters: &[&Counters],
         timeout: Duration,
     ) {
-        let blocks_len = test_observer::get_blocks().len();
+        let test_observer = &self.running_nodes.test_observer;
+
+        let blocks_len = test_observer.get_blocks().len();
         let mined_block_time = Instant::now();
         next_block_and_wait_for_commits(
             &self.running_nodes.btc_regtest_controller,
@@ -1204,7 +1208,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         )
         .unwrap();
         let t_start = Instant::now();
-        while test_observer::get_blocks().len() <= blocks_len {
+        while test_observer.get_blocks().len() <= blocks_len {
             assert!(
                 t_start.elapsed() < timeout,
                 "Timed out while waiting for nakamoto block to be processed"
@@ -1262,9 +1266,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         block_signer_sighash: &Sha512Trunc256Sum,
         timeout: Duration,
     ) -> serde_json::Map<String, serde_json::Value> {
+        let test_observer = &self.running_nodes.test_observer;
         let t_start = Instant::now();
         while t_start.elapsed() <= timeout {
-            let blocks = test_observer::get_blocks();
+            let blocks = test_observer.get_blocks();
             if let Some(block) = blocks.iter().find_map(|block_json| {
                 let block_obj = block_json.as_object().unwrap();
                 let sighash = block_obj
@@ -1288,8 +1293,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     fn wait_for_validate_ok_response(&self, timeout_secs: u64) -> BlockValidateOk {
         // Wait for the block to show up in the test observer
         let mut validate = None;
+        let test_observer = &self.running_nodes.test_observer;
         wait_for(timeout_secs, || {
-            let responses = test_observer::get_proposal_responses();
+            let responses = test_observer.get_proposal_responses();
             for response in responses {
                 let BlockValidateResponse::Ok(validation) = response else {
                     continue;
@@ -1310,8 +1316,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     ) -> BlockValidateReject {
         // Wait for the block to show up in the test observer
         let mut reject = None;
+        let test_observer = &self.running_nodes.test_observer;
         wait_for(timeout_secs, || {
-            let responses = test_observer::get_proposal_responses();
+            let responses = test_observer.get_proposal_responses();
             for response in responses {
                 let BlockValidateResponse::Reject(rejection) = response else {
                     continue;
@@ -1489,7 +1496,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     }
 
     fn shutdown_and_make_snapshot(mut self, needs_snapshot: bool) {
-        check_nakamoto_empty_block_heuristics(self.stacks_client.mainnet);
+        check_nakamoto_empty_block_heuristics(
+            self.stacks_client.mainnet,
+            &self.running_nodes.test_observer,
+        );
 
         self.running_nodes
             .coord_channel
@@ -1580,7 +1590,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
     /// Get miner stackerDB messages
     pub fn get_miner_proposal_messages(&self) -> Vec<BlockProposal> {
-        let proposals: Vec<_> = test_observer::get_stackerdb_chunks()
+        let proposals: Vec<_> = self
+            .running_nodes
+            .test_observer
+            .get_stackerdb_chunks()
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
             .filter_map(|chunk| {
@@ -1730,8 +1743,8 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     }
 
     // Spawn a test observer for verification purposes
-    test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    let test_observer = TestObserver::spawn();
+    let observer_port = TestObserver::EVENT_OBSERVER_PORT;
     naka_conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
         events_keys: vec![
@@ -1830,5 +1843,6 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         coord_channel,
         counters,
         conf: naka_conf,
+        test_observer,
     }
 }

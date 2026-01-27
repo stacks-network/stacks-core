@@ -26,6 +26,7 @@ use stacks_common::util::hash::hex_bytes;
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
+use crate::tests::test_observer::TestObserver;
 use crate::tests::{run_until_burnchain_height, select_transactions_where};
 use crate::{neon, BitcoinRegtestController, BurnchainController, Keychain};
 
@@ -114,8 +115,8 @@ fn test_exact_block_costs() {
         })
         .collect();
 
-    test_observer::spawn();
-    test_observer::register(
+    let test_observer = TestObserver::spawn();
+    test_observer.register(
         &mut conf,
         &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     );
@@ -184,8 +185,8 @@ fn test_exact_block_costs() {
     let current_burn_height = tip_info.burn_block_height as u32;
     assert_eq!(current_burn_height, 216);
 
-    let blocks = test_observer::get_blocks();
-    let mined_blocks = test_observer::get_mined_blocks();
+    let blocks = test_observer.get_blocks();
+    let mined_blocks = test_observer.get_mined_blocks();
     let mut mined_blocks_map = HashMap::new();
     for mined_block in mined_blocks.into_iter() {
         mined_blocks_map.insert(mined_block.target_burn_height, mined_block);
@@ -266,7 +267,7 @@ fn test_exact_block_costs() {
     assert!(processed_txs_before_205);
     assert!(processed_txs_after_205);
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -351,8 +352,8 @@ fn test_dynamic_db_method_costs() {
         )
     };
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -419,7 +420,7 @@ fn test_dynamic_db_method_costs() {
     let current_burn_height = tip_info.burn_block_height as u32;
     assert_eq!(current_burn_height, 216);
 
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
 
     let mut tested_heights = vec![];
 
@@ -488,7 +489,7 @@ fn test_dynamic_db_method_costs() {
     assert!(tested_heights.contains(&epoch_205_transition_height));
     assert!(tested_heights.contains(&(epoch_205_transition_height + 1)));
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -783,8 +784,8 @@ fn test_cost_limit_switch_version205() {
         amount: 10492300000,
     });
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -826,7 +827,7 @@ fn test_cost_limit_switch_version205() {
 
     // Check that we have defined the contract.
     let increment_contract_defines = select_transactions_where(
-        &test_observer::get_blocks(),
+        &test_observer.get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::SmartContract(contract, ..) => {
                 contract.name == ContractName::from("increment-contract")
@@ -858,7 +859,7 @@ fn test_cost_limit_switch_version205() {
     // Check that we have processed the contract successfully, by checking that the contract call
     // is in the block record.
     let increment_calls_alice = select_transactions_where(
-        &test_observer::get_blocks(),
+        &test_observer.get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
                 contract.contract_name == ContractName::from("increment-contract")
@@ -869,7 +870,7 @@ fn test_cost_limit_switch_version205() {
     assert_eq!(increment_calls_alice.len(), 1);
 
     // Clear the observer so we can look for Bob's transaction.
-    test_observer::clear();
+    test_observer.clear();
 
     // The cost contract was switched at height 220. So, now we expect Bob's call to fail.
     run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 216, &conf);
@@ -892,7 +893,7 @@ fn test_cost_limit_switch_version205() {
 
     // Bob's calls didn't work because he called after the block limit was lowered.
     let increment_calls_bob = select_transactions_where(
-        &test_observer::get_blocks(),
+        &test_observer.get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
                 contract.contract_name == ContractName::from("increment-contract")

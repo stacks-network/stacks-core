@@ -43,6 +43,7 @@ use crate::stacks_common::address::AddressHashMode;
 use crate::stacks_common::types::Address;
 use crate::stacks_common::util::hash::{bytes_to_hex, hex_bytes};
 use crate::tests::neon_integrations::*;
+use crate::tests::test_observer::TestObserver;
 use crate::tests::*;
 use crate::{neon, BitcoinRegtestController, BurnchainController, Keychain};
 
@@ -60,18 +61,19 @@ fn advance_to_2_1(
     BitcoinRegtestController,
     RunLoopCounter,
     CoordinatorChannels,
+    TestObserver,
 ) {
     let epoch_2_05 = 210;
     let epoch_2_1 = 215;
 
-    test_observer::spawn();
+    let test_observer = TestObserver::spawn();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     conf.burnchain.peer_host = "localhost".to_string();
     conf.initial_balances.append(&mut initial_balances);
     conf.miner.block_reward_recipient = block_reward_recipient;
-    test_observer::register_any(&mut conf);
+    test_observer.register_any(&mut conf);
 
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
@@ -271,6 +273,7 @@ fn advance_to_2_1(
         btc_regtest_controller,
         blocks_processed,
         channel,
+        test_observer,
     )
 }
 
@@ -288,16 +291,22 @@ fn transition_adds_burn_block_height() {
     let spender_addr = PrincipalData::from(to_addr(&spender_sk));
     let spender_addr_c32 = to_addr(&spender_sk);
 
-    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(
-            vec![InitialBalance {
-                address: spender_addr,
-                amount: 200_000_000,
-            }],
-            None,
-            None,
-            false,
-        );
+    let (
+        conf,
+        _btcd_controller,
+        mut btc_regtest_controller,
+        blocks_processed,
+        coord_channel,
+        test_observer,
+    ) = advance_to_2_1(
+        vec![InitialBalance {
+            address: spender_addr,
+            amount: 200_000_000,
+        }],
+        None,
+        None,
+        false,
+    );
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     // post epoch 2.1 -- we should be able to query any/all burnchain headers after the first
@@ -393,7 +402,7 @@ fn transition_adds_burn_block_height() {
 
     // check it
     let mut header_hashes: HashMap<u64, Option<BurnchainHeaderHash>> = HashMap::new();
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         let events = block.get("events").unwrap().as_array().unwrap();
@@ -470,7 +479,7 @@ fn transition_adds_burn_block_height() {
         }
     }
 
-    test_observer::clear();
+    test_observer.clear();
     coord_channel.stop_chains_coordinator();
 }
 
@@ -484,13 +493,19 @@ fn transition_adds_pay_to_alt_recipient_contract() {
     // a contract in the config file when it mines after epoch 2.1.
     let target_contract_address =
         QualifiedContractIdentifier::parse("ST000000000000000000002AMW42H.bns").unwrap();
-    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(
-            vec![],
-            Some(PrincipalData::Contract(target_contract_address.clone())),
-            None,
-            false,
-        );
+    let (
+        conf,
+        _btcd_controller,
+        mut btc_regtest_controller,
+        blocks_processed,
+        coord_channel,
+        _test_observer,
+    ) = advance_to_2_1(
+        vec![],
+        Some(PrincipalData::Contract(target_contract_address.clone())),
+        None,
+        false,
+    );
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let contract_account_before = get_account(&http_origin, &target_contract_address);
@@ -503,7 +518,6 @@ fn transition_adds_pay_to_alt_recipient_contract() {
 
     assert!(contract_account_before.balance < contract_account_after.balance);
 
-    test_observer::clear();
     coord_channel.stop_chains_coordinator();
 }
 
@@ -517,8 +531,14 @@ fn transition_adds_pay_to_alt_recipient_principal() {
     // an alternative principal in the config file when it mines after epoch 2.1.
     let target_principal_address =
         PrincipalData::parse("ST34CV1214XJF9S8WPT09TJNYJTM8GM4W6N7ZGKDF").unwrap();
-    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(vec![], Some(target_principal_address.clone()), None, false);
+    let (
+        conf,
+        _btcd_controller,
+        mut btc_regtest_controller,
+        blocks_processed,
+        coord_channel,
+        _test_observer,
+    ) = advance_to_2_1(vec![], Some(target_principal_address.clone()), None, false);
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let alt_account_before = get_account(&http_origin, &target_principal_address);
@@ -531,7 +551,6 @@ fn transition_adds_pay_to_alt_recipient_principal() {
 
     assert!(alt_account_before.balance < alt_account_after.balance);
 
-    test_observer::clear();
     coord_channel.stop_chains_coordinator();
 }
 
@@ -559,7 +578,7 @@ fn transition_fixes_bitcoin_rigidity() {
     let epoch_2_05 = 210;
     let epoch_2_1 = 215;
 
-    test_observer::spawn();
+    let test_observer = TestObserver::spawn();
 
     let (mut conf, miner_account) = neon_integration_test_conf();
     let mut initial_balances = vec![
@@ -574,7 +593,7 @@ fn transition_fixes_bitcoin_rigidity() {
     ];
 
     conf.initial_balances.append(&mut initial_balances);
-    test_observer::register_any(&mut conf);
+    test_observer.register_any(&mut conf);
 
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
@@ -1013,7 +1032,7 @@ fn transition_fixes_bitcoin_rigidity() {
     assert_eq!(get_balance(&http_origin, &recipient_addr), 200_000);
     assert_eq!(get_balance(&http_origin, &spender_2_addr), 300);
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -1067,8 +1086,14 @@ fn transition_adds_get_pox_addr_recipients() {
     .unwrap();
     let pox_pubkey_hash = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey).to_bytes());
 
-    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(initial_balances, None, Some(pox_constants.clone()), false);
+    let (
+        conf,
+        _btcd_controller,
+        mut btc_regtest_controller,
+        blocks_processed,
+        coord_channel,
+        test_observer,
+    ) = advance_to_2_1(initial_balances, None, Some(pox_constants.clone()), false);
 
     let mut sort_height = coord_channel.get_sortitions_processed();
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -1191,7 +1216,7 @@ fn transition_adds_get_pox_addr_recipients() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     eprintln!("Sort height: {sort_height}");
-    test_observer::clear();
+    test_observer.clear();
 
     // mine through two reward cycles
     // now let's mine until the next reward cycle starts ...
@@ -1220,7 +1245,7 @@ fn transition_adds_get_pox_addr_recipients() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     // check result of test-get-pox-addrs
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     let mut found_pox_addrs = HashSet::new();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -1369,8 +1394,14 @@ fn transition_adds_mining_from_segwit() {
         });
     }
 
-    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, _coord_channel) =
-        advance_to_2_1(initial_balances, None, Some(pox_constants), true);
+    let (
+        conf,
+        _btcd_controller,
+        mut btc_regtest_controller,
+        blocks_processed,
+        _coord_channel,
+        _test_observer,
+    ) = advance_to_2_1(initial_balances, None, Some(pox_constants), true);
 
     let utxos = btc_regtest_controller
         .get_all_utxos(&Secp256k1PublicKey::from_hex(MINER_BURN_PUBLIC_KEY).unwrap());
@@ -1452,8 +1483,8 @@ fn transition_removes_pox_sunset() {
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -1669,7 +1700,7 @@ fn transition_removes_pox_sunset() {
     // first full reward cycle with pox-2
     assert_eq!(&pox_info.contract_id, "ST000000000000000000002AMW42H.pox-2");
 
-    let burn_blocks = test_observer::get_burn_blocks();
+    let burn_blocks = test_observer.get_burn_blocks();
     let mut pox_out_opt = None;
     for (i, block) in burn_blocks.into_iter().enumerate() {
         let recipients: Vec<(String, u64)> = block
@@ -1720,7 +1751,7 @@ fn transition_removes_pox_sunset() {
         }
     }
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -1755,8 +1786,8 @@ fn transition_empty_blocks() {
 
     conf.burnchain.epochs = Some(epochs);
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let keychain = Keychain::default(conf.node.seed.clone());
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -1923,7 +1954,7 @@ fn transition_empty_blocks() {
     let mut have_pox2 = false;
     let mut have_costs3 = false;
 
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         for tx in transactions {
@@ -2443,7 +2474,7 @@ fn trait_invocation_cross_epoch() {
     let epoch_2_05 = 210;
     let epoch_2_1 = 215;
 
-    test_observer::spawn();
+    let test_observer = TestObserver::spawn();
 
     let (mut conf, _) = neon_integration_test_conf();
     let mut initial_balances = vec![InitialBalance {
@@ -2451,7 +2482,7 @@ fn trait_invocation_cross_epoch() {
         amount: 200_000_000,
     }];
     conf.initial_balances.append(&mut initial_balances);
-    test_observer::register_any(&mut conf);
+    test_observer.register_any(&mut conf);
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
@@ -2620,7 +2651,7 @@ fn trait_invocation_cross_epoch() {
         trait_txid,
     ];
 
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     let mut results = vec![];
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -2654,7 +2685,7 @@ fn trait_invocation_cross_epoch() {
         assert_eq!(result, "success");
     }
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -2715,8 +2746,8 @@ fn test_v1_unlock_height_with_current_stackers() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
@@ -2910,7 +2941,7 @@ fn test_v1_unlock_height_with_current_stackers() {
         }
     }
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -2974,8 +3005,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
@@ -3197,6 +3228,6 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         }
     }
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
