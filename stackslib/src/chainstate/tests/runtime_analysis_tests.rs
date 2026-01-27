@@ -1331,10 +1331,10 @@ fn invalid_characters_detected_invalid_utf8() {
     );
 }
 
-/// Error (pre 3.4): [`CostErrors::CostComputationFailed`]
+/// Error (pre Clarity 5): [`CostErrors::CostComputationFailed`]
 /// Caused by: passing an empty buffer to `from-consensus-buff?`
 /// Outcome: block accepted.
-/// After 3.4: Contract call executes successfully and returns `(ok none)`
+/// After Clarity 5: Contract call executes successfully and returns `(ok none)`
 #[test]
 fn empty_consensus_buff() {
     contract_call_consensus_test!(

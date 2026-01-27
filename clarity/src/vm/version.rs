@@ -73,6 +73,21 @@ impl ClarityVersion {
             StacksEpochId::Epoch34 => ClarityVersion::Clarity5,
         }
     }
+
+    /// Beginning in Clarity 5, cost functions that call `logn` are ensured to
+    /// always pass an argument greater than zero, to avoid hitting a runtime
+    /// error during cost computation. After reviewing the usage, the only
+    /// function that requires this protection is `from-consensus-buff?`, other
+    /// cost functions that call `logn` are already protected from zeros.
+    pub fn protects_logn_cost_fn(&self) -> bool {
+        match self {
+            ClarityVersion::Clarity1
+            | ClarityVersion::Clarity2
+            | ClarityVersion::Clarity3
+            | ClarityVersion::Clarity4 => false,
+            ClarityVersion::Clarity5 => true,
+        }
+    }
 }
 
 impl FromStr for ClarityVersion {

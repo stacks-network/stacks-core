@@ -332,7 +332,11 @@ pub fn from_consensus_buff(
         ))
     }?;
 
-    let input = if env.epoch().protects_logn_cost_fn() {
+    let input = if env
+        .contract_context
+        .get_clarity_version()
+        .protects_logn_cost_fn()
+    {
         input_bytes.len().max(1)
     } else {
         input_bytes.len()
