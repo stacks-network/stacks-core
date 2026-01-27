@@ -1399,7 +1399,7 @@ impl Signer {
             debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
             return;
         };
-        if block_info.is_locally_finalized() {
+        if block_info.is_locally_finalized() || block_info.has_reached_consensus() {
             debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
             return;
         }
@@ -1464,15 +1464,13 @@ impl Signer {
             debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
             return;
         };
-        if block_info.is_locally_finalized() {
+        if block_info.is_locally_finalized() || block_info.has_reached_consensus() {
             debug!("{self}: Received block validation for a block that is already marked as {}. Ignoring...", block_info.state);
             return;
         }
         if let Err(e) = block_info.mark_locally_rejected() {
-            if !block_info.has_reached_consensus() {
-                warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
-                return;
-            }
+            warn!("{self}: Failed to mark block as locally rejected: {e:?}",);
+            return;
         }
         let block_rejection = BlockRejection::from_validate_rejection(
             block_validate_reject.clone(),
