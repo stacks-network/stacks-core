@@ -509,7 +509,7 @@ fn main() {
                     // State directory mode: auto-derive paths
                     (
                         format!("{dir}/vm/index.sqlite"),
-                        format!("{dir}/vm/headers.sqlite"),
+                        format!("{dir}/vm/index.sqlite"),
                     )
                 }
                 (None, Some(m), Some(d)) => {
@@ -545,7 +545,8 @@ fn main() {
             }
 
             let marf_bhh = StacksBlockId::from_hex(&block_id_hash).expect("Bad MARF block hash");
-            let marf_opts = MARFOpenOpts::default();
+            let mut marf_opts = MARFOpenOpts::default();
+            marf_opts.external_blobs = true;
             let mut marf = MARF::from_path(&marf_path, marf_opts).expect("Failed to open MARF");
             let value_opt = marf.get(&marf_bhh, &key).expect("Failed to read MARF");
 
@@ -596,19 +597,19 @@ fn main() {
         Command::GetAncestors {
             db_path,
             block_hash,
-            burn_hash,
+            consensus_hash,
         } => {
             let tip = BlockHeaderHash::from_hex(&block_hash).unwrap();
-            let burntip = BurnchainHeaderHash::from_hex(&burn_hash).unwrap();
+            let consensus = ConsensusHash::from_hex(&consensus_hash).unwrap();
 
             let conn = Connection::open(&db_path).unwrap();
-            let mut cur_burn = burntip.clone();
+            let mut cur_consensus = consensus.clone();
             let mut cur_tip = tip.clone();
             loop {
-                println!("{cur_burn}, {cur_tip}");
-                let (next_burn, next_tip) = match conn.query_row(
-                    "SELECT parent_burn_header_hash, parent_anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ? and burn_header_hash = ?",
-                    params![cur_tip, cur_burn],
+                println!("{cur_consensus}, {cur_tip}");
+                let (next_consensus, next_tip) = match conn.query_row(
+                    "SELECT parent_consensus_hash, parent_anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ? AND consensus_hash = ?",
+                    params![cur_tip, cur_consensus],
                     |row| Ok((row.get_unwrap(0), row.get_unwrap(1))),
                 ) {
                     Ok(x) => x,
@@ -622,7 +623,7 @@ fn main() {
                         break;
                     }
                 };
-                cur_burn = next_burn;
+                cur_consensus = next_consensus;
                 cur_tip = next_tip;
             }
             process::exit(0);

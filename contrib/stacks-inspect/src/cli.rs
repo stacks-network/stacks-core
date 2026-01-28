@@ -271,9 +271,9 @@ pub enum Command {
         #[arg(value_name = "BLOCK_HASH")]
         block_hash: String,
 
-        /// Burn header hash
-        #[arg(value_name = "BURN_HASH")]
-        burn_hash: String,
+        /// Consensus hash
+        #[arg(value_name = "CONSENSUS_HASH")]
+        consensus_hash: String,
     },
 
     // ================ Shadow Block Commands ================
@@ -572,7 +572,7 @@ pub enum Command {
     DocgenBoot,
 
     /// Execute a Clarity program file
-    #[command(name = "exec_program")]
+    #[command(name = "exec-program")]
     ExecProgram {
         /// Path to Clarity program file
         #[arg(value_name = "PROGRAM_FILE")]
