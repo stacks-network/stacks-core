@@ -19,11 +19,11 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use clarity::types::Address;
-use clarity::vm::analysis::CheckErrorKind;
+use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::clarity::{ClarityError, TransactionConnection};
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
-use clarity::vm::errors::VmExecutionError;
+use clarity::vm::errors::{ClarityEvalError, VmExecutionError};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
@@ -702,11 +702,13 @@ impl StacksChainState {
                                 &[SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
                                 true,
                             )
+                            .map_err(ClarityEvalError::from)
                         },
                     )
                 },
             )?
-            .ok_or_else(|| Error::NoSuchBlockError)??
+            .ok_or_else(|| Error::NoSuchBlockError)?
+            .map_err(ClarityError::from)?
             .expect_u128()
             .map_err(|_| Error::Expects(format!("{function} did not return u128)")))?;
         Ok(result)
@@ -1357,9 +1359,9 @@ impl StacksChainState {
         // Catch the epoch boundary edge case where burn height >= pox 3 activation height, but
         // there hasn't yet been a Stacks block.
         match result {
-            Err(Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
-                CheckErrorKind::NoSuchContract(_),
-            )))) => {
+            Err(Error::ClarityError(ClarityError::Interpreter(
+                VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchContract(_)),
+            ))) => {
                 warn!("Reward cycle attempted to calculate rewards before the PoX contract was instantiated");
                 return Ok(vec![]);
             }

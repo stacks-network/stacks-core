@@ -17,7 +17,7 @@ use std::{error, fmt};
 
 use clarity_types::Value;
 pub use clarity_types::errors::{ClarityTypeError, IncomparableError};
-use clarity_types::errors::{CostErrors, ParseError, ParseErrorKind};
+use clarity_types::errors::{CostErrors, ParseError};
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::FunctionIdentifier;
 #[cfg(feature = "rusqlite")]
@@ -25,7 +25,7 @@ use rusqlite::Error as SqliteError;
 use stacks_common::types::chainstate::BlockHeaderHash;
 
 pub use crate::vm::analysis::errors::{
-    CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
+    CommonCheckErrorKind, RuntimeCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
     SyntaxBindingError, SyntaxBindingErrorType, check_argument_count, check_arguments_at_least,
     check_arguments_at_most,
 };
@@ -44,8 +44,8 @@ pub enum VmExecutionError {
     /// static type-checking passes before execution. These may occur in test executions or when
     /// dynamic expression construction (e.g., using runtime data like VRF seeds) creates structures
     /// violating type or resource constraints (e.g., excessive stack depth).
-    /// The `CheckErrorKind` wraps the specific type-checking error encountered at runtime.
-    Unchecked(CheckErrorKind),
+    /// The `RuntimeCheckErrorKind` wraps the specific type-checking error encountered at runtime.
+    RuntimeCheck(RuntimeCheckErrorKind),
     /// A critical, unrecoverable bug within the VM's internal logic.
     ///
     /// The presence of this error indicates a violation of one of the VM's
@@ -134,12 +134,6 @@ pub enum RuntimeError {
     SupplyUnderflow(u128, u128),
     /// Attempt to divide or compute modulo by zero.
     DivisionByZero,
-    /// Failure to parse types dynamically during contract execution.
-    /// The `String` represents the specific parsing issue, such as invalid data formats.
-    TypeParseFailure(String),
-    /// Failure to parse the abstract syntax tree (AST) during dynamic evaluation.
-    /// The `Box<ParseError>` wraps the specific parsing error encountered, detailing code interpretation issues.
-    ASTError(Box<ParseError>),
     /// The call stack exceeded the virtual machine's maximum depth.
     MaxStackDepthReached,
     /// The execution context depth exceeded the virtual machine's limit.
@@ -190,7 +184,7 @@ impl PartialEq<VmExecutionError> for VmExecutionError {
     fn eq(&self, other: &VmExecutionError) -> bool {
         match (self, other) {
             (VmExecutionError::Runtime(x, _), VmExecutionError::Runtime(y, _)) => x == y,
-            (VmExecutionError::Unchecked(x), VmExecutionError::Unchecked(y)) => x == y,
+            (VmExecutionError::RuntimeCheck(x), VmExecutionError::RuntimeCheck(y)) => x == y,
             (VmExecutionError::EarlyReturn(x), VmExecutionError::EarlyReturn(y)) => x == y,
             (VmExecutionError::Internal(x), VmExecutionError::Internal(y)) => x == y,
             _ => false,
@@ -245,18 +239,7 @@ impl From<ClarityTypeError> for VmExecutionError {
             ClarityTypeError::InvalidPrincipalVersion(_) => VmExecutionError::Internal(
                 VmInternalError::Expect("Unexpected principal data".into()),
             ),
-            other_err => VmExecutionError::from(CheckErrorKind::from(other_err)),
-        }
-    }
-}
-
-impl From<ParseError> for VmExecutionError {
-    fn from(err: ParseError) -> Self {
-        match *err.err {
-            ParseErrorKind::InterpreterFailure => VmExecutionError::from(VmInternalError::Expect(
-                "Unexpected interpreter failure during parsing".into(),
-            )),
-            _ => VmExecutionError::from(RuntimeError::ASTError(Box::new(err))),
+            other_err => VmExecutionError::from(RuntimeCheckErrorKind::from(other_err)),
         }
     }
 }
@@ -270,7 +253,7 @@ impl From<CostErrors> for VmExecutionError {
             CostErrors::Expect(s) => VmExecutionError::from(VmInternalError::Expect(format!(
                 "Interpreter failure during cost calculation: {s}"
             ))),
-            other_err => VmExecutionError::from(CheckErrorKind::from(other_err)),
+            other_err => VmExecutionError::from(RuntimeCheckErrorKind::from(other_err)),
         }
     }
 }
@@ -283,19 +266,19 @@ impl From<RuntimeError> for VmExecutionError {
 
 impl From<CommonCheckErrorKind> for VmExecutionError {
     fn from(err: CommonCheckErrorKind) -> Self {
-        VmExecutionError::Unchecked(err.into())
+        VmExecutionError::RuntimeCheck(err.into())
     }
 }
 
-impl From<CheckErrorKind> for VmExecutionError {
-    fn from(err: CheckErrorKind) -> Self {
-        VmExecutionError::Unchecked(err)
+impl From<RuntimeCheckErrorKind> for VmExecutionError {
+    fn from(err: RuntimeCheckErrorKind) -> Self {
+        VmExecutionError::RuntimeCheck(err)
     }
 }
 
 impl From<(CommonCheckErrorKind, &SymbolicExpression)> for VmExecutionError {
     fn from(err: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
-        VmExecutionError::Unchecked(err.0.into())
+        VmExecutionError::RuntimeCheck(err.0.into())
     }
 }
 
@@ -321,6 +304,46 @@ impl From<EarlyReturnError> for Value {
         match val {
             EarlyReturnError::UnwrapFailed(v) => *v,
             EarlyReturnError::AssertionFailed(v) => *v,
+        }
+    }
+}
+
+/// An error that occurs during Clarity evaluation, either a VM execution error or a parse error.
+#[derive(Debug, PartialEq)]
+pub enum ClarityEvalError {
+    Vm(VmExecutionError),
+    Parse(ParseError),
+}
+
+impl From<VmExecutionError> for ClarityEvalError {
+    fn from(err: VmExecutionError) -> Self {
+        Self::Vm(err)
+    }
+}
+
+impl From<ParseError> for ClarityEvalError {
+    fn from(err: ParseError) -> Self {
+        Self::Parse(err)
+    }
+}
+
+impl From<RuntimeCheckErrorKind> for ClarityEvalError {
+    fn from(err: RuntimeCheckErrorKind) -> Self {
+        Self::Vm(err.into())
+    }
+}
+
+impl From<RuntimeError> for ClarityEvalError {
+    fn from(err: RuntimeError) -> Self {
+        Self::Vm(err.into())
+    }
+}
+
+impl fmt::Display for ClarityEvalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ClarityEvalError::Vm(err) => write!(f, "{err}"),
+            ClarityEvalError::Parse(err) => write!(f, "{err}"),
         }
     }
 }

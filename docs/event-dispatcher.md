@@ -77,14 +77,14 @@ Below is a comprehensive list of valid keys and their behaviors:
 
 *   **Smart Contract Event**: Subscribes to a specific smart contract event.
     *   **Description**: Allows subscription to events emitted by a particular smart contract.
-    *   **Format**: `"{contract_address}.{contract_name}::{event_name}"`
+    *   **Format**: `"{deployer_address}.{contract_name}::{event_name}"`
     *   **Example**: `"ST0000000000000000000000000000000000000000.my-contract::my-custom-event"`
     *   **Events delivered to**: `/new_block`, `/new_microblocks` (subject to epoch 2.5 limitation).
     *   **Payload details**: The "events" array in delivered payloads will be filtered for this specific event.
 
 *   **Asset Identifier for FT/NFT Events**: Subscribes to events for a specific Fungible Token (FT) or Non-Fungible Token (NFT).
     *   **Description**: Captures mint, burn, and transfer events for a specific token asset.
-    *   **Format**: `"{contract_address}.{contract_name}.{asset_name}"`
+    *   **Format**: `"{deployer_address}.{contract_name}.{asset_name}"`
     *   **Example (FT)**: `"ST0000000000000000000000000000000000000000.my-ft-contract.my-fungible-token"`
     *   **Events delivered to**: `/new_block`, `/new_microblocks` (subject to epoch 2.5 limitation).
     *   **Payload details**: The "events" array in delivered payloads will be filtered for events related to the specified asset.

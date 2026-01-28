@@ -29,7 +29,7 @@ pub use clarity_types::types::{
 
 pub use self::std_principals::StandardPrincipalData;
 use crate::vm::ClarityVersion;
-use crate::vm::errors::CheckErrorKind;
+use crate::vm::errors::RuntimeCheckErrorKind;
 pub use crate::vm::types::signatures::{
     AssetIdentifier, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
     ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length, TupleTypeSignature,
@@ -89,7 +89,7 @@ impl BlockInfoProperty {
 }
 
 impl BurnBlockInfoProperty {
-    pub fn type_result(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
+    pub fn type_result(&self) -> std::result::Result<TypeSignature, RuntimeCheckErrorKind> {
         use self::BurnBlockInfoProperty::*;
         let result = match self {
             HeaderHash => TypeSignature::BUFFER_32,
@@ -103,7 +103,7 @@ impl BurnBlockInfoProperty {
                                 ("hashbytes".into(), TypeSignature::BUFFER_32),
                             ])
                             .map_err(|_| {
-                                CheckErrorKind::ExpectsRejectable(
+                                RuntimeCheckErrorKind::ExpectsRejectable(
                                     "FATAL: bad type signature for pox addr".into(),
                                 )
                             })?,
@@ -111,13 +111,17 @@ impl BurnBlockInfoProperty {
                         2,
                     )
                     .map_err(|_| {
-                        CheckErrorKind::ExpectsRejectable("FATAL: bad list type signature".into())
+                        RuntimeCheckErrorKind::ExpectsRejectable(
+                            "FATAL: bad list type signature".into(),
+                        )
                     })?,
                 ),
                 ("payout".into(), TypeSignature::UIntType),
             ])
             .map_err(|_| {
-                CheckErrorKind::ExpectsRejectable("FATAL: bad type signature for pox addr".into())
+                RuntimeCheckErrorKind::ExpectsRejectable(
+                    "FATAL: bad type signature for pox addr".into(),
+                )
             })?
             .into(),
         };

@@ -26,7 +26,7 @@ use super::{
     ClarityBackingStore, ClarityDatabase, ClarityDeserializable, NULL_BURN_STATE_DB,
     NULL_HEADER_DB, SpecialCaseHandler,
 };
-use crate::vm::analysis::{AnalysisDatabase, CheckErrorKind};
+use crate::vm::analysis::{AnalysisDatabase, RuntimeCheckErrorKind};
 use crate::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use crate::vm::types::QualifiedContractIdentifier;
 
@@ -81,7 +81,7 @@ pub fn sqlite_get_contract_hash(
     let contract_commitment = store
         .get_data(&key)?
         .map(|x| ContractCommitment::deserialize(&x))
-        .ok_or_else(|| CheckErrorKind::NoSuchContract(contract.to_string()))?;
+        .ok_or_else(|| RuntimeCheckErrorKind::NoSuchContract(contract.to_string()))?;
     let ContractCommitment {
         block_height,
         hash: contract_hash,
