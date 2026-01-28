@@ -8143,3 +8143,71 @@ fn signers_treat_signatures_as_precommits() {
     info!("------------------------- Shutdown -------------------------");
     signer_test.shutdown();
 }
+
+#[test]
+#[ignore]
+/// Ensure that the `/new_burn_block` payload includes data on individual PoX transactions.
+fn burn_block_payload_includes_pox_transactions() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    let mut miners = MultipleMinerTest::new(5, 0);
+
+    let (conf_1, _conf_2) = miners.get_node_configs();
+    miners.boot_to_epoch_3();
+    let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
+
+    info!("---- Starting test -----");
+
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
+        .expect("Failed to mine BTC block.");
+    miners.wait_for_chains(120);
+
+    let burn_blocks = test_observer::get_burn_blocks();
+    let new_burn_block = burn_blocks.last().unwrap();
+
+    info!("New burn block: {new_burn_block:?}";
+        "pox_transactions" => ?new_burn_block.pox_transactions,
+    );
+
+    let pox_transactions = new_burn_block.pox_transactions.clone();
+    assert_eq!(
+        pox_transactions.len(),
+        2,
+        "Expected 1 transaction from each miner"
+    );
+
+    let total_amt = new_burn_block
+        .reward_recipients
+        .iter()
+        .map(|r| r.amt)
+        .sum::<u64>();
+
+    let total_from_transactions = pox_transactions
+        .iter()
+        .map(|t| t.reward_recipients.iter().map(|r| r.amt).sum::<u64>())
+        .sum::<u64>();
+
+    assert_eq!(total_amt, total_from_transactions, "Expected the total sum from `reward_recipients` to match the total sum from `pox_transactions`");
+
+    let total_per_recipient: HashMap<PoxAddress, u64> = new_burn_block
+        .reward_recipients
+        .iter()
+        .map(|r| (r.recipient.clone(), r.amt))
+        .collect();
+
+    let mut total_per_recipient_from_transactions: HashMap<PoxAddress, u64> = HashMap::new();
+
+    for t in pox_transactions.iter() {
+        for r in t.reward_recipients.iter() {
+            if let Some(current) = total_per_recipient_from_transactions.get_mut(&r.recipient) {
+                *current += r.amt;
+            } else {
+                total_per_recipient_from_transactions.insert(r.recipient.clone(), r.amt);
+            }
+        }
+    }
+
+    assert_eq!(total_per_recipient, total_per_recipient_from_transactions);
+}
