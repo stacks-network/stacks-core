@@ -463,7 +463,10 @@ fn test_try_make_response_with_unsuccessful_transaction() {
         addr.clone().into(),
         &rpc_test.canonical_tip,
         &vec![deploy_tx.clone()],
-        &vec![],
+        &vec![blocksimulate::RPCNakamotoBlockSimulateMint {
+            principal: PrincipalData::from(&private_key),
+            amount: 3000,
+        }],
     );
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
