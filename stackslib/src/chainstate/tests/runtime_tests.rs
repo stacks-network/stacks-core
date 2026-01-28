@@ -33,7 +33,6 @@ use crate::chainstate::stacks::boot::test::{
 use crate::chainstate::tests::consensus::{
     contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, TestBlock, SK_1,
 };
-use crate::chainstate::tests::parse_tests;
 use crate::core::test_util::to_addr;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 
@@ -107,16 +106,6 @@ fn variant_coverage_report(variant: RuntimeError) {
             division_by_zero_cdeploy,
             division_by_zero_ccall,
         ]),
-        TypeParseFailure(_) => Tested(vec![
-            parse_tests::test_invalid_principal_literal,
-            principal_wrong_byte_length,
-        ]),
-        ASTError(_) => Unreachable_Functionally(
-            "AST errors cannot occur through normal Clarity operations. \
-            They exist only for CLI and testing functions that bypass AST parsing \
-            that occurs during a typical contract deploy. These wrapped `ParseError` \
-            are exhaustively covered by (`parse_tests`)."
-        ),
         MaxStackDepthReached => Tested(vec![
             stack_depth_too_deep_call_chain_ccall,
             stack_depth_too_deep_call_chain_cdeploy
@@ -592,20 +581,6 @@ fn arithmetic_zero_n_log_n_ccall() {
         function_args: &[],
         deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
         exclude_clarity_versions: &[ClarityVersion::Clarity1],
-    );
-}
-
-/// Error: [`RuntimeError::TypeParseFailure`]
-/// Caused by: invalid standard principal literal (wrong byte length)
-/// Outcome: block accepted.
-/// Note: Gets converted into [`clarity::vm::ast::errors::ParseErrorKind::InvalidPrincipalLiteral`]
-#[test]
-pub fn principal_wrong_byte_length() {
-    contract_deploy_consensus_test!(
-        contract_name: "wrong-byte-length",
-        contract_code: "
-;; This literal decodes via c32 but has the wrong byte length
-(define-constant my-principal 'S162RK3CHJPCSSK6BM757FW)",
     );
 }
 
