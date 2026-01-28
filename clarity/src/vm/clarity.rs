@@ -17,14 +17,15 @@ use std::fmt;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{
-    AnalysisDatabase, CheckErrorKind, ContractAnalysis, StaticCheckError, StaticCheckErrorKind,
+    AnalysisDatabase, ContractAnalysis, RuntimeCheckErrorKind, StaticCheckError,
+    StaticCheckErrorKind,
 };
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::VmExecutionError;
+use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
@@ -110,6 +111,15 @@ impl From<StaticCheckError> for ClarityError {
     }
 }
 
+impl From<ClarityEvalError> for ClarityError {
+    fn from(e: ClarityEvalError) -> Self {
+        match e {
+            ClarityEvalError::Parse(err) => ClarityError::from(err),
+            ClarityEvalError::Vm(err) => ClarityError::from(err),
+        }
+    }
+}
+
 /// Converts [`VmExecutionError`] to [`ClarityError`] for transaction execution contexts.
 ///
 /// This conversion is used in:
@@ -119,13 +129,13 @@ impl From<StaticCheckError> for ClarityError {
 ///
 /// # Notes
 ///
-/// - [`CheckErrorKind::MemoryBalanceExceeded`] and [`CheckErrorKind::CostComputationFailed`]
+/// - [`RuntimeCheckErrorKind::MemoryBalanceExceeded`] and [`RuntimeCheckErrorKind::CostComputationFailed`]
 ///   are intentionally not converted to [`ClarityError::CostError`].
-///   Instead, they remain wrapped in `ClarityError::Interpreter(VmExecutionError::Unchecked(CheckErrorKind::MemoryBalanceExceeded))`,
+///   Instead, they remain wrapped in `ClarityError::Interpreter(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::MemoryBalanceExceeded))`,
 ///   which causes the transaction to fail, but still be included in the block.
 ///
 /// - This behavior differs from direct conversions of [`StaticCheckError`] and [`ParseError`] to [`ClarityError`],
-///   where [`CheckErrorKind::MemoryBalanceExceeded`] is converted to [`ClarityError::CostError`],
+///   where [`RuntimeCheckErrorKind::MemoryBalanceExceeded`] is converted to [`ClarityError::CostError`],
 ///   during contract analysis.
 ///
 ///   As a result:
@@ -135,13 +145,13 @@ impl From<StaticCheckError> for ClarityError {
 impl From<VmExecutionError> for ClarityError {
     fn from(e: VmExecutionError) -> Self {
         match &e {
-            VmExecutionError::Unchecked(CheckErrorKind::CostBalanceExceeded(a, b)) => {
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CostBalanceExceeded(a, b)) => {
                 ClarityError::CostError(a.clone(), b.clone())
             }
-            VmExecutionError::Unchecked(CheckErrorKind::CostOverflow) => {
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CostOverflow) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            VmExecutionError::Unchecked(CheckErrorKind::ExecutionTimeExpired) => {
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExecutionTimeExpired) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => ClarityError::Interpreter(e),
@@ -194,9 +204,9 @@ pub trait ClarityConnection {
         sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
         to_do: F,
-    ) -> Result<R, VmExecutionError>
+    ) -> Result<R, ClarityEvalError>
     where
-        F: FnOnce(&mut Environment) -> Result<R, VmExecutionError>,
+        F: FnOnce(&mut Environment) -> Result<R, ClarityEvalError>,
     {
         let epoch_id = self.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);

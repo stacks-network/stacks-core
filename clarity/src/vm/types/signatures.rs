@@ -647,8 +647,8 @@ impl fmt::Display for FunctionArg {
 
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::CheckErrorKind::*;
-    use clarity_types::errors::{CheckErrorKind, ClarityTypeError};
+    use clarity_types::errors::RuntimeCheckErrorKind::*;
+    use clarity_types::errors::{ClarityTypeError, RuntimeCheckErrorKind};
     #[cfg(test)]
     use rstest::rstest;
     #[cfg(test)]
@@ -660,7 +660,11 @@ mod test {
     use crate::vm::types::QualifiedContractIdentifier;
     use crate::vm::{ClarityVersion, execute};
 
-    fn fail_parse(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> CheckErrorKind {
+    fn fail_parse(
+        val: &str,
+        version: ClarityVersion,
+        epoch: StacksEpochId,
+    ) -> RuntimeCheckErrorKind {
         use crate::vm::ast::parse;
         let expr = &parse(
             &QualifiedContractIdentifier::transient(),

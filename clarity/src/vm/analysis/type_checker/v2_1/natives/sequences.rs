@@ -137,20 +137,22 @@ pub fn check_special_map(
         }
     }
 
-    if let Err(mut check_error) = check_result {
-        if let StaticCheckErrorKind::IncorrectArgumentCount(expected, _actual) = *check_error.err {
-            check_error.err = Box::new(StaticCheckErrorKind::IncorrectArgumentCount(
+    if let Err(mut static_check_error) = check_result {
+        if let StaticCheckErrorKind::IncorrectArgumentCount(expected, _actual) =
+            *static_check_error.err
+        {
+            static_check_error.err = Box::new(StaticCheckErrorKind::IncorrectArgumentCount(
                 expected,
                 args.len().saturating_sub(1),
             ));
-            check_error.diagnostic = Diagnostic::err(check_error.err.as_ref());
+            static_check_error.diagnostic = Diagnostic::err(static_check_error.err.as_ref());
         }
         // accumulate the checking costs
         for cost in total_costs.into_iter() {
             checker.add_cost(cost?)?;
         }
 
-        return Err(check_error);
+        return Err(static_check_error);
     }
 
     let mapped_type = function_type.check_args(
