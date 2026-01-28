@@ -71,6 +71,18 @@ pub enum PoxAddress {
     Addr32(bool, PoxAddressType32, [u8; 32]),
 }
 
+/// Serde serialization module for converting a PoxAddress
+/// to and from base58.
+///
+/// Example:
+///
+/// ```rust
+/// #[derive(Serialize, Deserialize)]
+/// struct MyStruct {
+///     #[serde(with = "pox_addr_b58_serde")]
+///     pox_address: PoxAddress,
+/// }
+/// ```
 pub mod pox_addr_b58_serde {
     pub fn serialize<S: serde::Serializer>(
         val: &super::PoxAddress,
