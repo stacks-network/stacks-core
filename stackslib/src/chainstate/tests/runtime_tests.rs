@@ -64,42 +64,42 @@ fn variant_coverage_report(variant: RuntimeError) {
 
     _ = match variant {
         Arithmetic(_) => Tested(vec![
-                arithmetic_sqrti_neg_cdeploy,
-                arithmetic_sqrti_neg_ccall,
-                arithmetic_log2_neg_cdeploy,
-                arithmetic_log2_neg_ccall,
-                arithmetic_pow_large_cdeploy,
-                arithmetic_pow_large_ccall,
-                arithmetic_pow_neg_cdeploy,
-                arithmetic_pow_neg_ccall,
-                arithmetic_zero_n_log_n_cdeploy,
-                arithmetic_zero_n_log_n_ccall,
-            ]),
+            arithmetic_sqrti_neg_cdeploy,
+            arithmetic_sqrti_neg_ccall,
+            arithmetic_log2_neg_cdeploy,
+            arithmetic_log2_neg_ccall,
+            arithmetic_pow_large_cdeploy,
+            arithmetic_pow_large_ccall,
+            arithmetic_pow_neg_cdeploy,
+            arithmetic_pow_neg_ccall,
+            arithmetic_zero_n_log_n_cdeploy,
+            arithmetic_zero_n_log_n_ccall,
+        ]),
         ArithmeticOverflow => Tested(vec![
-                arithmetic_overflow_pow_at_cdeploy,
-                arithmetic_overflow_pow_ccall,
-                arithmetic_overflow_mul_cdeploy,
-                arithmetic_overflow_mul_ccall,
-                arithmetic_overflow_add_cdeploy,
-                arithmetic_overflow_add_ccall,
-                arithmetic_overflow_to_int_cdeploy,
-                arithmetic_overflow_to_int_ccall,
-                ft_mint_overflow,
-            ]),
+            arithmetic_overflow_pow_at_cdeploy,
+            arithmetic_overflow_pow_ccall,
+            arithmetic_overflow_mul_cdeploy,
+            arithmetic_overflow_mul_ccall,
+            arithmetic_overflow_add_cdeploy,
+            arithmetic_overflow_add_ccall,
+            arithmetic_overflow_to_int_cdeploy,
+            arithmetic_overflow_to_int_ccall,
+            ft_mint_overflow,
+        ]),
         ArithmeticUnderflow => Tested(vec![
-                to_uint_underflow_cdeploy,
-                to_uint_underflow_ccall,
-                sub_underflow_cdeploy,
-                sub_underflow_ccall,
-                sub_arg_len_underflow_cdeploy,
-                sub_arg_len_underflow_ccall,
-            ]),
+            to_uint_underflow_cdeploy,
+            to_uint_underflow_ccall,
+            sub_underflow_cdeploy,
+            sub_underflow_ccall,
+            sub_arg_len_underflow_cdeploy,
+            sub_arg_len_underflow_ccall,
+        ]),
         SupplyOverflow(_, _) => Tested(vec![ft_mint_supply_overflow]),
         SupplyUnderflow(_, _) => Unreachable_Functionally("
             Token supply underflow is prevented by design in Clarity. \
             All transfer/mint/burn operations use checked arithmetic and balance \
             validation, so negative supply is impossible without manual database corruption."
-            ),
+        ),
         DivisionByZero => Tested(vec![
             division_by_zero_mod_cdeploy,
             division_by_zero_mod_ccall,
@@ -107,49 +107,49 @@ fn variant_coverage_report(variant: RuntimeError) {
             division_by_zero_ccall,
         ]),
         MaxStackDepthReached => Tested(vec![
-                stack_depth_too_deep_call_chain_ccall,
-                stack_depth_too_deep_call_chain_cdeploy
-            ]),
+            stack_depth_too_deep_call_chain_ccall,
+            stack_depth_too_deep_call_chain_cdeploy
+        ]),
         MaxContextDepthReached => Unreachable_Functionally(
-                "The maximum context depth limit cannot be reached through normal Clarity code. \
+            "The maximum context depth limit cannot be reached through normal Clarity code. \
             Both the call-stack depth limit and the parser's expression-depth limit \
             are significantly lower and will trigger first. Only low-level Rust unit tests \
             can construct a context deep enough to hit this error."
         ),
         BadBlockHeight(_) => Unreachable_Functionally(
-                "All block heights referenced via `at-block` or `get-block-info?` are guaranteed \
+            "All block heights referenced via `at-block` or `get-block-info?` are guaranteed \
             to exist in the node's historical database during normal execution. \
             This error only surfaces if the chainstate is missing blocks or corrupted."
-            ),
+        ),
         NoSuchToken => Unreachable_Functionally(
-                "NFT operations return `none` when an instance does not exist. \
+            "NFT operations return `none` when an instance does not exist. \
             The `NoSuchToken` runtime error is only emitted from internal VM assertions \
             and cannot be triggered by regular Clarity code unless storage is manually corrupted."
-            ),
+        ),
         NotImplemented => Unreachable_Functionally(
-                "Indicates use of an unimplemented VM feature. \
+            "Indicates use of an unimplemented VM feature. \
             Can only be hit by directly invoking unfinished Rust internals – not reachable from Clarity."
-            ),
+        ),
         NoCallerInContext => Unreachable_Functionally(
-                "Every function call (public, private, or trait) is executed with a valid caller context. \
+            "Every function call (public, private, or trait) is executed with a valid caller context. \
             This error only appears when the execution environment is manually constructed incorrectly."
-            ),
+        ),
         NoSenderInContext => Unreachable_Functionally(
-                "Every on-chain transaction and contract-call has a well-defined sender. \
+            "Every on-chain transaction and contract-call has a well-defined sender. \
             This error only occurs in malformed test harnesses."
         ),
         UnknownBlockHeaderHash(_) => Tested(vec![unknown_block_header_hash_fork]),
         BadBlockHash(_) => Tested(vec![bad_block_hash]),
         UnwrapFailure => Tested(vec![
-                unwrap_err_panic_on_ok_runtime,
-                unwrap_panic_on_err_runtime
-            ]),
+            unwrap_err_panic_on_ok_runtime,
+            unwrap_panic_on_err_runtime
+        ]),
         DefunctPoxContract => Tested(vec![defunct_pox_contracts]),
         PoxAlreadyLocked => Ignored(
-                "The active PoX contract already returns ERR_STACKING_ALREADY_STACKED for double-locking attempts. \
+            "The active PoX contract already returns ERR_STACKING_ALREADY_STACKED for double-locking attempts. \
             The VM-level PoxAlreadyLocked error is only triggerable if locking occurs across PoX boundaries. \
             This is better suited for unit testing."
-            ),
+        ),
         BlockTimeNotAvailable => Tested(vec![block_time_not_available]),
         BadTokenName(_) => Ignored("Error variant tests should be added"),
     }
