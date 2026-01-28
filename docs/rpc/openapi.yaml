@@ -74,6 +74,13 @@ components:
           schema:
             type: string
           example: "Internal Server Error"
+    MethodNotAllowed:
+      description: Method Not Allowed
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: "Method Not Allowed. Allowed: GET"
     Timeout:
       description: Timeout
       content:
@@ -182,11 +189,13 @@ paths:
         - Size limits
       operationId: broadcastTransaction
       requestBody:
+        required: true
         content:
           application/octet-stream:
             schema:
               type: string
               format: binary
+              minLength: 1
             example: binary format of 00000000010400bed38c2aadffa348931bcb542880ff79d607afec000000000000000000000000000000c800012b0b1fff6cccd0974966dcd665835838f0985be508e1322e09fb3d751eca132c492bda720f9ef1768d14fdabed6127560ba52d5e3ac470dcb60b784e97dc88c9030200000000000516df0ba3e79792be7be5e50a370289accfc8c9e032000000000000303974657374206d656d6f00000000000000000000000000000000000000000000000000
           application/json:
             schema:
@@ -222,19 +231,23 @@ paths:
               examples:
                 transaction-submission-error:
                   $ref: "./components/examples/transaction-submission-error.example.json"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to decode transaction"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v2/contracts/interface/{contract_address}/{contract_name}:
+  /v2/contracts/interface/{deployer_address}/{contract_name}:
     get:
       summary: Get contract interface
-      description: Get contract interface using a `contract_address` and `contract name`
+      description: Get contract interface using a `deployer_address` and `contract name`
       tags:
         - Smart Contracts
       security: []
       operationId: getContractInterface
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - $ref: ./components/parameters/tip.yaml
       responses:
@@ -254,7 +267,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v2/map_entry/{contract_address}/{contract_name}/{map_name}:
+  /v2/map_entry/{deployer_address}/{contract_name}/{map_name}:
     post:
       summary: Get specific data-map inside a contract
       tags:
@@ -278,7 +291,7 @@ paths:
         - `proof`: The hex serialization of the Merkle proof for the data.
 
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: map_name
           in: path
@@ -295,6 +308,10 @@ paths:
           application/json:
             schema:
               type: string
+              minLength: 2
+              pattern: "^(0x)?([0-9a-fA-F]{2})+$"
+              description: Hex-encoded Clarity value (e.g. "0x0100000000000000000000000000000001")
+              example: "0x0100000000000000000000000000000001"
       responses:
         "200":
           description: Success
@@ -312,7 +329,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v2/contracts/source/{contract_address}/{contract_name}:
+  /v2/contracts/source/{deployer_address}/{contract_name}:
     get:
       summary: Get contract source
       tags:
@@ -323,7 +340,7 @@ paths:
         Returns the Clarity source code of a given contract, along with the
         block height it was published in, and the MARF proof for the data.
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - $ref: ./components/parameters/proof.yaml
         - $ref: ./components/parameters/tip.yaml
@@ -344,7 +361,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v2/contracts/call-read/{contract_address}/{contract_name}/{function_name}:
+  /v2/contracts/call-read/{deployer_address}/{contract_name}/{function_name}:
     post:
       summary: Call read-only function
       description: |
@@ -362,7 +379,7 @@ paths:
       security: []
       operationId: callReadOnlyFunction
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: function_name
           in: path
@@ -395,7 +412,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v3/contracts/fast-call-read/{contract_address}/{contract_name}/{function_name}:
+  /v3/contracts/fast-call-read/{deployer_address}/{contract_name}/{function_name}:
     post:
       summary: Call read-only function in fast mode (no cost and memory tracking)
       description: |
@@ -416,7 +433,7 @@ paths:
         - rpcAuth: []
       operationId: fastCallReadOnlyFunction
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: function_name
           in: path
@@ -577,7 +594,10 @@ paths:
               $ref: "#/components/schemas/FeeTransactionRequest"
             examples:
               fee-transaction-request:
-                $ref: "./components/examples/fee-transaction-request.example.json"
+                summary: Fee estimation request
+                value:
+                  estimated_len: 350
+                  transaction_payload: "021af942874ce525e87f21bbe8c121b12fac831d02f4086765742d696e666f0b7570646174652d696e666f00000000"
       responses:
         "200":
           description: Estimated fees for the transaction
@@ -594,6 +614,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FeeTransactionError"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to decode: Failed to parse JSON body"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -659,10 +683,16 @@ paths:
               examples:
                 pox-info:
                   $ref: "./components/examples/pox-info.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
       parameters:
         - $ref: ./components/parameters/tip.yaml
 
-  /v2/traits/{contract_address}/{contract_name}/{trait_contract_address}/{trait_contract_name}/{trait_name}:
+  /v2/traits/{deployer_address}/{contract_name}/{trait_deployer_address}/{trait_contract_name}/{trait_name}:
     get:
       summary: Get trait implementation details
       description: |
@@ -673,19 +703,15 @@ paths:
       security: []
       operationId: checkTraitImplementation
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
-        - name: trait_contract_address
+        - name: trait_deployer_address
           in: path
           required: true
           description: |
             Stacks address of the trait-defining contract.
           schema:
-            type: string
-            pattern: "^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}$"
-            minLength: 28
-            maxLength: 41
-            example: "SP2Z1K16238380NBP4T38A4G10A90Q03JJ2C2003"
+            $ref: './components/schemas/standard-principal.schema.yaml'
         - name: trait_contract_name
           in: path
           required: true
@@ -755,7 +781,7 @@ paths:
         - $ref: ./components/parameters/proof.yaml
         - $ref: ./components/parameters/tip.yaml
 
-  /v2/clarity/metadata/{contract_address}/{contract_name}/{clarity_metadata_key}:
+  /v2/clarity/metadata/{deployer_address}/{contract_name}/{clarity_metadata_key}:
     get:
       summary: Get the contract metadata for the metadata key
       tags:
@@ -785,17 +811,23 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: clarity_metadata_key
           in: path
           required: true
-          description: Metadata key
+          description: |
+            Metadata key. Must be either:
+            - "analysis" for contract analysis data
+            - "vm-metadata::N::TYPE" where N is the epoch (1-2 digits) and TYPE is one of:
+              contract, contract-size, contract-src, contract-data-size, or a valid Clarity name
           schema:
             type: string
+            pattern: "^(analysis)|(vm-metadata::\\d{1,2}::(contract|contract-size|contract-src|contract-data-size|[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*))$"
+            example: analysis
         - $ref: ./components/parameters/tip.yaml
 
-  /v2/constant_val/{contract_address}/{contract_name}/{constant_name}:
+  /v2/constant_val/{deployer_address}/{contract_name}/{constant_name}:
     get:
       summary: Get the value of a constant inside a contract
       tags:
@@ -825,7 +857,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
       parameters:
-        - $ref: ./components/parameters/contract-address.yaml
+        - $ref: ./components/parameters/deployer-address.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: constant_name
           in: path
@@ -855,13 +887,19 @@ paths:
               properties:
                 block:
                   type: string
-                  description: Hex-encoded block data
+                  minLength: 400
+                  pattern: "^([0-9a-fA-F]{2})+$"
+                  description: Hex-encoded block data (must be valid SIP-003 serialized block, typically 200+ bytes)
                 chain_id:
                   type: integer
+                  minimum: 0
                   description: Chain ID for the block
             examples:
               block-proposal-request:
-                $ref: "./components/examples/post-block-proposal-request.example.json"
+                summary: Block proposal request
+                value:
+                  block: "00000000000000001f00000000000927c08fb5ae5bf80e39e4168f6a3fddb0407a069d21ee68465e6856393254d2a66194f44bb01070666d5effcfb2436e209a75878fe80a04b4258a8cd34ab97c38a8dde331a2a509dd7e4b90590726866172cc138c18e80567737667f55d3f9817ce4714c91d1adfd36101141829dc0b5ea0c4944668c0005ddb6f9e2718f60014f21932a42a36ffaf58e88e77b217b2af366c15dd59e6b136ca773729832dcfc5875ec0830d04012dd5a4fa77a196646ea2b356289116fd02558c034b62d63f8a65bdd20d7ffc3fec6c266cd974be776a9e92759b90f288dcc2525b6b6bd5622c5f02e0922440e9ad1095c19b4467fd94566caa9755669d8e0000000180800000000400f64081ae6209dce9245753a4f764d6f168aae1af00000000000000000000000000000064000041dbcc7391991c1a18371eb49b879240247a3ec7f281328f53976c1218ffd65421dbb101e59370e2c972b29f48dc674b2de5e1b65acbd41d5d2689124d42c16c01010000000000051a346048df62be3a52bb6236e11394e8600229e27b000000000000271000000000000000000000000000000000000000000000000000000000000000000000"
+                  chain_id: 2147483648
       responses:
         "202":
           description: |
@@ -956,6 +994,13 @@ paths:
               examples:
                 stacker-set-error:
                   $ref: "./components/examples/get-stacker-set-400.example.json"
+        "404":
+          description: Reward cycle not found or does not exist
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "No such file or directory"
 
   /v3/blocks/{block_id}:
     get:
@@ -973,10 +1018,15 @@ paths:
       parameters:
         - name: block_id
           in: path
-          description: The block"s ID hash
+          description: The block's ID hash (64-character hex string)
           required: true
           schema:
             type: string
+            pattern: "^[0-9a-f]{64}$"
+            minLength: 64
+            maxLength: 64
+            examples:
+              - "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       responses:
         "200":
           description: The raw SIP-003-encoded block will be returned.
@@ -989,6 +1039,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -1003,10 +1055,12 @@ paths:
       parameters:
         - name: block_height
           in: path
-          description: The block's height
+          description: The block's height (max 4294967295)
           required: true
           schema:
             type: integer
+            minimum: 0
+            maximum: 4294967295
         - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
@@ -1059,10 +1113,15 @@ paths:
       parameters:
         - name: block_id
           in: path
-          description: The tenure-start block ID of the tenure to query
+          description: The tenure-start block ID of the tenure to query (64-character hex string)
           required: true
           schema:
             type: string
+            pattern: "^[0-9a-f]{64}$"
+            minLength: 64
+            maxLength: 64
+            examples:
+              - "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         - name: stop
           in: query
           description: |
@@ -1073,6 +1132,9 @@ paths:
           required: false
           schema:
             type: string
+            pattern: "^[0-9a-f]{64}$"
+            minLength: 64
+            maxLength: 64
       responses:
         "200":
           description: SIP-003-encoded Nakamoto blocks, concatenated together
@@ -1081,6 +1143,14 @@ paths:
               schema:
                 type: string
                 format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v3/tenures/blocks/{consensus_hash}:
     get:
@@ -1169,6 +1239,8 @@ paths:
           required: true
           schema:
             type: integer
+            minimum: 0
+            maximum: 4294967295
       responses:
         "200":
           description: List of Stacks blocks in the tenure
@@ -1257,7 +1329,7 @@ paths:
           description: Hex-encoded consensus hash (40 characters)
           schema:
             type: string
-            pattern: "^(0x)?[0-9a-f]{40}$"
+            pattern: "^[0-9a-f]{40}$"
       responses:
         "200":
           description: Sortition information for the consensus hash
@@ -1292,7 +1364,7 @@ paths:
           description: Hex-encoded burn header hash (64 characters)
           schema:
             type: string
-            pattern: "^(0x)?[0-9a-f]{64}$"
+            pattern: "^[0-9a-f]{64}$"
       responses:
         "200":
           description: Sortition information for the burn header hash
@@ -1324,10 +1396,11 @@ paths:
         - name: height
           in: path
           required: true
-          description: Burn block height (integer)
+          description: Burn block height (integer, max 4294967295)
           schema:
             type: integer
             minimum: 0
+            maximum: 4294967295
       responses:
         "200":
           description: Sortition information for the burn block height
@@ -1379,6 +1452,12 @@ paths:
                 $ref: "#/components/schemas/SignerBlocksSigned"
               example:
                 blocks_signed: 7
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v3/transaction/{txid}:
     get:
@@ -1408,6 +1487,8 @@ paths:
               examples:
                 transaction-info:
                   $ref: "./components/examples/get-transaction.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1502,12 +1583,16 @@ paths:
         - name: pages_indexes
           in: query
           required: true
-          description: Comma-separated list of page indexes to query
+          description: |
+            Comma-separated list of page indexes to query.
+            - Maximum 8 pages per request
+            - Each index must be 0-4294967295 (u32 range)
+            - Values outside u32 range return 400 Bad Request
           schema:
             type: string
             example: "1,2,3"
-            pattern: "^[0-9]+(,[0-9]+){0,7}$"
-            description: max 8 pages per request
+            # Pattern allows up to 10 digits; API validates u32 range at runtime
+            pattern: "^[0-9]{1,10}(,[0-9]{1,10}){0,7}$"
       responses:
         "200":
           description: Attachment inventory bitfield
@@ -1558,6 +1643,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1657,6 +1744,7 @@ paths:
             schema:
               type: string
               format: binary
+              minLength: 1
       responses:
         "200":
           description: Index-block hash of the accepted microblock
@@ -1684,15 +1772,16 @@ paths:
       description: |
         Get the latest version of a chunk of data from a StackerDB instance.
       parameters:
-        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/standard-principal.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: slot_id
           in: path
           required: true
-          description: Slot ID
+          description: Slot ID (u32 range)
           schema:
             type: integer
             minimum: 0
+            maximum: 4294967295
       responses:
         "200":
           description: StackerDB chunk data
@@ -1701,6 +1790,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1716,22 +1807,24 @@ paths:
       description: |
         Get a specific version of a chunk of data from a StackerDB instance.
       parameters:
-        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/standard-principal.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: slot_id
           in: path
           required: true
-          description: Slot ID
+          description: Slot ID (u32 range)
           schema:
             type: integer
             minimum: 0
+            maximum: 4294967295
         - name: slot_version
           in: path
           required: true
-          description: Specific slot version
+          description: Specific slot version (u32 range)
           schema:
             type: integer
             minimum: 0
+            maximum: 4294967295
       responses:
         "200":
           description: StackerDB chunk data
@@ -1757,7 +1850,7 @@ paths:
       description: |
         Get metadata about a StackerDB instance, including slot information.
       parameters:
-        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/standard-principal.yaml
         - $ref: ./components/parameters/contract-name.yaml
       responses:
         "200":
@@ -1798,7 +1891,7 @@ paths:
         detailed error information. Note that failed writes return HTTP 200 with
         accepted: false, not HTTP error codes.
       parameters:
-        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/standard-principal.yaml
         - $ref: ./components/parameters/contract-name.yaml
       requestBody:
         required: true
@@ -1808,7 +1901,12 @@ paths:
               $ref: "#/components/schemas/StackerDbChunkData"
             examples:
               stackerdb-chunk-request:
-                $ref: "./components/examples/stackerdb-chunk-data-request.example.json"
+                summary: StackerDB chunk data request
+                value:
+                  slot_id: 1
+                  slot_version: 2
+                  sig: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01"
+                  data: "deadbeefcafebabe"
       responses:
         "200":
           description: Chunk submission result (both success and failure cases)
@@ -1838,7 +1936,7 @@ paths:
       description: |
         Get a list of replicas for a StackerDB instance.
       parameters:
-        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/standard-principal.yaml
         - $ref: ./components/parameters/contract-name.yaml
       responses:
         "200":
@@ -1872,14 +1970,14 @@ paths:
         Fetch a data variable from a smart contract.
         Returns the raw hex-encoded value of the variable.
       parameters:
-        - $ref: ./components/parameters/principal.yaml
+        - $ref: ./components/parameters/standard-principal.yaml
         - $ref: ./components/parameters/contract-name.yaml
         - name: var_name
           in: path
           required: true
-          description: Variable name
+          description: Variable name (must be a valid Clarity name)
           schema:
-            type: string
+            $ref: "#/components/schemas/ClarityName"
         - $ref: ./components/parameters/proof.yaml
         - $ref: ./components/parameters/tip.yaml
       responses:
@@ -2125,6 +2223,7 @@ paths:
             schema:
               type: string
               format: binary
+              minLength: 1
               description: Binary-encoded Stacks block
       responses:
         "200":
@@ -2170,15 +2269,10 @@ paths:
             schema:
               type: string
               format: binary
+              minLength: 1
               description: |
                 Binary SIP-003 encoding of `MemPoolSyncData`
                 (`BloomFilter` or `TxTags` variants).
-              properties:
-                transactions:
-                  type: array
-                  items:
-                    type: string
-                    description: Transaction IDs
       responses:
         "200":
           description: Stream of missing transactions
@@ -2230,6 +2324,7 @@ paths:
             schema:
               type: string
               format: binary
+              minLength: 1
               description: Binary SIP-003 encoding of a `NakamotoBlock`
       responses:
         "200":

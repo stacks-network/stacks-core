@@ -527,6 +527,11 @@ fn test_http_response_type_codec() {
             "/v2/neighbors".to_string(),
         ),
         (
+            StacksHttpResponse::new_empty_error(&*http_error_from_code_and_text(405, "".into())),
+            "GET".to_string(),
+            "/v2/neighbors".to_string(),
+        ),
+        (
             StacksHttpResponse::new_empty_error(&*http_error_from_code_and_text(500, "".into())),
             "GET".to_string(),
             "/v2/neighbors".to_string(),
@@ -564,6 +569,11 @@ fn test_http_response_type_codec() {
         ),
         (
             StacksHttpResponse::new_empty_error(&*http_error_from_code_and_text(404, "foo".into())),
+            "GET".to_string(),
+            "/v2/neighbors".to_string(),
+        ),
+        (
+            StacksHttpResponse::new_empty_error(&*http_error_from_code_and_text(405, "foo".into())),
             "GET".to_string(),
             "/v2/neighbors".to_string(),
         ),
@@ -656,6 +666,7 @@ fn test_http_response_type_codec() {
         HttpResponsePreamble::error_text(402, http_reason(402), ""),
         HttpResponsePreamble::error_text(403, http_reason(403), ""),
         HttpResponsePreamble::error_text(404, http_reason(404), ""),
+        HttpResponsePreamble::error_text(405, http_reason(405), ""),
         HttpResponsePreamble::error_text(500, http_reason(500), ""),
         HttpResponsePreamble::error_text(503, http_reason(503), ""),
         // generic error
@@ -666,6 +677,7 @@ fn test_http_response_type_codec() {
         HttpResponsePreamble::error_text(402, http_reason(402), "foo"),
         HttpResponsePreamble::error_text(403, http_reason(403), "foo"),
         HttpResponsePreamble::error_text(404, http_reason(404), "foo"),
+        HttpResponsePreamble::error_text(405, http_reason(405), "foo"),
         HttpResponsePreamble::error_text(500, http_reason(500), "foo"),
         HttpResponsePreamble::error_text(503, http_reason(503), "foo"),
         // generic error
@@ -689,7 +701,8 @@ fn test_http_response_type_codec() {
         test_block_info.serialize_to_vec(),
         test_microblock_info_bytes.clone(),
         Txid([0x1; 32]).to_hex().as_bytes().to_vec(),
-        // errors
+        // errors (400, 401, 402, 403, 404, 405, 500, 503, 502)
+        vec![],
         vec![],
         vec![],
         vec![],
@@ -699,6 +712,7 @@ fn test_http_response_type_codec() {
         vec![],
         vec![],
         // errors with messages
+        "foo".as_bytes().to_vec(),
         "foo".as_bytes().to_vec(),
         "foo".as_bytes().to_vec(),
         "foo".as_bytes().to_vec(),
@@ -1219,6 +1233,7 @@ fn test_http_response_is_success() {
         (401, false), // Unauthorized
         (403, false), // Forbidden
         (404, false), // Not Found
+        (405, false), // Method Not Allowed
         (418, false), // I'm a teapot
         (429, false), // Too Many Requests
         (499, false), // Any other 4xx
@@ -1291,4 +1306,61 @@ fn test_send_request_success() {
         result.is_ok(),
         "Expected a successful request, but got {result:?}"
     );
+}
+
+#[test]
+fn test_http_error_responses() {
+    let valid_block_path = format!("/v3/blocks/{}", "0".repeat(64));
+
+    // (verb, path, expected_status, allow_header_should_contain)
+    let fixtures: Vec<(&str, &str, u16, Option<&str>)> = vec![
+        // 404: nonexistent path
+        ("GET", "/nonexistent/path", 404, None),
+        // 405: wrong method on existing path (should have Allow header)
+        ("DELETE", "/v2/info", 405, Some("GET")),
+        // 400: path structure matches but parameters invalid (permissive regex)
+        ("GET", "/v3/blocks/invalid_block_id", 400, None),
+        ("GET", "/v3/tenures/invalid", 400, None),
+        // Valid block_id format should NOT return 400
+        ("GET", &valid_block_path, 200, None),
+    ];
+
+    for (verb, path, expected_status, allow_contains) in fixtures {
+        let addr = "127.0.0.1:20443".parse().unwrap();
+        let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+
+        let request_data =
+            format!("{verb} {path} HTTP/1.1\r\nHost: localhost:20443\r\nConnection: close\r\n\r\n");
+
+        let (preamble, offset) = http.read_preamble(request_data.as_bytes()).unwrap();
+        let result = http.read_payload(&preamble, &request_data.as_bytes()[offset..]);
+
+        match result {
+            // Valid request parsed successfully
+            Ok((StacksHttpMessage::Request(_), _)) => {
+                assert_eq!(
+                    expected_status, 200,
+                    "{verb} {path}: parsed OK but expected {expected_status}"
+                );
+            }
+            // Server returned an error response (400, 404, 405, etc.)
+            Ok((StacksHttpMessage::Response(resp), _))
+            | Ok((StacksHttpMessage::Error(_, resp), _)) => {
+                assert_eq!(
+                    resp.preamble().status_code,
+                    expected_status,
+                    "{verb} {path}: expected {expected_status}, got {}",
+                    resp.preamble().status_code
+                );
+
+                // Verify Allow header is present for 405 responses
+                if let Some(expected_method) = allow_contains {
+                    let allow = resp.preamble().headers.get("allow");
+                    assert!(allow.is_some(), "{verb} {path}: missing Allow header");
+                    assert!(allow.unwrap().contains(expected_method));
+                }
+            }
+            Err(e) => panic!("{verb} {path}: unexpected error {e:?}"),
+        }
+    }
 }
