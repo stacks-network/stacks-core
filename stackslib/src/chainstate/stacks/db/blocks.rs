@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{cmp, fs, io};
 
-pub use clarity::vm::analysis::errors::{CheckErrorKind, StaticCheckError};
+pub use clarity::vm::analysis::errors::{RuntimeCheckErrorKind, StaticCheckError};
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::BurnStateDB;
@@ -2689,7 +2689,7 @@ impl StacksChainState {
     ) -> Result<bool, Error> {
         StacksChainState::has_any_i64(
             self.db(),
-            "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 LIMIT 1", 
+            "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 LIMIT 1",
             &[&parent_index_block_hash, &min_seq]
         )
     }
