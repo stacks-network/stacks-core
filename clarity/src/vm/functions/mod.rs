@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,18 +17,18 @@
 use clarity_types::errors::analysis::CommonCheckErrorKind;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
+use crate::vm::Value::CallableContract;
+use crate::vm::callables::{CallableType, NativeHandle, cost_input_sized_vararg};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
+use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, EarlyReturnError,
-    SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError,
+    EarlyReturnError, RuntimeCheckErrorKind, SyntaxBindingError, SyntaxBindingErrorType,
+    VmExecutionError, check_argument_count, check_arguments_at_least,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{PrincipalData, TypeSignature, Value};
-use crate::vm::Value::CallableContract;
-use crate::vm::{eval, is_reserved, Environment, LocalContext};
+use crate::vm::{Environment, LocalContext, eval, is_reserved};
 
 macro_rules! switch_on_global_epoch {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
@@ -627,7 +627,7 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value, VmExecuti
 fn native_begin(mut args: Vec<Value>) -> Result<Value, VmExecutionError> {
     match args.pop() {
         Some(v) => Ok(v),
-        None => Err(CheckErrorKind::RequiresAtLeastArguments(1, 0).into()),
+        None => Err(RuntimeCheckErrorKind::RequiresAtLeastArguments(1, 0).into()),
     }
 }
 
@@ -669,7 +669,7 @@ fn special_if(
                 eval(&args[2], env, context)
             }
         }
-        _ => Err(CheckErrorKind::TypeValueError(
+        _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
             Box::new(conditional),
         )
@@ -697,7 +697,7 @@ fn special_asserts(
                 Err(EarlyReturnError::AssertionFailed(Box::new(thrown)).into())
             }
         }
-        _ => Err(CheckErrorKind::TypeValueError(
+        _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
             Box::new(conditional),
         )
@@ -766,7 +766,9 @@ fn special_let(
     check_arguments_at_least(2, args)?;
 
     // parse and eval the bindings.
-    let bindings = args[0].match_list().ok_or(CheckErrorKind::BadLetSyntax)?;
+    let bindings = args[0]
+        .match_list()
+        .ok_or(RuntimeCheckErrorKind::BadLetSyntax)?;
 
     runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
 
@@ -780,7 +782,7 @@ fn special_let(
             if is_reserved(binding_name, env.contract_context.get_clarity_version()) ||
                 env.contract_context.lookup_function(binding_name).is_some() ||
                 inner_context.lookup_variable(binding_name).is_some() {
-                    return Err(CheckErrorKind::NameAlreadyUsed(binding_name.clone().into()).into())
+                    return Err(RuntimeCheckErrorKind::NameAlreadyUsed(binding_name.clone().into()).into())
                 }
 
             let binding_value = eval(var_sexp, env, &inner_context)?;
@@ -788,10 +790,8 @@ fn special_let(
             let bind_mem_use = binding_value.get_memory_use()?;
             env.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
-            if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-                if let CallableContract(trait_data) = &binding_value {
-                    inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
-                }
+            if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 && let CallableContract(trait_data) = &binding_value {
+                inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
             }
             inner_context.variables.insert(binding_name.clone(), binding_value);
             Ok(())
@@ -848,7 +848,7 @@ fn special_contract_of(
 
     let contract_ref = match &args[0].expr {
         SymbolicExpressionType::Atom(contract_ref) => contract_ref,
-        _ => return Err(CheckErrorKind::ContractOfExpectsTrait.into()),
+        _ => return Err(RuntimeCheckErrorKind::ContractOfExpectsTrait.into()),
     };
 
     let contract_identifier = match context.lookup_callable_contract(contract_ref) {
@@ -857,12 +857,14 @@ fn special_contract_of(
                 .database
                 .get_contract(&trait_data.contract_identifier)
                 .map_err(|_e| {
-                    CheckErrorKind::NoSuchContract(trait_data.contract_identifier.to_string())
+                    RuntimeCheckErrorKind::NoSuchContract(
+                        trait_data.contract_identifier.to_string(),
+                    )
                 })?;
 
             &trait_data.contract_identifier
         }
-        _ => return Err(CheckErrorKind::ContractOfExpectsTrait.into()),
+        _ => return Err(RuntimeCheckErrorKind::ContractOfExpectsTrait.into()),
     };
 
     let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
@@ -871,14 +873,14 @@ fn special_contract_of(
 
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::CheckErrorKind;
-    use clarity_types::VmExecutionError;
+    use clarity_types::errors::RuntimeCheckErrorKind;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
     use super::ClarityVersion;
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
+    use crate::vm::errors::VmExecutionError;
     use crate::vm::functions::database::{
         special_contract_call, special_get_burn_block_info, special_get_stacks_block_info,
         special_get_tenure_info,
@@ -927,7 +929,7 @@ mod test {
         let err = special_contract_of(&[non_atom], &mut env, &context).unwrap_err();
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(CheckErrorKind::ContractOfExpectsTrait)
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ContractOfExpectsTrait)
         );
     }
 
@@ -970,7 +972,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(CheckErrorKind::ContractOfExpectsTrait)
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ContractOfExpectsTrait)
         );
     }
 
@@ -1012,7 +1014,7 @@ mod test {
 
         assert!(matches!(
             err,
-            VmExecutionError::Unchecked(CheckErrorKind::BadLetSyntax)
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::BadLetSyntax)
         ));
     }
 
@@ -1021,8 +1023,7 @@ mod test {
         #[case] version: ClarityVersion,
         #[case] epoch: StacksEpochId,
     ) {
-        use clarity_types::errors::CheckErrorKind;
-        use clarity_types::VmExecutionError;
+        use clarity_types::errors::RuntimeCheckErrorKind;
 
         let mut marf = MemoryBackingStore::new();
         let mut global_context = GlobalContext::new(
@@ -1058,7 +1059,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(CheckErrorKind::GetTenureInfoExpectPropertyName)
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::GetTenureInfoExpectPropertyName)
         );
     }
 
@@ -1105,7 +1106,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(CheckErrorKind::GetBlockInfoExpectPropertyName)
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName)
         );
     }
 
@@ -1150,7 +1151,9 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(CheckErrorKind::GetStacksBlockInfoExpectPropertyName)
+            VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::GetStacksBlockInfoExpectPropertyName
+            )
         );
     }
 
@@ -1196,7 +1199,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(CheckErrorKind::NoSuchStacksBlockInfoProperty(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchStacksBlockInfoProperty(
                 "not-a-valid-stacks-prop".to_string()
             ))
         );
@@ -1245,7 +1248,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(CheckErrorKind::NoSuchBurnBlockInfoProperty(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchBurnBlockInfoProperty(
                 "not-a-valid-burn-prop".to_string()
             ))
         );
@@ -1290,7 +1293,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::Unchecked(CheckErrorKind::ContractCallExpectName)
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ContractCallExpectName)
         );
     }
 }

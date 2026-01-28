@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Stacks Open Internet Foundation
+// Copyright (C) 2023-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,7 +16,8 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use clarity::vm::analysis::CheckErrorKind;
+use clarity::vm::analysis::RuntimeCheckErrorKind;
+use clarity::vm::errors::ClarityTypeError;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::signatures::SequenceSubtype;
@@ -128,9 +129,9 @@ impl arbitrary::Arbitrary<'_> for FuzzClarityValue {
     }
 }
 
-pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, CheckErrorKind> {
+pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, RuntimeCheckErrorKind> {
     match me {
-        TypeSignature::NoType => Err(CheckErrorKind::CouldNotDetermineType),
+        TypeSignature::NoType => Err(RuntimeCheckErrorKind::CouldNotDetermineType),
         TypeSignature::IntType => match x {
             ClarityValue::Int(_) => Ok(true),
             _ => Ok(false),
@@ -244,9 +245,9 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Check
         }
         TypeSignature::CallableType(_)
         | TypeSignature::ListUnionType(_)
-        | TypeSignature::TraitReferenceType(_) => Err(CheckErrorKind::TraitReferenceUnknown(
-            "Unknown trait reference".into(),
-        )),
+        | TypeSignature::TraitReferenceType(_) => Err(
+            RuntimeCheckErrorKind::TraitReferenceUnknown("Unknown trait reference".into()),
+        ),
     }
 }
 
@@ -277,7 +278,7 @@ fn fuzz_sanitize(input: ClarityValue) {
         deserialize_unsanitized.unwrap_err();
     } else {
         let deser_value = match deserialize_unsanitized {
-            Err(SerializationError::BadTypeError(CheckErrorKind::TypeSignatureTooDeep)) => {
+            Err(SerializationError::BadTypeError(ClarityTypeError::TypeSignatureTooDeep)) => {
                 // pre-2.4, deserializer could error on types deeper than a deserialization limit of 16.
                 // with sanitization enabled (a 2.4-gated feature), these serializations are readable.
                 ClarityValue::deserialize_read(
@@ -298,8 +299,11 @@ fn fuzz_sanitize(input: ClarityValue) {
         true,
     ) {
         Ok(x) => x,
-        Err(SerializationError::BadTypeError(CheckErrorKind::TypeSignatureTooDeep)) => {
-            assert!(!did_strict_admit, "Unsanitized inputs may fail to deserialize, but they must have needed sanitization");
+        Err(SerializationError::BadTypeError(ClarityTypeError::TypeSignatureTooDeep)) => {
+            assert!(
+                !did_strict_admit,
+                "Unsanitized inputs may fail to deserialize, but they must have needed sanitization"
+            );
             // check that the sanitized value *is* readable
             let serialized = sanitized_value
                 .serialize_to_vec()
@@ -309,7 +313,7 @@ fn fuzz_sanitize(input: ClarityValue) {
                 Some(&computed_type),
                 false,
             ) {
-                Err(SerializationError::BadTypeError(CheckErrorKind::TypeSignatureTooDeep)) => {
+                Err(SerializationError::BadTypeError(ClarityTypeError::TypeSignatureTooDeep)) => {
                     // pre-2.4, deserializer could error on legal types deeper than a deserialization limit of 16.
                     // with sanitization enabled (a 2.4-gated feature), these serializations are readable.
                     ClarityValue::deserialize_read(
