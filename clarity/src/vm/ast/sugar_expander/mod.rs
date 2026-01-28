@@ -20,6 +20,7 @@ use clarity_types::representations::ClarityName;
 use clarity_types::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
 use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
@@ -33,7 +34,11 @@ pub struct SugarExpander {
 }
 
 impl BuildASTPass for SugarExpander {
-    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()> {
+    fn run_pass(
+        contract_ast: &mut ContractAST,
+        _version: ClarityVersion,
+        _epoch: StacksEpochId,
+    ) -> ParseResult<()> {
         let pass = SugarExpander::new(contract_ast.contract_identifier.issuer.clone());
         pass.run(contract_ast)?;
         Ok(())

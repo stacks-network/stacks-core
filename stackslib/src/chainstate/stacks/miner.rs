@@ -662,8 +662,8 @@ impl TransactionResult {
                     if let ClarityError::Parse(ref parse_err) = error {
                         info!("Parse error: {}", parse_err; "txid" => %tx.txid());
                         match *parse_err.err {
-                            ParseErrorKind::ExpressionStackDepthTooDeep
-                            | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
+                            ParseErrorKind::ExpressionStackDepthTooDeep { .. }
+                            | ParseErrorKind::VaryExpressionStackDepthTooDeep { .. } => {
                                 info!("Problematic transaction failed AST depth check"; "txid" => %tx.txid());
                                 return (true, Error::ClarityError(error));
                             }

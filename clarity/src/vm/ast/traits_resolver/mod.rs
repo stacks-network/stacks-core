@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use clarity_types::representations::ClarityName;
 use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
@@ -31,7 +32,11 @@ use crate::vm::representations::{PreSymbolicExpression, TraitDefinition};
 pub struct TraitsResolver {}
 
 impl BuildASTPass for TraitsResolver {
-    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()> {
+    fn run_pass(
+        contract_ast: &mut ContractAST,
+        _version: ClarityVersion,
+        _epoch: StacksEpochId,
+    ) -> ParseResult<()> {
         let mut command = TraitsResolver::new();
         command.run(contract_ast)?;
         Ok(())

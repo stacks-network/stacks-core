@@ -145,7 +145,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         MaxLengthOverflow => Unreachable_ExpectLike,  // Should exceed u32 elements in memory.
         BadLetSyntax => Tested(vec![static_check_error_bad_let_syntax]),
         BadSyntaxBinding(syntax_binding_error) => Tested(vec![static_check_error_bad_syntax_binding]),
-        MaxContextDepthReached => Unreachable_Functionally("Before type checking runs, the parser enforces an AST nesting limit of (5 + 64). Any contract exceeding depth 69 fails with `ParseErrorKind::ExpressionStackDepthTooDeep`"),
+        MaxContextDepthReached => Unreachable_Functionally("Before type checking runs, the parser enforces an AST nesting limit of (5 + max call stack depth). Any contract exceeding that depth fails with `ParseErrorKind::ExpressionStackDepthTooDeep`"),
         UndefinedVariable(_) => Tested(vec![static_check_error_undefined_variable]),
         RequiresAtLeastArguments(_, _) => Tested(vec![static_check_error_requires_at_least_arguments]),
         RequiresAtMostArguments(_, _) => Tested(vec![static_check_error_requires_at_most_arguments]),

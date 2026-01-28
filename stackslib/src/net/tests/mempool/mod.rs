@@ -17,9 +17,10 @@
 use std::cell::RefCell;
 
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::max_call_stack_depth_for_epoch;
 use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::MAX_CALL_STACK_DEPTH;
 use rand::thread_rng;
+use stacks_common::types::StacksEpochId;
 
 use super::*;
 use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
@@ -757,7 +758,8 @@ fn test_mempool_sync_2_peers_problematic() {
     for i in 0..num_txs {
         let pk = &pks[i];
 
-        let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
+        let max_call_stack_depth = max_call_stack_depth_for_epoch(StacksEpochId::Epoch34);
+        let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (max_call_stack_depth as u64);
         let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
         let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
         let tx_exceeds_body = format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}");

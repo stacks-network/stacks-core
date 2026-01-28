@@ -51,7 +51,7 @@ pub mod clarity;
 
 use std::collections::BTreeMap;
 
-pub use clarity_types::MAX_CALL_STACK_DEPTH;
+pub use clarity_types::max_call_stack_depth_for_epoch;
 use costs::CostErrors;
 use stacks_common::types::StacksEpochId;
 
@@ -241,7 +241,7 @@ pub fn apply(
         return Err(RuntimeCheckErrorKind::CircularReference(vec![identifier.to_string()]).into());
     }
 
-    if env.call_stack.depth() >= MAX_CALL_STACK_DEPTH {
+    if env.call_stack.depth() >= max_call_stack_depth_for_epoch(*env.epoch()) {
         return Err(RuntimeError::MaxStackDepthReached.into());
     }
 

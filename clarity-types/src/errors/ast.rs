@@ -15,7 +15,6 @@
 
 use std::{error, fmt};
 
-use crate::MAX_CALL_STACK_DEPTH;
 use crate::diagnostic::{DiagnosableError, Diagnostic, Level};
 use crate::errors::{CostErrors, LexerError};
 use crate::execution_cost::ExecutionCost;
@@ -46,9 +45,9 @@ pub enum ParseErrorKind {
     /// Number of expressions exceeds the maximum allowed limit.
     TooManyExpressions,
     /// Nesting depth of expressions exceeds the maximum allowed stack depth.
-    ExpressionStackDepthTooDeep,
+    ExpressionStackDepthTooDeep { max_depth: usize },
     /// Nesting depth of expressions exceeds the maximum allowed stack depth.
-    VaryExpressionStackDepthTooDeep,
+    VaryExpressionStackDepthTooDeep { max_depth: usize },
 
     // Semantic errors
     /// Failed to parse a string into an integer literal.
@@ -206,8 +205,8 @@ impl ParseError {
         matches!(
             *self.err,
             ParseErrorKind::InterpreterFailure
-                | ParseErrorKind::ExpressionStackDepthTooDeep
-                | ParseErrorKind::VaryExpressionStackDepthTooDeep
+                | ParseErrorKind::ExpressionStackDepthTooDeep { .. }
+                | ParseErrorKind::VaryExpressionStackDepthTooDeep { .. }
         )
     }
 
@@ -363,11 +362,9 @@ impl DiagnosableError for ParseErrorKind {
             ParseErrorKind::TraitReferenceUnknown(trait_name) => {
                 format!("use of undeclared trait <{trait_name}>")
             }
-            ParseErrorKind::ExpressionStackDepthTooDeep => format!(
-                "AST has too deep of an expression nesting. The maximum stack depth is {MAX_CALL_STACK_DEPTH}"
-            ),
-            ParseErrorKind::VaryExpressionStackDepthTooDeep => format!(
-                "AST has too deep of an expression nesting. The maximum stack depth is {MAX_CALL_STACK_DEPTH}"
+            ParseErrorKind::ExpressionStackDepthTooDeep { max_depth }
+            | ParseErrorKind::VaryExpressionStackDepthTooDeep { max_depth } => format!(
+                "AST has too deep of an expression nesting. The maximum stack depth is {max_depth}"
             ),
             ParseErrorKind::InvalidCharactersDetected => "invalid characters detected".into(),
             ParseErrorKind::InvalidEscaping => "invalid escaping detected in string".into(),
