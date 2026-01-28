@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::AnalysisDatabase;
 pub use super::errors::{
-    CheckErrorKind, StaticCheckError, StaticCheckErrorKind, SyntaxBindingError,
+    RuntimeCheckErrorKind, StaticCheckError, StaticCheckErrorKind, SyntaxBindingError,
     check_argument_count, check_arguments_at_least,
 };
 use crate::vm::ClarityVersion;
@@ -568,9 +568,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns `true` iff the function application is read-only.
     ///
     /// # Errors
-    /// - `CheckErrorKind::NonFunctionApplication` if there is no first expression, or if the first
+    /// - `StaticCheckErrorKind::NonFunctionApplication` if there is no first expression, or if the first
     ///   expression is not a `ClarityName`.
-    /// - `CheckErrorKind::UnknownFunction` if the first expression does not name a known function.
+    /// - `StaticCheckErrorKind::UnknownFunction` if the first expression does not name a known function.
     fn check_expression_application_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
@@ -584,8 +584,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .ok_or(StaticCheckErrorKind::NonFunctionApplication)?;
 
         if let Some(mut result) = self.try_check_native_function_is_read_only(function_name, args) {
-            if let Err(ref mut check_err) = result {
-                check_err.set_expressions(expressions);
+            if let Err(ref mut static_check_error) = result {
+                static_check_error.set_expressions(expressions);
             }
             result
         } else {

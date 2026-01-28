@@ -50,7 +50,7 @@ pub fn parse(
     source_code: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<Vec<crate::vm::representations::SymbolicExpression>, crate::vm::errors::VmExecutionError>
+) -> Result<Vec<crate::vm::representations::SymbolicExpression>, clarity_types::errors::ParseError>
 {
     let ast = build_ast(contract_identifier, source_code, &mut (), version, epoch)?;
     Ok(ast.expressions)
