@@ -17,9 +17,9 @@ use std::collections::{HashMap, VecDeque};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
-use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionVersion};
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
+use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
 use blockstack_lib::net::api::get_tenures_fork_info::{
     TenureForkingInfo, RPC_TENURE_FORKING_INFO_PATH,
 };
@@ -161,7 +161,7 @@ impl StacksClient {
     pub fn get_tenure_tip(
         &self,
         tenure_id: &ConsensusHash,
-    ) -> Result<StacksBlockHeaderTypes, ClientError> {
+    ) -> Result<BlockHeaderWithMetadata, ClientError> {
         debug!("StacksClient: Getting tenure tip";
                "consensus_hash" => %tenure_id,
         );
@@ -721,7 +721,10 @@ impl StacksClient {
     }
 
     fn tenure_tip_path(&self, consensus_hash: &ConsensusHash) -> String {
-        format!("{}/v3/tenures/tip/{consensus_hash}", self.http_origin)
+        format!(
+            "{}/v3/tenures/tip_metadata/{consensus_hash}",
+            self.http_origin
+        )
     }
 }
 
@@ -736,6 +739,7 @@ mod tests {
     use blockstack_lib::chainstate::stacks::boot::{
         NakamotoSignerEntry, PoxStartCycleInfo, RewardSet,
     };
+    use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
     use clarity::types::chainstate::{StacksBlockId, TrieHash};
     use clarity::util::hash::Sha512Trunc256Sum;
     use clarity::util::secp256k1::MessageSignature;
@@ -1077,7 +1081,7 @@ mod tests {
     fn get_tenure_tip_should_succeed() {
         let mock = MockServerClient::new();
         let consensus_hash = ConsensusHash([15; 20]);
-        let header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+        let anchored_header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
             version: 1,
             chain_length: 10,
             burn_spent: 10,
@@ -1090,10 +1094,15 @@ mod tests {
             signer_signature: vec![],
             pox_treatment: BitVec::ones(1).unwrap(),
         });
-        let response = build_get_tenure_tip_response(&header);
+        let with_metadata = BlockHeaderWithMetadata {
+            anchored_header,
+            burn_view: Some(ConsensusHash([15; 20])),
+        };
+
+        let response = build_get_tenure_tip_response(&with_metadata);
         let h = spawn(move || mock.client.get_tenure_tip(&consensus_hash));
         write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), header);
+        assert_eq!(h.join().unwrap().unwrap(), with_metadata);
     }
 
     #[test]

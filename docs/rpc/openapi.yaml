@@ -163,6 +163,8 @@ components:
       $ref: ./components/schemas/tenure-info.schema.yaml
     TenureTip:
       $ref: ./components/schemas/tenure-tip.schema.yaml
+    TenureTipMetadata:
+      $ref: ./components/schemas/tenure-tip-metadata.schema.yaml
     GetStackerSet:
       $ref: ./components/schemas/get-stacker-set.schema.yaml
     TenureBlocks:
@@ -2153,6 +2155,37 @@ paths:
               examples:
                 tenure-tip:
                   $ref: "./components/examples/get-tenure-tip.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/tenures/tip_metadata/{consensus_hash}:
+    get:
+      summary: Get tenure tip with metadata
+      tags:
+        - Blocks
+      security: []
+      operationId: getTenureTipMetadata
+      description: |
+        Get the tip block and associated metadata of a tenure identified by consensus hash.
+      parameters:
+        - name: consensus_hash
+          in: path
+          required: true
+          description: Consensus hash (40 characters)
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+      responses:
+        "200":
+          description: Tenure tip block information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenureTipMetadata"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":

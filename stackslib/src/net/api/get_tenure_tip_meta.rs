@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Stacks Open Internet Foundation
+// Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,9 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use regex::{Captures, Regex};
-use serde_json;
 use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksBlockHeaderTypes;
@@ -24,15 +22,21 @@ use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
+use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone)]
-pub struct RPCNakamotoTenureTipRequestHandler {
+pub struct NakamotoTenureTipMetadataRequestHandler {
     pub(crate) consensus_hash: Option<ConsensusHash>,
 }
 
-impl RPCNakamotoTenureTipRequestHandler {
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct BlockHeaderWithMetadata {
+    pub anchored_header: StacksBlockHeaderTypes,
+    pub burn_view: Option<ConsensusHash>,
+}
+
+impl NakamotoTenureTipMetadataRequestHandler {
     pub fn new() -> Self {
         Self {
             consensus_hash: None,
@@ -41,17 +45,17 @@ impl RPCNakamotoTenureTipRequestHandler {
 }
 
 /// Decode the HTTP request
-impl HttpRequest for RPCNakamotoTenureTipRequestHandler {
+impl HttpRequest for NakamotoTenureTipMetadataRequestHandler {
     fn verb(&self) -> &'static str {
         "GET"
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/tenures/tip/(?P<consensus_hash>[0-9a-f]{40})$"#).unwrap()
+        Regex::new(r#"^/v3/tenures/tip_metadata/(?P<consensus_hash>[0-9a-f]{40})$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v3/tenures/tip/:consensus_hash"
+        "/v3/tenures/tip_metadata/:consensus_hash"
     }
 
     /// Try to decode this request.
@@ -74,7 +78,7 @@ impl HttpRequest for RPCNakamotoTenureTipRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoTenureTipRequestHandler {
+impl RPCRequestHandler for NakamotoTenureTipMetadataRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.consensus_hash = None;
@@ -121,7 +125,7 @@ impl RPCRequestHandler for RPCNakamotoTenureTipRequestHandler {
                             ));
                         }
                     };
-                Ok(header_info.anchored_header)
+                Ok(header_info)
             });
 
         let tenure_tip = match tenure_tip_resp {
@@ -132,45 +136,23 @@ impl RPCRequestHandler for RPCNakamotoTenureTipRequestHandler {
         };
 
         let preamble = HttpResponsePreamble::ok_json(&preamble);
-        let body = HttpResponseContents::try_from_json(&tenure_tip)?;
+        let body = HttpResponseContents::try_from_json(&BlockHeaderWithMetadata {
+            anchored_header: tenure_tip.anchored_header,
+            burn_view: tenure_tip.burn_view,
+        })?;
+
         Ok((preamble, body))
     }
 }
 
 /// Decode the HTTP response
-impl HttpResponse for RPCNakamotoTenureTipRequestHandler {
+impl HttpResponse for NakamotoTenureTipMetadataRequestHandler {
     fn try_parse_response(
         &self,
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let tenure_tip: StacksBlockHeaderTypes = parse_json(preamble, body)?;
+        let tenure_tip: BlockHeaderWithMetadata = parse_json(preamble, body)?;
         Ok(HttpResponsePayload::try_from_json(tenure_tip)?)
-    }
-}
-
-impl StacksHttpRequest {
-    /// Make a new getinfo request to this endpoint
-    pub fn new_get_tenure_tip(host: PeerHost, consensus_hash: &ConsensusHash) -> StacksHttpRequest {
-        StacksHttpRequest::new_for_peer(
-            host,
-            "GET".into(),
-            format!("/v3/tenures/tip/{}", consensus_hash),
-            HttpRequestContents::new(),
-        )
-        .expect("FATAL: failed to construct request from infallible data")
-    }
-}
-
-impl StacksHttpResponse {
-    pub fn decode_tenure_tip(self) -> Result<StacksBlockHeaderTypes, NetError> {
-        let contents = self.get_http_payload_ok()?;
-        let response_json: serde_json::Value = contents.try_into()?;
-        let tenure_tip: StacksBlockHeaderTypes =
-            serde_json::from_value(response_json).map_err(|e| {
-                error!("Failed to decode JSON"; "err" => ?e);
-                Error::DecodeError("Failed to decode JSON".to_string())
-            })?;
-        Ok(tenure_tip)
     }
 }
