@@ -26,6 +26,11 @@ use crate::chainstate::stacks::address::PoxAddress;
 /// Message prefix for signed structured data. "SIP018" in ascii
 pub const STRUCTURED_DATA_PREFIX: [u8; 6] = [0x53, 0x49, 0x50, 0x30, 0x31, 0x38];
 
+/// Computes the SHA256 hash of a Clarity tuple.
+///
+/// # Panics
+///
+/// Panics if serialization of the value fails.
 pub fn structured_data_hash(value: Value) -> Sha256Sum {
     let mut bytes = vec![];
     value.serialize_write(&mut bytes).unwrap();
@@ -47,6 +52,10 @@ pub fn structured_data_message_hash(structured_data: Value, domain: Value) -> Sh
 
 /// Sign structured Clarity data with a given private key.
 /// Reference [SIP018](https://github.com/stacksgov/sips/blob/main/sips/sip-018/sip-018-signed-structured-data.md) for more information.
+///
+/// # Errors
+///
+/// Returns an error if signing fails.
 pub fn sign_structured_data(
     structured_data: Value,
     domain: Value,
@@ -56,7 +65,11 @@ pub fn sign_structured_data(
     private_key.sign(msg_hash.as_bytes())
 }
 
-// Helper function to generate domain for structured data hash
+/// Helper function to generate domain for structured data hash.
+///
+/// # Panics
+///
+/// Panics if the name or version contains non-ASCII characters.
 pub fn make_structured_data_domain(name: &str, version: &str, chain_id: u32) -> Value {
     Value::Tuple(
         TupleData::from_data(vec![
@@ -481,5 +494,14 @@ mod test {
     fn test_prefix_bytes() {
         let hex = to_hex(STRUCTURED_DATA_PREFIX.as_ref());
         assert_eq!(hex, "534950303138");
+    }
+
+    #[test]
+    fn test_structured_data_message_hash_consistency() {
+        let domain = make_structured_data_domain("Test", "1", CHAIN_ID_MAINNET);
+        let data = Value::UInt(100);
+        let hash1 = structured_data_message_hash(data.clone(), domain.clone());
+        let hash2 = structured_data_message_hash(data, domain);
+        assert_eq!(hash1, hash2);
     }
 }

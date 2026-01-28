@@ -12,6 +12,14 @@ pub mod test {
 
     use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
+    /// Executes a closure with a specified timeout.
+    ///
+    /// Spawns a new thread to run `test_func`. If the function does not complete
+    /// within `timeout_secs`, the process panics.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `test_func` exceeds `timeout_secs` or if the spawned thread panics.
     pub fn with_timeout<F>(timeout_secs: u64, test_func: F)
     where
         F: FnOnce() + std::marker::Send + 'static + panic::UnwindSafe,
@@ -46,9 +54,7 @@ pub mod test {
     #[test]
     fn test_test_timeout() {
         with_timeout(2000000, || {
-            eprintln!("timeout test start...");
             sleep_ms(1000);
-            eprintln!("timeout test end");
         })
     }
 
@@ -56,7 +62,6 @@ pub mod test {
     #[should_panic]
     fn test_test_timeout_timeout() {
         with_timeout(1, || {
-            eprintln!("timeout panic test start...");
             sleep_ms(1000 * 1000);
         })
     }

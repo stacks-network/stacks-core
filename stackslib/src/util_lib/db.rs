@@ -278,6 +278,16 @@ impl FromColumn<Secp256k1PrivateKey> for Secp256k1PrivateKey {
     }
 }
 
+/// Converts a `u64` to `i64` for SQLite storage.
+///
+/// # Errors
+///
+/// Returns `Error::ParseError` if the value exceeds `i64::MAX`.
+/// Converts a `u64` to `i64` for SQLite storage.
+///
+/// # Errors
+///
+/// Returns `Error::ParseError` if the value exceeds `i64::MAX`.
 pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
     if x > (i64::MAX as u64) {
         return Err(Error::ParseError);
@@ -285,6 +295,16 @@ pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
     Ok(x as i64)
 }
 
+/// Converts an optional `u64` to optional `i64` for SQLite storage.
+///
+/// # Errors
+///
+/// Returns `Error::ParseError` if the value exceeds `i64::MAX`.
+/// Converts an optional `u64` to optional `i64` for SQLite storage.
+///
+/// # Errors
+///
+/// Returns `Error::ParseError` if the value exceeds `i64::MAX`.
 pub fn opt_u64_to_sql(x: Option<u64>) -> Result<Option<i64>, Error> {
     match x {
         Some(num) => {
@@ -391,7 +411,7 @@ fn log_sql_eqp(conn: &Connection, sql_query: &str) {
 #[cfg(not(test))]
 fn log_sql_eqp(_conn: &Connection, _sql_query: &str) {}
 
-/// boilerplate code for querying rows
+/// Queries multiple rows and maps them to type `T`.
 pub fn query_rows<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Vec<T>, Error>
 where
     P: Params,
@@ -404,8 +424,9 @@ where
     result.collect()
 }
 
-/// boilerplate code for querying a single row
-///   if more than 1 row is returned, excess rows are ignored.
+/// Queries a single row and maps it to type `T`.
+///
+/// Returns `None` if no rows are returned. Ignores excess rows.
 pub fn query_row<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Option<T>, Error>
 where
     P: Params,
@@ -420,8 +441,11 @@ where
     }
 }
 
-/// boilerplate code for querying a single row
-///   if more than 1 row is returned, panic
+/// Queries a single row and maps it to type `T`.
+///
+/// # Panics
+///
+/// Panics if the query returns more than one row.
 pub fn query_expect_row<T, P>(
     conn: &Connection,
     sql_query: &str,
@@ -446,6 +470,11 @@ where
     Ok(return_value)
 }
 
+/// Queries a single row and maps it to type `T`.
+///
+/// # Panics
+///
+/// Panics with a custom message if the query returns more than one row.
 pub fn query_row_panic<T, P, F>(
     conn: &Connection,
     sql_query: &str,
@@ -470,7 +499,7 @@ where
     Ok(return_value)
 }
 
-/// boilerplate code for querying a column out of a sequence of rows
+/// Queries a specific column from multiple rows.
 pub fn query_row_columns<T, P>(
     conn: &Connection,
     sql_query: &str,
@@ -495,8 +524,11 @@ where
     Ok(row_data)
 }
 
-/// boilerplate code for querying a column out of a sequence of rows,
-///  expecting exactly 0 or 1 results. panics if more.
+/// Queries a specific column from a single row.
+///
+/// # Panics
+///
+/// Panics if the query returns more than one row.
 pub fn query_one_row_column<T, P>(
     conn: &Connection,
     sql_query: &str,
@@ -525,7 +557,12 @@ where
     Ok(result)
 }
 
-/// Boilerplate for querying a single integer (first and only item of the query must be an int)
+/// Queries a single integer value.
+///
+/// # Errors
+///
+/// Returns `Error::Overflow` if multiple rows are returned.
+/// Returns `Error::NotFoundError` if no rows are returned.
 pub fn query_int<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
     P: Params,
@@ -545,6 +582,7 @@ where
     row_data.ok_or_else(|| Error::NotFoundError)
 }
 
+/// Alias for `query_int` used for counting rows.
 pub fn query_count<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
     P: Params,
@@ -552,8 +590,7 @@ where
     query_int(conn, sql_query, sql_args)
 }
 
-/// Run a PRAGMA statement.  This can't always be done via execute(), because it may return a result (and
-/// rusqlite does not like this).
+/// Executes a PRAGMA statement.
 pub fn sql_pragma(
     conn: &Connection,
     pragma_name: &str,
@@ -570,15 +607,14 @@ fn inner_sql_pragma(
     conn.pragma_update(None, pragma_name, pragma_value)
 }
 
-/// Run a VACUUM command
+/// Executes a VACUUM command on the database.
 pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
     conn.execute("VACUUM", NO_PARAMS)
         .map_err(Error::SqliteError)
         .map(|_| ())
 }
 
-/// Returns true if the database table `table_name` exists in the active
-///  database of the provided SQLite connection.
+/// Checks if a table exists in the database.
 pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_error> {
     let sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=?";
     conn.query_row(sql, &[table_name], |row| row.get::<_, String>(0))
@@ -586,8 +622,7 @@ pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_
         .map(|r| r.is_some())
 }
 
-/// Set up an on-disk database with a MARF index if they don't exist yet.
-/// Either way, returns the MARF path
+/// Ensures the database directory exists and returns the path to the MARF index.
 pub fn db_mkdirs(path_str: &str) -> Result<String, Error> {
     let mut path = PathBuf::from(path_str);
     match fs::metadata(path_str) {
@@ -611,7 +646,7 @@ pub fn db_mkdirs(path_str: &str) -> Result<String, Error> {
     Ok(marf_path)
 }
 
-/// Read-only connection to a MARF-indexed DB
+/// Read-only connection to a MARF-indexed DB.
 pub struct IndexDBConn<'a, C, T: MarfTrieId> {
     pub index: &'a MARF<T>,
     pub context: C,
@@ -640,7 +675,7 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
         get_ancestor_block_height(&self.index, ancestor_block_hash, tip_block_hash)
     }
 
-    /// Get a value from the fork index
+    /// Get a value from the fork index.
     pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
         let mut connection = self.index.reopen_connection()?;
         get_indexed(&mut connection, header_hash, key)
@@ -677,22 +712,17 @@ impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
     }
 }
 
-/// Called by `rusqlite` if we are waiting too long on a database lock
+/// Handler for SQLite busy states, delegating to `stacks_common`.
 pub fn tx_busy_handler(run_count: i32) -> bool {
     stacks_common::util::db::tx_busy_handler(run_count)
 }
 
-/// Begin an immediate-mode transaction, and handle busy errors with exponential backoff.
-/// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
-/// then we don't have to worry about any extra rollback logic.
+/// Begins an immediate transaction with busy handling.
 pub fn tx_begin_immediate(conn: &mut Connection) -> Result<DBTx<'_>, Error> {
     tx_begin_immediate_sqlite(conn).map_err(Error::from)
 }
 
-/// Begin an immediate-mode transaction, and handle busy errors with exponential backoff.
-/// Handling busy errors when the tx begins is preferable to doing it when the tx commits, since
-/// then we don't have to worry about any extra rollback logic.
-/// Sames as `tx_begin_immediate` except that it returns a rusqlite error.
+/// Begins an immediate transaction with busy handling, returning SQLite error.
 pub fn tx_begin_immediate_sqlite(conn: &mut Connection) -> Result<DBTx<'_>, sqlite_error> {
     conn.busy_handler(Some(tx_busy_handler))?;
     let tx = Transaction::new(conn, TransactionBehavior::Immediate)?;
@@ -728,7 +758,7 @@ fn inner_connection_open<P: AsRef<Path>>(
     Connection::open_with_flags(path, flags)
 }
 
-/// Open a database connection and set some typically-used pragmas
+/// Opens a SQLite connection with default pragmas.
 pub fn sqlite_open<P: AsRef<Path>>(
     path: P,
     flags: OpenFlags,
