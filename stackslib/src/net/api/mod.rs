@@ -18,6 +18,7 @@ use crate::net::httpcore::StacksHttp;
 use crate::net::Error as NetError;
 
 pub mod blockreplay;
+pub mod transactionsimulate;
 pub mod callreadonly;
 pub mod fastcallreadonly;
 pub mod get_tenure_tip_meta;
@@ -77,6 +78,9 @@ impl StacksHttp {
     /// Put your new RPC method handlers here.
     pub fn register_rpc_methods(&mut self) {
         self.register_rpc_endpoint(blockreplay::RPCNakamotoBlockReplayRequestHandler::new(
+            self.auth_token.clone(),
+        ));
+        self.register_rpc_endpoint(transactionsimulate::RPCTransactionSimulateRequestHandler::new(
             self.auth_token.clone(),
         ));
         self.register_rpc_endpoint(callreadonly::RPCCallReadOnlyRequestHandler::new(
