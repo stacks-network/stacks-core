@@ -478,14 +478,14 @@ mod test {
             write_length: u64::MAX,
             runtime: 1,
         };
-        let mut tracker = LimitedCostTracker::new_with_limit(StacksEpochId::Epoch33, limit);
+        let mut tracker = LimitedCostTracker::new_with_limit(StacksEpochId::latest(), limit);
 
         let err = build_ast(
             &QualifiedContractIdentifier::transient(),
             "(define-constant my-const u1)",
             &mut tracker,
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
         )
         .unwrap_err();
 
@@ -508,14 +508,14 @@ mod test {
             write_length: u64::MAX,
             runtime: expected_ast_parse_cost,
         };
-        let mut tracker = LimitedCostTracker::new_with_limit(StacksEpochId::Epoch33, limit);
+        let mut tracker = LimitedCostTracker::new_with_limit(StacksEpochId::latest(), limit);
 
         let err = build_ast(
             &QualifiedContractIdentifier::transient(),
             "(define-constant a 0)(define-constant b 1)", // no dependency = 0 graph edge
             &mut tracker,
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
         )
         .expect_err("Expected parse error, but found success!");
 
@@ -540,14 +540,14 @@ mod test {
             write_length: u64::MAX,
             runtime: expected_ast_parse_cost,
         };
-        let mut tracker = LimitedCostTracker::new_with_limit(StacksEpochId::Epoch33, limit);
+        let mut tracker = LimitedCostTracker::new_with_limit(StacksEpochId::latest(), limit);
 
         let err = build_ast(
             &QualifiedContractIdentifier::transient(),
             "(define-constant a 0)(define-constant b a)", // 1 dependency = 1 graph edge
             &mut tracker,
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
         )
         .expect_err("Expected parse error, but found success!");
 
@@ -573,8 +573,8 @@ mod test {
             &QualifiedContractIdentifier::transient(),
             &contract,
             &mut (),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
         )
         .expect_err("Expected parse error, but found success!");
 
@@ -595,8 +595,8 @@ mod test {
             &QualifiedContractIdentifier::transient(),
             &contract,
             &mut (),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
         )
         .expect_err("Expected parse error, but found success!");
 

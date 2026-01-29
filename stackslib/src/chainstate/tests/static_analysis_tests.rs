@@ -1100,7 +1100,11 @@ fn static_check_error_get_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
         contract_name: "info-exp-prop-name",
         contract_code: "(get-block-info? u1 u0)",
-        exclude_clarity_versions: &[ClarityVersion::Clarity3, ClarityVersion::Clarity4],
+        exclude_clarity_versions: &[
+            ClarityVersion::Clarity3,
+            ClarityVersion::Clarity4,
+            ClarityVersion::Clarity5
+        ],
     );
 }
 

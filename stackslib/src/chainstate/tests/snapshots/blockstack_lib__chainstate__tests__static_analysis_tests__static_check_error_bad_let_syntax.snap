@@ -123,4 +123,154 @@ expression: result
       runtime: 396,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1f6160edb7dec82f0581812d3c1b637993df5d154f008a4ff109b37ea72def00",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-let-syntax-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: invalid syntax of \'let\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 396,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 396,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d1b3497c7ed69e9085a3cef18b930264596c11099e7d7bb4b33827465c5607b4",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-let-syntax-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: invalid syntax of \'let\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 396,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 396,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "aa63fedffbf20b7a0e30b7f1db5f38d058158e49713c8d964126804edbc0fd05",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-let-syntax-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: invalid syntax of \'let\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 396,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 396,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e8c324efc440a5fefb97bf1fd778dfa339fdc7523b327168ba4c1e92ab678d36",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-let-syntax-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: invalid syntax of \'let\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 396,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 396,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d658dc38ca7e6675db7b75757abc3e2abb93edbabb81603c6d7458a369b452c8",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-let-syntax-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: invalid syntax of \'let\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 396,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 396,
+    ),
+  )),
 ]

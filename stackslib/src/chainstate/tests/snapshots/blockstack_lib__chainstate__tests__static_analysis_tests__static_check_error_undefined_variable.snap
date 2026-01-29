@@ -123,4 +123,154 @@ expression: result
       runtime: 517,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bc45f5b0bada619d61ac8ee8eeccca43390854613fb03abac484f7699f9f77e6",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: undefined-variable-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: use of unresolved variable \'x\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 517,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 517,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "959a7c9bf11925d0b8bb7bae1f81f9a8c0781404fff92dec5aac059c46f8a780",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: undefined-variable-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: use of unresolved variable \'x\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 517,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 517,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2b41b5af2bff3c8f8608da733a1802bef37d8e9d93279dd31b74f81baed9240a",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: undefined-variable-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: use of unresolved variable \'x\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 517,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 517,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "181434707c8e632b6ca2c8b46df5b7ee59be7dbfeffa6cc82ea0fe997468210e",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: undefined-variable-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: use of unresolved variable \'x\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 517,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 517,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4ae40ef5fd9f5f35272858a3ecc5e2e2646eb145239fab46f586428924add23d",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: undefined-variable-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: use of unresolved variable \'x\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 517,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 517,
+    ),
+  )),
 ]

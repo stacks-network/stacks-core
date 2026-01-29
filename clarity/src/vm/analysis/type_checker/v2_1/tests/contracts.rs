@@ -2545,7 +2545,10 @@ fn clarity_trait_experiments_downcast_literal_2(
         })
         .unwrap_err();
     match version {
-        ClarityVersion::Clarity2 | ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => {
+        ClarityVersion::Clarity2
+        | ClarityVersion::Clarity3
+        | ClarityVersion::Clarity4
+        | ClarityVersion::Clarity5 => {
             assert!(err.starts_with("ExpectedCallableType(PrincipalType)"))
         }
         ClarityVersion::Clarity1 => {
@@ -2747,7 +2750,10 @@ fn clarity_trait_experiments_trait_cast_incompatible(
                 assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
             }
         }
-        ClarityVersion::Clarity2 | ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => {
+        ClarityVersion::Clarity2
+        | ClarityVersion::Clarity3
+        | ClarityVersion::Clarity4
+        | ClarityVersion::Clarity5 => {
             assert!(err.starts_with("IncompatibleTrait"))
         }
     }

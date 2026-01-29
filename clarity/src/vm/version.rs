@@ -23,6 +23,7 @@ pub enum ClarityVersion {
     Clarity2,
     Clarity3,
     Clarity4,
+    Clarity5,
 }
 
 impl fmt::Display for ClarityVersion {
@@ -32,6 +33,7 @@ impl fmt::Display for ClarityVersion {
             ClarityVersion::Clarity2 => write!(f, "Clarity 2"),
             ClarityVersion::Clarity3 => write!(f, "Clarity 3"),
             ClarityVersion::Clarity4 => write!(f, "Clarity 4"),
+            ClarityVersion::Clarity5 => write!(f, "Clarity 5"),
         }
     }
 }
@@ -46,6 +48,7 @@ impl ClarityVersion {
         ClarityVersion::Clarity2,
         ClarityVersion::Clarity3,
         ClarityVersion::Clarity4,
+        ClarityVersion::Clarity5,
     ];
 
     pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
@@ -67,6 +70,7 @@ impl ClarityVersion {
             StacksEpochId::Epoch31 => ClarityVersion::Clarity3,
             StacksEpochId::Epoch32 => ClarityVersion::Clarity3,
             StacksEpochId::Epoch33 => ClarityVersion::Clarity4,
+            StacksEpochId::Epoch34 => ClarityVersion::Clarity5,
         }
     }
 
@@ -93,9 +97,11 @@ impl FromStr for ClarityVersion {
             Ok(ClarityVersion::Clarity3)
         } else if s == "clarity4" {
             Ok(ClarityVersion::Clarity4)
+        } else if s == "clarity5" {
+            Ok(ClarityVersion::Clarity5)
         } else {
             Err(
-                "Invalid clarity version. Valid versions are: Clarity1, Clarity2, Clarity3, Clarity4.",
+                "Invalid clarity version. Valid versions are: Clarity1, Clarity2, Clarity3, Clarity4, Clarity5.",
             )
         }
     }

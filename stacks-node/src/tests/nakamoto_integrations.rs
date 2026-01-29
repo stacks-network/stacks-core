@@ -147,7 +147,7 @@ use stacks::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::clarity::vm::clarity::ClarityConnection;
 
 lazy_static! {
-    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 12] = [
+    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 13] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -228,6 +228,13 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
             start_height: 252,
+            end_height: 253,
+            block_limit: HELIUM_BLOCK_LIMIT_20,
+            network_epoch: PEER_VERSION_EPOCH_3_2
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch34,
+            start_height: 253,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
@@ -14191,6 +14198,20 @@ fn test_epoch_3_3_activation() {
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
+    // Remove epochs beyond 3.3 for this test and extend epoch 3.3 to max height
+    {
+        let epochs = naka_conf
+            .burnchain
+            .epochs
+            .as_mut()
+            .expect("Missing burnchain epochs in config");
+        epochs.truncate_after(StacksEpochId::Epoch33);
+        epochs
+            .get_mut(StacksEpochId::Epoch33)
+            .expect("Missing epoch 3.3 in config")
+            .end_height = STACKS_EPOCH_MAX;
+    }
+
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
@@ -15134,7 +15155,7 @@ fn check_block_time_keyword() {
         naka_conf.burnchain.chain_id,
         contract_name,
         contract,
-        Some(ClarityVersion::Clarity4),
+        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     submit_tx(&http_origin, &contract_tx);
@@ -15428,7 +15449,7 @@ fn check_with_stacking_allowances_delegate_stx() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::Clarity4),
+        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -15843,7 +15864,7 @@ fn check_with_stacking_allowances_stack_stx() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::Clarity4),
+        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -16521,7 +16542,7 @@ fn check_restrict_assets_rollback() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::Clarity4),
+        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);
@@ -17237,7 +17258,7 @@ fn check_as_contract_rollback() {
         naka_conf.burnchain.chain_id,
         contract_name,
         &contract,
-        Some(ClarityVersion::Clarity4),
+        Some(ClarityVersion::latest()),
     );
     sender_nonce += 1;
     let deploy_txid = submit_tx(&http_origin, &contract_tx);

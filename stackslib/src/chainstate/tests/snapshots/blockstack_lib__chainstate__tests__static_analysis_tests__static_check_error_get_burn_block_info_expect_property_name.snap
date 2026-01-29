@@ -93,4 +93,124 @@ expression: result
       runtime: 1012,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "23ec99d94789a00d92dd062017856f40acf6cf12782d931bbddc5b1712e2cc68",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: burn-exp-prop-name-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: missing property name for burn block info introspection) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1012,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1012,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d239b153a3dd9ccd8d22ae8ac052a7ebaf164a68a6a2b59f7fbfe57249c54cdb",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: burn-exp-prop-name-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: missing property name for burn block info introspection) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1012,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1012,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f3285e7432e2e5d54a72e6497267bec7d99b475f64215b620d43c75c0fe8c940",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: burn-exp-prop-name-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: missing property name for burn block info introspection) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1012,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1012,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0d56487c7476e2a4e276deb7292aaffcddc56d243e55ca8b5e208a2497f4c1eb",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: burn-exp-prop-name-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: missing property name for burn block info introspection) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1012,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1012,
+    ),
+  )),
 ]

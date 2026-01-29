@@ -19,4 +19,24 @@ expression: result
     evaluated_epoch: Epoch33,
     error: "Invalid Stacks block fa5d21b679ea8e630f1a21d1487e476534e19793c8dccd4117111bcbe95b9039: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
   )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block e4ff148e44035fe5c3847dd2dad76013e47de1169cfa4c72f874fb863ce10f11: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block f49674f32aae9503d0895034e084ea1ef2d31634be5860c05f8b8433c9c4077d: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 1db9b3c907b99e3047ded7447795a2272241de680854d0ea3f319bf6d4950de0: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 6f4f30714bd268e6e191b1700bc8ed15a9ef33189232535690dc570cc44a79e2: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 7a8c481766794cfa5ca8b0e0543609ee44955fd06bd3bd55ea6c7dbfbe314de8: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+  )),
 ]
