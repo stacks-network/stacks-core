@@ -14198,6 +14198,20 @@ fn test_epoch_3_3_activation() {
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
+    // Remove epochs beyond 3.3 for this test and extend epoch 3.3 to max height
+    {
+        let epochs = naka_conf
+            .burnchain
+            .epochs
+            .as_mut()
+            .expect("Missing burnchain epochs in config");
+        epochs.truncate_after(StacksEpochId::Epoch33);
+        epochs
+            .get_mut(StacksEpochId::Epoch33)
+            .expect("Missing epoch 3.3 in config")
+            .end_height = STACKS_EPOCH_MAX;
+    }
+
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
