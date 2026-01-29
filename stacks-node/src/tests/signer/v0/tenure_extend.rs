@@ -5015,3 +5015,177 @@ fn single_miner_empty_sortition() {
     }
     signer_test.shutdown();
 }
+
+#[test]
+#[ignore]
+fn read_count_extend_after_burn_view_change() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let num_txs = 5;
+    let idle_timeout = Duration::from_secs(30);
+    let mut miners = MultipleMinerTest::new_with_config_modifications(
+        num_signers,
+        num_txs,
+        |signer_config| {
+            signer_config.block_proposal_timeout = Duration::from_secs(60);
+            signer_config.first_proposal_burn_block_timing = Duration::from_secs(0);
+            // use a different timeout to ensure that the correct timeout
+            //  is read by the miner
+            signer_config.tenure_idle_timeout = Duration::from_secs(36000);
+            signer_config.read_count_idle_timeout = idle_timeout;
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+            let epochs = config.burnchain.epochs.as_mut().unwrap();
+            let epoch_30_height = epochs[StacksEpochId::Epoch30].start_height;
+            epochs[StacksEpochId::Epoch30].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch31].start_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch31].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch32].start_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch32].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch33].start_height = epoch_30_height;
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+            config.miner.tenure_extend_cost_threshold = 0;
+            config.miner.read_count_extend_cost_threshold = 0;
+
+            let epochs = config.burnchain.epochs.as_mut().unwrap();
+            let epoch_30_height = epochs[StacksEpochId::Epoch30].start_height;
+            epochs[StacksEpochId::Epoch30].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch31].start_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch31].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch32].start_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch32].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch33].start_height = epoch_30_height;
+        },
+    );
+
+    let (conf_1, _) = miners.get_node_configs();
+    let (miner_pk_1, _) = miners.get_miner_public_keys();
+    let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
+
+    miners.pause_commits_miner_2();
+    miners.boot_to_epoch_3();
+
+    miners.pause_commits_miner_1();
+
+    let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
+
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
+        .unwrap();
+
+    miners.submit_commit_miner_1(&sortdb);
+
+    info!("------------------------- Miner 1 Wins Tenure A -------------------------");
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
+        .unwrap();
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    let tip_a_height = miners.get_peer_stacks_tip_height();
+    let prev_tip = get_chain_info(&conf_1);
+
+    info!("------------------------- Miner 2 Wins Tenure B -------------------------");
+    miners.submit_commit_miner_2(&sortdb);
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
+        .unwrap();
+    verify_sortition_winner(&sortdb, &miner_pkh_2);
+    miners.send_and_mine_transfer_tx(60).unwrap();
+    let tip_b_height = miners.get_peer_stacks_tip_height();
+    let tenure_b_ch = miners.get_peer_stacks_tip_ch();
+
+    info!("------------------------- Miner 1 Wins Tenure C with stale commit -------------------------");
+
+    // We can't use `submit_commit_miner_1` here because we are using the stale view
+    {
+        TEST_MINER_COMMIT_TIP.set(Some((prev_tip.pox_consensus, prev_tip.stacks_tip)));
+        let rl1_commits_before = miners
+            .signer_test
+            .running_nodes
+            .counters
+            .naka_submitted_commits
+            .load(Ordering::SeqCst);
+
+        miners
+            .signer_test
+            .running_nodes
+            .counters
+            .naka_skip_commit_op
+            .set(false);
+
+        wait_for(30, || {
+            let commits_after = miners
+                .signer_test
+                .running_nodes
+                .counters
+                .naka_submitted_commits
+                .load(Ordering::SeqCst);
+            let last_commit_tip = miners
+                .signer_test
+                .running_nodes
+                .counters
+                .naka_submitted_commit_last_stacks_tip
+                .load(Ordering::SeqCst);
+
+            Ok(commits_after > rl1_commits_before && last_commit_tip == prev_tip.stacks_tip_height)
+        })
+        .expect("Timed out waiting for miner 1 to submit a commit op");
+
+        miners
+            .signer_test
+            .running_nodes
+            .counters
+            .naka_skip_commit_op
+            .set(true);
+        TEST_MINER_COMMIT_TIP.set(None);
+    }
+
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .unwrap();
+    verify_sortition_winner(&sortdb, &miner_pkh_1);
+
+    info!(
+        "------------------------- Miner 1's proposal for C is rejected -------------------------"
+    );
+    let proposed_block = wait_for_block_proposal(60, tip_a_height + 1, &miner_pk_1).unwrap();
+    wait_for_block_global_rejection(
+        60,
+        &proposed_block.header.signer_signature_hash(),
+        num_signers,
+    )
+    .unwrap();
+
+    assert_eq!(miners.get_peer_stacks_tip_ch(), tenure_b_ch);
+
+    info!("------------------------- Miner 2 Extends Tenure B -------------------------");
+    wait_for_tenure_change_tx(60, TenureChangeCause::Extended, tip_b_height + 1).unwrap();
+
+    let final_height = miners.get_peer_stacks_tip_height();
+    assert_eq!(miners.get_peer_stacks_tip_ch(), tenure_b_ch);
+    assert!(final_height >= tip_b_height + 1);
+
+    info!("---- Waiting for a tenure extend ----");
+
+    // Now, wait for a block with a tenure extend
+    wait_for(idle_timeout.as_secs() + 10, || {
+        Ok(last_block_contains_tenure_change_tx(
+            TenureChangeCause::ExtendedReadCount,
+        ))
+    })
+    .expect("Timed out waiting for a block with a tenure extend");
+
+    miners.shutdown();
+}

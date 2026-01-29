@@ -1,4 +1,9 @@
 type: string
-pattern: "^([a-zA-Z0-9_]|[-!?+<>=/*]){1,128}$"
+description: |
+  A valid Clarity name. Must either:
+  - Start with a letter and contain only letters, numbers, and [-_!?+<>=/*]
+  - Be exactly one of the special characters: - + = * /
+  - Be a comparison operator: < > <= >=
+pattern: "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$"
 minLength: 1
 maxLength: 128

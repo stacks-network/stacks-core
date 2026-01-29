@@ -16,7 +16,7 @@
 use clarity_types::errors::ClarityTypeError;
 
 use crate::vm::errors::{
-    EarlyReturnError, RuntimeCheckErrorKind, SyntaxBindingError, VmExecutionError,
+    ClarityEvalError, EarlyReturnError, RuntimeCheckErrorKind, SyntaxBindingError, VmExecutionError,
 };
 use crate::vm::types::{
     ListData, SequenceData, TupleData, TupleTypeSignature, TypeSignature, Value,
@@ -298,7 +298,9 @@ fn test_set_response_variable() {
     "#;
     let contract_src = contract_src.to_string();
     assert_eq!(
-        Err(EarlyReturnError::UnwrapFailed(Box::new(Value::Int(5))).into()),
+        Err(ClarityEvalError::Vm(
+            EarlyReturnError::UnwrapFailed(Box::new(Value::Int(5))).into()
+        )),
         execute(&contract_src)
     );
 }
@@ -497,9 +499,9 @@ fn lists_system_2() {
 
     matches!(
         execute(test),
-        Err(VmExecutionError::RuntimeCheck(
+        Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
             RuntimeCheckErrorKind::TypeError(_, _)
-        ))
+        )))
     );
 }
 
@@ -564,9 +566,9 @@ fn lists_system() {
         println!("{test:#?}");
         assert!(matches!(
             test,
-            Err(VmExecutionError::RuntimeCheck(
+            Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
                 RuntimeCheckErrorKind::TypeValueError(_, _)
-            ))
+            )))
         ));
     }
 }
@@ -629,9 +631,9 @@ fn tuples_system() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(_, _))) => {
-                true
-            }
+            Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TypeValueError(_, _),
+            ))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -651,7 +653,7 @@ fn bad_define_maps() {
         "(define-map lists { name: int } contents 5)",
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
-    let expected: Vec<VmExecutionError> = vec![
+    let expected: Vec<ClarityEvalError> = vec![
         RuntimeCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0))
             .into(),
         RuntimeCheckErrorKind::UnknownTypeName("contents".to_string()).into(),
@@ -778,9 +780,9 @@ fn test_non_tuple_map_get_set() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(_, _))) => {
-                true
-            }
+            Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TypeValueError(_, _),
+            ))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
