@@ -34,6 +34,7 @@ use crate::chainstate::stacks::{BlockHeaderHash, TrieHash};
 pub mod cache;
 pub mod file;
 pub mod marf;
+pub mod marf_perfs;
 pub mod node;
 pub mod proofs;
 pub mod storage;
@@ -352,4 +353,41 @@ pub fn make_test_insert_data(
         ret.push(block_data);
     }
     ret
+}
+
+pub mod opts {
+    use std::sync::LazyLock;
+
+    use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+    use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
+
+    pub static OPTS_NOOP_IMM: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false));
+    pub static OPTS_NOOP_IMM_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true));
+    pub static OPTS_NOOP_IMM_COMP: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| OPTS_NOOP_IMM.clone().with_compression(true));
+    pub static OPTS_NOOP_IMM_EXT_COMP: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| OPTS_NOOP_IMM_EXT.clone().with_compression(true));
+    pub static OPTS_NOOP_DEF: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false));
+    pub static OPTS_NOOP_DEF_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true));
+    pub static OPTS_NOOP_DEF_COMP: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| OPTS_NOOP_DEF.clone().with_compression(true));
+    pub static OPTS_NOOP_DEF_EXT_COMP: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| OPTS_NOOP_DEF_EXT.clone().with_compression(true));
+
+    pub static OPTS_ALL_NOOP: LazyLock<Vec<MARFOpenOpts>> = LazyLock::new(|| {
+        vec![
+            OPTS_NOOP_IMM.clone(),
+            OPTS_NOOP_IMM_EXT.clone(),
+            OPTS_NOOP_IMM_COMP.clone(),
+            OPTS_NOOP_IMM_EXT_COMP.clone(),
+            OPTS_NOOP_DEF.clone(),
+            OPTS_NOOP_DEF_EXT.clone(),
+            OPTS_NOOP_DEF_COMP.clone(),
+            OPTS_NOOP_DEF_EXT_COMP.clone(),
+        ]
+    });
 }
