@@ -585,7 +585,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let latest_block = self
             .stacks_client
             .get_tenure_tip(&sortition_prior.consensus_hash)
-            .unwrap();
+            .unwrap()
+            .anchored_header;
         let latest_block_id =
             StacksBlockId::new(&sortition_prior.consensus_hash, &latest_block.block_hash());
 
@@ -642,7 +643,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let latest_block = self
             .stacks_client
             .get_tenure_tip(sortition_prior.stacks_parent_ch.as_ref().unwrap())
-            .unwrap();
+            .unwrap()
+            .anchored_header;
         let latest_block_id = StacksBlockId::new(
             sortition_prior.stacks_parent_ch.as_ref().unwrap(),
             &latest_block.block_hash(),
@@ -904,7 +906,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let latest_block = self
             .stacks_client
             .get_tenure_tip(&sortition_prior.consensus_hash)
-            .unwrap();
+            .unwrap()
+            .anchored_header;
         let latest_block_id =
             StacksBlockId::new(&sortition_prior.consensus_hash, &latest_block.block_hash());
 
@@ -984,7 +987,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let latest_block = self
             .stacks_client
             .get_tenure_tip(&sortition_parent.consensus_hash)
-            .unwrap();
+            .unwrap()
+            .anchored_header;
         let latest_block_id =
             StacksBlockId::new(&sortition_parent.consensus_hash, &latest_block.block_hash());
 
