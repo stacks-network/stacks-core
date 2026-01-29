@@ -184,13 +184,20 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             num_signers,
             initial_balances,
             |_| {},
-            |_| {},
+            |_, _| {},
             None,
             None,
         )
     }
 
-    pub fn new_with_config_modifications<F: FnMut(&mut SignerConfig), G: FnMut(&mut NeonConfig)>(
+    /// `node_config_modifier` is a function that modifies the node configuration.
+    /// The second parameter passed to it is the port of the test observer,
+    /// so the modifying code can ensure not to remove any registered event
+    /// observers with that port.
+    pub fn new_with_config_modifications<
+        F: FnMut(&mut SignerConfig),
+        G: FnMut(&mut NeonConfig, u16),
+    >(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
         signer_config_modifier: F,
@@ -209,14 +216,18 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         )
     }
 
+    /// `node_config_modifier` is a function that modifies the node configuration.
+    /// The second parameter passed to it is the port of the test observer,
+    /// so the modifying code can ensure not to remove any registered event
+    /// observers with that port.
     pub fn new_with_config_modifications_and_snapshot<
         F: FnMut(&mut SignerConfig),
-        G: FnMut(&mut NeonConfig),
+        G: FnMut(&mut NeonConfig, u16),
     >(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
         mut signer_config_modifier: F,
-        mut node_config_modifier: G,
+        node_config_modifier: G,
         btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,
         signer_stacks_private_keys: Option<Vec<StacksPrivateKey>>,
         snapshot_name: Option<&str>,
@@ -245,8 +256,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
         naka_conf.miner.activated_vrf_key_path =
             Some(format!("{}/vrf_key", naka_conf.node.working_dir));
-
-        node_config_modifier(&mut naka_conf);
 
         // Add initial balances to the config
         for (address, amount) in initial_balances.iter() {
@@ -1720,7 +1729,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     }
 }
 
-fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
+/// `node_config_modifier` is a function that modifies the node configuration.
+/// The second parameter passed to it is the port of the test observer,
+/// so the modifying code can ensure not to remove any registered event
+/// observers with that port.
+fn setup_stx_btc_node<G: FnMut(&mut NeonConfig, u16)>(
     mut naka_conf: NeonConfig,
     signer_stacks_private_keys: &[StacksPrivateKey],
     signer_configs: &[SignerConfig],
@@ -1744,18 +1757,15 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
 
     // Spawn a test observer for verification purposes
     let test_observer = TestObserver::spawn();
-    let observer_port = TestObserver::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![
+    test_observer.register(
+        &mut naka_conf,
+        &[
             EventKeyType::StackerDBChunks,
             EventKeyType::BlockProposal,
             EventKeyType::MinedBlocks,
             EventKeyType::BurnchainBlocks,
         ],
-        timeout_ms: 1000,
-        disable_retries: false,
-    });
+    );
 
     // The signers need some initial balances in order to pay for epoch 2.5 transaction votes
     let mut initial_balances = Vec::new();
@@ -1780,7 +1790,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
             }
         }
     }
-    node_config_modifier(&mut naka_conf);
+    node_config_modifier(&mut naka_conf, test_observer.port);
 
     info!("Make new BitcoinCoreController");
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);

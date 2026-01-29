@@ -77,7 +77,7 @@ fn tx_replay_forking_test() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -318,7 +318,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -519,7 +519,7 @@ fn tx_replay_btc_on_stx_invalidation() {
                 c.validate_with_replay_tx = true;
                 c.reset_replay_set_after_fork_blocks = 5;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.node.txindex = true;
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
@@ -769,7 +769,7 @@ fn tx_replay_failsafe() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -959,7 +959,7 @@ fn tx_replay_starts_correctly() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -1061,7 +1061,7 @@ fn tx_replay_disagreement() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -1239,7 +1239,7 @@ fn tx_replay_solved_by_mempool_txs() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -1344,7 +1344,7 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
         num_signers,
         vec![(sender_addr.clone(), (send_amt + send_fee) * num_txs)],
         |_| {},
-        |node_config| {
+        |node_config, _| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.miner.replay_transactions = true;
         },
@@ -1479,7 +1479,7 @@ fn tx_replay_with_fork_occured_before_starting_replaying_txs() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -1591,7 +1591,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
                 c.validate_with_replay_tx = true;
                 c.reset_replay_set_after_fork_blocks = 5;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -1723,7 +1723,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -1860,7 +1860,7 @@ fn tx_replay_with_fork_causing_replay_to_be_cleared_due_to_cycle() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -1976,7 +1976,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
                 c.tenure_idle_timeout = Duration::from_secs(10);
                 c.reset_replay_set_after_fork_blocks = 5;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -2167,7 +2167,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
                 c.validate_with_replay_tx = true;
                 c.tenure_idle_timeout = Duration::from_secs(10);
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -2355,7 +2355,7 @@ fn tx_replay_budget_exceeded_tenure_extend() {
                 c.validate_with_replay_tx = true;
                 c.tenure_idle_timeout = Duration::from_secs(60);
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =

@@ -88,7 +88,7 @@ fn read_count_extend_after_idle_signers() {
             config.tenure_idle_timeout = Duration::from_secs(36000);
             config.read_count_idle_timeout = idle_timeout;
         },
-        |node_config| {
+        |node_config, _| {
             node_config.miner.tenure_extend_cost_threshold = 0;
             node_config.miner.read_count_extend_cost_threshold = 0;
 
@@ -149,7 +149,7 @@ fn tenure_extend_after_idle_signers() {
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
-        |config| {
+        |config, _| {
             config.miner.tenure_extend_cost_threshold = 0;
         },
         None,
@@ -204,7 +204,7 @@ fn tenure_extend_with_other_transactions() {
             config.tenure_idle_timeout = idle_timeout;
             config.tenure_idle_timeout_buffer = Duration::from_secs(1);
         },
-        |config| {
+        |config, _| {
             config.miner.tenure_extend_cost_threshold = 0;
         },
         None,
@@ -314,7 +314,7 @@ fn tenure_extend_after_idle_signers_with_buffer() {
             config.tenure_idle_timeout = idle_timeout;
             config.tenure_idle_timeout_buffer = buffer;
         },
-        |config| {
+        |config, _| {
             config.miner.tenure_extend_cost_threshold = 0;
         },
         None,
@@ -406,7 +406,7 @@ fn tenure_extend_after_idle_miner() {
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
-        |config| {
+        |config, _| {
             config.miner.tenure_timeout = miner_idle_timeout;
             config.miner.tenure_extend_cost_threshold = 0;
         },
@@ -486,7 +486,7 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
-        |config| {
+        |config, _| {
             config.miner.tenure_timeout = miner_idle_timeout;
             config.miner.tenure_extend_cost_threshold = 0;
         },
@@ -572,7 +572,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
-        |config| {
+        |config, _| {
             config.miner.tenure_extend_cost_threshold = 0;
         },
         None,
@@ -705,7 +705,7 @@ fn idle_tenure_extend_active_mining() {
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
-        |config| {
+        |config, _| {
             // accept all proposals in the node
             config.connection_options.block_proposal_max_age_secs = u64::MAX;
             config.miner.tenure_extend_cost_threshold = 0;
@@ -1016,7 +1016,7 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
             signer_config.tenure_idle_timeout = Duration::from_millis(0);
             signer_config.read_count_idle_timeout = Duration::from_millis(0);
         },
-        |node_config| {
+        |node_config, _| {
             // boot directly to epoch 3.3
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
             let epoch_30_height = epochs[StacksEpochId::Epoch30].start_height;
@@ -1403,7 +1403,7 @@ fn tenure_extend_after_stale_commit_same_miner() {
             |signer_cfg| {
                 signer_cfg.block_proposal_timeout = Duration::from_minutes(60);
             },
-            |node_cfg| {
+            |node_cfg, _| {
                 node_cfg.miner.block_commit_delay = Duration::from_secs(0);
             },
             None,
@@ -1546,7 +1546,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
             |signer_cfg| {
                 signer_cfg.block_proposal_timeout = Duration::from_minutes(60);
             },
-            |node_cfg| {
+            |node_cfg, _| {
                 node_cfg.miner.block_commit_delay = Duration::from_secs(0);
             },
             None,
@@ -1714,7 +1714,7 @@ fn tenure_extend_cost_threshold() {
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
-        |config| {
+        |config, _| {
             config.miner.tenure_extend_cost_threshold = 5;
         },
         None,
@@ -2932,7 +2932,7 @@ fn burn_block_height_behavior() {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
         },
-        |_| {},
+        |_, _| {},
         None,
         None,
     );
@@ -3148,7 +3148,7 @@ fn new_tenure_no_winner_while_proposing_block() {
             |signer_cfg| {
                 signer_cfg.block_proposal_timeout = Duration::from_minutes(60);
             },
-            |node_cfg| {
+            |node_cfg, _| {
                 node_cfg.miner.block_commit_delay = Duration::from_secs(0);
             },
             None,
@@ -3308,7 +3308,7 @@ fn new_tenure_no_winner_while_proposing_block_then_rejected() {
             |signer_cfg| {
                 signer_cfg.block_proposal_timeout = Duration::from_minutes(60);
             },
-            |node_cfg| {
+            |node_cfg, _| {
                 node_cfg.miner.block_commit_delay = Duration::from_secs(0);
             },
             None,
@@ -3495,7 +3495,7 @@ fn new_tenure_no_winner_while_proposing_block_then_ignored() {
             |signer_cfg| {
                 signer_cfg.block_proposal_timeout = Duration::from_minutes(60);
             },
-            |node_cfg| {
+            |node_cfg, _| {
                 node_cfg.miner.block_commit_delay = Duration::from_secs(0);
             },
             None,
@@ -4161,7 +4161,7 @@ fn empty_sortition_before_approval() {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
         },
-        |_| {},
+        |_, _| {},
         None,
         None,
     );
@@ -4302,7 +4302,7 @@ fn empty_sortition_before_proposal() {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
         },
-        |_| {},
+        |_, _| {},
         None,
         None,
     );

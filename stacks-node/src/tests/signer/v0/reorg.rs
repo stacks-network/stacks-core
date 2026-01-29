@@ -107,7 +107,7 @@ fn reorg_attempts_count_towards_miner_validity() {
             config.block_proposal_timeout = block_proposal_timeout;
             config.reorg_attempts_activity_timeout = reorg_attempts_activity_timeout;
         },
-        |_| {},
+        |_, _| {},
         None,
         None,
     );
@@ -313,7 +313,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
             config.block_proposal_timeout = block_proposal_timeout;
             config.reorg_attempts_activity_timeout = reorg_attempts_activity_timeout;
         },
-        |config| {
+        |config, _| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
         },
         None,
@@ -1160,7 +1160,7 @@ fn global_acceptance_depends_on_block_announcement() {
             // Just accept all reorg attempts
             config.tenure_last_block_proposal_timeout = Duration::from_secs(0);
         },
-        |config| {
+        |config, _| {
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
         None,
@@ -1808,7 +1808,7 @@ fn forked_tenure_testing(
                 // need)
                 TEST_SKIP_BLOCK_BROADCAST.set(true);
             },
-            |config| {
+            |config, _| {
                 config.miner.tenure_cost_limit_per_block_percentage = None;
                 // this test relies on the miner submitting these timed out commits.
                 // the test still passes without this override, but the default timeout
@@ -2123,7 +2123,7 @@ fn bitcoind_forking_test() {
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
         |_| {},
-        |node_config| {
+        |node_config, _| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
             epochs[StacksEpochId::Epoch30].end_height = 3_015;
@@ -2408,7 +2408,7 @@ fn partial_tenure_fork() {
             signer_config.node_host = node_1_rpc_bind.clone();
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(0);
         },
-        |config| {
+        |config, _| {
             config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
             config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
@@ -3061,7 +3061,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
             // Just accept all reorg attempts
             config.tenure_last_block_proposal_timeout = Duration::from_secs(0);
         },
-        |config| {
+        |config, _| {
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
         None,
@@ -3296,7 +3296,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
             // Do not alow any reorg attempts essentially
             config.tenure_last_block_proposal_timeout = Duration::from_secs(100_000);
         },
-        |_| {},
+        |_, _| {},
         None,
         None,
     );
@@ -4485,7 +4485,7 @@ fn revalidate_unknown_parent() {
             // rely on actually checking that the block is processed
             signer_config.proposal_wait_for_parent_time = Duration::from_secs(600);
         },
-        |config| {
+        |config, _| {
             config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
             config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
             config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
@@ -4770,7 +4770,7 @@ fn new_tenure_while_validating_previous_scenario() {
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
         |_| {},
-        |_| {},
+        |_, _| {},
         None,
         None,
     );

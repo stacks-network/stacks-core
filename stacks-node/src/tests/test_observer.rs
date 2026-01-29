@@ -18,6 +18,7 @@ use warp::Filter;
 use {tokio, warp};
 
 use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
+use crate::tests::gen_random_port;
 use crate::Config;
 
 // Clones use the same underlying data.
@@ -37,6 +38,7 @@ pub struct TestObserver {
     stacker_sets: Arc<Mutex<Vec<(StacksBlockId, u64, RewardSet)>>>,
 
     shutdown: Sender<()>,
+    pub port: u16,
 }
 
 impl Drop for TestObserver {
@@ -47,8 +49,6 @@ impl Drop for TestObserver {
 }
 
 impl TestObserver {
-    pub const EVENT_OBSERVER_PORT: u16 = 50303;
-
     pub async fn handle_proposal_response(
         &self,
         response: serde_json::Value,
@@ -340,7 +340,7 @@ impl TestObserver {
             .and(warp::body::json())
             .and_then(|v| clone.handle_pox_stacker_set(v));
 
-        info!("Spawning event-observer warp server");
+        info!("Spawning event-observer warp server on port {port}");
         warp::serve(
             new_blocks
                 .or(mempool_txs)
@@ -365,10 +365,10 @@ impl TestObserver {
         info!("Event-observer warp server shut down");
     }
     pub fn spawn() -> TestObserver {
-        Self::spawn_at(Self::EVENT_OBSERVER_PORT)
+        Self::spawn_at(gen_random_port())
     }
 
-    pub fn spawn_at(port: u16) -> TestObserver {
+    fn spawn_at(port: u16) -> TestObserver {
         let (tx, rx) = channel::<()>(1);
         let result = TestObserver {
             new_blocks: Arc::new(Mutex::new(Vec::new())),
@@ -384,6 +384,7 @@ impl TestObserver {
             proposal_responses: Arc::new(Mutex::new(Vec::new())),
             stacker_sets: Arc::new(Mutex::new(Vec::new())),
             shutdown: tx,
+            port,
         };
         let result2 = result.clone();
         thread::spawn(move || {
@@ -534,9 +535,9 @@ impl TestObserver {
     }
 
     pub fn register(&self, config: &mut Config, event_keys: &[EventKeyType]) {
-        let port = Self::EVENT_OBSERVER_PORT;
+        let port = self.port;
         config.events_observers.insert(EventObserverConfig {
-            endpoint: format!("localhost:{port}"),
+            endpoint: format!("127.0.0.1:{port}"),
             events_keys: event_keys.to_vec(),
             timeout_ms: 1000,
             disable_retries: false,

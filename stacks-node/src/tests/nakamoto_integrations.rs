@@ -10894,7 +10894,7 @@ fn test_tenure_extend_from_flashblocks() {
         1,
         initial_balances,
         |_| {},
-        |_config| {},
+        |_config, _port| {},
         None,
         None,
     );

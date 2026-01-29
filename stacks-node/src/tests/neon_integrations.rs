@@ -40,7 +40,7 @@ use stacks::chainstate::stacks::{
     StacksTransaction, TenureChangeCause, TransactionContractCall, TransactionPayload,
 };
 use stacks::codec::StacksMessageCodec;
-use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
+use stacks::config::{EventKeyType, FeeEstimatorName, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MemPoolWalkTxTypes};
 use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
@@ -5247,6 +5247,9 @@ fn atlas_integration_test() {
         .initial_balances
         .push(initial_balance_user_1.clone());
 
+    // Start the attached observer
+    let test_observer = TestObserver::spawn();
+
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -5262,14 +5265,7 @@ fn atlas_integration_test() {
     conf_follower_node
         .initial_balances
         .push(initial_balance_user_1.clone());
-    conf_follower_node
-        .events_observers
-        .insert(EventObserverConfig {
-            endpoint: format!("localhost:{}", TestObserver::EVENT_OBSERVER_PORT),
-            events_keys: vec![EventKeyType::AnyEvent],
-            timeout_ms: 1000,
-            disable_retries: false,
-        });
+    test_observer.register_any(&mut conf_follower_node);
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
@@ -5564,9 +5560,6 @@ fn atlas_integration_test() {
         channel.stop_chains_coordinator();
     });
 
-    // Start the attached observer
-    let test_observer = TestObserver::spawn();
-
     // The bootstrap node mined a few blocks and is ready, let's setup this node.
     match follower_node_rx.recv() {
         Ok(Signal::BootstrapNodeReady) => {
@@ -5777,6 +5770,9 @@ fn antientropy_integration_test() {
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
 
+    // Start the attached observer
+    let test_observer = TestObserver::spawn();
+
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -5793,14 +5789,8 @@ fn antientropy_integration_test() {
     conf_follower_node
         .initial_balances
         .push(initial_balance_user_1);
-    conf_follower_node
-        .events_observers
-        .insert(EventObserverConfig {
-            endpoint: format!("localhost:{}", TestObserver::EVENT_OBSERVER_PORT),
-            events_keys: vec![EventKeyType::AnyEvent],
-            timeout_ms: 1000,
-            disable_retries: false,
-        });
+
+    test_observer.register_any(&mut conf_follower_node);
 
     conf_follower_node.node.mine_microblocks = true;
     conf_follower_node.miner.microblock_attempt_time_ms = 2_000;
@@ -5880,9 +5870,6 @@ fn antientropy_integration_test() {
 
         channel.stop_chains_coordinator();
     });
-
-    // Start the attached observer
-    let test_observer = TestObserver::spawn();
 
     // The bootstrap node mined a few blocks and is ready, let's setup this node.
     match follower_node_rx.recv() {

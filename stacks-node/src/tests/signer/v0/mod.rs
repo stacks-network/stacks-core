@@ -633,7 +633,7 @@ impl MultipleMinerTest {
                 signer_config.node_host = node_host.to_string();
                 signer_config_modifier(signer_config);
             },
-            |config| {
+            |config, test_observer_port| {
                 config.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
                 config.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
                 config.node.data_url = format!("http://{localhost}:{node_1_rpc}");
@@ -654,7 +654,7 @@ impl MultipleMinerTest {
                         );
                         return true;
                     };
-                    if addr.port() == TestObserver::EVENT_OBSERVER_PORT {
+                    if addr.port() == test_observer_port {
                         return true;
                     }
                     match signer_distributor(addr.port()) {
@@ -2641,7 +2641,7 @@ fn snapshot_test() {
             |config| {
                 config.tenure_idle_timeout = idle_timeout;
             },
-            |config| {
+            |config, _| {
                 config.miner.tenure_timeout = miner_idle_timeout;
                 config.miner.tenure_extend_cost_threshold = 0;
                 config.miner.activated_vrf_key_path =
@@ -2704,7 +2704,7 @@ fn empty_tenure_delayed() {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
         },
-        |node_config| {
+        |node_config, _| {
             node_config.miner.block_commit_delay = Duration::from_secs(2);
         },
         None,
@@ -2855,7 +2855,7 @@ fn mock_sign_epoch_25() {
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
         |_| {},
-        |node_config| {
+        |node_config, _| {
             node_config.miner.pre_nakamoto_mock_signing = true;
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
             epochs[StacksEpochId::Epoch25].end_height = 251;
@@ -3156,7 +3156,7 @@ fn signer_set_rollover() {
         num_signers,
         initial_balances,
         |_| {},
-        |naka_conf| {
+        |naka_conf, _| {
             for signer_config in new_signer_configs.clone() {
                 info!(
                     "---- Adding signer endpoint to naka conf ({}) ----",
@@ -3435,7 +3435,7 @@ fn min_gap_between_blocks() {
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * interim_blocks)],
         |_config| {},
-        |config| {
+        |config, _| {
             config.miner.min_time_between_blocks_ms = time_between_blocks_ms;
         },
         None,
@@ -3557,7 +3557,7 @@ fn duplicate_signers() {
         num_signers,
         vec![],
         |_| {},
-        |_| {},
+        |_, _| {},
         None,
         Some(signer_stacks_private_keys),
     );
@@ -4070,7 +4070,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
         |_config| {},
-        |config| {
+        |config, _| {
             // Accept all block proposals
             config.connection_options.block_proposal_max_age_secs = u64::MAX;
         },
@@ -4566,7 +4566,7 @@ fn block_commit_delay() {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = Duration::from_secs(600);
         },
-        |config| {
+        |config, _| {
             // Set the block commit delay to 10 minutes to ensure no block commit is sent
             config.miner.block_commit_delay = Duration::from_secs(600);
         },
@@ -4662,7 +4662,7 @@ fn block_validation_response_timeout() {
         |config| {
             config.block_proposal_validation_timeout = timeout;
         },
-        |_| {},
+        |_, _| {},
         None,
         None,
     );
@@ -4837,7 +4837,7 @@ fn block_validation_check_rejection_timeout_heuristic() {
         |config| {
             config.block_proposal_validation_timeout = timeout;
         },
-        |config| {
+        |config, _| {
             config.miner.block_rejection_timeout_steps.clear();
             config
                 .miner
@@ -4983,7 +4983,7 @@ fn block_validation_pending_table() {
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
         |_| {},
-        |_| {},
+        |_, _| {},
         None,
         None,
     );
@@ -5158,7 +5158,7 @@ fn block_proposal_max_age_rejections() {
         |config| {
             config.block_proposal_max_age_secs = 30;
         },
-        |_| {},
+        |_, _| {},
         None,
         None,
     );
@@ -5699,7 +5699,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
         num_signers,
         initial_balances,
         |_| {},
-        |naka_conf| {
+        |naka_conf, _| {
             info!(
                 "---- Adding signer endpoint to naka conf ({}) ----",
                 signer_config.endpoint
@@ -6044,7 +6044,7 @@ fn block_proposal_timeout() {
         |config| {
             config.block_proposal_timeout = block_proposal_timeout;
         },
-        |_| {},
+        |_, _| {},
         None,
         None,
     );
@@ -6148,7 +6148,7 @@ fn repeated_rejection() {
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * 3)],
         |_| {},
-        |config| {
+        |config, _| {
             config.miner.block_rejection_timeout_steps.clear();
             config
                 .miner
@@ -6260,7 +6260,7 @@ fn retry_proposal() {
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * 3)],
         |_| {},
-        |config| {
+        |config, _| {
             config.miner.block_rejection_timeout_steps.clear();
             config
                 .miner
@@ -6391,7 +6391,7 @@ fn signer_can_accept_rejected_block() {
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * 3)],
         |_| {},
-        |config| {
+        |config, _| {
             config.miner.block_rejection_timeout_steps.clear();
             config
                 .miner
@@ -6570,7 +6570,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         num_signers,
         initial_balances,
         |_| {},
-        |conf| {
+        |conf, _| {
             conf.miner.mempool_walk_strategy = strategy;
         },
         None,
@@ -6860,7 +6860,7 @@ fn larger_mempool() {
         num_signers,
         initial_balances,
         |_| {},
-        |conf| {
+        |conf, _| {
             conf.miner.mempool_walk_strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
         },
         None,
@@ -7807,7 +7807,7 @@ fn multiversioned_signer_protocol_version_calculation() {
             };
             signer_config.supported_signer_protocol_version = signer_version;
         },
-        |node_config| {
+        |node_config, _| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.miner.replay_transactions = true;
         },
@@ -7920,7 +7920,7 @@ fn contract_with_undefined_variable_compat() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
