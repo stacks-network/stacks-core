@@ -1,3 +1,17 @@
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 pub mod lexer;
 
 use clarity_types::representations::{ClarityName, ContractName};
@@ -7,13 +21,13 @@ use clarity_types::types::{
 };
 use stacks_common::util::hash::hex_bytes;
 
-use self::lexer::token::{PlacedToken, Token};
 use self::lexer::Lexer;
+use self::lexer::token::{PlacedToken, Token};
+use crate::vm::MAX_CALL_STACK_DEPTH;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult, PlacedError};
 use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
 use crate::vm::representations::{PreSymbolicExpression, Span};
-use crate::vm::MAX_CALL_STACK_DEPTH;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -216,9 +230,9 @@ impl<'a> Parser<'a> {
     ) -> ParseResult<Option<PreSymbolicExpression>> {
         match open_node {
             ParserStackElement::OpenList {
-                ref mut nodes,
-                ref mut span,
-                ref mut whitespace,
+                nodes,
+                span,
+                whitespace,
             } => {
                 if let Some(node) = node_opt {
                     if !*whitespace && node.match_comment().is_none() {
@@ -270,7 +284,7 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            ParserStackElement::OpenTuple(ref mut open_tuple) => {
+            ParserStackElement::OpenTuple(open_tuple) => {
                 self.handle_open_tuple(open_tuple, node_opt)
             }
         }
@@ -1538,7 +1552,9 @@ mod tests {
             }
         );
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong");
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            "veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong",
+        );
         assert!(!success);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].level, Level::Error);
@@ -2586,7 +2602,9 @@ mod tests {
 
     #[test]
     fn test_parse_tuple_comments() {
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("{ ;; before the key\n  foo ;; before the colon\n  : ;; after the colon\n  ;; comment on newline\n  bar ;; before comma\n  ,\n  ;; after comma\n baz : qux ;; before closing\n}");
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            "{ ;; before the key\n  foo ;; before the colon\n  : ;; after the colon\n  ;; comment on newline\n  bar ;; before comma\n  ,\n  ;; after comma\n baz : qux ;; before closing\n}",
+        );
         assert!(success);
         assert_eq!(stmts.len(), 1);
         assert!(diagnostics.is_empty());
@@ -2875,11 +2893,15 @@ mod tests {
             }
         );
 
-        let (stmts, diagnostics, success) =
-            parse_collect_diagnostics("'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name ");
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            "'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name ",
+        );
         assert!(!success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(stmts[0].match_placeholder().unwrap(), "'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name");
+        assert_eq!(
+            stmts[0].match_placeholder().unwrap(),
+            "'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name"
+        );
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             diagnostics[0].message,
@@ -3041,7 +3063,10 @@ mod tests {
             ".this-name-is-way-too-many-characters-to-be-a-legal-contract-name"
         );
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].message, "contract name 'this-name-is-way-too-many-characters-to-be-a-legal-contract-name' is too long");
+        assert_eq!(
+            diagnostics[0].message,
+            "contract name 'this-name-is-way-too-many-characters-to-be-a-legal-contract-name' is too long"
+        );
         assert_eq!(
             diagnostics[0].spans[0],
             Span {
@@ -3052,12 +3077,20 @@ mod tests {
             }
         );
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics(".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong");
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            ".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong",
+        );
         assert!(!success);
         assert_eq!(stmts.len(), 1);
-        assert_eq!(stmts[0].match_placeholder().unwrap(),".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong");
+        assert_eq!(
+            stmts[0].match_placeholder().unwrap(),
+            ".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong"
+        );
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].message, "illegal name (too long), 'veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong'");
+        assert_eq!(
+            diagnostics[0].message,
+            "illegal name (too long), 'veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong'"
+        );
         assert_eq!(
             diagnostics[0].spans[0],
             Span {
@@ -3219,11 +3252,16 @@ mod tests {
             }
         );
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("<veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong>");
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            "<veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong>",
+        );
         assert!(!success);
         assert_eq!(stmts.len(), 1);
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].message, "illegal name (too long), 'veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong'");
+        assert_eq!(
+            diagnostics[0].message,
+            "illegal name (too long), 'veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong'"
+        );
         assert_eq!(
             diagnostics[0].spans[0],
             Span {

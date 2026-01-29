@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -68,7 +68,8 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         TypeSignatureTooDeep => Tested(vec![static_check_error_type_signature_too_deep]),
         ExpectedName => Tested(vec![static_check_error_expected_name]),
         SupertypeTooLarge => Tested(vec![static_check_error_supertype_too_large]),
-        Expects(_) => Unreachable_ExpectLike,
+        ExpectsAcceptable(_) => Unreachable_ExpectLike,
+        ExpectsRejectable(_) => Unreachable_ExpectLike,
         BadMatchOptionSyntax(static_check_error_kind) => {
             Tested(vec![static_check_error_bad_match_option_syntax])
         }
@@ -743,7 +744,7 @@ fn static_check_error_unexpected_trait_or_field_reference() {
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::IncompatibleTrait`]
 /// Caused by: pass a trait to a trait parameter which is not compatible.
 /// Outcome: block accepted.
-/// Note: Added in Clarity 2. Clarity 1 will trigger a [`CheckErrorKind::TypeError`].
+/// Note: Added in Clarity 2. Clarity 1 will trigger a [`RuntimeCheckErrorKind::TypeError`].
 #[test]
 fn static_check_error_incompatible_trait() {
     contract_deploy_consensus_test!(
@@ -800,7 +801,7 @@ fn static_check_error_too_many_function_parameters() {
 /// Caused by: name is a reserved word
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1 and 2
-///       will trigger a [`CheckErrorKind::NameAlreadyUsed`].
+///       will trigger a [`RuntimeCheckErrorKind::NameAlreadyUsed`].
 #[test]
 fn static_check_error_reserved_word() {
     contract_deploy_consensus_test!(
@@ -824,7 +825,7 @@ fn static_check_error_no_such_block_info_property() {
 /// Caused by: referenced an unknown property of a stacks block
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1, and 2
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_no_such_stacks_block_info_property() {
     contract_deploy_consensus_test!(
@@ -965,7 +966,7 @@ fn static_check_error_contract_call_expect_name() {
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedCallableType`]
 /// Caused by: passing a non-callable constant as the contract principal in `contract-call?`.
 /// Outcome: block accepted.
-/// Note: This error was added in Clarity 2. Clarity 1 will trigger a [`CheckErrorKind::TraitReferenceUnknown`]
+/// Note: This error was added in Clarity 2. Clarity 1 will trigger a [`RuntimeCheckErrorKind::TraitReferenceUnknown`]
 #[test]
 fn static_check_error_expected_callable_type() {
     contract_deploy_consensus_test!(
@@ -1093,7 +1094,7 @@ fn static_check_error_bad_map_name() {
 /// Caused by: calling `get-block-info` with a non-atom property argument.
 /// Outcome: block accepted.
 /// Note: Only Clarity 1 and 2 will trigger this error. Clarity 3 and 4
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1107,7 +1108,7 @@ fn static_check_error_get_block_info_expect_property_name() {
 /// Caused by: calling `get-burn-block-info` with a non-atom property argument.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 2. Clarity 1 will trigger
-///       a [`CheckErrorKind::UnknownFunction`].
+///       a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_burn_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1121,7 +1122,7 @@ fn static_check_error_get_burn_block_info_expect_property_name() {
 /// Caused by: calling `get-stacks-block-info` with a non-atom property argument.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
-///       a [`CheckErrorKind::UnknownFunction`].
+///       a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_stacks_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1135,7 +1136,7 @@ fn static_check_error_get_stacks_block_info_expect_property_name() {
 /// Caused by: calling `get-tenure-info` with a non-atom property argument.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
-///       a [`CheckErrorKind::UnknownFunction`].
+///       a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_tenure_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1149,7 +1150,7 @@ fn static_check_error_get_tenure_info_expect_property_name() {
 /// Caused by: referenced an unknown property of a tenure
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1, and 2
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_no_such_tenure_info_property() {
     contract_deploy_consensus_test!(
@@ -1229,7 +1230,7 @@ fn static_check_error_at_block_closure_must_be_read_only() {
 /// Caused by: using an allowance expression outside of `restrict-assets?` or `as-contract?`.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_allowance_expr_not_allowed() {
     contract_deploy_consensus_test!(
@@ -1243,7 +1244,7 @@ fn static_check_error_allowance_expr_not_allowed() {
 /// Caused by: post-condition expects a list of asset allowances but received invalid input.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_expected_list_of_allowances() {
     contract_deploy_consensus_test!(
@@ -1257,7 +1258,7 @@ fn static_check_error_expected_list_of_allowances() {
 /// Caused by: allowance list contains a non-allowance expression.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_expected_allowance_expr() {
     contract_deploy_consensus_test!(
@@ -1271,7 +1272,7 @@ fn static_check_error_expected_allowance_expr() {
 /// Caused by: `restrict-assets?` allowance list contains `with-all-assets-unsafe`, which is forbidden.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_with_all_allowance_not_allowed() {
     contract_deploy_consensus_test!(
@@ -1285,7 +1286,7 @@ fn static_check_error_with_all_allowance_not_allowed() {
 /// Caused by: combining `with-all-assets-unsafe` with another allowance inside `as-contract?`.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_with_all_allowance_not_alone() {
     contract_deploy_consensus_test!(
@@ -1299,7 +1300,7 @@ fn static_check_error_with_all_allowance_not_alone() {
 /// Caused by: the third argument to `with-nft` is not a list of identifiers.
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_with_nft_expected_list_of_identifiers() {
     contract_deploy_consensus_test!(
@@ -1313,7 +1314,7 @@ fn static_check_error_with_nft_expected_list_of_identifiers() {
 /// Caused by: `with-nft` lists 130 identifiers, surpassing [`MAX_NFT_IDENTIFIERS`] (128).
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_max_identifier_length_exceeded() {
     contract_deploy_consensus_test!(
@@ -1332,7 +1333,7 @@ fn static_check_error_max_identifier_length_exceeded() {
 /// Caused by: allowance list supplies 130 entries, exceeding [`MAX_ALLOWANCES`] (128).
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-///       will trigger a [`CheckErrorKind::UnknownFunction`].
+///       will trigger a [`RuntimeCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_too_many_allowances() {
     contract_deploy_consensus_test!(

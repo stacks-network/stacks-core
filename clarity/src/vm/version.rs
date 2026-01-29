@@ -1,3 +1,17 @@
+// Copyright (C) 2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
 use std::str::FromStr;
 
@@ -37,7 +51,9 @@ impl ClarityVersion {
     pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
         match epoch_id {
             StacksEpochId::Epoch10 => {
-                warn!("Attempted to get default Clarity version for Epoch 1.0 where Clarity does not exist");
+                warn!(
+                    "Attempted to get default Clarity version for Epoch 1.0 where Clarity does not exist"
+                );
                 ClarityVersion::Clarity1
             }
             StacksEpochId::Epoch20 => ClarityVersion::Clarity1,
@@ -78,7 +94,9 @@ impl FromStr for ClarityVersion {
         } else if s == "clarity4" {
             Ok(ClarityVersion::Clarity4)
         } else {
-            Err("Invalid clarity version. Valid versions are: Clarity1, Clarity2, Clarity3, Clarity4.")
+            Err(
+                "Invalid clarity version. Valid versions are: Clarity1, Clarity2, Clarity3, Clarity4.",
+            )
         }
     }
 }

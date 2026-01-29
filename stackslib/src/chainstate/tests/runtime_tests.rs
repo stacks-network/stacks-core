@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -33,7 +33,6 @@ use crate::chainstate::stacks::boot::test::{
 use crate::chainstate::tests::consensus::{
     contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, TestBlock, SK_1,
 };
-use crate::chainstate::tests::parse_tests;
 use crate::core::test_util::to_addr;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 
@@ -107,16 +106,6 @@ fn variant_coverage_report(variant: RuntimeError) {
             division_by_zero_cdeploy,
             division_by_zero_ccall,
         ]),
-        TypeParseFailure(_) => Tested(vec![
-            parse_tests::test_invalid_principal_literal,
-            principal_wrong_byte_length,
-        ]),
-        ASTError(_) => Unreachable_Functionally(
-            "AST errors cannot occur through normal Clarity operations. \
-            They exist only for CLI and testing functions that bypass AST parsing \
-            that occurs during a typical contract deploy. These wrapped `ParseError` \
-            are exhaustively covered by (`parse_tests`)."
-        ),
         MaxStackDepthReached => Tested(vec![
             stack_depth_too_deep_call_chain_ccall,
             stack_depth_too_deep_call_chain_cdeploy
@@ -126,11 +115,6 @@ fn variant_coverage_report(variant: RuntimeError) {
             Both the call-stack depth limit and the parser's expression-depth limit \
             are significantly lower and will trigger first. Only low-level Rust unit tests \
             can construct a context deep enough to hit this error."
-        ),
-        BadTypeConstruction => Unreachable_Functionally(
-            "BadTypeConstruction is rejected during static analysis at contract-publish time. \
-            Any value construction that would produce an ill-formed type fails parsing or \
-            type-checking before the contract is stored on-chain."
         ),
         BadBlockHeight(_) => Unreachable_Functionally(
             "All block heights referenced via `at-block` or `get-block-info?` are guaranteed \
@@ -154,11 +138,6 @@ fn variant_coverage_report(variant: RuntimeError) {
             "Every on-chain transaction and contract-call has a well-defined sender. \
             This error only occurs in malformed test harnesses."
         ),
-        BadNameValue(_, _) => Unreachable_Functionally(
-            "Contract, function, trait, and variable names are fully validated during static analysis at publish time. \
-            The runtime only ever encounters already-validated names. \
-            Only corrupted state or manual VM manipulation can produce this error."
-        ),
         UnknownBlockHeaderHash(_) => Tested(vec![unknown_block_header_hash_fork]),
         BadBlockHash(_) => Tested(vec![bad_block_hash]),
         UnwrapFailure => Tested(vec![
@@ -172,6 +151,7 @@ fn variant_coverage_report(variant: RuntimeError) {
             This is better suited for unit testing."
         ),
         BlockTimeNotAvailable => Tested(vec![block_time_not_available]),
+        BadTokenName(_) => Ignored("Error variant tests should be added"),
     }
 }
 
@@ -400,7 +380,7 @@ fn sub_arg_len_underflow_ccall() {
     contract_call_consensus_test!(
         contract_name: "arg-len-underflow",
         contract_code: "
-(define-read-only (trigger) 
+(define-read-only (trigger)
   (- u5))
 ",
         function_name: "trigger",
@@ -575,7 +555,7 @@ fn arithmetic_pow_neg_ccall() {
 /// Error: [`RuntimeError::Arithmetic`]
 /// Caused by: calling nlogn with n = 0
 /// Outcome: block accepted at deploy time.
-/// Note: Returns a [`clarity::vm::analysis::CheckErrorKind::CostComputationFailed`] which wrapps the underlying [`RuntimeError::Arithmetic`] error.
+/// Note: Returns a [`clarity::vm::analysis::RuntimeCheckErrorKind::CostComputationFailed`] which wrapps the underlying [`RuntimeError::Arithmetic`] error.
 #[test]
 fn arithmetic_zero_n_log_n_cdeploy() {
     contract_deploy_consensus_test!(
@@ -589,7 +569,7 @@ fn arithmetic_zero_n_log_n_cdeploy() {
 /// Error: [`RuntimeError::Arithmetic`]
 /// Caused by: calling nlogn with n = 0
 /// Outcome: block accepted at call time.
-/// Note: Returns a [`clarity::vm::analysis::CheckErrorKind::CostComputationFailed`] which wrapps the underlying [`RuntimeError::Arithmetic`] error.
+/// Note: Returns a [`clarity::vm::analysis::RuntimeCheckErrorKind::CostComputationFailed`] which wrapps the underlying [`RuntimeError::Arithmetic`] error.
 #[test]
 fn arithmetic_zero_n_log_n_ccall() {
     contract_call_consensus_test!(
@@ -602,20 +582,6 @@ fn arithmetic_zero_n_log_n_ccall() {
         function_args: &[],
         deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
         exclude_clarity_versions: &[ClarityVersion::Clarity1],
-    );
-}
-
-/// Error: [`RuntimeError::TypeParseFailure`]
-/// Caused by: invalid standard principal literal (wrong byte length)
-/// Outcome: block accepted.
-/// Note: Gets converted into [`clarity::vm::ast::errors::ParseErrorKind::InvalidPrincipalLiteral`]
-#[test]
-pub fn principal_wrong_byte_length() {
-    contract_deploy_consensus_test!(
-        contract_name: "wrong-byte-length",
-        contract_code: "
-;; This literal decodes via c32 but has the wrong byte length
-(define-constant my-principal 'S162RK3CHJPCSSK6BM757FW)",
     );
 }
 
@@ -688,7 +654,7 @@ fn unknown_block_header_hash_fork() {
         contract_code: "
 (define-public (trigger)
   (ok
-    (at-block 
+    (at-block
       0x0202020202020202020202020202020202020202020202020202020202020202
       (+ 1 2)
     )
@@ -709,7 +675,7 @@ fn bad_block_hash() {
         contract_code: "
 (define-public (trigger)
   (ok
-    (at-block 
+    (at-block
       0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e
       (+ 1 2)
     )
@@ -728,7 +694,7 @@ fn unwrap_err_panic_on_ok_runtime() {
     contract_call_consensus_test!(
         contract_name: "unwrap-ok",
         contract_code: "
-(define-public (trigger (input (response uint uint))) 
+(define-public (trigger (input (response uint uint)))
     (ok (unwrap-err-panic input))
 )",
         function_name: "trigger",

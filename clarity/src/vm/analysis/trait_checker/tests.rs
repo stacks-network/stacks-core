@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,13 +20,13 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{type_check, StaticCheckError, StaticCheckErrorKind};
+use crate::vm::ClarityVersion;
+use crate::vm::analysis::{StaticCheckError, StaticCheckErrorKind, type_check};
 use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
-use crate::vm::ClarityVersion;
 
 #[apply(test_clarity_versions)]
 fn test_dynamic_dispatch_by_defining_trait(
@@ -501,8 +501,7 @@ fn test_nested_literal_implicitly_compliant(
         (define-public (wrapped-get-1 (contract <trait-1>))
             (contract-call? contract get-1 u0))";
     let nested_target_contract_src = "(define-public (get-1 (x uint)) (ok u1))";
-    let target_contract_src =
-        "(define-public (get-1 (x uint)) (contract-call? .dispatching-contract wrapped-get-1 .nested-target-contract))";
+    let target_contract_src = "(define-public (get-1 (x uint)) (contract-call? .dispatching-contract wrapped-get-1 .nested-target-contract))";
 
     let dispatching_contract_id =
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
