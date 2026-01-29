@@ -80,6 +80,7 @@ impl ClarityVersion {
             | ClarityVersion::Clarity2
             | ClarityVersion::Clarity3
             | ClarityVersion::Clarity4 => true,
+            ClarityVersion::Clarity5 => false,
         }
     }
 }
