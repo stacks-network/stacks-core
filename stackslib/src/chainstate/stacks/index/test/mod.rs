@@ -400,4 +400,16 @@ pub mod opts {
             OPTS_NOOP_DEF_EXT_COMP.clone(),
         ]
     });
+
+    #[template]
+    #[rstest]
+    #[case::imm(&opts::OPTS_NOOP_IMM)]
+    #[case::imm_ext(&opts::OPTS_NOOP_IMM_EXT)]
+    #[case::imm_comp(&opts::OPTS_NOOP_IMM_COMP)]
+    #[case::imm_ext_comp(&opts::OPTS_NOOP_IMM_EXT_COMP)]
+    #[case::def(&opts::OPTS_NOOP_DEF)]
+    #[case::def_ext(&opts::OPTS_NOOP_DEF_EXT)]
+    #[case::def_comp(&opts::OPTS_NOOP_DEF_COMP)]
+    #[case::def_ext_comp(&opts::OPTS_NOOP_DEF_EXT_COMP)]
+    pub fn tpl_all_opts_noop(#[case] marf_opts: &MARFOpenOpts) {}
 }
