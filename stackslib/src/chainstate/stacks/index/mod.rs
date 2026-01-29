@@ -149,7 +149,8 @@ impl MarfTrieId for BurnchainHeaderHash {}
 #[cfg(test)]
 impl MarfTrieId for BlockHeaderHash {}
 
-pub const MAX_PATCH_DEPTH: u32 = 16;
+/// Define the maximum node patching depth when MARF compression is enabled
+pub const MAX_PATCH_DEPTH: u32 = 4;
 
 /// Structure that holds the actual data in a MARF leaf node.
 /// It only stores the hash of some value string, but we add 8 extra bytes for future extensions.
