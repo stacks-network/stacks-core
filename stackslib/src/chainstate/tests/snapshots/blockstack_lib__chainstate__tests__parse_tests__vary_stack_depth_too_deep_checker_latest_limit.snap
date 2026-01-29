@@ -1,0 +1,42 @@
+---
+source: stackslib/src/chainstate/tests/parse_tests.rs
+expression: result
+---
+[
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 4a08ae6ba8711e8e94d3d1db954be342834d029dda2f277fe338b8ebe3bdcc77: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block eb85e5dfcfac8d2f2f1e9fa9e34f2d5695f8d2c561c695692b9b60212d007220: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 05dd1b7586665ec6d21e15a87397580e146a5cf3ee55ca8d9796b090f8b571f4: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block ac703a0c75befc6f05da28f028034a5af061ab04cdf6ac3680f6b82d7f759220: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 046342e6fbbfea24827996b71a79f565a1b544f01987eaf0e9c2246657de7936: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 128 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 128\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block c4cadcec06dd4c892f80cde9066300906b12347aa85e88007d9e1edd51b8f1bf: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 128 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 128\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 52dc4439be0926eb3f8985be76347653281815be10f7e570e67700ec5fc62aa5: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 128 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 128\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block d05a4118152eaf63fb9ff98cf5a0f3fbe1937b2db05af6fb60b6d05d2a6b28a1: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 128 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 128\", spans: [], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 28fde079c0138b6110092360c75043056f5dfcfbd962cf530d80a8363e44cb6f: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 128 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 128\", spans: [], suggestion: None } }))",
+  )),
+]
