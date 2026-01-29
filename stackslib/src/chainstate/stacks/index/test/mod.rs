@@ -36,6 +36,7 @@ pub mod file;
 pub mod marf;
 pub mod marf_perfs;
 pub mod node;
+pub mod node_patch;
 pub mod proofs;
 pub mod storage;
 pub mod trie;
