@@ -231,7 +231,7 @@ pub fn make_new_burn_block_payload(
         parent_burn_block_hash: parent_burn_block_hash.clone(),
         pox_transactions,
     })
-    .unwrap_or_default()
+    .expect("FATAL: Failed to serialized burn block payload")
 }
 
 const STATUS_RESP_TRUE: &str = "success";

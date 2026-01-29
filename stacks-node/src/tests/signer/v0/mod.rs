@@ -8201,11 +8201,10 @@ fn burn_block_payload_includes_pox_transactions() {
 
     for t in pox_transactions.iter() {
         for r in t.reward_recipients.iter() {
-            if let Some(current) = total_per_recipient_from_transactions.get_mut(&r.recipient) {
-                *current += r.amt;
-            } else {
-                total_per_recipient_from_transactions.insert(r.recipient.clone(), r.amt);
-            }
+            total_per_recipient_from_transactions
+                .entry(r.recipient.clone())
+                .and_modify(|amt| *amt += r.amt)
+                .or_insert(r.amt);
         }
     }
 
