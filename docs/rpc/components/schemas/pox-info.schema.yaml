@@ -125,7 +125,6 @@ properties:
           Any eligible stacks must be stacked before this block.
       blocks_until_prepare_phase:
         type: integer
-        minimum: 0
         description:
           The number of burn blocks until the prepare phase for this cycle
           starts. If the prepare phase for this cycle already started, this value
