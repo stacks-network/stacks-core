@@ -378,7 +378,17 @@ pub mod opts {
     pub static OPTS_NOOP_DEF_EXT_COMP: LazyLock<MARFOpenOpts> =
         LazyLock::new(|| OPTS_NOOP_DEF_EXT.clone().with_compression(true));
 
-    pub static OPTS_ALL_NOOP: LazyLock<Vec<MARFOpenOpts>> = LazyLock::new(|| {
+    pub static OPTS_N256_IMM_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "node256", true));
+    pub static OPTS_N256_DEF_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "node256", true));
+
+    pub static OPTS_EVER_IMM_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", true));
+    pub static OPTS_EVER_DEF_EXT: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", true));
+
+    pub static ALL_OPTS_NOOP: LazyLock<Vec<MARFOpenOpts>> = LazyLock::new(|| {
         vec![
             OPTS_NOOP_IMM.clone(),
             OPTS_NOOP_IMM_EXT.clone(),
