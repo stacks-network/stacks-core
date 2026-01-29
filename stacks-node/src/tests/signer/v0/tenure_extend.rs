@@ -5160,18 +5160,31 @@ fn read_count_extend_after_burn_view_change() {
     info!(
         "------------------------- Miner 1's proposal for C is rejected -------------------------"
     );
-    let proposed_block = wait_for_block_proposal(60, tip_a_height + 1, &miner_pk_1).unwrap();
+    let proposed_block = wait_for_block_proposal(
+        60,
+        tip_a_height + 1,
+        &miner_pk_1,
+        &miners.signer_test.running_nodes.test_observer,
+    )
+    .unwrap();
     wait_for_block_global_rejection(
         60,
         &proposed_block.header.signer_signature_hash(),
         num_signers,
+        &miners.signer_test.running_nodes.test_observer,
     )
     .unwrap();
 
     assert_eq!(miners.get_peer_stacks_tip_ch(), tenure_b_ch);
 
     info!("------------------------- Miner 2 Extends Tenure B -------------------------");
-    wait_for_tenure_change_tx(60, TenureChangeCause::Extended, tip_b_height + 1).unwrap();
+    wait_for_tenure_change_tx(
+        60,
+        TenureChangeCause::Extended,
+        tip_b_height + 1,
+        &miners.signer_test.running_nodes.test_observer,
+    )
+    .unwrap();
 
     let final_height = miners.get_peer_stacks_tip_height();
     assert_eq!(miners.get_peer_stacks_tip_ch(), tenure_b_ch);
@@ -5183,6 +5196,7 @@ fn read_count_extend_after_burn_view_change() {
     wait_for(idle_timeout.as_secs() + 10, || {
         Ok(last_block_contains_tenure_change_tx(
             TenureChangeCause::ExtendedReadCount,
+            &miners.signer_test.running_nodes.test_observer,
         ))
     })
     .expect("Timed out waiting for a block with a tenure extend");
