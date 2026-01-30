@@ -13,14 +13,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod cli;
+
 use std::io::Write;
-use std::path::PathBuf;
 use std::time::Instant;
 use std::{fs, io, process};
 
 use clarity::types::chainstate::SortitionId;
 use clarity::util::hash::{Sha512Trunc256Sum, to_hex};
 use clarity_cli::read_file_or_stdin;
+pub use cli::{
+    ContractHashArgs, ReplayMockMiningArgs, TryMineArgs, ValidateBlockArgs, ValidateBlockMode,
+};
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
@@ -46,75 +50,15 @@ use stackslib::chainstate::stacks::miner::*;
 use stackslib::chainstate::stacks::{Error as ChainstateError, *};
 use stackslib::clarity_vm::clarity::ClarityInstance;
 use stackslib::clarity_vm::database::GetTenureStartId;
-use stackslib::config::{Config, ConfigFile, DEFAULT_MAINNET_CONFIG};
+use stackslib::config::{Config, DEFAULT_MAINNET_CONFIG};
 use stackslib::core::*;
 use stackslib::cost_estimates::UnitEstimator;
 use stackslib::cost_estimates::metrics::UnitMetric;
 use stackslib::util_lib::db::IndexDBTx;
 
-/// Options common to many `stacks-inspect` subcommands
-/// Returned by `process_common_opts()`
 #[derive(Debug, Default)]
 pub struct CommonOpts {
     pub config: Option<Config>,
-}
-
-/// Process arguments common to many `stacks-inspect` subcommands and drain them from `argv`
-///
-/// Args:
-///  - `argv`: Full CLI args `Vec`
-///  - `start_at`: Position in args vec where to look for common options.
-///    For example, if `start_at` is `1`, then look for these options **before** the subcommand:
-///    ```console
-///    stacks-inspect --config testnet.toml replay-block path/to/chainstate
-///    ```
-pub fn drain_common_opts(argv: &mut Vec<String>, start_at: usize) -> CommonOpts {
-    let mut i = start_at;
-    let mut opts = CommonOpts::default();
-    while let Some(arg) = argv.get(i) {
-        let (prefix, opt) = arg.split_at(2);
-        if prefix != "--" {
-            // No args left to take
-            break;
-        }
-        // "Take" arg
-        i += 1;
-        match opt {
-            "config" => {
-                let path = &argv[i];
-                i += 1;
-                let config_file = ConfigFile::from_path(path).unwrap_or_else(|e| {
-                    panic!("Failed to read '{path}' as stacks-node config: {e}")
-                });
-                let config = Config::from_config_file(config_file, false).unwrap_or_else(|e| {
-                    panic!("Failed to convert config file into node config: {e}")
-                });
-                opts.config.replace(config);
-            }
-            "network" => {
-                let network = &argv[i];
-                i += 1;
-                let config_file = match network.to_lowercase().as_str() {
-                    "helium" => ConfigFile::helium(),
-                    "mainnet" => ConfigFile::mainnet(),
-                    "mocknet" => ConfigFile::mocknet(),
-                    "xenon" => ConfigFile::xenon(),
-                    other => {
-                        eprintln!("Unknown network choice `{other}`");
-                        process::exit(1);
-                    }
-                };
-                let config = Config::from_config_file(config_file, false).unwrap_or_else(|e| {
-                    panic!("Failed to convert config file into node config: {e}")
-                });
-                opts.config.replace(config);
-            }
-            _ => panic!("Unrecognized option: {opt}"),
-        }
-    }
-    // Remove options processed
-    argv.drain(start_at..i);
-    opts
 }
 
 #[derive(Clone)]
@@ -169,74 +113,39 @@ impl BlockSelection {
     }
 }
 
-fn parse_block_selection(mode: Option<&str>, argv: &[String]) -> Result<BlockSelection, String> {
+fn convert_args_to_selection(mode: &Option<ValidateBlockMode>) -> Result<BlockSelection, String> {
     match mode {
-        Some("prefix") => {
-            let prefix = argv
-                .get(3)
-                .ok_or_else(|| "Missing <index-block-hash-prefix>".to_string())?
-                .clone();
-            Ok(BlockSelection::Prefix(prefix))
-        }
-        Some("last") => {
-            let count = argv
-                .get(3)
-                .ok_or_else(|| "Missing <block-count>".to_string())?
-                .parse::<u64>()
-                .map_err(|_| "<block-count> must be a u64".to_string())?;
-            Ok(BlockSelection::Last(count))
-        }
-        Some("range") => {
-            let start = argv
-                .get(3)
-                .ok_or_else(|| "Missing <start-block>".to_string())?
-                .parse::<u64>()
-                .map_err(|_| "<start-block> must be a u64".to_string())?;
-            let end = argv
-                .get(4)
-                .ok_or_else(|| "Missing <end-block>".to_string())?
-                .parse::<u64>()
-                .map_err(|_| "<end-block> must be a u64".to_string())?;
-            if start >= end {
+        Some(ValidateBlockMode::Prefix { prefix }) => Ok(BlockSelection::Prefix(prefix.clone())),
+        Some(ValidateBlockMode::Last { count }) => Ok(BlockSelection::Last(*count)),
+        Some(ValidateBlockMode::Range { start, end }) => {
+            if *start >= *end {
                 return Err("<start-block> must be < <end-block>".into());
             }
-            Ok(BlockSelection::HeightRange { start, end })
+            Ok(BlockSelection::HeightRange {
+                start: *start,
+                end: *end,
+            })
         }
-        Some("index-range") => match argv.get(3) {
-            None => Ok(BlockSelection::IndexRangeInfo),
-            Some(start_arg) => {
-                let start = start_arg
-                    .parse::<u64>()
-                    .map_err(|_| "<start-block> must be a u64".to_string())?;
-                let end = argv
-                    .get(4)
-                    .ok_or_else(|| "Missing <end-block>".to_string())?
-                    .parse::<u64>()
-                    .map_err(|_| "<end-block> must be a u64".to_string())?;
-                if start >= end {
-                    return Err("<start-block> must be < <end-block>".into());
+        Some(ValidateBlockMode::IndexRange { start, end }) => match (start, end) {
+            (None, None) => Ok(BlockSelection::IndexRangeInfo),
+            (Some(s), Some(e)) => {
+                if *s >= *e {
+                    return Err("<start-index> must be < <end-index>".into());
                 }
-                Ok(BlockSelection::IndexRange { start, end })
+                Ok(BlockSelection::IndexRange { start: *s, end: *e })
             }
+            _ => Err("index-range requires both start and end, or neither".into()),
         },
-        Some("naka-index-range") => match argv.get(3) {
-            None => Ok(BlockSelection::NakaIndexRangeInfo),
-            Some(start_arg) => {
-                let start = start_arg
-                    .parse::<u64>()
-                    .map_err(|_| "<start-block> must be a u64".to_string())?;
-                let end = argv
-                    .get(4)
-                    .ok_or_else(|| "Missing <end-block>".to_string())?
-                    .parse::<u64>()
-                    .map_err(|_| "<end-block> must be a u64".to_string())?;
-                if start >= end {
-                    return Err("<start-block> must be < <end-block>".into());
+        Some(ValidateBlockMode::NakaIndexRange { start, end }) => match (start, end) {
+            (None, None) => Ok(BlockSelection::NakaIndexRangeInfo),
+            (Some(s), Some(e)) => {
+                if *s >= *e {
+                    return Err("<start-index> must be < <end-index>".into());
                 }
-                Ok(BlockSelection::NakaIndexRange { start, end })
+                Ok(BlockSelection::NakaIndexRange { start: *s, end: *e })
             }
+            _ => Err("naka-index-range requires both start and end, or neither".into()),
         },
-        Some(other) => Err(format!("Unrecognized option: {other}")),
         None => Ok(BlockSelection::All),
     }
 }
@@ -383,34 +292,16 @@ fn collect_nakamoto_entries(
 /// Terminates on error using `process::exit()`
 ///
 /// Arguments:
-///  - `argv`: Args in CLI format: `<command-name> [args...]`
-pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
-    let print_help_and_exit = || -> ! {
-        let n = &argv[0];
-        eprintln!("Usage:");
-        eprintln!("  {n} <database-path>");
-        eprintln!("  {n} <database-path> prefix <index-block-hash-prefix>");
-        eprintln!("  {n} <database-path> index-range [<start-index> <end-index>]");
-        eprintln!("  {n} <database-path> naka-index-range [<start-index> <end-index>]");
-        eprintln!("  {n} <database-path> range <start-height> <end-height>");
-        eprintln!("  {n} <database-path> <last> <block-count>");
-        eprintln!("  {n} --early-exit ... # Exit on first error found");
-        process::exit(1);
-    };
-
+///  - `args`: Parsed CLI arguments
+///  - `conf`: Optional config for running on non-mainnet chainstate
+pub fn command_validate_block(args: &ValidateBlockArgs, conf: Option<&Config>) {
     let start = Instant::now();
-    let mut args = argv.to_vec();
-    let early_exit = if let Some("--early-exit") = args.get(1).map(String::as_str) {
-        args.remove(1);
-        true
-    } else {
-        false
-    };
-    let db_path = args.get(1).unwrap_or_else(|| print_help_and_exit());
-    let mode = args.get(2).map(String::as_str);
-    let selection = parse_block_selection(mode, &args).unwrap_or_else(|err| {
+    let db_path = &args.database_path;
+    let early_exit = args.early_exit;
+
+    let selection = convert_args_to_selection(&args.mode).unwrap_or_else(|err| {
         eprintln!("{err}");
-        print_help_and_exit();
+        process::exit(1);
     });
 
     let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
@@ -429,12 +320,12 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
     match &selection {
         BlockSelection::IndexRangeInfo => {
             let total = count_epoch2_index_entries(db_path);
-            println!("Total available entries: {total}");
+            println!("Total available Epoch2 entries: {total}");
             return;
         }
         BlockSelection::NakaIndexRangeInfo => {
             let total = count_nakamoto_index_entries(&chainstate);
-            println!("Total available entries: {total}");
+            println!("Total available Nakamoto entries: {total}");
             return;
         }
         _ => {}
@@ -499,26 +390,14 @@ fn validate_entry(db_path: &str, conf: &Config, entry: &BlockScanEntry) -> Resul
 /// Terminates on error using `process::exit()`
 ///
 /// Arguments:
-///  - `argv`: Args in CLI format: `<command-name> [args...]`
+///  - `args`: Parsed CLI arguments
 ///  - `conf`: Optional config for running on non-mainnet chainstate
-pub fn command_replay_mock_mining(argv: &[String], conf: Option<&Config>) {
-    let print_help_and_exit = || -> ! {
-        let n = &argv[0];
-        eprintln!("Usage:");
-        eprintln!("  {n} <database-path> <mock-mined-blocks-path>");
-        process::exit(1);
-    };
-
+pub fn command_replay_mock_mining(args: &ReplayMockMiningArgs, conf: Option<&Config>) {
     // Process CLI args
-    let db_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
+    let db_path = &args.chainstate_path;
 
-    let blocks_path = argv
-        .get(2)
-        .map(PathBuf::from)
-        .map(fs::canonicalize)
-        .transpose()
-        .unwrap_or_else(|e| panic!("Not a valid path: {e}"))
-        .unwrap_or_else(|| print_help_and_exit());
+    let blocks_path = fs::canonicalize(&args.mock_mining_output_path)
+        .unwrap_or_else(|e| panic!("Not a valid path: {e}"));
 
     // Validate directory path
     if !blocks_path.is_dir() {
@@ -593,34 +472,13 @@ pub fn command_replay_mock_mining(argv: &[String], conf: Option<&Config>) {
 /// Terminates on error using `process::exit()`
 ///
 /// Arguments:
-///  - `argv`: Args in CLI format: `<command-name> [args...]`
+///  - `args`: Parsed CLI arguments
 ///  - `conf`: Optional config for running on non-mainnet chainstate
-pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
-    let print_help_and_exit = || {
-        let n = &argv[0];
-        eprintln!("Usage: {n} <working-dir> [min-fee [max-time]]");
-        eprintln!();
-        eprintln!(
-            "Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block"
-        );
-        eprintln!(
-            "assembly, but does not attempt to broadcast a block commit. This is useful for determining"
-        );
-        eprintln!("what transactions a given chain state would include in an anchor block,");
-        eprintln!("or otherwise simulating a miner.");
-        process::exit(1);
-    };
-
+pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
     // Parse subcommand-specific args
-    let db_path = argv.get(1).unwrap_or_else(print_help_and_exit);
-    let min_fee = argv
-        .get(2)
-        .map(|arg| arg.parse().expect("Could not parse min_fee"))
-        .unwrap_or(u64::MAX);
-    let max_time = argv
-        .get(3)
-        .map(|arg| arg.parse().expect("Could not parse max_time"))
-        .unwrap_or(u64::MAX);
+    let db_path = &args.chainstate_path;
+    let min_fee = args.min_fee.unwrap_or(u64::MAX);
+    let max_time = args.max_time.unwrap_or(u64::MAX);
 
     let start = Instant::now();
 
@@ -769,17 +627,11 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
 /// Compute the contract hash for a given contract
 ///
 /// Arguments:
-///  - `argv`: Args in CLI format: `<command-name> [args...]`
-pub fn command_contract_hash(argv: &[String], _conf: Option<&Config>) {
-    let print_help_and_exit = || -> ! {
-        let n = &argv[0];
-        eprintln!("Usage:");
-        eprintln!("  {n} <CONTRACT_PATH | - (stdin)>");
-        process::exit(1);
-    };
-
+///  - `args`: Parsed CLI arguments
+///  - `conf`: Optional config (unused)
+pub fn command_contract_hash(args: &ContractHashArgs, _conf: Option<&Config>) {
     // Process CLI args
-    let contract_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
+    let contract_path = &args.contract_source;
     let contract_source = read_file_or_stdin(contract_path);
 
     let hash = Sha512Trunc256Sum::from_data(contract_source.as_bytes());
@@ -1405,10 +1257,9 @@ fn replay_block_nakamoto(
         // check the cost
         let evaluated_cost = receipt.anchored_block_cost.clone();
         if evaluated_cost != expected_cost {
-            println!(
+            return Err(ChainstateError::InvalidStacksBlock(format!(
                 "Failed processing block! block = {block_id}. Unexpected cost. expected = {expected_cost}, evaluated = {evaluated_cost}"
-            );
-            process::exit(1);
+            )));
         }
     }
 
@@ -1434,37 +1285,4 @@ fn replay_block_nakamoto(
     };
 
     Ok(())
-}
-
-#[cfg(test)]
-pub mod test {
-    use super::*;
-
-    fn parse_cli_command(s: &str) -> Vec<String> {
-        s.split(' ').map(String::from).collect()
-    }
-
-    #[test]
-    pub fn test_drain_common_opts() {
-        // Should find/remove no options
-        let mut argv = parse_cli_command(
-            "stacks-inspect try-mine --config my_config.toml /tmp/chainstate/mainnet",
-        );
-        let argv_init = argv.clone();
-        let _opts = drain_common_opts(&mut argv, 0);
-        let opts = drain_common_opts(&mut argv, 1);
-
-        assert_eq!(argv, argv_init);
-        assert!(opts.config.is_none());
-
-        // Should find config opts and remove from vec
-        let mut argv = parse_cli_command(
-            "stacks-inspect --network mocknet --network mainnet try-mine /tmp/chainstate/mainnet",
-        );
-        let opts = drain_common_opts(&mut argv, 1);
-        let argv_expected = parse_cli_command("stacks-inspect try-mine /tmp/chainstate/mainnet");
-
-        assert_eq!(argv, argv_expected);
-        assert!(opts.config.is_some());
-    }
 }
