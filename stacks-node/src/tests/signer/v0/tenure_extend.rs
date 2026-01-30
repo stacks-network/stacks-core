@@ -4915,7 +4915,7 @@ fn read_count_extend_after_burn_view_change() {
     info!(
         "------------------------- Miner 1's proposal for C is rejected -------------------------"
     );
-    let proposed_block = wait_for_block_proposal(60, tip_a_height + 1, &miner_pk_1).unwrap();
+    let proposed_block = wait_for_block_proposal_block(60, tip_a_height + 1, &miner_pk_1).unwrap();
     wait_for_block_global_rejection(
         60,
         &proposed_block.header.signer_signature_hash(),
