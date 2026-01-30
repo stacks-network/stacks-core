@@ -227,7 +227,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
         mut signer_config_modifier: F,
-        node_config_modifier: G,
+        mut node_config_modifier: G,
         btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,
         signer_stacks_private_keys: Option<Vec<StacksPrivateKey>>,
         snapshot_name: Option<&str>,
@@ -256,6 +256,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
         naka_conf.miner.activated_vrf_key_path =
             Some(format!("{}/vrf_key", naka_conf.node.working_dir));
+
+        // Spawn a test observer for verification purposes
+        let test_observer = TestObserver::spawn();
+
+        node_config_modifier(&mut naka_conf, test_observer.port);
 
         // Add initial balances to the config
         for (address, amount) in initial_balances.iter() {
@@ -321,8 +326,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             &signer_stacks_private_keys,
             &signer_configs,
             btc_miner_pubkeys.as_slice(),
-            node_config_modifier,
             snapshot_exists,
+            test_observer,
         );
         let config = signer_configs.first().unwrap();
         let stacks_client = StacksClient::from(config);
@@ -1733,17 +1738,13 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     }
 }
 
-/// `node_config_modifier` is a function that modifies the node configuration.
-/// The second parameter passed to it is the port of the test observer,
-/// so the modifying code can ensure not to remove any registered event
-/// observers with that port.
-fn setup_stx_btc_node<G: FnMut(&mut NeonConfig, u16)>(
+fn setup_stx_btc_node(
     mut naka_conf: NeonConfig,
     signer_stacks_private_keys: &[StacksPrivateKey],
     signer_configs: &[SignerConfig],
     btc_miner_pubkeys: &[Secp256k1PublicKey],
-    mut node_config_modifier: G,
     snapshot_exists: bool,
+    test_observer: TestObserver,
 ) -> RunningNodes {
     // Spawn the endpoints for observing signers
     for signer_config in signer_configs {
@@ -1759,8 +1760,6 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig, u16)>(
         });
     }
 
-    // Spawn a test observer for verification purposes
-    let test_observer = TestObserver::spawn();
     test_observer.register(
         &mut naka_conf,
         &[
@@ -1794,7 +1793,6 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig, u16)>(
             }
         }
     }
-    node_config_modifier(&mut naka_conf, test_observer.port);
 
     info!("Make new BitcoinCoreController");
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
