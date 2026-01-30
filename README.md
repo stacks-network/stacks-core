@@ -79,24 +79,6 @@ cargo nextest run
 
 _On Windows, many tests will fail, mainly due to parallelism. To mitigate the issue you may need to run the tests individually._
 
-**Install `insta` for snapshot tests:**
-
-```bash
-cargo install cargo-insta
-```
-
-**Run snapshot tests with `insta`:**
-
-```bash
-cargo insta test
-```
-
-**Review/accept snapshot updates:**
-
-```bash
-cargo insta review
-```
-
 ## Run the testnet
 
 You can observe the state machine in action locally by running:
