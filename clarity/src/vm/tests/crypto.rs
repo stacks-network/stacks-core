@@ -182,25 +182,24 @@ fn secp256r1_verify_valid_signatures_nist() {
             .expect("should return a value")
         );
 
-        // TODO: Once implemented, check the NIST signature against the Clarity 5 function.
-        // let program = format!(
-        //     "(secp256r1-verify {} {} {})",
-        //     buff_literal(&message_hash),
-        //     buff_literal(&signature_nist.0),
-        //     buff_literal(&pubk.to_bytes())
-        // );
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message_hash),
+            buff_literal(&signature_nist.0),
+            buff_literal(&pubk.to_bytes())
+        );
 
-        // assert_eq!(
-        //     Value::Bool(true),
-        //     execute_with_parameters(
-        //         program.as_str(),
-        //         ClarityVersion::Clarity5,
-        //         StacksEpochId::Epoch34,
-        //         false
-        //     )
-        //     .expect("execution should succeed")
-        //     .expect("should return a value")
-        // );
+        assert_eq!(
+            Value::Bool(true),
+            execute_with_parameters(
+                program.as_str(),
+                ClarityVersion::Clarity5,
+                StacksEpochId::Epoch34,
+                false
+            )
+            .expect("execution should succeed")
+            .expect("should return a value")
+        );
     }
 }
 
