@@ -497,7 +497,7 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
 
     info!("---- Waiting for a rejected tenure extend ----");
     // Now, wait for a block with a tenure extend proposal from the miner, but ensure it is rejected.
-    let proposed_block = wait_for_block_proposal(30, stacks_tip_height + 2, &miner_pk)
+    let proposed_block = wait_for_block_proposal_block(30, stacks_tip_height + 2, &miner_pk)
         .expect("Timed out waiting for a tenure extend proposal");
     wait_for_block_global_rejection(
         30,
@@ -1305,7 +1305,7 @@ fn tenure_extend_after_stale_commit_different_miner() {
     info!(
         "------------------------- Miner 1's proposal for C is rejected -------------------------"
     );
-    let proposed_block = wait_for_block_proposal(60, tip_a_height + 1, &miner_pk_1).unwrap();
+    let proposed_block = wait_for_block_proposal_block(60, tip_a_height + 1, &miner_pk_1).unwrap();
     wait_for_block_global_rejection(
         60,
         &proposed_block.header.signer_signature_hash(),
@@ -1447,7 +1447,7 @@ fn tenure_extend_after_stale_commit_same_miner() {
         "stacks_height_before" => stacks_height_before,
     );
 
-    wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk)
+    wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal in tenure N+1");
 
     // Verify that the next block is a TenureExtend at the expected height
@@ -1583,7 +1583,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         "stacks_height_before" => stacks_height_before,
     );
 
-    wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk)
+    wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal in tenure N+1");
 
     // Verify that the next block is a TenureExtend at the expected height
@@ -1606,7 +1606,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         "stacks_height_before" => stacks_height_before,
     );
 
-    wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk)
+    wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal in tenure N+1");
 
     // Verify that the next block is a TenureExtend at the expected height
@@ -2258,8 +2258,9 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
         wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_1)
             .expect("Timed out waiting for block proposal N+1 from miner 1");
 
-    let miner_2_block_n_1 = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_2)
-        .expect("Timed out waiting for block proposal N+1' from miner 2");
+    let miner_2_block_n_1 =
+        wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk_2)
+            .expect("Timed out waiting for block proposal N+1' from miner 2");
     info!("------------------------- Verify Miner 2's N+1' was Rejected -------------------------");
     wait_for_block_global_rejection(
         30,
@@ -2427,8 +2428,9 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
     info!("------------------------- Wait for Miner 1's Block N+1' to be Proposed ------------------------";
         "stacks_height_before" => %stacks_height_before);
 
-    let miner_1_block_n_1 = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_1)
-        .expect("Timed out waiting for N+1' block proposal from miner 1");
+    let miner_1_block_n_1 =
+        wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk_1)
+            .expect("Timed out waiting for N+1' block proposal from miner 1");
     assert!(miner_1_block_n_1
         .try_get_tenure_change_payload()
         .unwrap()
@@ -2453,8 +2455,9 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
     // Get miner 2's N+1 block proposal
-    let miner_2_block_n_1 = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_2)
-        .expect("Timed out waiting for N+1 block proposal from miner 2");
+    let miner_2_block_n_1 =
+        wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk_2)
+            .expect("Timed out waiting for N+1 block proposal from miner 2");
 
     info!("------------------------- Wait for Miner 2's Block N+1 to be Approved ------------------------";
         "stacks_height_before" => %stacks_height_before
@@ -2612,8 +2615,9 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
 
     info!("------------------------- Get Miner 2's N+1 block -------------------------");
 
-    let miner_2_block_n_1 = wait_for_block_proposal(60, stacks_height_before + 1, &miner_pk_2)
-        .expect("Timed out waiting for N+1 block proposal from miner 2");
+    let miner_2_block_n_1 =
+        wait_for_block_proposal_block(60, stacks_height_before + 1, &miner_pk_2)
+            .expect("Timed out waiting for N+1 block proposal from miner 2");
     let miner_2_block_n_1 =
         wait_for_block_pushed(30, &miner_2_block_n_1.header.signer_signature_hash())
             .expect("Timed out waiting for N+1 block to be approved");
@@ -2631,7 +2635,7 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
     std::thread::sleep(tenure_extend_wait_timeout.add(Duration::from_secs(1)));
 
     assert!(
-        wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_1).is_err(),
+        wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk_1).is_err(),
         "Miner 1 should not have proposed a block N+1'"
     );
 
@@ -3050,7 +3054,7 @@ fn new_tenure_no_winner_while_proposing_block() {
     let stacks_height_before = info_before.stacks_tip_height;
 
     // Wait for the block proposal to be issued
-    let proposed_block = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk)
+    let proposed_block = wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal in tenure N");
 
     // Mine a new burn block, N+1, which should have no sortition winner
@@ -3214,7 +3218,7 @@ fn new_tenure_no_winner_while_proposing_block_then_rejected() {
     let stacks_height_before = info_before.stacks_tip_height;
 
     // Wait for the block proposal to be issued
-    let proposed_block = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk)
+    let proposed_block = wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal in tenure N");
     info!(
         "---- Proposed block {} at height {} ----",
@@ -3391,7 +3395,7 @@ fn new_tenure_no_winner_while_proposing_block_then_ignored() {
     let stacks_height_before = info_before.stacks_tip_height;
 
     // Wait for the block proposal to be issued
-    let proposed_block = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk)
+    let proposed_block = wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal in tenure N");
     info!(
         "---- Proposed block {} at height {} ----",
@@ -3585,8 +3589,9 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
     info!("------------------------- Wait for Miner 2's Block N+1' to be Proposed ------------------------";
         "stacks_height_before" => %stacks_height_before);
 
-    let miner_2_block_n_1 = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_2)
-        .expect("Miner 2 did not propose Block N+1'");
+    let miner_2_block_n_1 =
+        wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk_2)
+            .expect("Miner 2 did not propose Block N+1'");
 
     assert!(miner_2_block_n_1
         .try_get_tenure_change_payload()
@@ -3809,7 +3814,7 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
         "stacks_height_before" => %stacks_height_before);
 
     let miner_1_block_n_1_prime =
-        wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_1)
+        wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk_1)
             .expect("Miner 1 failed to propose block N+1'");
     assert!(miner_1_block_n_1_prime
         .try_get_tenure_change_payload()
@@ -4323,7 +4328,7 @@ fn continue_after_fast_block_no_sortition() {
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     info!("----- Waiting for block rejections -----");
-    let miner_2_block = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_2)
+    let miner_2_block = wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk_2)
         .expect("Failed to get Miner 2's Block Proposal");
     wait_for_block_global_rejection(
         30,
@@ -4377,8 +4382,9 @@ fn continue_after_fast_block_no_sortition() {
 
     // wait for the new block to be processed
     // Since we may be proposing a ton of the same height, cannot use wait_for_block_pushed_by_miner_key for block N+1.
-    let miner_2_block_n_1 = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_2)
-        .expect("Did not mine Miner 2's Block N+1");
+    let miner_2_block_n_1 =
+        wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk_2)
+            .expect("Did not mine Miner 2's Block N+1");
 
     info!(
         "------------------------- Verify Tenure Change Tx in Miner B's Block N+1 -------------------------"
@@ -4909,7 +4915,7 @@ fn read_count_extend_after_burn_view_change() {
     info!(
         "------------------------- Miner 1's proposal for C is rejected -------------------------"
     );
-    let proposed_block = wait_for_block_proposal(60, tip_a_height + 1, &miner_pk_1).unwrap();
+    let proposed_block = wait_for_block_proposal_block(60, tip_a_height + 1, &miner_pk_1).unwrap();
     wait_for_block_global_rejection(
         60,
         &proposed_block.header.signer_signature_hash(),
