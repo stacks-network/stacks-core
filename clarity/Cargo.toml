@@ -37,6 +37,7 @@ mutants = "0.0.3"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rstest = { version = "0.17.0" }
 rstest_reuse = { version = "0.5.0" }
+stackslib = { package = "stackslib", path = "../stackslib", default-features = false }
 
 # a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.

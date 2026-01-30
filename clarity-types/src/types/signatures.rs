@@ -22,6 +22,7 @@ use std::{cmp, fmt};
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
+use crate::errors::CommonCheckErrorKind;
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
     CharType, ClarityTypeError, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
@@ -1435,6 +1436,43 @@ impl TypeSignature {
             CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => Some(1),
         }
     }
+    pub fn min_size(&self) -> Result<u32, CommonCheckErrorKind> {
+        self.inner_min_size()?.ok_or_else(|| {
+            CommonCheckErrorKind::ExpectsAcceptable(
+                "FAIL: .size() overflowed on too large of a type. construction should have failed!"
+                    .into(),
+            )
+        })
+    }
+
+    fn inner_min_size(&self) -> Result<Option<u32>, CommonCheckErrorKind> {
+        let out = match self {
+            // NoType's may be asked for their size at runtime --
+            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
+            NoType => Some(1),
+            IntType => Some(16),
+            UIntType => Some(16),
+            BoolType => Some(1),
+            PrincipalType => Some(20),
+            TupleType(tuple_sig) => tuple_sig.inner_min_size()?,
+            SequenceType(SequenceSubtype::BufferType(_))
+            | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => Some(4),
+            SequenceType(SequenceSubtype::ListType(_)) => Some(5), // 1 for type enum, 4 for max_len
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => Some(4),
+            OptionalType(t) => t.min_size()?.checked_add(WRAPPER_VALUE_SIZE),
+            ResponseType(v) => {
+                // ResponseTypes are 1 byte for the committed bool,
+                //   plus min(err_type, ok_type)
+                let (t, s) = (&v.0, &v.1);
+                let t_size = t.min_size()?;
+                let s_size = s.min_size()?;
+                cmp::min(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
+            }
+            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(21), // 20+1
+            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(22), // 20 + 1 + 1
+        };
+        Ok(out)
+    }
 }
 
 impl ListTypeData {
@@ -1528,6 +1566,37 @@ impl TupleTypeSignature {
             };
         }
 
+        if total_size > MAX_VALUE_SIZE {
+            Ok(None)
+        } else {
+            Ok(Some(total_size))
+        }
+    }
+    /// Tuple Size:
+    ///    size( btreemap<name, value> ) + type_size
+    ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)
+    fn inner_min_size(&self) -> Result<Option<u32>, CommonCheckErrorKind> {
+        let Some(mut total_size) = u32::try_from(self.type_map.len())
+            .ok()
+            .and_then(|x| x.checked_mul(2))
+            .and_then(|x| x.checked_add(self.type_size()?))
+        else {
+            return Ok(None);
+        };
+        for (name, type_signature) in self.type_map.iter() {
+            // we only accept ascii names, so 1 char = 1 byte.
+            total_size = if let Some(new_size) = total_size.checked_add(type_signature.min_size()?)
+            {
+                new_size
+            } else {
+                return Ok(None);
+            };
+            total_size = if let Some(new_size) = total_size.checked_add(name.len() as u32) {
+                new_size
+            } else {
+                return Ok(None);
+            };
+        }
         if total_size > MAX_VALUE_SIZE {
             Ok(None)
         } else {

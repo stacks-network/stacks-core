@@ -42,6 +42,8 @@ use crate::vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
 };
 use crate::vm::{CallStack, ClarityName, Environment, LocalContext, SymbolicExpression, Value};
+#[cfg(feature = "developer-mode")]
+pub mod analysis;
 pub mod constants;
 pub mod cost_functions;
 #[allow(unused_variables)]
@@ -85,7 +87,7 @@ pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
     input: T,
 ) -> Result<(), CostErrors> {
     let size: u64 = input.try_into().map_err(|_| CostErrors::CostOverflow)?;
-    let cost = tracker.compute_cost(cost_function, &[size])?;
+    let cost = tracker.compute_cost(cost_function.clone(), &[size])?;
 
     tracker.add_cost(cost)
 }

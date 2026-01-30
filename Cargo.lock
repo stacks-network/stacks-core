@@ -605,6 +605,7 @@ dependencies = [
  "serde_stacker",
  "slog",
  "stacks-common 0.0.1",
+ "stackslib 0.0.1",
 ]
 
 [[package]]

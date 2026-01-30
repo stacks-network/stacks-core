@@ -681,6 +681,23 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         )
     }
 
+    /// Execute a closure with an Environment for cost analysis.
+    /// useful for static cost analysis tests thatdon't require a fully deployed
+    /// contract context.
+    pub fn with_cost_analysis_environment<F, R>(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        clarity_version: ClarityVersion,
+        f: F,
+    ) -> R
+    where
+        F: FnOnce(&mut Environment) -> R,
+    {
+        let contract_context = ContractContext::new(contract_identifier.clone(), clarity_version);
+        let mut env = self.get_exec_environment(None, None, &contract_context);
+        f(&mut env)
+    }
+
     pub fn execute_in_env<F, A, E>(
         &mut self,
         sender: PrincipalData,

@@ -17,6 +17,8 @@
 pub mod definition_sorter;
 pub mod expression_identifier;
 pub mod parser;
+#[cfg(feature = "developer-mode")]
+pub mod static_cost;
 pub mod traits_resolver;
 
 pub mod errors;
