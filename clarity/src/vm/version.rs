@@ -39,7 +39,7 @@ impl fmt::Display for ClarityVersion {
 }
 
 impl ClarityVersion {
-    pub fn latest() -> ClarityVersion {
+    pub const fn latest() -> ClarityVersion {
         ClarityVersion::Clarity4
     }
 

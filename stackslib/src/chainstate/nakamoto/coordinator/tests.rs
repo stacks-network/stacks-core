@@ -1073,6 +1073,8 @@ fn block_info_tests(use_primary_testnet: bool) {
             ClarityVersion::Clarity2 => panic!("Clarity2 not supported in this test"),
             ClarityVersion::Clarity3 => &clar3_contract_id,
             ClarityVersion::Clarity4 => &clar4_contract_id,
+            // Later versions of Clarity are just running the same code as Clarity4 for now
+            // so it's not necessary to test them all individually here.
             ClarityVersion::Clarity5 => panic!("Clarity5 not supported in this test"),
         };
         peer.with_db_state(|sortdb, chainstate, _, _| {
