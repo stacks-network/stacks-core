@@ -3051,8 +3051,6 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
             self.unconfirmed()
         );
 
-        let (saved_block_hash, saved_block_id) = self.get_cur_block_and_id();
-
         let cur_block_id = block_id;
         let mut node_hash_opt = None;
         let mut patches: Vec<(u32, TriePtr, TrieNodePatch)> = vec![];
@@ -3064,7 +3062,6 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                     let node = node.apply_patches(&patches, cur_block_id).ok_or_else(|| {
                         Error::CorruptionError("Failed to apply patches to node".to_string())
                     })?;
-                    self.open_block_maybe_id(&saved_block_hash, saved_block_id)?;
                     return Ok((node, node_hash_opt.unwrap_or(hash)));
                 }
                 Err(Error::Patch(hash_opt, node_patch)) => {
@@ -3081,12 +3078,10 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                     }
                 }
                 Err(e) => {
-                    self.open_block_maybe_id(&saved_block_hash, saved_block_id)?;
                     return Err(e);
                 }
             }
         }
-        self.open_block_maybe_id(&saved_block_hash, saved_block_id)?;
         return Err(Error::NodeTooDeep);
     }
 
