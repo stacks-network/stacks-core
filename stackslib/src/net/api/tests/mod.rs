@@ -60,6 +60,7 @@ use crate::net::{
 };
 
 mod blockreplay;
+mod blocksimulate;
 mod callreadonly;
 mod fastcallreadonly;
 mod get_tenures_fork_info;

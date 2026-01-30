@@ -17,6 +17,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
+- New endpoint `/v3/blocks/simulate/{block_id}` allows to simulate the execution of a specific block with a brand new set of transactions
 - Improved block validation in `stacks-inspect`.
 
 ### Changed

@@ -28,7 +28,7 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
@@ -51,7 +51,7 @@ struct BlockReplayProfiler {
 struct BlockReplayProfiler();
 
 #[derive(Default)]
-struct BlockReplayProfilerResult {
+pub struct BlockReplayProfilerResult {
     cpu_instructions: Option<u64>,
     cpu_cycles: Option<u64>,
     cpu_ref_cycles: Option<u64>,
@@ -150,6 +150,182 @@ pub struct RPCNakamotoBlockReplayRequestHandler {
     pub profiler: bool,
 }
 
+pub fn remine_nakamoto_block<F0, F1>(
+    block_id: &StacksBlockId,
+    sortdb: &SortitionDB,
+    chainstate: &mut StacksChainState,
+    enable_profiler: bool,
+    get_transactions: F0,
+    before_mining: F1,
+) -> Result<RPCReplayedBlock, ChainError>
+where
+    F0: FnOnce(&NakamotoBlock) -> Vec<StacksTransaction>,
+    F1: FnOnce(&mut ClarityTx) -> Result<(), ChainError>,
+{
+    let Some((tenure_id, parent_block_id)) = chainstate
+        .nakamoto_blocks_db()
+        .get_tenure_and_parent_block_id(block_id)?
+    else {
+        return Err(ChainError::NoSuchBlockError);
+    };
+
+    let staging_db_path = chainstate.get_nakamoto_staging_blocks_path()?;
+    let db_conn = StacksChainState::open_nakamoto_staging_blocks(&staging_db_path, false)?;
+    let rowid = db_conn
+        .conn()
+        .get_nakamoto_block_rowid(&block_id)?
+        .ok_or(ChainError::NoSuchBlockError)?;
+
+    let mut blob_fd = match db_conn.open_nakamoto_block(rowid, false).map_err(|e| {
+        let msg = format!("Failed to open Nakamoto block {}: {:?}", &block_id, &e);
+        warn!("{}", &msg);
+        msg
+    }) {
+        Ok(blob_fd) => blob_fd,
+        Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
+    };
+
+    let block = match NakamotoBlock::consensus_deserialize(&mut blob_fd).map_err(|e| {
+        let msg = format!("Failed to read Nakamoto block {}: {:?}", &block_id, &e);
+        warn!("{}", &msg);
+        msg
+    }) {
+        Ok(block) => block,
+        Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
+    };
+
+    let burn_dbconn = match sortdb.index_handle_at_block(chainstate, &parent_block_id) {
+        Ok(burn_dbconn) => burn_dbconn,
+        Err(_) => return Err(ChainError::NoSuchBlockError),
+    };
+
+    let tenure_change = block
+        .txs
+        .iter()
+        .find(|tx| matches!(tx.payload, TransactionPayload::TenureChange(..)));
+    let coinbase = block
+        .txs
+        .iter()
+        .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
+    let tenure_cause = tenure_change
+        .and_then(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => Some(tc.into()),
+            _ => None,
+        })
+        .unwrap_or(MinerTenureInfoCause::NoTenureChange);
+
+    let parent_stacks_header_opt =
+        NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)?;
+
+    let Some(parent_stacks_header) = parent_stacks_header_opt else {
+        return Err(ChainError::InvalidStacksBlock(
+            "Invalid Parent Block".into(),
+        ));
+    };
+
+    let mut builder = match NakamotoBlockBuilder::new(
+        &parent_stacks_header,
+        &block.header.consensus_hash,
+        block.header.burn_spent,
+        tenure_change,
+        coinbase,
+        block.header.pox_treatment.len(),
+        None,
+        None,
+        Some(block.header.timestamp),
+        u64::from(DEFAULT_MAX_TENURE_BYTES),
+    ) {
+        Ok(builder) => builder,
+        Err(e) => return Err(e),
+    };
+
+    let mut miner_tenure_info =
+        match builder.load_ephemeral_tenure_info(chainstate, &burn_dbconn, tenure_cause) {
+            Ok(miner_tenure_info) => miner_tenure_info,
+            Err(e) => return Err(e),
+        };
+
+    let burn_chain_height = miner_tenure_info.burn_tip_height;
+    let mut tenure_tx = match builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info) {
+        Ok(tenure_tx) => tenure_tx,
+        Err(e) => return Err(e),
+    };
+
+    before_mining(&mut tenure_tx)?;
+
+    let mut block_fees: u128 = 0;
+    let mut txs_receipts = vec![];
+
+    let transactions = get_transactions(&block);
+
+    for (i, tx) in transactions.iter().enumerate() {
+        let tx_len = tx.tx_len();
+
+        let mut profiler: Option<BlockReplayProfiler> = None;
+        let mut profiler_result = BlockReplayProfilerResult::default();
+
+        if enable_profiler {
+            profiler = Some(BlockReplayProfiler::new());
+        }
+
+        let mut total_receipts = 0;
+
+        let tx_result = builder.try_mine_tx_with_len(
+            &mut tenure_tx,
+            tx,
+            tx_len,
+            &BlockLimitFunction::NO_LIMIT_HIT,
+            None,
+            &mut total_receipts,
+        );
+
+        if let Some(profiler) = profiler {
+            profiler_result = profiler.collect();
+        }
+
+        let err = match tx_result {
+            TransactionResult::Success(tx_result) => {
+                txs_receipts.push((tx_result.receipt, profiler_result));
+                Ok(())
+            }
+            TransactionResult::ProcessingError(e) => {
+                Err(format!("Error processing tx {}: {}", i, e.error))
+            }
+            TransactionResult::Skipped(e) => Err(format!("Skipped tx {}: {}", i, e.error)),
+            TransactionResult::Problematic(e) => Err(format!("Problematic tx {}: {}", i, e.error)),
+        };
+        if let Err(reason) = err {
+            let txid = tx.txid();
+            return Err(ChainError::InvalidStacksTransaction(
+                format!("Unable to process transaction {txid}: {reason}").into(),
+                false,
+            ));
+        }
+
+        block_fees += tx.get_tx_fee() as u128;
+    }
+
+    let mut replayed_block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
+
+    // copy values that will contribute to the block_hash that cannot be the same in the new replayed block
+    replayed_block.header.timestamp = block.header.timestamp;
+    replayed_block.header.state_index_root = block.header.state_index_root;
+    replayed_block.header.miner_signature = block.header.miner_signature;
+    replayed_block.header.pox_treatment = block.header.pox_treatment;
+
+    tenure_tx.rollback_block();
+
+    let mut rpc_replayed_block =
+        RPCReplayedBlock::from_block(&replayed_block, block_fees, tenure_id, parent_block_id);
+
+    for (receipt, profiler_result) in &txs_receipts {
+        let transaction = RPCReplayedBlockTransaction::from_receipt(receipt, &profiler_result);
+        rpc_replayed_block.transactions.push(transaction);
+    }
+
+    Ok(rpc_replayed_block)
+}
+
 impl RPCNakamotoBlockReplayRequestHandler {
     pub fn new(auth: Option<String>) -> Self {
         Self {
@@ -168,158 +344,24 @@ impl RPCNakamotoBlockReplayRequestHandler {
             return Err(ChainError::InvalidStacksBlock("block_id is None".into()));
         };
 
-        let Some((tenure_id, parent_block_id)) = chainstate
-            .nakamoto_blocks_db()
-            .get_tenure_and_parent_block_id(&block_id)?
-        else {
-            return Err(ChainError::NoSuchBlockError);
-        };
+        let mut tx_merkle_root: Option<Sha512Trunc256Sum> = None;
 
-        let staging_db_path = chainstate.get_nakamoto_staging_blocks_path()?;
-        let db_conn = StacksChainState::open_nakamoto_staging_blocks(&staging_db_path, false)?;
-        let rowid = db_conn
-            .conn()
-            .get_nakamoto_block_rowid(&block_id)?
-            .ok_or(ChainError::NoSuchBlockError)?;
+        let mut rpc_replayed_block = remine_nakamoto_block(
+            block_id,
+            sortdb,
+            chainstate,
+            self.profiler,
+            |block| {
+                tx_merkle_root = Some(block.header.tx_merkle_root.clone());
+                block.txs.clone()
+            },
+            |_| Ok(()),
+        )?;
 
-        let mut blob_fd = match db_conn.open_nakamoto_block(rowid, false).map_err(|e| {
-            let msg = format!("Failed to open Nakamoto block {}: {:?}", &block_id, &e);
-            warn!("{}", &msg);
-            msg
-        }) {
-            Ok(blob_fd) => blob_fd,
-            Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
-        };
-
-        let block = match NakamotoBlock::consensus_deserialize(&mut blob_fd).map_err(|e| {
-            let msg = format!("Failed to read Nakamoto block {}: {:?}", &block_id, &e);
-            warn!("{}", &msg);
-            msg
-        }) {
-            Ok(block) => block,
-            Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
-        };
-
-        let burn_dbconn = match sortdb.index_handle_at_block(chainstate, &parent_block_id) {
-            Ok(burn_dbconn) => burn_dbconn,
-            Err(_) => return Err(ChainError::NoSuchBlockError),
-        };
-
-        let tenure_change = block
-            .txs
-            .iter()
-            .find(|tx| matches!(tx.payload, TransactionPayload::TenureChange(..)));
-        let coinbase = block
-            .txs
-            .iter()
-            .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
-        let tenure_cause = tenure_change
-            .and_then(|tx| match &tx.payload {
-                TransactionPayload::TenureChange(tc) => Some(tc.into()),
-                _ => None,
-            })
-            .unwrap_or(MinerTenureInfoCause::NoTenureChange);
-
-        let parent_stacks_header_opt =
-            match NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id) {
-                Ok(parent_stacks_header_opt) => parent_stacks_header_opt,
-                Err(e) => return Err(e),
-            };
-
-        let Some(parent_stacks_header) = parent_stacks_header_opt else {
-            return Err(ChainError::InvalidStacksBlock(
-                "Invalid Parent Block".into(),
-            ));
-        };
-
-        let mut builder = match NakamotoBlockBuilder::new(
-            &parent_stacks_header,
-            &block.header.consensus_hash,
-            block.header.burn_spent,
-            tenure_change,
-            coinbase,
-            block.header.pox_treatment.len(),
-            None,
-            None,
-            Some(block.header.timestamp),
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
-        ) {
-            Ok(builder) => builder,
-            Err(e) => return Err(e),
-        };
-
-        let mut miner_tenure_info =
-            match builder.load_ephemeral_tenure_info(chainstate, &burn_dbconn, tenure_cause) {
-                Ok(miner_tenure_info) => miner_tenure_info,
-                Err(e) => return Err(e),
-            };
-
-        let burn_chain_height = miner_tenure_info.burn_tip_height;
-        let mut tenure_tx = match builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info) {
-            Ok(tenure_tx) => tenure_tx,
-            Err(e) => return Err(e),
-        };
-
-        let mut block_fees: u128 = 0;
-        let mut txs_receipts = vec![];
-        let mut total_receipts = 0u64;
-        for (i, tx) in block.txs.iter().enumerate() {
-            let tx_len = tx.tx_len();
-
-            let mut profiler: Option<BlockReplayProfiler> = None;
-            let mut profiler_result = BlockReplayProfilerResult::default();
-
-            if self.profiler {
-                profiler = Some(BlockReplayProfiler::new());
-            }
-
-            let tx_result = builder.try_mine_tx_with_len(
-                &mut tenure_tx,
-                tx,
-                tx_len,
-                &BlockLimitFunction::NO_LIMIT_HIT,
-                None,
-                &mut total_receipts,
-            );
-
-            if let Some(profiler) = profiler {
-                profiler_result = profiler.collect();
-            }
-
-            let err = match tx_result {
-                TransactionResult::Success(tx_result) => {
-                    txs_receipts.push((tx_result.receipt, profiler_result));
-                    Ok(())
-                }
-                _ => Err(format!("Problematic tx {i}")),
-            };
-            if let Err(reason) = err {
-                let txid = tx.txid();
-                return Err(ChainError::InvalidStacksTransaction(
-                    format!("Unable to replay transaction {txid}: {reason}").into(),
-                    false,
-                ));
-            }
-
-            block_fees += tx.get_tx_fee() as u128;
+        if let Some(tx_merkle_root) = tx_merkle_root {
+            rpc_replayed_block.valid_merkle_root =
+                tx_merkle_root == rpc_replayed_block.tx_merkle_root;
         }
-
-        let replayed_block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
-
-        tenure_tx.rollback_block();
-
-        let tx_merkle_root = block.header.tx_merkle_root.clone();
-
-        let mut rpc_replayed_block =
-            RPCReplayedBlock::from_block(block, block_fees, tenure_id, parent_block_id);
-
-        for (receipt, profiler_result) in &txs_receipts {
-            let transaction = RPCReplayedBlockTransaction::from_receipt(receipt, &profiler_result);
-            rpc_replayed_block.transactions.push(transaction);
-        }
-
-        rpc_replayed_block.valid_merkle_root =
-            tx_merkle_root == replayed_block.header.tx_merkle_root;
 
         Ok(rpc_replayed_block)
     }
@@ -357,7 +399,7 @@ pub struct RPCReplayedBlockTransaction {
 }
 
 impl RPCReplayedBlockTransaction {
-    fn from_receipt(
+    pub fn from_receipt(
         receipt: &StacksTransactionReceipt,
         profiler_result: &BlockReplayProfilerResult,
     ) -> Self {
@@ -439,7 +481,7 @@ pub struct RPCReplayedBlock {
 
 impl RPCReplayedBlock {
     pub fn from_block(
-        block: NakamotoBlock,
+        block: &NakamotoBlock,
         block_fees: u128,
         tenure_id: ConsensusHash,
         parent_block_id: StacksBlockId,
@@ -454,11 +496,11 @@ impl RPCReplayedBlock {
             parent_block_id,
             consensus_hash: tenure_id,
             fees: block_fees,
-            tx_merkle_root: block.header.tx_merkle_root,
+            tx_merkle_root: block.header.tx_merkle_root.clone(),
             state_index_root: block.header.state_index_root,
             timestamp: block.header.timestamp,
-            miner_signature: block.header.miner_signature,
-            signer_signature: block.header.signer_signature,
+            miner_signature: block.header.miner_signature.clone(),
+            signer_signature: block.header.signer_signature.clone(),
             transactions: vec![],
             valid_merkle_root: false,
         }
