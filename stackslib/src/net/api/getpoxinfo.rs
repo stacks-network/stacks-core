@@ -16,6 +16,7 @@
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksBlockId;
@@ -194,7 +195,10 @@ impl RPCPoxInfoData {
                         sender,
                         None,
                         cost_track,
-                        |env| env.execute_contract(&contract_identifier, function, &[], true),
+                        |env| {
+                            env.execute_contract(&contract_identifier, function, &[], true)
+                                .map_err(ClarityEvalError::from)
+                        },
                     )
                 },
             )

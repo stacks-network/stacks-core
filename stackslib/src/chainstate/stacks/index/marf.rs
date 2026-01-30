@@ -154,26 +154,6 @@ impl MARFOpenOpts {
         self.compress = compression;
         self
     }
-
-    #[cfg(test)]
-    pub fn all() -> Vec<MARFOpenOpts> {
-        vec![
-            /*
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false)
-                .with_compression(true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false)
-                .with_compression(true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true)
-                .with_compression(true),
-            */
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true)
-                .with_compression(true),
-        ]
-    }
 }
 
 ///

@@ -1103,7 +1103,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             // Only applies to non-leaf nodes, and only if doing so results in a stack of patches
             // that's less than MAX_PATCH_DEPTH. Also, only patch a node if the path is the same.
             let mut patch_node_opt = if !node.is_leaf()
-                && node.get_patches().len() + 1 < MAX_PATCH_DEPTH as usize
+                && node.get_patches().len() < MAX_PATCH_DEPTH as usize
             {
                 if let Some((last_patch_block_id, last_patch_ptr, _)) = node.get_patches().last() {
                     // this node is a patch to a node in a previous trie.  Try to amend a patch
@@ -1679,10 +1679,6 @@ impl<T: MarfTrieId> TrieStorageTransientData<T> {
     fn clear_block_id(&mut self) {
         self.cur_block_id = None;
     }
-
-    fn retarget_block(&mut self, bhh: T) {
-        self.cur_block = bhh;
-    }
 }
 
 pub struct ReopenedTrieStorageConnection<'a, T: MarfTrieId> {
@@ -2173,16 +2169,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     if self.data.unconfirmed {
                         return Err(Error::UnconfirmedError);
                     }
-                    if real_bhh != &bhh {
-                        // note: this was moved from the block_retarget function
-                        //  to avoid stepping on the borrow checker.
-                        debug!(
-                            "Retarget block {} to {}. Current block ID is {:?}",
-                            bhh, real_bhh, &self.data.cur_block_id
-                        );
-                        // switch over state
-                        self.data.retarget_block(real_bhh.clone());
-                    }
+
                     let new_block_id = self.with_trie_blobs(|db, blobs| match blobs {
                         Some(blobs) => blobs.store_trie_blob(db, real_bhh, &buffer),
                         None => {
@@ -3064,19 +3051,17 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
             self.unconfirmed()
         );
 
-        let (saved_block_hash, saved_block_id) = self.get_cur_block_and_id();
-
         let cur_block_id = block_id;
         let mut node_hash_opt = None;
         let mut patches: Vec<(u32, TriePtr, TrieNodePatch)> = vec![];
-        for _ in 0..MAX_PATCH_DEPTH {
+        // Read 1 node further than the MAX_PATCH_DEPTH allowed
+        for _ in 0..(1 + MAX_PATCH_DEPTH) {
             match self.inner_read_persisted_nodetype(block_id, &ptr, read_hash) {
                 Ok((node, hash)) => {
                     patches.reverse();
                     let node = node.apply_patches(&patches, cur_block_id).ok_or_else(|| {
                         Error::CorruptionError("Failed to apply patches to node".to_string())
                     })?;
-                    self.open_block_maybe_id(&saved_block_hash, saved_block_id)?;
                     return Ok((node, node_hash_opt.unwrap_or(hash)));
                 }
                 Err(Error::Patch(hash_opt, node_patch)) => {
@@ -3093,12 +3078,10 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                     }
                 }
                 Err(e) => {
-                    self.open_block_maybe_id(&saved_block_hash, saved_block_id)?;
                     return Err(e);
                 }
             }
         }
-        self.open_block_maybe_id(&saved_block_hash, saved_block_id)?;
         return Err(Error::NodeTooDeep);
     }
 
