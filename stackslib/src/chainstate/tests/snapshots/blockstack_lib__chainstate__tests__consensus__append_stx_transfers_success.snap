@@ -4,8 +4,66 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "0c7c8299ff0df20dd19ed61ccf72111f137c9c0e7d97d8175f417a5025ff776c",
+    marf_hash: "83531cc9cd1e7779aa23485766e1ebab0c3be1161ff8f9adc9c24fbde4995dd2",
     evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+      ExpectedTransactionOutput(
+        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+      ExpectedTransactionOutput(
+        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 0,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f193d18b7eaba84f1780169d3402a2f758c94c47d132e218648c7fc254a8bbca",
+    evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",

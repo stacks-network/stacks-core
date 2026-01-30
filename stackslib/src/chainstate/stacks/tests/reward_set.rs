@@ -53,7 +53,7 @@ pub fn check_make_reward_set(
     prop_assume!(threshold > 0);
 
     let reward_set =
-        StacksChainState::make_reward_set(threshold, addresses.to_vec(), StacksEpochId::Epoch33);
+        StacksChainState::make_reward_set(threshold, addresses.to_vec(), StacksEpochId::latest());
 
     prop_assert_eq!(Some(threshold), reward_set.pox_ustx_threshold);
 

@@ -123,4 +123,154 @@ expression: result
       runtime: 2187,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "57ca0f17c08499cf783ddb8648913fc5e0f7f2dea9b881a2757d51c7dfe5b071",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: defining \'foo\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2187,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2187,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c87b9513d9e997457017cdad20b805533a37477f5ec7c22666125a90602c1155",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: defining \'foo\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2187,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2187,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b4d867c1405ba0da335f46f8f874ce671047a5c2643eb0ec6e91bc9142977f1b",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: defining \'foo\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2187,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2187,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a48274c0d9b8f871b444b5b74b57dbc5b860191d07242e0afbc439481791f597",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: defining \'foo\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2187,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2187,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "dd5eaf42e9651b747c40072f425dd172ce52b8bf54de07f035f44ced8c5603bf",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: defining \'foo\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2187,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2187,
+    ),
+  )),
 ]

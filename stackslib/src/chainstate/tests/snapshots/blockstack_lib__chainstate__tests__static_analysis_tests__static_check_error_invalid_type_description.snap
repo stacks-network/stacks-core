@@ -123,4 +123,154 @@ expression: result
       runtime: 1175,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "253f5c5f0365a6329eaebbeff4a160c79d9ddb9a230de185ffc711c7bac2cc91",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: invalid-type-desc-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: invalid variable definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1175,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1175,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "cfc97e713876f8b3a8ae66d6762d80fae0c334c06904023128bd861de0fcc11f",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: invalid-type-desc-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: invalid variable definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1175,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1175,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d2bff4f2d1752be9a01927f776c1bc6fe1473aa57cea3e003c6f11472d9e86c8",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: invalid-type-desc-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: invalid variable definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1175,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1175,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e3e93c7a27df947039bbf4a7bb17c29dad38231b51ab77930ea60133318efeda",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: invalid-type-desc-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: invalid variable definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1175,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1175,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bf1169f1be35d0267a51721f1c579a4de653389868c6a92849025b8f0041487e",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: invalid-type-desc-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: invalid variable definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1175,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1175,
+    ),
+  )),
 ]

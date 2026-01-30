@@ -33,4 +33,64 @@ expression: result
       runtime: 605,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0b05da1a5e8dee18e9ec5d931c60e3db55197f7b4b1c2d0d3467cc014629a89b",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: allow-expr-not-allo-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 4,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 605,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 4,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 605,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6062fca8d7641685cd2a49d7de5639eb05c87e4d22d52030fdccb0566376f1cd",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: allow-expr-not-allo-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 4,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 605,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 4,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 605,
+    ),
+  )),
 ]

@@ -123,4 +123,154 @@ expression: result
       runtime: 1497,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e6552b6e47962ca6c1d8487c6d7b0a75bbf8a1df32d688947c0d9c852e33f6b8",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: nft-bad-signature-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: (define-asset ...) expects an asset name and an asset identifier type signature as arguments) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1497,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1497,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "10b87971f7fbe078208679f8575d8a2236d7ff27139bb450516ea5578da9965a",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: nft-bad-signature-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: (define-asset ...) expects an asset name and an asset identifier type signature as arguments) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1497,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1497,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "35e5880ec7d28a3cda12317af0bb048af8a004d0f955956cbd52f295fc709cfa",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: nft-bad-signature-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: (define-asset ...) expects an asset name and an asset identifier type signature as arguments) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1497,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1497,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d96cb464ad43b6dda4dd5b643ca8110e44d72f575d533dd3c83158ecee412445",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: nft-bad-signature-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: (define-asset ...) expects an asset name and an asset identifier type signature as arguments) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1497,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1497,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e23c55cce35f8b4591ed55b3a7d2899c791e1298a50806b0b4b66f39d496b178",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: nft-bad-signature-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: (define-asset ...) expects an asset name and an asset identifier type signature as arguments) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1497,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1497,
+    ),
+  )),
 ]

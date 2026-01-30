@@ -869,7 +869,8 @@ impl LeaderBlockCommitOp {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => {
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => {
                 // correct behavior -- uses *sortition height* to find the intended sortition ID
                 let sortition_height = self
                     .block_height

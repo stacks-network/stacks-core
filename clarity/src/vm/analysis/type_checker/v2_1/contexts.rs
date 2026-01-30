@@ -40,12 +40,13 @@ impl TraitContext {
     pub fn new(clarity_version: ClarityVersion) -> TraitContext {
         match clarity_version {
             ClarityVersion::Clarity1 => Self::Clarity1(HashMap::new()),
-            ClarityVersion::Clarity2 | ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => {
-                Self::Clarity2 {
-                    defined: HashSet::new(),
-                    all: HashMap::new(),
-                }
-            }
+            ClarityVersion::Clarity2
+            | ClarityVersion::Clarity3
+            | ClarityVersion::Clarity4
+            | ClarityVersion::Clarity5 => Self::Clarity2 {
+                defined: HashSet::new(),
+                all: HashMap::new(),
+            },
         }
     }
 

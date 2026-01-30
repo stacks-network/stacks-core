@@ -123,4 +123,154 @@ expression: result
       runtime: 885,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9a77146328cbe71033f7598f4d3889ef52d16b711284752874a31f3d48812290",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: incorrect-arg-count-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: expecting 1 arguments, got 2) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 885,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 885,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "76da0c732f2dee9948eaa125227d596b2c0d4c5c3d720c77a8bc4d3baa768263",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: incorrect-arg-count-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: expecting 1 arguments, got 2) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 885,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 885,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "03661256fdd57e0b15a1fd50f8da313f34abe849710291ba89639600315b76e4",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: incorrect-arg-count-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: expecting 1 arguments, got 2) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 885,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 885,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8226676d49473776b1db46d38e52afe7620d400dcb0d4c69710eb6a9bc31c4a1",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: incorrect-arg-count-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: expecting 1 arguments, got 2) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 885,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 885,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d1f15081a4f4f00ace299939b7d74ceeba26519bad7b36eb04adac662215b399",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: incorrect-arg-count-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: expecting 1 arguments, got 2) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 885,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 885,
+    ),
+  )),
 ]

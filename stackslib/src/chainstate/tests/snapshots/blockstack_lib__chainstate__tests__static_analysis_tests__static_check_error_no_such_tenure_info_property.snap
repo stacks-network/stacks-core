@@ -63,4 +63,94 @@ expression: result
       runtime: 958,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "07e45d7182e55e00b2b166d043184cab73f350753e2b1dfb9b334812f1667e46",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-tenure-info-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: use of unknown tenure property \'none\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 958,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 958,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a5645ae16f3048daff0b1150c1e88807d15f5b9134f49a78bf63514aa96a16f1",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-tenure-info-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: use of unknown tenure property \'none\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 958,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 958,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1439caff0dac3dc064c35e5eb026764063b88f2d5fe0956d5addc5bacb9cd554",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-tenure-info-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: use of unknown tenure property \'none\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 958,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 958,
+    ),
+  )),
 ]
