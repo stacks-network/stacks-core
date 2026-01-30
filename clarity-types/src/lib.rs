@@ -33,9 +33,21 @@ pub mod types;
 
 pub use errors::{ClarityTypeError, IncomparableError};
 pub use representations::{ClarityName, ContractName};
+use stacks_common::types::StacksEpochId;
 pub use types::Value;
 
-pub const MAX_CALL_STACK_DEPTH: usize = 64;
+/// Max call stack depth for Epoch 3.4+.
+const MAX_CALL_STACK_DEPTH: usize = 128;
+/// Max call stack depth for pre‑3.4 epochs.
+const MAX_CALL_STACK_DEPTH_LEGACY: usize = 64;
+
+pub fn max_call_stack_depth_for_epoch(epoch_id: StacksEpochId) -> usize {
+    if epoch_id >= StacksEpochId::Epoch34 {
+        MAX_CALL_STACK_DEPTH
+    } else {
+        MAX_CALL_STACK_DEPTH_LEGACY
+    }
+}
 
 #[cfg(test)]
 pub mod tests;

@@ -2001,8 +2001,8 @@ impl<'a> LocalContext<'a> {
         if self.depth >= MAX_CONTEXT_DEPTH {
             // `MaxContextDepthReached` in this function is **unreachable** in normal Clarity execution because:
             // - Every function call in Clarity increments both the call stack depth and the local context depth.
-            // - The VM enforces `MAX_CALL_STACK_DEPTH` (currently 64) **before** `MAX_CONTEXT_DEPTH` (256).
-            // - This means no contract can create more than 64 nested function calls, preventing context depth from reaching 256.
+            // - The VM enforces the epoch-specific `MAX_CALL_STACK_DEPTH` **before** `MAX_CONTEXT_DEPTH` (256).
+            // - This means no contract can create more nested function calls than the epoch limit, preventing context depth from reaching 256.
             // - Nested expressions (`let`, `begin`, `if`, etc.) increment context depth, but the Clarity parser enforces
             //   `ExpressionStackDepthTooDeep` long before MAX_CONTEXT_DEPTH nested contexts can be written.
             // - As a result, `MaxContextDepthReached` can only occur in artificial Rust-level tests calling `LocalContext::extend()`,

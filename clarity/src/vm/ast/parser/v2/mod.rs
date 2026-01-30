@@ -23,9 +23,9 @@ use stacks_common::util::hash::hex_bytes;
 
 use self::lexer::Lexer;
 use self::lexer::token::{PlacedToken, Token};
-use crate::vm::MAX_CALL_STACK_DEPTH;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult, PlacedError};
 use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+pub use crate::vm::ast::stack_depth_checker::max_nesting_depth;
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
 use crate::vm::representations::{PreSymbolicExpression, Span};
 
@@ -40,11 +40,11 @@ pub struct Parser<'a> {
     // context of a stacks-node, while normal mode is useful for developers.
     fail_fast: bool,
     nesting_depth: u64,
+    max_nesting_depth: u64,
 }
 
 pub const MAX_STRING_LEN: usize = 128;
 pub const MAX_CONTRACT_NAME_LEN: usize = 40;
-pub const MAX_NESTING_DEPTH: u64 = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1;
 
 enum OpenTupleStatus {
     /// The next thing to parse is a key
@@ -79,7 +79,11 @@ enum ParserStackElement {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(input: &'a str, fail_fast: bool) -> Result<Self, ParseErrorKind> {
+    pub fn new(
+        input: &'a str,
+        fail_fast: bool,
+        max_nesting_depth: u64,
+    ) -> Result<Self, ParseErrorKind> {
         let lexer = match Lexer::new(input, fail_fast) {
             Ok(lexer) => lexer,
             Err(e) => return Err(ParseErrorKind::Lexer(e)),
@@ -92,6 +96,7 @@ impl<'a> Parser<'a> {
             success: true,
             fail_fast,
             nesting_depth: 0,
+            max_nesting_depth,
         };
 
         loop {
@@ -838,9 +843,14 @@ impl<'a> Parser<'a> {
                     match &token.token {
                         Token::Lparen => {
                             self.nesting_depth += 1;
-                            if self.nesting_depth > MAX_NESTING_DEPTH {
+                            if self.nesting_depth > self.max_nesting_depth {
                                 self.add_diagnostic(
-                                    ParseErrorKind::ExpressionStackDepthTooDeep,
+                                    ParseErrorKind::ExpressionStackDepthTooDeep {
+                                        max_depth: (self.max_nesting_depth
+                                            - AST_CALL_STACK_DEPTH_BUFFER
+                                            - 1)
+                                            as usize,
+                                    },
                                     token.span.clone(),
                                 )?;
                                 // Do not try to continue, exit cleanly now to avoid a stack overflow.
@@ -857,9 +867,14 @@ impl<'a> Parser<'a> {
                         }
                         Token::Lbrace => {
                             // This sugared syntax for tuple becomes a list of pairs, so depth is increased by 2.
-                            if self.nesting_depth + 2 > MAX_NESTING_DEPTH {
+                            if self.nesting_depth + 2 > self.max_nesting_depth {
                                 self.add_diagnostic(
-                                    ParseErrorKind::ExpressionStackDepthTooDeep,
+                                    ParseErrorKind::ExpressionStackDepthTooDeep {
+                                        max_depth: (self.max_nesting_depth
+                                            - AST_CALL_STACK_DEPTH_BUFFER
+                                            - 1)
+                                            as usize,
+                                    },
                                     token.span.clone(),
                                 )?;
                                 // Do not try to continue, exit cleanly now to avoid a stack overflow.
@@ -1115,8 +1130,8 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
-    let mut parser = match Parser::new(input, true) {
+pub fn parse(input: &str, max_call_stack_depth: usize) -> ParseResult<Vec<PreSymbolicExpression>> {
+    let mut parser = match Parser::new(input, true, max_nesting_depth(max_call_stack_depth)) {
         Ok(parser) => parser,
         Err(e) => return Err(ParseError::new(e)),
     };
@@ -1132,9 +1147,10 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
 #[allow(clippy::unwrap_used)]
 pub fn parse_collect_diagnostics(
     input: &str,
+    max_call_stack_depth: usize,
 ) -> (Vec<PreSymbolicExpression>, Vec<Diagnostic>, bool) {
     // When not in fail_fast mode, Parser::new always returns Ok.
-    let mut parser = Parser::new(input, false).unwrap();
+    let mut parser = Parser::new(input, false, max_nesting_depth(max_call_stack_depth)).unwrap();
 
     // When not in fail_fast mode, Parser::parse always returns Ok.
     let stmts = parser.parse().unwrap();
@@ -1173,11 +1189,28 @@ fn ellipse_string_for_test(string: &str, max_chars: usize) -> String {
 #[cfg(test)]
 #[cfg(feature = "developer-mode")]
 mod tests {
+    use stacks_common::types::StacksEpochId;
+
     use self::lexer::error::LexerError;
     use super::*;
     use crate::vm::diagnostic::Level;
+    use crate::vm::max_call_stack_depth_for_epoch;
     use crate::vm::representations::PreSymbolicExpressionType;
     use crate::vm::types::{ASCIIData, CharType, PrincipalData, SequenceData};
+
+    fn max_call_stack_depth() -> usize {
+        max_call_stack_depth_for_epoch(StacksEpochId::Epoch33)
+    }
+
+    fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
+        super::parse(input, max_call_stack_depth())
+    }
+
+    fn parse_collect_diagnostics(
+        input: &str,
+    ) -> (Vec<PreSymbolicExpression>, Vec<Diagnostic>, bool) {
+        super::parse_collect_diagnostics(input, max_call_stack_depth())
+    }
 
     #[test]
     fn test_parse_int() {
@@ -3634,8 +3667,7 @@ mod tests {
 
     #[test]
     fn test_stack_depth() {
-        let stack_limit =
-            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+        let stack_limit = max_nesting_depth(max_call_stack_depth()) as usize;
         let exceeds_stack_depth_tuple = format!(
             "{}u1 {}",
             "{ a : ".repeat(stack_limit / 2 + 1),
@@ -3648,7 +3680,7 @@ mod tests {
         );
 
         assert!(match *(parse(&exceeds_stack_depth_list).unwrap_err().err) {
-            ParseErrorKind::ExpressionStackDepthTooDeep => true,
+            ParseErrorKind::ExpressionStackDepthTooDeep { .. } => true,
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
 
@@ -3657,7 +3689,10 @@ mod tests {
         assert!(!diagnostics.is_empty());
         assert_eq!(
             diagnostics[0].message,
-            "AST has too deep of an expression nesting. The maximum stack depth is 64"
+            format!(
+                "AST has too deep of an expression nesting. The maximum stack depth is {}",
+                max_call_stack_depth()
+            )
         );
         assert_eq!(diagnostics[0].level, Level::Error);
         assert_eq!(
@@ -3671,7 +3706,7 @@ mod tests {
         );
 
         assert!(match *parse(&exceeds_stack_depth_tuple).unwrap_err().err {
-            ParseErrorKind::ExpressionStackDepthTooDeep => true,
+            ParseErrorKind::ExpressionStackDepthTooDeep { .. } => true,
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
 
@@ -3680,7 +3715,10 @@ mod tests {
         assert!(!diagnostics.is_empty());
         assert_eq!(
             diagnostics[0].message,
-            "AST has too deep of an expression nesting. The maximum stack depth is 64"
+            format!(
+                "AST has too deep of an expression nesting. The maximum stack depth is {}",
+                max_call_stack_depth()
+            )
         );
         assert_eq!(diagnostics[0].level, Level::Error);
         assert_eq!(

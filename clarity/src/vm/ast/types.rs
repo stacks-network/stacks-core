@@ -17,13 +17,19 @@
 use std::collections::{HashMap, HashSet};
 use std::vec::Drain;
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::ast::errors::ParseResult;
 use crate::vm::representations::{PreSymbolicExpression, SymbolicExpression, TraitDefinition};
 use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 use crate::vm::{ClarityName, ClarityVersion};
 
 pub trait BuildASTPass {
-    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()>;
+    fn run_pass(
+        contract_ast: &mut ContractAST,
+        _version: ClarityVersion,
+        _epoch: StacksEpochId,
+    ) -> ParseResult<()>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -10,8 +10,8 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{
-    execute_with_parameters as execute, ClarityName, ClarityVersion, ContractName, Value,
-    MAX_CALL_STACK_DEPTH,
+    execute_with_parameters as execute, max_call_stack_depth_for_epoch, ClarityName,
+    ClarityVersion, ContractName, Value,
 };
 use rusqlite::params;
 use serde::Deserialize;
@@ -1606,7 +1606,8 @@ fn deep_contract() {
         return;
     }
 
-    let stack_limit = (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+    let max_call_stack_depth = max_call_stack_depth_for_epoch(StacksEpochId::latest());
+    let stack_limit = (AST_CALL_STACK_DEPTH_BUFFER + (max_call_stack_depth as u64) + 1) as usize;
     let exceeds_stack_depth_list = format!(
         "{}u1 {}",
         "(list ".repeat(stack_limit + 1),
@@ -7837,7 +7838,8 @@ fn test_problematic_txs_are_not_stored() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     // something at the limit of the expression depth (will get mined and processed)
-    let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
+    let max_call_stack_depth = max_call_stack_depth_for_epoch(StacksEpochId::Epoch2_05);
+    let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (max_call_stack_depth as u64) - 1;
     let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
     let tx_edge_body_end = "} ".repeat(edge_repeat_factor as usize);
     let tx_edge_body = format!("{tx_edge_body_start}u1 {tx_edge_body_end}");

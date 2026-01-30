@@ -51,7 +51,7 @@ use stacks::core::test_util::{
     insert_tx_in_mempool, make_contract_call, make_contract_publish,
     make_stacks_transfer_serialized,
 };
-use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
+use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::getsigner::GetSignerResponse;
 use stacks::net::api::postblock_proposal::{
@@ -2803,14 +2803,10 @@ fn mock_sign_epoch_25() {
         |node_config| {
             node_config.miner.pre_nakamoto_mock_signing = true;
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
+            epochs.truncate_after(StacksEpochId::Epoch30);
             epochs[StacksEpochId::Epoch25].end_height = 251;
             epochs[StacksEpochId::Epoch30].start_height = 251;
-            epochs[StacksEpochId::Epoch30].end_height = 265;
-            epochs[StacksEpochId::Epoch31].start_height = 265;
-            epochs[StacksEpochId::Epoch31].end_height = 285;
-            epochs[StacksEpochId::Epoch32].start_height = 285;
-            epochs[StacksEpochId::Epoch32].end_height = 305;
-            epochs[StacksEpochId::Epoch33].start_height = 305;
+            epochs[StacksEpochId::Epoch30].end_height = STACKS_EPOCH_MAX;
         },
         None,
         None,
@@ -2925,14 +2921,10 @@ fn multiple_miners_mock_sign_epoch_25() {
         |config| {
             config.miner.pre_nakamoto_mock_signing = true;
             let epochs = config.burnchain.epochs.as_mut().unwrap();
+            epochs.truncate_after(StacksEpochId::Epoch30);
             epochs[StacksEpochId::Epoch25].end_height = 251;
             epochs[StacksEpochId::Epoch30].start_height = 251;
-            epochs[StacksEpochId::Epoch30].end_height = 265;
-            epochs[StacksEpochId::Epoch31].start_height = 265;
-            epochs[StacksEpochId::Epoch31].end_height = 285;
-            epochs[StacksEpochId::Epoch32].start_height = 285;
-            epochs[StacksEpochId::Epoch32].end_height = 305;
-            epochs[StacksEpochId::Epoch33].start_height = 305;
+            epochs[StacksEpochId::Epoch30].end_height = STACKS_EPOCH_MAX;
         },
         |_| {},
     );

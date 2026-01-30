@@ -32,7 +32,7 @@ use crate::vm::{
         is_committed, is_err_code_i128 as is_err_code, symbols_from_values, tl_env_factory,
     },
     types::{OptionalData, ResponseData, TypeSignature},
-    {ClarityVersion, ContractContext, execute as vm_execute},
+    {ClarityVersion, ContractContext, execute as vm_execute, max_call_stack_depth_for_epoch},
 };
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
@@ -1035,7 +1035,12 @@ fn test_ast_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        ClarityEvalError::Parse(ParseErrorKind::VaryExpressionStackDepthTooDeep.into())
+        ClarityEvalError::Parse(
+            ParseErrorKind::VaryExpressionStackDepthTooDeep {
+                max_depth: max_call_stack_depth_for_epoch(StacksEpochId::Epoch20)
+            }
+            .into()
+        )
     );
 }
 
@@ -1059,6 +1064,14 @@ fn test_arg_stack_depth() {
     );
 }
 
+fn build_nested_plus(expr: &str, depth: usize) -> String {
+    let mut nested = expr.to_string();
+    for _ in 0..depth {
+        nested = format!("(+ {nested} 1)");
+    }
+    nested
+}
+
 #[apply(test_clarity_versions)]
 fn test_cc_stack_depth(
     version: ClarityVersion,
@@ -1066,26 +1079,22 @@ fn test_cc_stack_depth(
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
     let mut owned_env = env_factory.get_env(epoch);
-    let contract_one = "(define-public (foo)
-                        (ok (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
-                       1 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
-                         1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)))";
-    let contract_two =
-                      "(define-private (bar)
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
-                        (unwrap-panic (contract-call? .c-foo foo ) )
-                         1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
-                         1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1))
-                       (bar)
-                      ";
+
+    // The `unwrap-panic` adds 1 stack frame, the `contract-call?` adds 2, and the `ok` adds one
+    // more for a total of 4, so we use all but 3 to test just over the limit.
+    let nested_plus = build_nested_plus("1", max_call_stack_depth_for_epoch(epoch) - 3);
+    let contract_one = format!(
+        "(define-public (foo)
+            (ok {nested_plus}))"
+    );
+
+    let contract_two = "(unwrap-panic (contract-call? .c-foo foo))";
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
     let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
 
     let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
-    env.initialize_contract(contract_identifier, contract_one)
+    env.initialize_contract(contract_identifier, &contract_one)
         .unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("c-bar").unwrap();
@@ -1104,29 +1113,29 @@ fn test_cc_trait_stack_depth(
 ) {
     let mut owned_env = env_factory.get_env(epoch);
 
-    let contract_one = "(define-public (foo)
-                        (ok (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
-                       1 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
-                         1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)))";
-    let contract_two =
-                      "(define-trait trait-1 (
-                        (foo () (response int int))))
-                       (define-private (bar (F <trait-1>))
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
-                        (unwrap-panic (contract-call? F foo))
-                         1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
-                         1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1))
-                       (bar .c-foo)
-                      ";
+    // The call to bar adds 1 stack frame, `unwrap-panic` adds another, the `contract-call?`
+    // adds 2, and the `ok` adds one more for a total of 5, so we use all but 4 to test just over
+    // the limit.
+    let nested_plus = build_nested_plus("1", max_call_stack_depth_for_epoch(epoch) - 4);
+    let contract_one = format!(
+        "(define-trait trait-1 (
+        (foo () (response int int))))
+        (define-public (foo)
+            (ok {nested_plus}))"
+    );
+
+    let contract_two = "(use-trait trait-1 .c-foo.trait-1)
+        (define-private (bar (F <trait-1>))
+            (unwrap-panic (contract-call? F foo)))
+        (bar .c-foo)
+        ";
 
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
     let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
 
     let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
-    env.initialize_contract(contract_identifier, contract_one)
+    env.initialize_contract(contract_identifier, &contract_one)
         .unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("c-bar").unwrap();
