@@ -280,7 +280,7 @@ fn open_nakamoto_chainstate_dbs(
     let chain_state_path = format!("{chainstate_dir}/{dirname}/chainstate/");
     let sort_db_path = format!("{chainstate_dir}/{dirname}/burnchain/sortition/");
 
-    let sort_db = SortitionDB::open(&sort_db_path, true, pox_constants)
+    let sort_db = SortitionDB::open(&sort_db_path, true, pox_constants, None)
         .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
 
     let (chain_state, _) = StacksChainState::open(mainnet, chain_id, &chain_state_path, None)
@@ -610,8 +610,9 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
-        let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
-            .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
+        let sort_db =
+            SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default(), None)
+                .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
         let chain_id = CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
@@ -654,8 +655,9 @@ check if the associated microblocks can be downloaded
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
-        let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
-            .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
+        let sort_db =
+            SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default(), None)
+                .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
         let chain_id = CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
@@ -766,7 +768,7 @@ check if the associated microblocks can be downloaded
             .map(|x| x.parse().expect("Failed to parse <end-height> argument"))
             .unwrap_or(start_height);
 
-        let sort_db = SortitionDB::open(&argv[2], false, PoxConstants::mainnet_default())
+        let sort_db = SortitionDB::open(&argv[2], false, PoxConstants::mainnet_default(), None)
             .unwrap_or_else(|_| panic!("Failed to open {}", argv[2]));
         let chain_tip = SortitionDB::get_canonical_sortition_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
@@ -1315,7 +1317,7 @@ check if the associated microblocks can be downloaded
         let (old_chainstate, _) =
             StacksChainState::open(false, 0x80000000, old_chainstate_path, None).unwrap();
         let old_sortition_db =
-            SortitionDB::open(old_sort_path, true, PoxConstants::mainnet_default()).unwrap();
+            SortitionDB::open(old_sort_path, true, PoxConstants::mainnet_default(), None).unwrap();
 
         // initial argon balances -- see sample/conf/testnet-follower-conf.toml
         let initial_balances = vec![
@@ -1661,7 +1663,7 @@ simulating a miner.
     let mine_tip_height: u64 = argv[4].parse().expect("Could not parse mine_tip_height");
     let mine_max_txns: u64 = argv[5].parse().expect("Could not parse mine-num-txns");
 
-    let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
+    let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default(), None)
         .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
     let chain_id = CHAIN_ID_MAINNET;
     let mut chain_state = StacksChainState::open(true, chain_id, &chain_state_path, None)
@@ -1827,7 +1829,7 @@ simulating a miner.
         &coinbase_tx,
         settings,
         None,
-        &Burnchain::new(&burnchain_path, "bitcoin", "main").unwrap(),
+        &Burnchain::new(&burnchain_path, "bitcoin", "main", None).unwrap(),
     );
 
     let stop = get_epoch_time_ms();
@@ -1894,9 +1896,9 @@ fn analyze_sortition_mev(argv: Vec<String>) {
     }
 
     let mut sortdb =
-        SortitionDB::open(&sortdb_path, true, PoxConstants::mainnet_default()).unwrap();
+        SortitionDB::open(&sortdb_path, true, PoxConstants::mainnet_default(), None).unwrap();
     sortdb.dryrun = true;
-    let burnchain = Burnchain::new(&burnchaindb_path, "bitcoin", "mainnet").unwrap();
+    let burnchain = Burnchain::new(&burnchaindb_path, "bitcoin", "mainnet", None).unwrap();
     let burnchaindb = BurnchainDB::connect(&burnchaindb_path, &burnchain, true).unwrap();
     let (mut chainstate, _) =
         StacksChainState::open(true, 0x00000001, &chainstate_path, None).unwrap();

@@ -137,6 +137,7 @@ impl Tenure {
             &self.config.get_burn_db_file_path(),
             true,
             PoxConstants::testnet_default(),
+            None,
         )
         .unwrap()
     }

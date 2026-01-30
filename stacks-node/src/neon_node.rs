@@ -575,12 +575,17 @@ impl MicroblockMinerThread {
 
         // NOTE: read-write access is needed in order to be able to query the recipient set.
         // This is an artifact of the way the MARF is built (see #1449)
-        let sortdb = SortitionDB::open(&burn_db_path, true, burnchain.pox_constants)
-            .map_err(|e| {
-                error!("Relayer: Could not open sortdb '{burn_db_path}' ({e:?}); skipping tenure");
-                e
-            })
-            .ok()?;
+        let sortdb = SortitionDB::open(
+            &burn_db_path,
+            true,
+            burnchain.pox_constants,
+            Some(config.node.get_marf_opts()),
+        )
+        .map_err(|e| {
+            error!("Relayer: Could not open sortdb '{burn_db_path}' ({e:?}); skipping tenure");
+            e
+        })
+        .ok()?;
 
         let mut chainstate = open_chainstate_with_faults(&config)
             .map_err(|e| {
@@ -2309,8 +2314,13 @@ impl BlockMinerThread {
     /// Read any mock signatures from stackerdb and respond to them
     pub fn send_mock_miner_messages(&mut self) -> Result<(), String> {
         let burn_db_path = self.config.get_burn_db_file_path();
-        let burn_db = SortitionDB::open(&burn_db_path, false, self.burnchain.pox_constants.clone())
-            .expect("FATAL: could not open sortition DB");
+        let burn_db = SortitionDB::open(
+            &burn_db_path,
+            false,
+            self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
+        )
+        .expect("FATAL: could not open sortition DB");
         let epoch_id = SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height)
             .map_err(|e| e.to_string())?
             .expect("FATAL: no epoch defined")
@@ -2459,9 +2469,13 @@ impl BlockMinerThread {
 
         // NOTE: read-write access is needed in order to be able to query the recipient set.
         // This is an artifact of the way the MARF is built (see #1449)
-        let mut burn_db =
-            SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
-                .expect("FATAL: could not open sortition DB");
+        let mut burn_db = SortitionDB::open(
+            &burn_db_path,
+            true,
+            self.burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
+        )
+        .expect("FATAL: could not open sortition DB");
 
         let mut chain_state =
             open_chainstate_with_faults(&self.config).expect("FATAL: could not open chainstate DB");
@@ -2806,8 +2820,13 @@ impl RelayerThread {
         let is_mainnet = config.is_mainnet();
         let chain_id = config.burnchain.chain_id;
 
-        let sortdb = SortitionDB::open(&burn_db_path, true, runloop.get_burnchain().pox_constants)
-            .expect("FATAL: failed to open burnchain DB");
+        let sortdb = SortitionDB::open(
+            &burn_db_path,
+            true,
+            runloop.get_burnchain().pox_constants,
+            Some(config.node.get_marf_opts()),
+        )
+        .expect("FATAL: failed to open burnchain DB");
 
         let chainstate =
             open_chainstate_with_faults(&config).expect("FATAL: failed to open chainstate DB");
@@ -4376,8 +4395,13 @@ impl PeerThread {
         let mempool = Self::connect_mempool_db(&config);
         let burn_db_path = config.get_burn_db_file_path();
 
-        let sortdb = SortitionDB::open(&burn_db_path, false, pox_constants)
-            .expect("FATAL: could not open sortition DB");
+        let sortdb = SortitionDB::open(
+            &burn_db_path,
+            false,
+            pox_constants,
+            Some(config.node.get_marf_opts()),
+        )
+        .expect("FATAL: could not open sortition DB");
 
         let chainstate =
             open_chainstate_with_faults(&config).expect("FATAL: could not open chainstate DB");
@@ -4762,6 +4786,7 @@ impl StacksNode {
             &config.get_burn_db_file_path(),
             true,
             burnchain.pox_constants.clone(),
+            Some(config.node.get_marf_opts()),
         )
         .expect("Error while instantiating sor/tition db");
 

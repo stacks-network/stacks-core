@@ -1536,7 +1536,10 @@ pub fn boot_to_epoch_3_reward_set(
 }
 
 /// Wait for a block commit, without producing a block
-fn wait_for_first_naka_block_commit(timeout_secs: u64, naka_commits_submitted: &Arc<AtomicU64>) {
+pub fn wait_for_first_naka_block_commit(
+    timeout_secs: u64,
+    naka_commits_submitted: &Arc<AtomicU64>,
+) {
     let start = Instant::now();
     while naka_commits_submitted.load(Ordering::SeqCst) < 1 {
         if start.elapsed() > Duration::from_secs(timeout_secs) {

@@ -629,7 +629,12 @@ impl Config {
         let (network_name, _) = self.burnchain.get_bitcoin_network();
         let mut burnchain = {
             let working_dir = self.get_burn_db_path();
-            match Burnchain::new(&working_dir, &self.burnchain.chain, &network_name) {
+            match Burnchain::new(
+                &working_dir,
+                &self.burnchain.chain,
+                &network_name,
+                Some(self.node.get_marf_opts()),
+            ) {
                 Ok(burnchain) => burnchain,
                 Err(e) => {
                     error!("Failed to instantiate burnchain: {e}");
@@ -2105,6 +2110,18 @@ pub struct NodeConfig {
     /// ---
     /// @default: `true`
     pub marf_defer_hashing: bool,
+    /// Enables on-disk compression for MARF data structures to reduce disk space usage
+    /// for chainstate storage.
+    ///
+    /// When set to `true`, MARF trie nodes may be compressed
+    /// before being written to disk, trading slightly increased CPU overhead during
+    /// reads and writes for reduced storage requirements.
+    /// ---
+    /// @default: `false`
+    /// @notes:
+    ///   - Compression affects only the on-disk MARF representation; in-memory behavior
+    ///     remains unchanged.
+    pub marf_compress: bool,
     /// Sampling interval in seconds for the PoX synchronization watchdog thread
     /// (pre-Nakamoto). Determines how often the watchdog checked PoX state
     /// consistency in the Neon run loop.
@@ -2424,6 +2441,7 @@ impl Default for NodeConfig {
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
+            marf_compress: false,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
             fault_injection_block_push_fail_probability: None,
@@ -2589,6 +2607,7 @@ impl NodeConfig {
             self.marf_cache_strategy.as_deref().unwrap_or("noop"),
             false,
         )
+        .with_compression(self.marf_compress)
     }
 }
 
@@ -3836,6 +3855,7 @@ pub struct NodeConfigFile {
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
+    pub marf_compress: Option<bool>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
     /// At most, how often should the chain-liveness thread
@@ -3911,6 +3931,9 @@ impl NodeConfigFile {
             marf_defer_hashing: self
                 .marf_defer_hashing
                 .unwrap_or(default_node_config.marf_defer_hashing),
+            marf_compress: self
+                .marf_compress
+                .unwrap_or(default_node_config.marf_compress),
             pox_sync_sample_secs: self
                 .pox_sync_sample_secs
                 .unwrap_or(default_node_config.pox_sync_sample_secs),
@@ -4565,6 +4588,15 @@ mod tests {
 
     use super::*;
 
+    mod utils {
+        use super::*;
+
+        /// Creates a [`Config`] from a valid configuration string. Panics otherwise.
+        pub fn config_from_valid_string(valid_config: &str) -> Config {
+            Config::from_config_file(ConfigFile::from_str(valid_config).unwrap(), false).unwrap()
+        }
+    }
+
     #[test]
     fn test_config_file() {
         assert_eq!(
@@ -4900,5 +4932,80 @@ mod tests {
                 .expect("Should not panic");
             assert_eq!(config.chain_id, CHAIN_ID_TESTNET);
         }
+    }
+
+    #[test]
+    fn test_load_node_marf_config() {
+        // Check MARF defaults
+        let config = utils::config_from_valid_string(
+            r#"
+                [node]
+                "#,
+        );
+
+        assert_eq!(None, config.node.marf_cache_strategy, "default cache");
+        assert_eq!(
+            true, config.node.marf_defer_hashing,
+            "default defer hashing"
+        );
+        assert_eq!(false, config.node.marf_compress, "default compress");
+
+        let cfg_opts = config.node.get_marf_opts();
+        assert_eq!("noop", cfg_opts.cache_strategy, "default cache opt");
+        assert_eq!(
+            TrieHashCalculationMode::Deferred,
+            cfg_opts.hash_calculation_mode,
+            "default defer hashing opt"
+        );
+        assert_eq!(false, cfg_opts.compress, "default compress opt");
+        assert_eq!(
+            false, cfg_opts.external_blobs,
+            "internal default blob setting"
+        );
+        assert_eq!(
+            false, cfg_opts.force_db_migrate,
+            "internal default migrate setting"
+        );
+
+        // Check MARF full config
+        let config = utils::config_from_valid_string(
+            r#"
+                [node]
+                marf_cache_strategy = "everything"
+                marf_defer_hashing = false
+                marf_compress = true
+                "#,
+        );
+
+        assert_eq!(
+            Some("everything".to_string()),
+            config.node.marf_cache_strategy,
+            "configured cache"
+        );
+        assert_eq!(
+            false, config.node.marf_defer_hashing,
+            "configured defer hashing"
+        );
+        assert_eq!(true, config.node.marf_compress, "configured compress");
+
+        let cfg_opts = config.node.get_marf_opts();
+        assert_eq!(
+            "everything", cfg_opts.cache_strategy,
+            "configured cache opt"
+        );
+        assert_eq!(
+            TrieHashCalculationMode::Immediate,
+            cfg_opts.hash_calculation_mode,
+            "configured hash opt"
+        );
+        assert_eq!(true, cfg_opts.compress, "configured compress opt");
+        assert_eq!(
+            false, cfg_opts.external_blobs,
+            "internal default blob setting"
+        );
+        assert_eq!(
+            false, cfg_opts.force_db_migrate,
+            "internal default migrate setting"
+        );
     }
 }
