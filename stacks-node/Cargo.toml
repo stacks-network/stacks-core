@@ -41,7 +41,7 @@ stacks_common_v3_3_0_0_1 = { package = "stacks-common", git = "https://github.co
 tikv-jemallocator = {workspace = true}
 
 [dev-dependencies]
-warp = "0.3.5"
+warp = { version = "0.4", features = ["server"] }
 tokio = "1.15"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
 clarity = { path = "../clarity", features = ["default", "testing"]}

@@ -101,9 +101,17 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlock {
                     expected_height, self.miner_index
                 );
 
-                let miner_block =
-                    wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk)
-                        .expect(&format!("Failed to get block {}", expected_height));
+                let miner_block = wait_for_block_pushed_by_miner_key(
+                    30,
+                    expected_height,
+                    &miner_pk,
+                    self.ctx
+                        .miners
+                        .try_lock()
+                        .expect("mutex poisoned")
+                        .get_test_observer(),
+                )
+                .expect(&format!("Failed to get block {}", expected_height));
 
                 let mined_block_height = miner_block.header.chain_length;
 
@@ -123,13 +131,20 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlock {
                 let conf = self.ctx.get_node_config(self.miner_index);
                 let expected_height = state.last_stacks_block_height.unwrap() + 1;
 
-                let miner_block =
-                    wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk).expect(
-                        &format!(
-                            "Failed to get block for miner {} - Strategy: {:?}",
-                            self.miner_index, self.height_strategy
-                        ),
-                    );
+                let miner_block = wait_for_block_pushed_by_miner_key(
+                    30,
+                    expected_height,
+                    &miner_pk,
+                    self.ctx
+                        .miners
+                        .try_lock()
+                        .expect("mutex poisoned")
+                        .get_test_observer(),
+                )
+                .expect(&format!(
+                    "Failed to get block for miner {} - Strategy: {:?}",
+                    self.miner_index, self.height_strategy
+                ));
 
                 let mined_block_height = miner_block.header.chain_length;
 
@@ -260,8 +275,17 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
 
         info!("Waiting for block proposal at height {expected_height}");
 
-        let proposed_block = wait_for_block_proposal(30, expected_height, &miner_pk)
-            .expect("Timed out waiting for block proposal");
+        let proposed_block = wait_for_block_proposal(
+            30,
+            expected_height,
+            &miner_pk,
+            self.ctx
+                .miners
+                .try_lock()
+                .expect("mutex poisoned")
+                .get_test_observer(),
+        )
+        .expect("Timed out waiting for block proposal");
 
         let block_hash = proposed_block.header.signer_signature_hash();
 
@@ -280,6 +304,11 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
                     &block_hash,
                     self.ctx.get_num_signers(),
                     reason.clone(),
+                    self.ctx
+                        .miners
+                        .try_lock()
+                        .expect("mutex poisoned")
+                        .get_test_observer(),
                 )
                 .expect("Timed out waiting for block rejection");
 
@@ -345,11 +374,20 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectStacksTenureChan
             self.miner_index
         );
 
-        let block =
-            wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk).expect(&format!(
-                "Failed to get tenure change block for miner {} at height {expected_height}",
-                self.miner_index
-            ));
+        let block = wait_for_block_pushed_by_miner_key(
+            30,
+            expected_height,
+            &miner_pk,
+            self.ctx
+                .miners
+                .try_lock()
+                .expect("mutex poisoned")
+                .get_test_observer(),
+        )
+        .expect(&format!(
+            "Failed to get tenure change block for miner {} at height {expected_height}",
+            self.miner_index
+        ));
 
         // Verify this is a tenure change block
         let is_tenure_change_block_found = block.txs.len() == 2

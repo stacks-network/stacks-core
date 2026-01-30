@@ -386,7 +386,7 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
     );
 
     signer_test.boot_to_epoch_3();
-    test_observer::clear();
+    test_observer.clear();
 
     for i in 0..5 {
         info!(
@@ -408,7 +408,7 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
         })
         .expect("Timed out waiting for interim block to be mined");
     }
-    let stackerdb_events = test_observer::get_stackerdb_chunks();
+    let stackerdb_events = test_observer.get_stackerdb_chunks();
     let old_updates_count = stackerdb_events
         .iter()
         .map(|ev| ev.modified_slots.iter())

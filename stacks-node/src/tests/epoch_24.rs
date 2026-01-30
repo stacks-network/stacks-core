@@ -40,8 +40,9 @@ use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait,
-    submit_tx, test_observer, wait_for_runloop,
+    submit_tx, wait_for_runloop,
 };
+use crate::tests::test_observer::TestObserver;
 use crate::{neon, BitcoinRegtestController, BurnchainController};
 
 #[cfg(test)]
@@ -138,8 +139,8 @@ fn fix_to_pox_contract() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
@@ -625,7 +626,7 @@ fn fix_to_pox_contract() {
 
     let mut abort_tested_2_2 = false;
     let mut abort_tested_2_3 = false;
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         for tx in transactions {
@@ -674,7 +675,7 @@ fn fix_to_pox_contract() {
             and it must have been tested in the tx receipts"
     );
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -767,8 +768,8 @@ fn verify_auto_unlock_behavior() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
@@ -1327,6 +1328,6 @@ fn verify_auto_unlock_behavior() {
         }
     }
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }

@@ -6,7 +6,7 @@ use clarity::vm::{execute_with_parameters as execute, ClarityVersion, Value};
 use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use stacks::config::InitialBalance;
 use stacks::core::test_util::{make_contract_call, make_stacks_transfer_serialized};
 use stacks::core::{self, EpochList, STACKS_EPOCH_MAX};
 use stacks::util_lib::boot::boot_code_id;
@@ -20,6 +20,7 @@ use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::stacks_common::types::Address;
 use crate::stacks_common::util::hash::bytes_to_hex;
 use crate::tests::neon_integrations::*;
+use crate::tests::test_observer::TestObserver;
 use crate::tests::*;
 use crate::{neon, BitcoinRegtestController, BurnchainController};
 
@@ -116,8 +117,8 @@ fn disable_pox() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
@@ -518,7 +519,7 @@ fn disable_pox() {
     }
 
     let mut abort_tested = false;
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         for tx in transactions {
@@ -550,7 +551,7 @@ fn disable_pox() {
 
     assert!(abort_tested, "The stack-increase transaction must have been aborted, and it must have been tested in the tx receipts");
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -640,14 +641,10 @@ fn pox_2_unlock_all() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    test_observer::spawn();
+    let test_observer = TestObserver::spawn();
 
-    conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-        events_keys: vec![EventKeyType::AnyEvent],
-        timeout_ms: 1000,
-        disable_retries: false,
-    });
+    test_observer.register_any(&mut conf);
+
     conf.initial_balances.append(&mut initial_balances);
 
     let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
@@ -1177,7 +1174,7 @@ fn pox_2_unlock_all() {
     let mut unlock_ht_22_tested = false;
     let mut unlock_ht_21_tested = false;
 
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         for tx in transactions {
@@ -1227,6 +1224,6 @@ fn pox_2_unlock_all() {
     assert!(unlock_ht_21_tested);
     assert!(unlock_ht_22_tested);
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }

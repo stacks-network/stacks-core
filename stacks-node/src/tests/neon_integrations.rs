@@ -40,7 +40,7 @@ use stacks::chainstate::stacks::{
     StacksTransaction, TenureChangeCause, TransactionContractCall, TransactionPayload,
 };
 use stacks::codec::StacksMessageCodec;
-use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
+use stacks::config::{EventKeyType, FeeEstimatorName, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MemPoolWalkTxTypes};
 use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
@@ -94,6 +94,7 @@ use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::tests::gen_random_port;
 use crate::tests::nakamoto_integrations::{get_key_for_cycle, wait_for};
+use crate::tests::test_observer::TestObserver;
 use crate::{neon, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
@@ -270,487 +271,6 @@ impl TestProxy {
             let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
             rt.block_on(proxy.proxy())
         });
-    }
-}
-
-pub mod test_observer {
-    use std::collections::HashSet;
-    use std::convert::Infallible;
-    use std::ops::{Bound, RangeBounds};
-    use std::sync::Mutex;
-    use std::thread;
-
-    use libsigner::BurnBlockEvent;
-    use stacks::chainstate::stacks::boot::RewardSet;
-    use stacks::chainstate::stacks::events::StackerDBChunksEvent;
-    use stacks::chainstate::stacks::StacksTransaction;
-    use stacks::codec::StacksMessageCodec;
-    use stacks::config::{EventKeyType, EventObserverConfig};
-    use stacks::net::api::postblock_proposal::BlockValidateResponse;
-    use stacks::util::hash::hex_bytes;
-    use stacks_common::types::chainstate::StacksBlockId;
-    use warp::Filter;
-    use {tokio, warp};
-
-    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
-    use crate::Config;
-
-    pub const EVENT_OBSERVER_PORT: u16 = 50303;
-
-    pub static NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
-    pub static MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
-    pub static MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
-    pub static MINED_NAKAMOTO_BLOCKS: Mutex<Vec<MinedNakamotoBlockEvent>> = Mutex::new(Vec::new());
-    pub static NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
-    pub static NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> = Mutex::new(Vec::new());
-    pub static BURN_BLOCKS: Mutex<Vec<BurnBlockEvent>> = Mutex::new(Vec::new());
-    pub static MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    pub static MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
-    pub static ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
-    pub static PROPOSAL_RESPONSES: Mutex<Vec<BlockValidateResponse>> = Mutex::new(Vec::new());
-    pub static STACKER_SETS: Mutex<Vec<(StacksBlockId, u64, RewardSet)>> = Mutex::new(Vec::new());
-
-    async fn handle_proposal_response(
-        response: serde_json::Value,
-    ) -> Result<impl warp::Reply, Infallible> {
-        info!("Proposal response received"; "response" => %response);
-        PROPOSAL_RESPONSES.lock().unwrap().push(
-            serde_json::from_value(response)
-                .expect("Failed to deserialize JSON into BlockValidateResponse"),
-        );
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    async fn handle_burn_block(
-        burn_block: serde_json::Value,
-    ) -> Result<impl warp::Reply, Infallible> {
-        BURN_BLOCKS.lock().unwrap().push(
-            serde_json::from_value(burn_block)
-                .expect("Failed to deserialize JSON into BurnBlockEvent"),
-        );
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    async fn handle_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
-        let mut blocks = NEW_BLOCKS.lock().unwrap();
-        blocks.push(block);
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    async fn handle_microblocks(
-        microblocks: serde_json::Value,
-    ) -> Result<impl warp::Reply, Infallible> {
-        let mut microblock_events = NEW_MICROBLOCKS.lock().unwrap();
-        microblock_events.push(microblocks);
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    async fn handle_stackerdb_chunks(
-        chunks: serde_json::Value,
-    ) -> Result<impl warp::Reply, Infallible> {
-        debug!(
-            "signer_runloop: got stackerdb chunks: {}",
-            serde_json::to_string(&chunks).unwrap()
-        );
-        let event: StackerDBChunksEvent = serde_json::from_value(chunks).unwrap();
-        let mut stackerdb_chunks = NEW_STACKERDB_CHUNKS.lock().unwrap();
-        stackerdb_chunks.push(event);
-
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    async fn handle_mined_block(block: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
-        let mut mined_blocks = MINED_BLOCKS.lock().unwrap();
-        // assert that the mined transaction events have string-y txids
-        block
-            .as_object()
-            .expect("Expected JSON object for mined block event")
-            .get("tx_events")
-            .expect("Expected tx_events key in mined block event")
-            .as_array()
-            .expect("Expected tx_events key to be an array in mined block event")
-            .iter()
-            .for_each(|txevent| {
-                let txevent_obj = txevent.as_object().expect("TransactionEvent should be object");
-                let inner_obj = if let Some(inner_obj) = txevent_obj.get("Success") {
-                    inner_obj
-                } else if let Some(inner_obj) = txevent_obj.get("ProcessingError") {
-                    inner_obj
-                } else if let Some(inner_obj) = txevent_obj.get("Skipped") {
-                    inner_obj
-                } else {
-                    panic!("TransactionEvent object should have one of Success, ProcessingError, or Skipped")
-                };
-                inner_obj
-                    .as_object()
-                    .expect("TransactionEvent should be an object")
-                    .get("txid")
-                    .expect("Should have txid key")
-                    .as_str()
-                    .expect("Expected txid to be a string");
-            });
-
-        mined_blocks.push(serde_json::from_value(block).unwrap());
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    async fn handle_pox_stacker_set(
-        stacker_set: serde_json::Value,
-    ) -> Result<impl warp::Reply, Infallible> {
-        let mut stacker_sets = STACKER_SETS.lock().unwrap();
-        let block_id = stacker_set
-            .as_object()
-            .expect("Expected JSON object for stacker set event")
-            .get("block_id")
-            .expect("Expected block_id field")
-            .as_str()
-            .expect("Expected string for block id")
-            .to_string();
-        let block_id = StacksBlockId::from_hex(&block_id)
-            .expect("Failed to parse block id field as StacksBlockId hex");
-        let cycle_number = stacker_set
-            .as_object()
-            .expect("Expected JSON object for stacker set event")
-            .get("cycle_number")
-            .expect("Expected field")
-            .as_u64()
-            .expect("Expected u64 for cycle number");
-        let stacker_set = serde_json::from_value(
-            stacker_set
-                .as_object()
-                .expect("Expected JSON object for stacker set event")
-                .get("stacker_set")
-                .expect("Expected field")
-                .clone(),
-        )
-        .expect("Failed to parse stacker set object");
-        stacker_sets.push((block_id, cycle_number, stacker_set));
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    /// Called by the process listening to events on a mined microblock event. The event is added
-    /// to the mutex-guarded vector `MINED_MICROBLOCKS`.
-    async fn handle_mined_microblock(
-        tx_event: serde_json::Value,
-    ) -> Result<impl warp::Reply, Infallible> {
-        let mut mined_txs = MINED_MICROBLOCKS.lock().unwrap();
-        mined_txs.push(serde_json::from_value(tx_event).unwrap());
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    async fn handle_mined_nakamoto_block(
-        block: serde_json::Value,
-    ) -> Result<impl warp::Reply, Infallible> {
-        let mut mined_blocks = MINED_NAKAMOTO_BLOCKS.lock().unwrap();
-        // assert that the mined transaction events have string-y txids
-        block
-            .as_object()
-            .expect("Expected JSON object for mined nakamoto block event")
-            .get("tx_events")
-            .expect("Expected tx_events key in mined nakamoto block event")
-            .as_array()
-            .expect("Expected tx_events key to be an array in mined nakamoto block event")
-            .iter()
-            .for_each(|txevent| {
-                let txevent_obj = txevent.as_object().expect("TransactionEvent should be object");
-                let inner_obj = if let Some(inner_obj) = txevent_obj.get("Success") {
-                    inner_obj
-                } else if let Some(inner_obj) = txevent_obj.get("ProcessingError") {
-                    inner_obj
-                } else if let Some(inner_obj) = txevent_obj.get("Skipped") {
-                    inner_obj
-                } else if let Some(inner_obj) = txevent_obj.get("Problematic") {
-                    inner_obj
-                } else {
-                    panic!("TransactionEvent object should have one of Success, ProcessingError, Skipped, or Problematic. Had keys: {:?}", txevent_obj.keys().map(|x| x.to_string()).collect::<Vec<_>>());
-                };
-                inner_obj
-                    .as_object()
-                    .expect("TransactionEvent should be an object")
-                    .get("txid")
-                    .expect("Should have txid key")
-                    .as_str()
-                    .expect("Expected txid to be a string");
-            });
-
-        mined_blocks.push(serde_json::from_value(block).unwrap());
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    async fn handle_mempool_txs(txs: serde_json::Value) -> Result<impl warp::Reply, Infallible> {
-        let new_rawtxs = txs
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|x| x.as_str().unwrap().to_string());
-        let mut memtxs = MEMTXS.lock().unwrap();
-        for new_tx in new_rawtxs {
-            memtxs.push(new_tx);
-        }
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    async fn handle_mempool_drop_txs(
-        txs: serde_json::Value,
-    ) -> Result<impl warp::Reply, Infallible> {
-        let dropped_txids = txs
-            .get("dropped_txids")
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|x| x.as_str().unwrap().to_string());
-        let reason = txs.get("reason").unwrap().as_str().unwrap().to_string();
-
-        let mut memtxs = MEMTXS_DROPPED.lock().unwrap();
-        for new_tx in dropped_txids {
-            memtxs.push((new_tx, reason.clone()));
-        }
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    async fn handle_attachments(
-        attachments: serde_json::Value,
-    ) -> Result<impl warp::Reply, Infallible> {
-        let new_attachments = attachments.as_array().unwrap();
-        let mut attachments = ATTACHMENTS.lock().unwrap();
-        for new_attachment in new_attachments {
-            attachments.push(new_attachment.clone());
-        }
-        Ok(warp::http::StatusCode::OK)
-    }
-
-    pub fn get_stacker_sets() -> Vec<(StacksBlockId, u64, RewardSet)> {
-        STACKER_SETS.lock().unwrap().clone()
-    }
-
-    pub fn get_memtxs() -> Vec<String> {
-        MEMTXS.lock().unwrap().clone()
-    }
-
-    pub fn get_memtx_drops() -> Vec<(String, String)> {
-        MEMTXS_DROPPED.lock().unwrap().clone()
-    }
-
-    pub fn get_blocks() -> Vec<serde_json::Value> {
-        NEW_BLOCKS.lock().unwrap().clone()
-    }
-
-    pub fn get_microblocks() -> Vec<serde_json::Value> {
-        NEW_MICROBLOCKS.lock().unwrap().clone()
-    }
-
-    pub fn get_burn_blocks() -> Vec<BurnBlockEvent> {
-        BURN_BLOCKS.lock().unwrap().clone()
-    }
-
-    pub fn get_attachments() -> Vec<serde_json::Value> {
-        ATTACHMENTS.lock().unwrap().clone()
-    }
-
-    pub fn get_mined_blocks() -> Vec<MinedBlockEvent> {
-        MINED_BLOCKS.lock().unwrap().clone()
-    }
-
-    pub fn get_mined_microblocks() -> Vec<MinedMicroblockEvent> {
-        MINED_MICROBLOCKS.lock().unwrap().clone()
-    }
-
-    pub fn get_mined_nakamoto_blocks() -> Vec<MinedNakamotoBlockEvent> {
-        MINED_NAKAMOTO_BLOCKS.lock().unwrap().clone()
-    }
-
-    pub fn get_stackerdb_chunks() -> Vec<StackerDBChunksEvent> {
-        NEW_STACKERDB_CHUNKS.lock().unwrap().clone()
-    }
-
-    pub fn get_proposal_responses() -> Vec<BlockValidateResponse> {
-        PROPOSAL_RESPONSES.lock().unwrap().clone()
-    }
-
-    /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
-    async fn serve(port: u16) {
-        let new_blocks = warp::path!("new_block")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_block);
-        let mempool_txs = warp::path!("new_mempool_tx")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_mempool_txs);
-        let mempool_drop_txs = warp::path!("drop_mempool_tx")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_mempool_drop_txs);
-        let new_burn_blocks = warp::path!("new_burn_block")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_burn_block);
-        let new_attachments = warp::path!("attachments" / "new")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_attachments);
-        let new_microblocks = warp::path!("new_microblocks")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_microblocks);
-        let mined_blocks = warp::path!("mined_block")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_mined_block);
-        let mined_nakamoto_blocks = warp::path!("mined_nakamoto_block")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_mined_nakamoto_block);
-        let mined_microblocks = warp::path!("mined_microblock")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_mined_microblock);
-        let new_stackerdb_chunks = warp::path!("stackerdb_chunks")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_stackerdb_chunks);
-        let block_proposals = warp::path!("proposal_response")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_proposal_response);
-        let stacker_sets = warp::path!("new_pox_set")
-            .and(warp::post())
-            .and(warp::body::json())
-            .and_then(handle_pox_stacker_set);
-
-        info!("Spawning event-observer warp server");
-        warp::serve(
-            new_blocks
-                .or(mempool_txs)
-                .or(mempool_drop_txs)
-                .or(new_burn_blocks)
-                .or(new_attachments)
-                .or(new_microblocks)
-                .or(mined_blocks)
-                .or(mined_microblocks)
-                .or(mined_nakamoto_blocks)
-                .or(new_stackerdb_chunks)
-                .or(block_proposals)
-                .or(stacker_sets),
-        )
-        .run(([127, 0, 0, 1], port))
-        .await
-    }
-
-    pub fn spawn() {
-        clear();
-        thread::spawn(|| {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
-            rt.block_on(serve(EVENT_OBSERVER_PORT));
-        });
-    }
-
-    pub fn spawn_at(port: u16) {
-        clear();
-        thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
-            rt.block_on(serve(port));
-        });
-    }
-
-    pub fn clear() {
-        NEW_BLOCKS.lock().unwrap().clear();
-        MINED_BLOCKS.lock().unwrap().clear();
-        MINED_MICROBLOCKS.lock().unwrap().clear();
-        NEW_MICROBLOCKS.lock().unwrap().clear();
-        NEW_STACKERDB_CHUNKS.lock().unwrap().clear();
-        BURN_BLOCKS.lock().unwrap().clear();
-        MEMTXS.lock().unwrap().clear();
-        MEMTXS_DROPPED.lock().unwrap().clear();
-        ATTACHMENTS.lock().unwrap().clear();
-        PROPOSAL_RESPONSES.lock().unwrap().clear();
-    }
-
-    /// Parse the StacksTransactions from a block (does not include burn ops or phantom txs)
-    ///  panics on any failures to parse
-    pub fn parse_transactions(block: &serde_json::Value) -> Vec<StacksTransaction> {
-        block
-            .get("transactions")
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|tx_json| {
-                // Filter out burn ops
-                if let Some(burnchain_op_val) = tx_json.get("burnchain_op") {
-                    if !burnchain_op_val.is_null() {
-                        return None;
-                    }
-                }
-                // Filter out phantom txs
-                let tx_hex = tx_json.get("raw_tx").unwrap().as_str().unwrap();
-                let tx_bytes = hex_bytes(&tx_hex[2..]).unwrap();
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                if tx.is_phantom() {
-                    return None;
-                }
-                Some(tx)
-            })
-            .collect()
-    }
-
-    /// Get missing burn blocks for a given height range
-    /// Returns Ok(..) if lookup is sucessful, whether there are missing blocks or not
-    pub fn get_missing_burn_blocks(range: impl RangeBounds<u64>) -> Result<Vec<u64>, String> {
-        // Get set of all burn block heights
-        let burn_block_heights = get_blocks()
-            .into_iter()
-            .map(|x| x.get("burn_block_height").unwrap().as_u64().unwrap())
-            .collect::<HashSet<_>>();
-
-        let start = match range.start_bound() {
-            Bound::Unbounded => return Err("Unbounded ranges not supported".into()),
-            Bound::Included(&x) => x,
-            Bound::Excluded(&x) => x.saturating_add(1),
-        };
-
-        let end = match range.end_bound() {
-            Bound::Unbounded => return Err("Unbounded ranges not supported".into()),
-            Bound::Included(&x) => x,
-            Bound::Excluded(&x) => x.saturating_sub(1),
-        };
-
-        // Find indexes in range for which we don't have burn block in set
-        let missing = (start..=end)
-            .filter(|i| !burn_block_heights.contains(i))
-            .collect();
-
-        Ok(missing)
-    }
-
-    /// Similar to `missing_burn_blocks()` but returns `Err(..)` if blocks are missing
-    pub fn contains_burn_block_range(range: impl RangeBounds<u64> + Clone) -> Result<(), String> {
-        let missing = self::get_missing_burn_blocks(range.clone())?;
-
-        if missing.is_empty() {
-            Ok(())
-        } else {
-            Err(format!(
-                "Missing the following burn blocks from {:?} to {:?}: {missing:?}",
-                range.start_bound(),
-                range.end_bound()
-            ))
-        }
-    }
-
-    pub fn register(config: &mut Config, event_keys: &[EventKeyType]) {
-        config.events_observers.insert(EventObserverConfig {
-            endpoint: format!("localhost:{EVENT_OBSERVER_PORT}"),
-            events_keys: event_keys.to_vec(),
-            timeout_ms: 1000,
-            disable_retries: false,
-        });
-    }
-
-    pub fn register_any(config: &mut Config) {
-        self::register(config, &[EventKeyType::AnyEvent]);
     }
 }
 
@@ -1183,8 +703,8 @@ fn bitcoind_integration_test() {
 
     conf.burnchain.max_rbf = 1000000;
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -1228,7 +748,7 @@ fn bitcoind_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     sleep_ms(4_000);
 
-    let burn_blocks_observed = test_observer::get_burn_blocks();
+    let burn_blocks_observed = test_observer.get_burn_blocks();
     let burn_blocks_with_burns: Vec<_> = burn_blocks_observed
         .into_iter()
         .filter(|block| block.burn_amount > 0)
@@ -1271,7 +791,7 @@ fn bitcoind_integration_test() {
         assert!(res.contains("stacks_node_last_mined_block_runtime 0"));
         assert!(res.contains("stacks_node_last_mined_block_transaction_count 1"));
     }
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -1291,8 +811,8 @@ fn confirm_unparsed_ongoing_ops() {
     conf.burnchain.pox_reward_length = Some(500);
     conf.burnchain.max_rbf = 1000000;
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -1363,7 +883,7 @@ fn confirm_unparsed_ongoing_ops() {
         "Miner should have mined 3 coinbases -- one should be invalid"
     );
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -1620,8 +1140,8 @@ fn deep_contract() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
 
@@ -1680,13 +1200,13 @@ fn deep_contract() {
     );
     submit_tx(&http_origin, &publish);
 
-    test_observer::clear();
+    test_observer.clear();
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     let mut included_smart_contract = false;
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -1708,7 +1228,7 @@ fn deep_contract() {
         "No smart contract publish transaction should be included"
     );
 
-    test_observer::clear();
+    test_observer.clear();
 }
 
 #[test]
@@ -1730,8 +1250,8 @@ fn liquid_ustx_integration() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
 
@@ -1801,7 +1321,7 @@ fn liquid_ustx_integration() {
     );
     submit_tx(&http_origin, &publish);
 
-    let dropped_txs = test_observer::get_memtx_drops();
+    let dropped_txs = test_observer.get_memtx_drops();
     assert_eq!(dropped_txs.len(), 1);
     assert_eq!(&dropped_txs[0].1, "ReplaceByFee");
     assert_eq!(&dropped_txs[0].0, &format!("0x{replaced_txid}"));
@@ -1828,10 +1348,10 @@ fn liquid_ustx_integration() {
 
     // clear and mine another burnchain block, so that the new winner is seen by the observer
     //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
+    test_observer.clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let mut blocks = test_observer::get_blocks();
+    let mut blocks = test_observer.get_blocks();
     // should have produced 1 new block
     assert_eq!(blocks.len(), 1);
     let block = blocks.pop().unwrap();
@@ -1868,8 +1388,8 @@ fn lockup_integration() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -1917,7 +1437,7 @@ fn lockup_integration() {
     // block #1 should be unlocking STX
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     assert_eq!(get_balance(&http_origin, &recipient), 13888888889);
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     let chain_tip = blocks.last().unwrap();
 
     let events = chain_tip.get("events").unwrap().as_array().unwrap();
@@ -1942,7 +1462,7 @@ fn lockup_integration() {
     assert_eq!(get_balance(&http_origin, &recipient), 13888888889 * 3);
 
     // now let's ensure that the last block received by the event observer contains the lockup receipt
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     let chain_tip = blocks.last().unwrap();
 
     let events = chain_tip.get("events").unwrap().as_array().unwrap();
@@ -1954,7 +1474,7 @@ fn lockup_integration() {
         );
     }
 
-    test_observer::clear();
+    test_observer.clear();
 }
 
 #[test]
@@ -1980,8 +1500,8 @@ fn stx_transfer_btc_integration_test() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -2024,7 +1544,7 @@ fn stx_transfer_btc_integration_test() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    test_observer::clear();
+    test_observer.clear();
 
     // let's query the spender's account:
     assert_eq!(get_balance(&http_origin, &spender_addr), 100300);
@@ -2164,7 +1684,7 @@ fn stx_transfer_btc_integration_test() {
     assert_eq!(get_balance(&http_origin, &spender_2_addr), 300);
 
     let mut found_btc_tx = false;
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         for tx in transactions.iter() {
@@ -2239,8 +1759,8 @@ fn stx_delegate_btc_integration_test() {
     ]));
     conf.burnchain.pox_2_activation = Some(3);
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -2289,7 +1809,7 @@ fn stx_delegate_btc_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    test_observer::clear();
+    test_observer.clear();
 
     // Mine a few more blocks so that Epoch 2.1 (and thus pox-2) can take effect.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -2396,7 +1916,7 @@ fn stx_delegate_btc_integration_test() {
 
     let mut delegate_stack_stx_found = false;
     let mut delegate_stx_found = false;
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks.iter() {
         let events = block.get("events").unwrap().as_array().unwrap();
         for event in events.iter() {
@@ -2431,7 +1951,7 @@ fn stx_delegate_btc_integration_test() {
     assert!(delegate_stx_found);
     assert!(delegate_stack_stx_found);
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -2520,8 +2040,8 @@ fn stack_stx_burn_op_test() {
     ]));
     conf.burnchain.pox_2_activation = Some(3);
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -2569,7 +2089,7 @@ fn stack_stx_burn_op_test() {
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
-    test_observer::clear();
+    test_observer.clear();
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -2752,7 +2272,7 @@ fn stack_stx_burn_op_test() {
 
     let mut stack_stx_found = false;
     let mut stack_stx_burn_op_tx_count = 0;
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     info!("stack event observer num blocks: {:?}", blocks.len());
     for block in blocks.iter() {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -2832,7 +2352,7 @@ fn stack_stx_burn_op_test() {
         "Expected one stacking_op to have a signer_key of Some"
     );
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -2917,8 +2437,8 @@ fn vote_for_aggregate_key_burn_op_test() {
     ]));
     conf.burnchain.pox_2_activation = Some(3);
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -2967,7 +2487,7 @@ fn vote_for_aggregate_key_burn_op_test() {
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
-    test_observer::clear();
+    test_observer.clear();
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -3109,7 +2629,7 @@ fn vote_for_aggregate_key_burn_op_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let mut vote_for_aggregate_key_found = false;
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks.iter() {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         for tx in transactions.iter() {
@@ -3147,7 +2667,7 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     assert_eq!(saved_key, aggregate_key.as_bytes().to_vec());
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -4023,7 +3543,6 @@ fn size_check_integration_test() {
     assert!(anchor_block_txs >= 2);
     assert!(micro_block_txs >= 2);
 
-    test_observer::clear();
     channel.stop_chains_coordinator();
 }
 
@@ -4051,8 +3570,8 @@ fn block_replay_integration_test() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -4134,7 +3653,7 @@ fn block_replay_integration_test() {
         eprintln!("{i}: text of {path}\n{res_text}");
     }
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -4185,8 +3704,8 @@ fn cost_voting_integration() {
     conf.burnchain.max_rbf = 10_000_000;
     conf.node.wait_time_for_blocks = 1_000;
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
 
@@ -4305,10 +3824,10 @@ fn cost_voting_integration() {
 
     // clear and mine another burnchain block, so that the new winner is seen by the observer
     //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
+    test_observer.clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let mut blocks = test_observer::get_blocks();
+    let mut blocks = test_observer.get_blocks();
     // should have produced 1 new block
     assert_eq!(blocks.len(), 1);
     let block = blocks.pop().unwrap();
@@ -4356,10 +3875,10 @@ fn cost_voting_integration() {
 
     // clear and mine another burnchain block, so that the new winner is seen by the observer
     //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
+    test_observer.clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let mut blocks = test_observer::get_blocks();
+    let mut blocks = test_observer.get_blocks();
     // should have produced 1 new block
     assert_eq!(blocks.len(), 1);
     let block = blocks.pop().unwrap();
@@ -4406,10 +3925,10 @@ fn cost_voting_integration() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // clear and mine another burnchain block, so that the new winner is seen by the observer
     //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
+    test_observer.clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let mut blocks = test_observer::get_blocks();
+    let mut blocks = test_observer.get_blocks();
     // should have produced 1 new block
     assert_eq!(blocks.len(), 1);
     let block = blocks.pop().unwrap();
@@ -4451,10 +3970,10 @@ fn cost_voting_integration() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     // clear and mine another burnchain block, so that the new winner is seen by the observer
     //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
+    test_observer.clear();
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let mut blocks = test_observer::get_blocks();
+    let mut blocks = test_observer.get_blocks();
     // should have produced 1 new block
     assert_eq!(blocks.len(), 1);
     let block = blocks.pop().unwrap();
@@ -4482,7 +4001,7 @@ fn cost_voting_integration() {
 
     assert!(exec_cost.exceeds(&new_exec_cost));
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -4544,8 +4063,8 @@ fn mining_events_integration_test() {
         &small_contract,
     );
 
-    test_observer::spawn();
-    test_observer::register(
+    let test_observer = TestObserver::spawn();
+    test_observer.register(
         &mut conf,
         &[
             EventKeyType::AnyEvent,
@@ -4601,7 +4120,7 @@ fn mining_events_integration_test() {
     assert_eq!(res.nonce, 1);
 
     // check mined microblock events
-    let mined_microblock_events = test_observer::get_mined_microblocks();
+    let mined_microblock_events = test_observer.get_mined_microblocks();
     assert!(!mined_microblock_events.is_empty());
 
     // check tx events in the first microblock
@@ -4639,7 +4158,7 @@ fn mining_events_integration_test() {
     }
 
     // check mined block events
-    let mined_block_events = test_observer::get_mined_blocks();
+    let mined_block_events = test_observer.get_mined_blocks();
     assert!(mined_block_events.len() >= 3);
 
     // check the tx events in the third mined block
@@ -4704,7 +4223,7 @@ fn mining_events_integration_test() {
         _ => panic!("unexpected event type"),
     }
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -4840,8 +4359,8 @@ fn setup_block_limit_test(strategy: MemPoolWalkStrategy) -> (Vec<serde_json::Val
         100,
     );
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -4901,10 +4420,10 @@ fn setup_block_limit_test(strategy: MemPoolWalkStrategy) -> (Vec<serde_json::Val
     let res = get_account(&http_origin, &third_spender_addr);
     assert_eq!(res.nonce, 1);
 
-    let mined_block_events = test_observer::get_blocks();
+    let mined_block_events = test_observer.get_blocks();
     assert_eq!(mined_block_events.len(), 5);
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
     (mined_block_events, [txid_1, txid_2, txid_3, txid_4])
 }
@@ -5089,8 +4608,8 @@ fn block_large_tx_integration_test() {
     let spender_addr = to_addr(&spender_sk);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone().into(),
@@ -5173,12 +4692,12 @@ fn block_large_tx_integration_test() {
 
     eprintln!("Finished trying to mine a too-big tx");
 
-    let dropped_txs = test_observer::get_memtx_drops();
+    let dropped_txs = test_observer.get_memtx_drops();
     assert_eq!(dropped_txs.len(), 1);
     assert_eq!(&dropped_txs[0].1, "TooExpensive");
     assert_eq!(&dropped_txs[0].0, &format!("0x{huge_txid}"));
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -5216,8 +4735,8 @@ fn pox_integration_test() {
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let first_bal = 6_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
     let second_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
@@ -5375,7 +4894,7 @@ fn pox_integration_test() {
 
     let mut sort_height = channel.get_sortitions_processed();
     eprintln!("Sort height: {sort_height}");
-    test_observer::clear();
+    test_observer.clear();
 
     // now let's mine until the next reward cycle starts ...
     while sort_height < ((14 * pox_constants.reward_cycle_length) + 1).into() {
@@ -5417,7 +4936,7 @@ fn pox_integration_test() {
     );
     assert_eq!(pox_info.next_reward_cycle_in, 14);
 
-    let blocks_observed = test_observer::get_blocks();
+    let blocks_observed = test_observer.get_blocks();
     assert!(
         blocks_observed.len() >= 2,
         "Blocks observed {} should be >= 2",
@@ -5561,7 +5080,7 @@ fn pox_integration_test() {
     );
 
     // let's test the reward information in the observer
-    test_observer::clear();
+    test_observer.clear();
 
     // before sunset
     // mine until the end of the next reward cycle,
@@ -5606,7 +5125,7 @@ fn pox_integration_test() {
         "Should have received outputs during PoX reward cycle"
     );
 
-    let burn_blocks = test_observer::get_burn_blocks();
+    let burn_blocks = test_observer.get_burn_blocks();
     let mut recipient_slots: HashMap<String, u64> = HashMap::new();
 
     for block in burn_blocks.iter() {
@@ -5689,7 +5208,7 @@ fn pox_integration_test() {
     eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
     assert_eq!(tip_info.stacks_tip_height, 66);
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -5728,6 +5247,9 @@ fn atlas_integration_test() {
         .initial_balances
         .push(initial_balance_user_1.clone());
 
+    // Start the attached observer
+    let test_observer = TestObserver::spawn();
+
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -5743,14 +5265,7 @@ fn atlas_integration_test() {
     conf_follower_node
         .initial_balances
         .push(initial_balance_user_1.clone());
-    conf_follower_node
-        .events_observers
-        .insert(EventObserverConfig {
-            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-            events_keys: vec![EventKeyType::AnyEvent],
-            timeout_ms: 1000,
-            disable_retries: false,
-        });
+    test_observer.register_any(&mut conf_follower_node);
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
@@ -6045,9 +5560,6 @@ fn atlas_integration_test() {
         channel.stop_chains_coordinator();
     });
 
-    // Start the attached observer
-    test_observer::spawn();
-
     // The bootstrap node mined a few blocks and is ready, let's setup this node.
     match follower_node_rx.recv() {
         Ok(Signal::BootstrapNodeReady) => {
@@ -6213,8 +5725,8 @@ fn atlas_integration_test() {
     // Ensure that we the attached sidecar was able to receive a total of 10 attachments
     // This last assertion is flacky for some reason, it does not worth bullying the CI or disabling this whole test
     // We're using an inequality as a best effort, to make sure that **some** attachments were received.
-    assert!(!test_observer::get_attachments().is_empty());
-    test_observer::clear();
+    assert!(!test_observer.get_attachments().is_empty());
+    test_observer.clear();
     channel.stop_chains_coordinator();
 
     bootstrap_node_thread.join().unwrap();
@@ -6258,6 +5770,9 @@ fn antientropy_integration_test() {
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
 
+    // Start the attached observer
+    let test_observer = TestObserver::spawn();
+
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -6274,14 +5789,8 @@ fn antientropy_integration_test() {
     conf_follower_node
         .initial_balances
         .push(initial_balance_user_1);
-    conf_follower_node
-        .events_observers
-        .insert(EventObserverConfig {
-            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
-            events_keys: vec![EventKeyType::AnyEvent],
-            timeout_ms: 1000,
-            disable_retries: false,
-        });
+
+    test_observer.register_any(&mut conf_follower_node);
 
     conf_follower_node.node.mine_microblocks = true;
     conf_follower_node.miner.microblock_attempt_time_ms = 2_000;
@@ -6362,9 +5871,6 @@ fn antientropy_integration_test() {
         channel.stop_chains_coordinator();
     });
 
-    // Start the attached observer
-    test_observer::spawn();
-
     // The bootstrap node mined a few blocks and is ready, let's setup this node.
     match follower_node_rx.recv() {
         Ok(Signal::BootstrapNodeReady) => {
@@ -6434,7 +5940,7 @@ fn antientropy_integration_test() {
 
     eprintln!("Follower node finished");
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
 }
 
@@ -6533,7 +6039,7 @@ fn atlas_stress_integration_test() {
     let initial_balance_user_1 = initial_balances.pop().unwrap();
 
     // Start the attached observer
-    test_observer::spawn();
+    let test_observer = TestObserver::spawn();
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
     btcd_controller
@@ -7197,7 +6703,7 @@ fn atlas_stress_integration_test() {
         }
     }
 
-    test_observer::clear();
+    test_observer.clear();
 }
 
 /// Run a fixed contract 20 times. Linearly increase the amount paid each time. The cost of the
@@ -7243,8 +6749,8 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
         address: spender_addr.clone().into(),
         amount: 10000000000,
     });
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -7420,8 +6926,8 @@ fn use_latest_tip_integration_test() {
     conf.node.wait_time_for_microblocks = 10_000;
     conf.node.microblock_frequency = 1_000;
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -7579,7 +7085,7 @@ fn use_latest_tip_integration_test() {
     }
 
     // Check event observer for new microblock event (expect 1).
-    let microblock_events = test_observer::get_microblocks();
+    let microblock_events = test_observer.get_microblocks();
     assert_eq!(microblock_events.len(), 1);
 
     // Don't set the tip parameter, and ask for the source of the contract we just defined in a microblock.
@@ -7825,8 +7331,8 @@ fn test_problematic_txs_are_not_stored() {
     ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
 
@@ -7953,6 +7459,7 @@ fn find_new_files(dirp: &str, prev_files: &HashSet<String>) -> (Vec<String>, Has
 
 fn spawn_follower_node(
     initial_conf: &Config,
+    test_observer: &TestObserver,
 ) -> (
     Config,
     neon::RunLoopCounter,
@@ -7976,7 +7483,7 @@ fn spawn_follower_node(
         conf.burnchain.peer_version,
     );
 
-    test_observer::register_any(&mut conf);
+    test_observer.register_any(&mut conf);
 
     conf.initial_balances = initial_conf.initial_balances.clone();
     conf.burnchain.epochs = initial_conf.burnchain.epochs.clone();
@@ -8063,8 +7570,8 @@ fn test_problematic_blocks_are_not_mined() {
     ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -8161,7 +7668,7 @@ fn test_problematic_blocks_are_not_mined() {
     assert!(all_new_files.is_empty());
 
     // one block contained tx_exceeds
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     let mut found = false;
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -8238,7 +7745,7 @@ fn test_problematic_blocks_are_not_mined() {
     assert!(get_unconfirmed_tx(&http_origin, &tx_high_txid).is_none());
 
     // no block contained the tx_high bad transaction, ever
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         for tx in transactions.iter() {
@@ -8260,7 +7767,8 @@ fn test_problematic_blocks_are_not_mined() {
 
     // verify that a follower node that boots up with this node as a bootstrap peer will process
     // all of the blocks available, even if they are problematic, with the checks on.
-    let (follower_conf, _, pox_sync_comms, follower_channel) = spawn_follower_node(&conf);
+    let (follower_conf, _, pox_sync_comms, follower_channel) =
+        spawn_follower_node(&conf, &test_observer);
 
     eprintln!(
         "\nFollower booted on port {},{}\n",
@@ -8310,7 +7818,7 @@ fn test_problematic_blocks_are_not_mined() {
         new_tip_info.stacks_tip_height
     );
 
-    test_observer::clear();
+    test_observer.clear();
     channel.stop_chains_coordinator();
     follower_channel.stop_chains_coordinator();
 }
@@ -8324,11 +7832,10 @@ fn push_boot_receipts() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
-
-    test_observer::spawn();
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -8345,7 +7852,7 @@ fn push_boot_receipts() {
     let _chainstate = run_loop.boot_chainstate(&burnchain_config);
 
     // verify that the event observer got its boot receipts
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     assert_eq!(blocks.len(), 1);
 
     let events = blocks[0]
@@ -8368,12 +7875,11 @@ fn run_with_custom_wallet() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     // custom wallet
     conf.burnchain.wallet_name = "test_with_custom_wallet".to_string();
-
-    test_observer::spawn();
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -8405,7 +7911,7 @@ fn run_with_custom_wallet() {
 
     // verify that the event observer got its boot receipts.
     // If we get this far, then it also means that mining and block-production worked.
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     assert!(blocks.len() > 1);
 }
 
@@ -8809,8 +8315,8 @@ fn min_txs() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let path = "/tmp/activate_vrf_key.min_txs.json";
     conf.miner.min_tx_count = 4;
@@ -8884,7 +8390,7 @@ fn min_txs() {
         next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 15);
     }
 
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         if transactions.len() > 1 {
@@ -8896,7 +8402,7 @@ fn min_txs() {
     let saved_vrf_key = RelayerThread::load_saved_vrf_key(path);
     assert!(saved_vrf_key.is_some());
 
-    test_observer::clear();
+    test_observer.clear();
 }
 
 #[test]
@@ -8912,8 +8418,8 @@ fn filter_txs_by_type() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     let path = "/tmp/activate_vrf_key.filter_txs.json";
     conf.miner.min_tx_count = 4;
@@ -8989,7 +8495,7 @@ fn filter_txs_by_type() {
         next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 15);
     }
 
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks {
         info!("block: {block:?}");
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -9009,7 +8515,7 @@ fn filter_txs_by_type() {
     let saved_vrf_key = RelayerThread::load_saved_vrf_key(path);
     assert!(saved_vrf_key.is_some());
 
-    test_observer::clear();
+    test_observer.clear();
 }
 
 #[test]
@@ -9025,8 +8531,8 @@ fn filter_txs_by_origin() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
+    let test_observer = TestObserver::spawn();
+    test_observer.register_any(&mut conf);
 
     conf.miner.min_tx_count = 4;
     conf.miner.first_attempt_time_ms = 0;
@@ -9099,7 +8605,7 @@ fn filter_txs_by_origin() {
         next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 15);
     }
 
-    let blocks = test_observer::get_blocks();
+    let blocks = test_observer.get_blocks();
     for block in blocks {
         info!("block: {block:?}");
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
@@ -9116,7 +8622,7 @@ fn filter_txs_by_origin() {
         }
     }
 
-    test_observer::clear();
+    test_observer.clear();
 }
 
 // https://stackoverflow.com/questions/26958489/how-to-copy-a-folder-recursively-in-rust
@@ -9624,10 +9130,11 @@ pub fn wait_for_tenure_change_tx(
     timeout_secs: u64,
     cause: TenureChangeCause,
     expected_height: u64,
+    test_observer: &TestObserver,
 ) -> Result<serde_json::Value, String> {
     let mut result = None;
     wait_for(timeout_secs, || {
-        let blocks = test_observer::get_blocks();
+        let blocks = test_observer.get_blocks();
         for block in blocks {
             let height = block["block_height"].as_u64().unwrap();
             if height == expected_height {

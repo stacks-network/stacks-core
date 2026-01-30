@@ -36,9 +36,7 @@ use super::{SignerTest, *};
 use crate::nakamoto_node::miner::{fault_injection_stall_miner, fault_injection_unstall_miner};
 use crate::operations::BurnchainOpSigner;
 use crate::tests::nakamoto_integrations::{next_block_and, wait_for};
-use crate::tests::neon_integrations::{
-    get_account, get_chain_info, test_observer, wait_for_tenure_change_tx,
-};
+use crate::tests::neon_integrations::{get_account, get_chain_info, wait_for_tenure_change_tx};
 use crate::tests::{self};
 use crate::{BitcoinRegtestController, BurnchainController, Keychain};
 #[test]
@@ -79,7 +77,7 @@ fn tx_replay_forking_test() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -229,7 +227,7 @@ fn tx_replay_forking_test() {
     let tip_after_fork = get_chain_info(&conf);
     let stacks_height_before = tip_after_fork.stacks_tip_height;
 
-    test_observer::clear();
+    signer_test.running_nodes.test_observer.clear();
 
     fault_injection_unstall_miner();
 
@@ -239,8 +237,13 @@ fn tx_replay_forking_test() {
         expected_height
     );
 
-    let block = wait_for_block_pushed_by_miner_key(60, expected_height, &stacks_miner_pk)
-        .expect("Timed out waiting for block pushed after fork");
+    let block = wait_for_block_pushed_by_miner_key(
+        60,
+        expected_height,
+        &stacks_miner_pk,
+        &signer_test.running_nodes.test_observer,
+    )
+    .expect("Timed out waiting for block pushed after fork");
 
     info!("---- Block: {:?} ----", block);
 
@@ -315,7 +318,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -384,7 +387,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
     let (txid_2, _) = signer_test
         .submit_transfer_tx(&sender_sk2, send_fee, send_amt)
         .unwrap();
-    test_observer::clear();
+    signer_test.running_nodes.test_observer.clear();
     fault_injection_unstall_miner();
     // First we will get the tenure change block. It shouldn't contain our two transfer transactions.
     info!(
@@ -392,8 +395,13 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         stacks_height_before + 1
     );
     // This block will just be the tenure change block which signers will approve without issue.
-    let block = wait_for_block_pushed_by_miner_key(60, stacks_height_before + 1, &stacks_miner_pk)
-        .expect("Timed out waiting for block pushed after fork");
+    let block = wait_for_block_pushed_by_miner_key(
+        60,
+        stacks_height_before + 1,
+        &stacks_miner_pk,
+        &signer_test.running_nodes.test_observer,
+    )
+    .expect("Timed out waiting for block pushed after fork");
     assert!(!block.txs.iter().any(|tx| tx.txid().to_string() == txid));
     assert!(!block.txs.iter().any(|tx| tx.txid().to_string() == txid_2));
     info!(
@@ -401,8 +409,13 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         stacks_height_before + 2
     );
     // Next the miner will attempt to propose a block that does not contain the necessary replay tx and signers will reject it
-    let rejected_block = wait_for_block_proposal(30, stacks_height_before + 2, &stacks_miner_pk)
-        .expect("Timed out waiting for block proposal after fork");
+    let rejected_block = wait_for_block_proposal(
+        30,
+        stacks_height_before + 2,
+        &stacks_miner_pk,
+        &signer_test.running_nodes.test_observer,
+    )
+    .expect("Timed out waiting for block proposal after fork");
     assert!(rejected_block
         .txs
         .iter()
@@ -418,6 +431,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         Some(RejectReason::ValidationFailed(
             ValidateRejectCode::InvalidTransactionReplay,
         )),
+        &signer_test.running_nodes.test_observer,
     )
     .expect("Timed out waiting for global block rejection due to invalid transaction replay");
     TEST_EXCLUDE_REPLAY_TXS.set(false);
@@ -425,9 +439,13 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         "---- Wait for block pushed at stacks block height {} ----",
         stacks_height_before + 2
     );
-    let accepted_block =
-        wait_for_block_pushed_by_miner_key(30, stacks_height_before + 2, &stacks_miner_pk)
-            .expect("Failed to mine block stacks_height_before + 2");
+    let accepted_block = wait_for_block_pushed_by_miner_key(
+        30,
+        stacks_height_before + 2,
+        &stacks_miner_pk,
+        &signer_test.running_nodes.test_observer,
+    )
+    .expect("Failed to mine block stacks_height_before + 2");
     info!(
         "---- Ensure signers accept block at height {:?} with a valid transaction replay ----",
         stacks_height_before + 2
@@ -448,7 +466,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
     );
     info!("---- Ensure signers accept block with non-replay tx ----");
     wait_for(30, || {
-        let blocks = test_observer::get_blocks();
+        let blocks = signer_test.running_nodes.test_observer.get_blocks();
         let block = blocks.last().unwrap();
         let block: StacksBlockEvent = serde_json::from_value(block.clone()).unwrap();
         Ok(block
@@ -501,7 +519,7 @@ fn tx_replay_btc_on_stx_invalidation() {
                 c.validate_with_replay_tx = true;
                 c.reset_replay_set_after_fork_blocks = 5;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.node.txindex = true;
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
@@ -653,7 +671,7 @@ fn tx_replay_btc_on_stx_invalidation() {
         .expect("Timed out waiting for tx replay set to be updated");
 
     info!("---- Waiting for tx replay set to be cleared ----");
-    test_observer::clear();
+    signer_test.running_nodes.test_observer.clear();
     fault_injection_unstall_miner();
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
@@ -662,7 +680,7 @@ fn tx_replay_btc_on_stx_invalidation() {
     let mut found_block = false;
     // Ensure that we don't mine any of the replay transactions in a sufficient amount of elapsed time
     let _ = wait_for(30, || {
-        let blocks = test_observer::get_blocks();
+        let blocks = signer_test.running_nodes.test_observer.get_blocks();
         for block in blocks {
             let block: StacksBlockEvent =
                 serde_json::from_value(block).expect("Failed to parse block");
@@ -751,7 +769,7 @@ fn tx_replay_failsafe() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -941,7 +959,7 @@ fn tx_replay_starts_correctly() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -1043,7 +1061,7 @@ fn tx_replay_disagreement() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -1097,6 +1115,7 @@ fn tx_replay_disagreement() {
         30,
         &tip.pox_consensus,
         &signer_test.signer_addresses_versions(),
+        &signer_test.running_nodes.test_observer,
     )
     .expect("Failed to update signers state machines");
     // Make a transfer tx (this will get forked)
@@ -1220,7 +1239,7 @@ fn tx_replay_solved_by_mempool_txs() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -1325,7 +1344,7 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
         num_signers,
         vec![(sender_addr.clone(), (send_amt + send_fee) * num_txs)],
         |_| {},
-        |node_config| {
+        |node_config, _| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.miner.replay_transactions = true;
         },
@@ -1460,7 +1479,7 @@ fn tx_replay_with_fork_occured_before_starting_replaying_txs() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -1572,7 +1591,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
                 c.validate_with_replay_tx = true;
                 c.reset_replay_set_after_fork_blocks = 5;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -1627,7 +1646,12 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
     info!("------------------- Produce Empty Tenure -------------------------");
     fault_injection_unstall_miner();
     let tip = get_chain_info(&conf);
-    _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
+    _ = wait_for_tenure_change_tx(
+        30,
+        TenureChangeCause::BlockFound,
+        tip.stacks_tip_height + 1,
+        &signer_test.running_nodes.test_observer,
+    );
     fault_injection_stall_miner();
 
     signer_test
@@ -1642,7 +1666,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
         .expect("Timed out waiting for tx replay set to be updated");
 
     info!("------------------------- Triggering Bitcoin Fork #2 -------------------------");
-    test_observer::clear();
+    signer_test.running_nodes.test_observer.clear();
 
     let tip = get_chain_info(&conf);
     let burn_header_hash_to_fork = btc_controller.get_block_hash(tip.burn_block_height);
@@ -1699,7 +1723,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -1836,7 +1860,7 @@ fn tx_replay_with_fork_causing_replay_to_be_cleared_due_to_cycle() {
             |c| {
                 c.validate_with_replay_tx = true;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -1952,7 +1976,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
                 c.tenure_idle_timeout = Duration::from_secs(10);
                 c.reset_replay_set_after_fork_blocks = 5;
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -2012,7 +2036,12 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
         .unwrap();
 
     // Tenure Extend happen because of tenure budget exceeded
-    _ = wait_for_tenure_change_tx(30, TenureChangeCause::Extended, tip.stacks_tip_height + 1);
+    _ = wait_for_tenure_change_tx(
+        30,
+        TenureChangeCause::Extended,
+        tip.stacks_tip_height + 1,
+        &signer_test.running_nodes.test_observer,
+    );
 
     signer_test
         .wait_for_nonce_increase(&sender_addr, txid2_nonce)
@@ -2037,8 +2066,18 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     // Only Tx1 is replayed, preventing Tenure Extension stalling the miner
     fault_injection_unstall_miner();
     let tip = get_chain_info(&conf);
-    _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
-    _ = wait_for_block_proposal(30, tip.stacks_tip_height + 2, &stacks_miner_pk);
+    _ = wait_for_tenure_change_tx(
+        30,
+        TenureChangeCause::BlockFound,
+        tip.stacks_tip_height + 1,
+        &signer_test.running_nodes.test_observer,
+    );
+    _ = wait_for_block_proposal(
+        30,
+        tip.stacks_tip_height + 2,
+        &stacks_miner_pk,
+        &signer_test.running_nodes.test_observer,
+    );
     fault_injection_stall_miner();
 
     // Signers still waiting for the Tx Replay set to be completed
@@ -2128,7 +2167,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
                 c.validate_with_replay_tx = true;
                 c.tenure_idle_timeout = Duration::from_secs(10);
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
             },
@@ -2199,7 +2238,12 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
 
     // Tenure Extend happen because of tenure budget exceeded
     let tip = get_chain_info(conf);
-    _ = wait_for_tenure_change_tx(30, TenureChangeCause::Extended, tip.stacks_tip_height + 1);
+    _ = wait_for_tenure_change_tx(
+        30,
+        TenureChangeCause::Extended,
+        tip.stacks_tip_height + 1,
+        &signer_test.running_nodes.test_observer,
+    );
 
     signer_test
         .wait_for_nonce_increase(&sender1_addr, txid2_nonce)
@@ -2224,8 +2268,18 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     // Only Tx1 is replayed, preventing Tenure Extension stalling the miner
     fault_injection_unstall_miner();
     let tip = get_chain_info(&conf);
-    _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
-    _ = wait_for_block_proposal(30, tip.stacks_tip_height + 2, &stacks_miner_pk);
+    _ = wait_for_tenure_change_tx(
+        30,
+        TenureChangeCause::BlockFound,
+        tip.stacks_tip_height + 1,
+        &signer_test.running_nodes.test_observer,
+    );
+    _ = wait_for_block_proposal(
+        30,
+        tip.stacks_tip_height + 2,
+        &stacks_miner_pk,
+        &signer_test.running_nodes.test_observer,
+    );
     fault_injection_stall_miner();
 
     // Signers still waiting for the Tx Replay set to be completed
@@ -2301,7 +2355,7 @@ fn tx_replay_budget_exceeded_tenure_extend() {
                 c.validate_with_replay_tx = true;
                 c.tenure_idle_timeout = Duration::from_secs(60);
             },
-            |node_config| {
+            |node_config, _| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
@@ -2387,7 +2441,7 @@ fn tx_replay_budget_exceeded_tenure_extend() {
     signer_test.wait_for_replay_set_eq(30, vec![txid1, txid2.clone()]);
 
     // Clear the test observer so we know that if we see txid1 and txid2 again, that it means they were remined
-    test_observer::clear();
+    signer_test.running_nodes.test_observer.clear();
     fault_injection_unstall_miner();
 
     info!("---- Waiting for replay set to be cleared ----");
@@ -2398,7 +2452,7 @@ fn tx_replay_budget_exceeded_tenure_extend() {
         .expect("Timed out waiting for tx replay set to be cleared");
     let mut found_block: Option<StacksBlockEvent> = None;
     wait_for(60, || {
-        let blocks = test_observer::get_blocks();
+        let blocks = signer_test.running_nodes.test_observer.get_blocks();
         for block in blocks {
             let block: StacksBlockEvent =
                 serde_json::from_value(block.clone()).expect("Failed to parse block");

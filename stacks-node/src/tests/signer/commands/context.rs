@@ -117,21 +117,27 @@ impl SignerTestContext {
         start_block_height: u64,
         miner_pk: &StacksPublicKey,
     ) -> usize {
-        get_nakamoto_headers(conf)
-            .into_iter()
-            .filter(|block| {
-                if block.stacks_block_height <= start_block_height {
-                    return false;
-                }
-                let nakamoto_block_header = block.anchored_header.as_stacks_nakamoto().unwrap();
-                miner_pk
-                    .verify(
-                        nakamoto_block_header.miner_signature_hash().as_bytes(),
-                        &nakamoto_block_header.miner_signature,
-                    )
-                    .unwrap()
-            })
-            .count()
+        get_nakamoto_headers(
+            conf,
+            self.miners
+                .try_lock()
+                .expect("mutex poisoned")
+                .get_test_observer(),
+        )
+        .into_iter()
+        .filter(|block| {
+            if block.stacks_block_height <= start_block_height {
+                return false;
+            }
+            let nakamoto_block_header = block.anchored_header.as_stacks_nakamoto().unwrap();
+            miner_pk
+                .verify(
+                    nakamoto_block_header.miner_signature_hash().as_bytes(),
+                    &nakamoto_block_header.miner_signature,
+                )
+                .unwrap()
+        })
+        .count()
     }
 }
 
