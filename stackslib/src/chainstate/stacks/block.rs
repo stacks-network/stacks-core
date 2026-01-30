@@ -586,10 +586,17 @@ impl StacksBlock {
             }
         }
         if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
-            if version_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
-                // not supported
-                error!("Versioned smart contracts not supported before Stacks 2.1");
-                return false;
+            if let Some(version) = version_opt {
+                if epoch_id < StacksEpochId::Epoch21 {
+                    // not supported
+                    error!("Versioned smart contracts not supported before Stacks 2.1"; "txid" => %tx.txid());
+                    return false;
+                }
+                if *version > ClarityVersion::default_for_epoch(epoch_id) {
+                    // not supported
+                    error!("Smart contract version {version} not supported in Epoch {epoch_id}"; "txid" => %tx.txid());
+                    return false;
+                }
             }
         }
         if let TransactionPayload::TenureChange(..) = &tx.payload {
@@ -2073,6 +2080,38 @@ mod test {
             header,
             None,
         );
+    }
+
+    #[test]
+    fn test_validate_transaction_static_epoch_rejects_future_clarity_version() {
+        let privk = StacksPrivateKey::random();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+
+        let tx_future_clarity = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth,
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("future-clarity").unwrap(),
+                    code_body: StacksString::from_str("(print \"hi\")").unwrap(),
+                },
+                Some(ClarityVersion::Clarity5),
+            ),
+        );
+
+        assert!(!StacksBlock::validate_transaction_static_epoch(
+            &tx_future_clarity,
+            StacksEpochId::Epoch33
+        ));
+        assert!(StacksBlock::validate_transaction_static_epoch(
+            &tx_future_clarity,
+            StacksEpochId::Epoch34
+        ));
     }
 
     // TODO:

@@ -20,6 +20,8 @@ use std::collections::HashMap;
 use clarity::types::StacksEpochId;
 #[allow(unused_imports)]
 use clarity::vm::analysis::RuntimeCheckErrorKind;
+#[allow(unused_imports)]
+use clarity::vm::costs::CostErrors;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DEPTH};
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
 
@@ -66,7 +68,9 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             runtime_check_error_memory_balance_exceeded_cdeploy,
             runtime_check_error_memory_balance_exceeded_ccall
         ]),
-        CostComputationFailed(_) => Unreachable_ExpectLike,
+        CostComputationFailed(_) => Tested(vec![
+            empty_consensus_buff,
+        ]),
         ExecutionTimeExpired => Unreachable_Functionally(
             "All consensus-critical code paths (block validation and transaction processing)
              pass `None` for max_execution_time to StacksChainState::process_transaction,
@@ -1185,7 +1189,12 @@ fn runtime_check_error_kind_could_not_determine_type_ccall() {
         function_args: &[],
         deploy_epochs: &[StacksEpochId::Epoch23],
         call_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity3, ClarityVersion::Clarity4],
+        exclude_clarity_versions: &[
+            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity3,
+            ClarityVersion::Clarity4,
+            ClarityVersion::Clarity5
+        ],
         setup_contracts: &[trait_contract, trait_impl],
     );
 }
@@ -1285,7 +1294,7 @@ fn bad_trait_implementation_mismatched_args() {
 }
 
 /// Error: [`RuntimeCheckErrorKind::InvalidCharactersDetected`]
-/// Caused by: deserializing an invalid ascii string using `from-consensus-buf` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
+/// Caused by: deserializing an invalid ascii string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
 /// Outcome: Block accepted
 /// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
@@ -1299,12 +1308,12 @@ fn invalid_characters_detected_invalid_ascii() {
                 ;; (0x0d = string-ascii type, 0x00000003 = length 3, then invalid bytes)
                 (from-consensus-buff? (string-ascii 3) 0x0d00000003000102))
         ",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buf?
+        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buff?
     );
 }
 
 /// Error: [`RuntimeCheckErrorKind::InvalidCharactersDetected`]
-/// Caused by: deserializing an invalid utf8 string using `from-consensus-buf` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
+/// Caused by: deserializing an invalid utf8 string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
 /// Outcome: Block accepted
 /// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
@@ -1318,6 +1327,22 @@ fn invalid_characters_detected_invalid_utf8() {
                 ;; (0x0e = string-utf8 type, 0x00000002 = length 2, then invalid UTF-8)
                 (from-consensus-buff? (string-utf8 2) 0x0e00000002fffe))
         ",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buf?
+        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buff?
+    );
+}
+
+/// Error (pre Clarity 5): [`CostErrors::CostComputationFailed`]
+/// Caused by: passing an empty buffer to `from-consensus-buff?`
+/// Outcome: block accepted.
+/// After Clarity 5: Contract call executes successfully and returns `(ok none)`
+#[test]
+fn empty_consensus_buff() {
+    contract_call_consensus_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-public (deserialize-bool (b (buff 2))) (ok (from-consensus-buff? bool b)))",
+        function_name: "deserialize-bool",
+        function_args: &[ClarityValue::buff_from([].into()).expect("failed to build buffer")],
+        deploy_epochs: StacksEpochId::since(clarity::types::StacksEpochId::Epoch21),
+        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buff?
     );
 }
