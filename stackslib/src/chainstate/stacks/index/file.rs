@@ -21,9 +21,8 @@ use std::path::Path;
 use std::{env, fs, io};
 
 #[cfg(test)]
-use clarity::types::sqlite::NO_PARAMS;
+use rusqlite::params;
 use rusqlite::Connection;
-use stacks_common::types::chainstate::TrieHash;
 
 use crate::chainstate::stacks::index::bits::{
     read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
@@ -33,6 +32,7 @@ use crate::chainstate::stacks::index::storage::NodeHashReader;
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
+use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::sql_vacuum;
 
 /// Mapping between block IDs and trie offsets
@@ -145,7 +145,8 @@ impl TrieFile {
         let trie_blob = {
             let mut fd = trie_sql::open_trie_blob_readonly(db, block_id)?;
             let mut trie_blob = vec![];
-            fd.read_to_end(&mut trie_blob)?;
+            fd.read_to_end(&mut trie_blob)
+                .inspect_err(|e| error!("Failed to read trie blob {block_id} from DB: {e:}"))?;
             trie_blob
         };
         Ok(trie_blob)
@@ -158,7 +159,8 @@ impl TrieFile {
         self.seek(SeekFrom::Start(offset))?;
 
         let mut buf = vec![0u8; length as usize];
-        self.read_exact(&mut buf)?;
+        self.read_exact(&mut buf)
+            .inspect_err(|e| error!("Failed to read trie blob {block_id}: {e:}"))?;
         Ok(buf)
     }
 
@@ -412,7 +414,7 @@ impl TrieFile {
     ) -> Result<Vec<(TrieHash, T)>, Error> {
         let mut s =
             db.prepare("SELECT block_hash, external_offset FROM marf_data WHERE unconfirmed = 0 ORDER BY block_hash")?;
-        let rows = s.query_and_then(NO_PARAMS, |row| {
+        let rows = s.query_and_then(params![], |row| {
             let block_hash: T = row.get_unwrap("block_hash");
             let offset_i64: i64 = row.get_unwrap("external_offset");
             let offset = offset_i64 as u64;

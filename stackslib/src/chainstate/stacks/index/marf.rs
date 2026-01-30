@@ -14,27 +14,84 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::ops::DerefMut;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::LazyLock;
 
+#[cfg(any(test, feature = "testing"))]
+use clarity::util::tests::TestFlag;
 use rusqlite::{Connection, Transaction};
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::storage::ReopenedTrieStorageConnection;
 use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode256, TrieNodeID,
-    TrieNodeType, TriePtr,
+    clear_backptr, node_copy_update_ptrs, set_backptr, CursorError, TrieCowPtr, TrieCursor,
+    TrieNode256, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
 };
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
+use crate::types::chainstate::TrieHash;
+use crate::util::hash::Sha512Trunc256Sum;
 use crate::util_lib::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
 pub const OWN_BLOCK_HEIGHT_KEY: &str = "__MARF_BLOCK_HEIGHT_SELF";
+
+#[cfg(any(test, feature = "testing"))]
+/// Global default override for MARF compression used in tests.
+///
+/// This constant allows forcing *all* MARF instances created in tests
+/// to use compression (`Some(true)`) or to disable it (`Some(false)`),
+/// regardless of the test’s local configuration.
+///
+/// When set to `None`, test's own MARF configuration is used.
+const TEST_MARF_COMPRESSION_DEFAULT: Option<bool> = Some(true);
+
+#[cfg(any(test, feature = "testing"))]
+/// Test flag used to override MARF compression during test execution.
+///
+/// This flag enables tests to dynamically enable or disable MARF compression
+/// *after* process startup, allowing scenarios where compression is switched
+/// on and off within the same test.
+static TEST_MARF_COMPRESSION_FLAG: LazyLock<TestFlag<Option<bool>>> =
+    LazyLock::new(TestFlag::default);
+
+#[cfg(any(test, feature = "testing"))]
+/// Inject a runtime override for MARF compression in tests.
+pub fn fault_injection_marf_compression(enabled: bool) {
+    TEST_MARF_COMPRESSION_FLAG.set(Some(enabled));
+}
+
+#[cfg(any(test, feature = "testing"))]
+/// Apply test-specific overrides to the MARF compression configuration.
+///
+/// This function mutates the provided [`MARFOpenOpts`],
+/// according to the following precedence order:
+///
+/// 1. Runtime test override via [`TEST_MARF_COMPRESSION_FLAG`]
+/// 2. Global test default via [`TEST_MARF_COMPRESSION_DEFAULT`]
+/// 3. The original value in [`MARFOpenOpts`] (no override)
+///
+/// In non-test builds, this function is compiled to a no-op.
+pub fn test_override_marf_compression(marf_opts: &mut MARFOpenOpts) {
+    if let Some(enabled) = TEST_MARF_COMPRESSION_FLAG.get() {
+        marf_opts.compress = enabled;
+        info!("Test flag used. MARF Compression overridden to {enabled}");
+        return;
+    }
+
+    if let Some(enabled) = TEST_MARF_COMPRESSION_DEFAULT {
+        marf_opts.compress = enabled;
+        info!("Test default used. MARF Compression overridden to {enabled}");
+    }
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+/// No-op stub for non-test builds.
+pub fn test_override_marf_compression(_marf_opts: &mut MARFOpenOpts) {}
 
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
 pub struct MARF<T: MarfTrieId> {
@@ -64,6 +121,8 @@ pub struct MARFOpenOpts {
     pub external_blobs: bool,
     /// unconditionally do a DB migration (used for testing)
     pub force_db_migrate: bool,
+    /// compress the MARF
+    pub compress: bool,
 }
 
 impl MARFOpenOpts {
@@ -73,6 +132,7 @@ impl MARFOpenOpts {
             cache_strategy: "noop".to_string(),
             external_blobs: false,
             force_db_migrate: false,
+            compress: false,
         }
     }
 
@@ -86,21 +146,13 @@ impl MARFOpenOpts {
             cache_strategy: cache_strategy.to_string(),
             external_blobs,
             force_db_migrate: false,
+            compress: false,
         }
     }
 
-    #[cfg(test)]
-    pub fn all() -> Vec<MARFOpenOpts> {
-        vec![
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", true),
-        ]
+    pub fn with_compression(mut self, compression: bool) -> Self {
+        self.compress = compression;
+        self
     }
 }
 
@@ -693,24 +745,11 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) {
-        for pointer in ptrs.iter_mut() {
-            // if the node is empty, do nothing, if it's a back pointer,
-            if pointer.id() == TrieNodeID::Empty as u8 || is_backptr(pointer.id()) {
-                continue;
-            } else {
-                // make backptr
-                pointer.back_block = child_block_id;
-                pointer.id = set_backptr(pointer.id());
-            }
-        }
-    }
-
     fn node_copy_update(node: &mut TrieNodeType, child_block_id: u32) -> TrieHash {
         let hash = match node {
             TrieNodeType::Leaf(leaf) => get_leaf_hash(leaf),
             _ => {
-                MARF::<T>::node_copy_update_ptrs(node.ptrs_mut(), child_block_id);
+                node_copy_update_ptrs(node.ptrs_mut(), child_block_id);
                 TrieHash::from_data(&[])
             }
         };
@@ -735,9 +774,14 @@ impl<T: MarfTrieId> MARF<T> {
         );
 
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
+        let child_backptr = node.walk(chr).ok_or_else(|| Error::NotFoundError)?;
+
         let (mut child_node, _, child_ptr, _) = MARF::walk_backptr(storage, node, chr, cursor)?;
+
         let child_block_hash = storage.get_cur_block();
         let child_block_identifier = storage.get_cur_block_identifier()?;
+
+        child_node.set_cow_ptr(TrieCowPtr::new(child_block_hash.clone(), child_backptr));
 
         // update child_node with new ptrs and hashes
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
@@ -772,6 +816,15 @@ impl<T: MarfTrieId> MARF<T> {
         });
 
         let (mut prev_root, _) = Trie::read_root(storage)?;
+        if prev_block_hash != &T::sentinel() {
+            let mut prev_root_backptr = TriePtr::new(
+                set_backptr(TrieNodeID::Node256 as u8),
+                0,
+                storage.root_ptr(),
+            );
+            prev_root_backptr.back_block = prev_block_identifier;
+            prev_root.set_cow_ptr(TrieCowPtr::new(prev_block_hash.clone(), prev_root_backptr));
+        }
         let new_root_hash = MARF::<T>::node_copy_update(&mut prev_root, prev_block_identifier);
 
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
@@ -860,6 +913,11 @@ impl<T: MarfTrieId> MARF<T> {
                             if !node.is_leaf()
                                 || clear_backptr(node_ptr.id()) != TrieNodeID::Leaf as u8
                             {
+                                trace!(
+                                    "Out-of-path but encountered at {:?}: {:?}",
+                                    &node_ptr,
+                                    &node
+                                );
                                 error!("Out-of-path but encountered a non-leaf");
                                 return Err(Error::CorruptionError(
                                     "Non-leaf encountered at end of path".to_string(),
@@ -963,6 +1021,7 @@ impl<T: MarfTrieId> MARF<T> {
                         None => {
                             // end of path.  Must be at a leaf.
                             if clear_backptr(cursor.ptr().id()) != TrieNodeID::Leaf as u8 {
+                                trace!("Out-of-path but encountered at {:?}", &cursor.ptr());
                                 return Err(Error::CorruptionError(
                                     "Non-leaf encountered at end of path".to_string(),
                                 ));
@@ -1055,8 +1114,8 @@ impl<T: MarfTrieId> MARF<T> {
         })?;
 
         // a NotFoundError _here_ means that the key doesn't exist in this view
-        let (cursor, node) = MARF::walk(storage, block_hash, path).inspect_err(|e| {
-            trace!("Failed to look up key {block_hash:?} {path:?}: {e:?}");
+        let (cursor, node) = MARF::walk(storage, block_hash, path).inspect_err(|_e| {
+            trace!("Failed to look up key {block_hash:?} {path:?}: {_e:?}");
         })?;
 
         // both of these get caught by get_by_key and turned into Ok(None)

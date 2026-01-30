@@ -52,7 +52,9 @@ use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
+use crate::chainstate::stacks::index::marf::{
+    test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
+};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::ChainstateDB;
 use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, StacksEpochId};
@@ -2667,7 +2669,9 @@ impl SortitionDB {
 
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open index at {}", index_path);
-        let open_opts = MARFOpenOpts::default();
+        let mut open_opts = MARFOpenOpts::default();
+        open_opts.external_blobs = false;
+        test_override_marf_compression(&mut open_opts);
         let marf = MARF::from_path(index_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
         Ok(marf)

@@ -40,6 +40,8 @@ pub mod trie_sql;
 #[cfg(test)]
 pub mod test;
 
+use crate::chainstate::stacks::index::node::TrieNodePatch;
+
 #[derive(Debug)]
 pub struct TrieMerkleProof<T: MarfTrieId>(pub Vec<TrieMerkleProofType<T>>);
 
@@ -146,6 +148,9 @@ impl MarfTrieId for StacksBlockId {}
 impl MarfTrieId for BurnchainHeaderHash {}
 #[cfg(test)]
 impl MarfTrieId for BlockHeaderHash {}
+
+/// Define the maximum node patching depth when MARF compression is enabled
+pub const MAX_PATCH_DEPTH: u32 = 4;
 
 /// Structure that holds the actual data in a MARF leaf node.
 /// It only stores the hash of some value string, but we add 8 extra bytes for future extensions.
@@ -257,6 +262,9 @@ pub enum Error {
     CursorError(node::CursorError),
     RestoreMarfBlockError(Box<Error>),
     NonMatchingForks([u8; 32], [u8; 32]),
+    OverflowError,
+    Patch(Option<TrieHash>, TrieNodePatch),
+    NodeTooDeep,
 }
 
 impl From<io::Error> for Error {
@@ -322,6 +330,11 @@ impl fmt::Display for Error {
             Error::RequestedIdentifierForExtensionTrie => {
                 write!(f, "BUG: MARF requested the identifier for a RAM trie")
             }
+            Error::OverflowError => write!(f, "Overflow"),
+            Error::Patch(ref _h, ref p) => {
+                write!(f, "Read patch node instead of expected node: {p:?}")
+            }
+            Error::NodeTooDeep => write!(f, "Node is too deeply buried under patches"),
         }
     }
 }
