@@ -151,6 +151,7 @@ fn variant_coverage_report(variant: RuntimeError) {
             This is better suited for unit testing."
         ),
         BlockTimeNotAvailable => Tested(vec![block_time_not_available]),
+        BadTokenName(_) => Ignored("Error variant tests should be added"),
     }
 }
 

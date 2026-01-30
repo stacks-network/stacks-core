@@ -16,6 +16,8 @@
 use std::collections::HashMap;
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddrV4};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -45,6 +47,7 @@ use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{function_name, info};
 
+use crate::chainstate::tests::make_parent_header_meta;
 use crate::chainstate::v2::{GlobalStateView, SortitionState};
 use crate::chainstate::{ProposalEvalConfig, SignerChainstateError, SortitionData};
 use crate::client::tests::MockServerClient;
@@ -374,80 +377,121 @@ fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
     }
 }
 
-#[test]
-fn check_proposal_tenure_extend() {
-    let (stacks_client, mut signer_db, block_sk, mut block, cur_sortition, _, mut sortitions_view) =
-        setup_test_environment(function_name!());
+fn check_tenure_extend<F>(make_payload: F) -> Result<(), RejectReason>
+where
+    F: Fn(&mut SortitionState, &NakamotoBlock) -> TenureChangePayload,
+{
+    let MockServerClient {
+        server,
+        client: stacks_client,
+        config: _,
+    } = MockServerClient::new();
+    let (
+        _stacks_client,
+        mut signer_db,
+        block_sk,
+        mut block,
+        mut cur_sortition,
+        _,
+        mut sortitions_view,
+    ) = setup_test_environment(function_name!());
     block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
-    let mut extend_payload = make_tenure_change_payload();
-    extend_payload.burn_view_consensus_hash = cur_sortition.data.consensus_hash.clone();
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
-    let tx = make_tenure_change_tx(extend_payload);
-    block.txs = vec![tx];
-    sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block)
-        .expect_err("Proposal should not validate");
+    let mut parent_block_header = make_parent_header_meta(&block_sk, &mut block);
+    parent_block_header.burn_view = Some(cur_sortition.data.consensus_hash.clone());
+    let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);
 
-    let mut extend_payload = make_tenure_change_payload();
-    extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
-    let tx = make_tenure_change_tx(extend_payload);
-    block.txs = vec![tx];
-    block.header.miner_signature = block_sk
-        .sign(block.header.miner_signature_hash().as_bytes())
-        .unwrap();
-    sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block)
-        .expect("Proposal should validate");
-
-    let mut extend_payload = make_tenure_change_payload();
-    extend_payload.cause = TenureChangeCause::ExtendedRuntime;
-    extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
-    let tx = make_tenure_change_tx(extend_payload);
-    block.txs = vec![tx];
-    block.header.miner_signature = block_sk
-        .sign(block.header.miner_signature_hash().as_bytes())
-        .unwrap();
-    sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block)
-        .expect_err("Proposal should not validate");
-
-    let mut extend_payload = make_tenure_change_payload();
-    extend_payload.cause = TenureChangeCause::ExtendedRuntime;
-    extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
-    let tx = make_tenure_change_tx(extend_payload);
-    block.txs = vec![tx];
-    block.header.miner_signature = block_sk
-        .sign(block.header.miner_signature_hash().as_bytes())
-        .unwrap();
-    sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block)
-        .expect_err("Proposal should not validate");
-
-    let mut extend_payload = make_tenure_change_payload();
-    extend_payload.cause = TenureChangeCause::ExtendedReadCount;
-    extend_payload.burn_view_consensus_hash = cur_sortition.data.consensus_hash;
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
-    let tx = make_tenure_change_tx(extend_payload);
+    let mut payload = make_payload(&mut cur_sortition, &block);
+    payload.previous_tenure_end = block.header.parent_block_id.clone();
+    let tx = make_tenure_change_tx(payload);
     block.txs = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();
-    sortitions_view.config.read_count_idle_timeout = Duration::ZERO;
-    sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block)
-        .expect("Proposal should validate");
+
+    let exit_flag = Arc::new(AtomicBool::new(false));
+    let moved_exit_flag = exit_flag.clone();
+
+    let serve = std::thread::spawn(move || {
+        crate::client::tests::write_response_nonblockinig(
+            &server,
+            response.as_bytes(),
+            moved_exit_flag,
+        );
+    });
+
+    sortitions_view.config.read_count_idle_timeout = Duration::from_secs(0);
+    let result = sortitions_view.check_proposal(&stacks_client, &mut signer_db, &block);
+
+    exit_flag.store(true, Ordering::SeqCst);
+    serve.join().unwrap();
+    result
+}
+
+#[test]
+fn check_tenure_extend_burn_view_change() {
+    check_tenure_extend(|_, block| {
+        let mut extend_payload = make_tenure_change_payload();
+        extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
+        extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload
+    })
+    .expect("Proposal should validate");
+}
+
+#[test]
+fn check_tenure_extend_unsupported_cause() {
+    check_tenure_extend(|_, block| {
+        let mut extend_payload = make_tenure_change_payload();
+        extend_payload.cause = TenureChangeCause::ExtendedRuntime;
+        extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
+        extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload
+    })
+    .expect_err("Proposal should not validate");
+}
+
+#[test]
+fn check_tenure_extend_no_burn_change_during_read_count() {
+    check_tenure_extend(|_, block| {
+        let mut extend_payload = make_tenure_change_payload();
+        extend_payload.cause = TenureChangeCause::ExtendedRuntime;
+        extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
+        extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload
+    })
+    .expect_err("Proposal should not validate");
+}
+
+#[test]
+fn check_tenure_extend_read_count() {
+    check_tenure_extend(|view, block| {
+        let mut extend_payload = make_tenure_change_payload();
+        extend_payload.cause = TenureChangeCause::ExtendedReadCount;
+        extend_payload.burn_view_consensus_hash = view.data.consensus_hash.clone();
+        extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
+        extend_payload
+    })
+    .expect("Proposal should validate");
 }
 
 #[test]
 fn check_proposal_with_extend_during_replay() {
-    let (stacks_client, mut signer_db, block_sk, mut block, cur_sortition, _, mut sortitions_view) =
-        setup_test_environment(function_name!());
+    let MockServerClient {
+        server,
+        client: stacks_client,
+        config: _,
+    } = MockServerClient::new();
+
+    let rand_int = server.local_addr().unwrap().port();
+
+    let (_, mut signer_db, block_sk, mut block, cur_sortition, _, mut sortitions_view) =
+        setup_test_environment(&format!("{}_{rand_int}", function_name!()));
+
+    let parent_block_header = make_parent_header_meta(&block_sk, &mut block);
+    let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);
+
     block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
     let mut extend_payload = make_tenure_change_payload();
     extend_payload.burn_view_consensus_hash = cur_sortition.data.consensus_hash.clone();
@@ -469,9 +513,14 @@ fn check_proposal_with_extend_during_replay() {
 
     sortitions_view.signer_state.tx_replay_set = replay_set;
 
-    sortitions_view
-        .check_proposal(&stacks_client, &mut signer_db, &block)
-        .expect("Proposal should validate");
+    let j = std::thread::spawn(move || {
+        sortitions_view
+            .check_proposal(&stacks_client, &mut signer_db, &block)
+            .expect("Proposal should validate");
+    });
+
+    crate::client::tests::write_response(server, response.as_bytes());
+    j.join().unwrap();
 }
 
 #[test]

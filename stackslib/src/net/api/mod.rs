@@ -21,6 +21,7 @@ pub mod blockreplay;
 pub mod blocksimulate;
 pub mod callreadonly;
 pub mod fastcallreadonly;
+pub mod get_tenure_tip_meta;
 pub mod get_tenures_fork_info;
 pub mod getaccount;
 pub mod getattachment;
@@ -130,6 +131,9 @@ impl StacksHttp {
         self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
         self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());
         self.register_rpc_endpoint(gettenuretip::RPCNakamotoTenureTipRequestHandler::new());
+        self.register_rpc_endpoint(
+            get_tenure_tip_meta::NakamotoTenureTipMetadataRequestHandler::new(),
+        );
         self.register_rpc_endpoint(gettenureblocks::RPCNakamotoTenureBlocksRequestHandler::new());
         self.register_rpc_endpoint(
             gettenureblocksbyhash::RPCNakamotoTenureBlocksByHashRequestHandler::new(),
