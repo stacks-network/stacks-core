@@ -25,7 +25,7 @@ use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::VmExecutionError;
+use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
@@ -107,6 +107,15 @@ impl From<StaticCheckError> for ClarityError {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => ClarityError::StaticCheck(e),
+        }
+    }
+}
+
+impl From<ClarityEvalError> for ClarityError {
+    fn from(e: ClarityEvalError) -> Self {
+        match e {
+            ClarityEvalError::Parse(err) => ClarityError::from(err),
+            ClarityEvalError::Vm(err) => ClarityError::from(err),
         }
     }
 }
@@ -195,9 +204,9 @@ pub trait ClarityConnection {
         sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
         to_do: F,
-    ) -> Result<R, VmExecutionError>
+    ) -> Result<R, ClarityEvalError>
     where
-        F: FnOnce(&mut Environment) -> Result<R, VmExecutionError>,
+        F: FnOnce(&mut Environment) -> Result<R, ClarityEvalError>,
     {
         let epoch_id = self.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
