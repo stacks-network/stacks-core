@@ -1679,10 +1679,6 @@ impl<T: MarfTrieId> TrieStorageTransientData<T> {
     fn clear_block_id(&mut self) {
         self.cur_block_id = None;
     }
-
-    fn retarget_block(&mut self, bhh: T) {
-        self.cur_block = bhh;
-    }
 }
 
 pub struct ReopenedTrieStorageConnection<'a, T: MarfTrieId> {
@@ -2173,16 +2169,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     if self.data.unconfirmed {
                         return Err(Error::UnconfirmedError);
                     }
-                    if real_bhh != &bhh {
-                        // note: this was moved from the block_retarget function
-                        //  to avoid stepping on the borrow checker.
-                        debug!(
-                            "Retarget block {} to {}. Current block ID is {:?}",
-                            bhh, real_bhh, &self.data.cur_block_id
-                        );
-                        // switch over state
-                        self.data.retarget_block(real_bhh.clone());
-                    }
+
                     let new_block_id = self.with_trie_blobs(|db, blobs| match blobs {
                         Some(blobs) => blobs.store_trie_blob(db, real_bhh, &buffer),
                         None => {
