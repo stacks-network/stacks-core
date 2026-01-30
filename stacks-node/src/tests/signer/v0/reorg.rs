@@ -3734,7 +3734,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
 /// Miner 1 proposes block N+1'
 /// 3 signers approve N+1', saying "Miner is not building off of most recent tenure. A tenure they
 ///   reorg has already mined blocks, but the block was poorly timed, allowing the reorg."
-/// The other 3 signers reject N+1', because their `first_proposal_burn_block_timing_secs` is
+/// The other 2 signers reject N+1', because their `first_proposal_burn_block_timing_secs` is
 ///   shorter and has been exceeded.
 /// Miner 1 proposes N+1' again, and all signers reject it this time.
 /// Miner 2 proposes N+2, a tenure extend block and it is accepted by all signers.
@@ -3878,7 +3878,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
         .check_signer_states_reorg(&approving_signers, &rejecting_signers);
 
     let signer_signature_hash = block_n_1_prime.header.signer_signature_hash();
-    info!("------------------------- Wait for 3 acceptances and 2 rejections of {signer_signature_hash} -------------------------");
+    info!("------------------------- Wait for rejections for {signer_signature_hash} -------------------------");
     let rejections =
         wait_for_block_rejections_from_signers(30, &signer_signature_hash, &rejecting_signers)
             .expect("Timed out waiting for block rejection from rejecting signers");
@@ -3889,8 +3889,13 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
             "Reject reason is not ReorgNotAllowed"
         );
     }
-    wait_for_block_pre_commits_from_signers(30, &signer_signature_hash, &approving_signers)
-        .expect("Timed out waiting for block pre-commits from approving signers");
+    // Since the block may be globally rejected by the time approving signers see the block, we cannot guarantee that they issue a pre-commit.
+    // They may simply ignore the block. However, they should NOT issue a rejection either (regardless of order of receiving rejecting_signers responses).
+    assert!(
+        wait_for_block_rejections_from_signers(15, &signer_signature_hash, &approving_signers)
+            .is_err(),
+        "Approving signers should have simply ignored the block with no rejection."
+    );
 
     info!("------------------------- Miner 1 Proposes N+1' Again -------------------------");
     test_observer::clear();
