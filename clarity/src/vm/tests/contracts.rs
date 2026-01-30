@@ -13,7 +13,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 #[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
 #[cfg(test)]
@@ -27,7 +26,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrinc
 #[cfg(test)]
 use crate::vm::{
     ast::errors::ParseErrorKind,
-    errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError},
+    errors::{ClarityEvalError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError},
     tests::{
         MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator, env_factory, execute,
         is_committed, is_err_code_i128 as is_err_code, symbols_from_values, tl_env_factory,
@@ -996,11 +995,11 @@ fn test_at_unknown_block(
         .unwrap_err();
     eprintln!("{err}");
     match err {
-        VmExecutionError::Runtime(x, _) => assert_eq!(
+        ClarityEvalError::Vm(VmExecutionError::Runtime(x, _)) => assert_eq!(
             x,
             RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(vec![2_u8; 32].as_slice()))
         ),
-        _ => panic!("Unexpected error"),
+        e => panic!("Unexpected error: {e}"),
     }
 }
 
@@ -1036,13 +1035,12 @@ fn test_ast_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        RuntimeError::ASTError(Box::new(
+        ClarityEvalError::Parse(
             ParseErrorKind::VaryExpressionStackDepthTooDeep {
                 max_depth: max_call_stack_depth_for_epoch(StacksEpochId::Epoch20)
             }
-            .into(),
-        ))
-        .into()
+            .into()
+        )
     );
 }
 
@@ -1177,6 +1175,7 @@ fn test_eval_with_non_existing_contract(
                 .unwrap()
                 .to_string()
         ))
+        .into()
     );
     drop(env);
     owned_env.commit().unwrap();

@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hash;
 use std::sync::Arc;
 use std::{cmp, fmt};
@@ -291,7 +291,7 @@ pub enum TypeSignature {
     // data structure to maintain the set of types in the list, so that when
     // we reach the place where the coercion needs to happen, we can perform
     // the check -- see `concretize` method.
-    ListUnionType(HashSet<CallableSubtype>),
+    ListUnionType(BTreeSet<CallableSubtype>),
     // This is used only below epoch 2.1. It has been replaced by CallableType.
     TraitReferenceType(TraitIdentifier),
 }
@@ -324,7 +324,7 @@ pub enum StringSubtype {
     UTF8(StringUTF8Length),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, PartialOrd, Ord)]
 pub enum CallableSubtype {
     Principal(QualifiedContractIdentifier),
     Trait(TraitIdentifier),
@@ -1218,7 +1218,7 @@ impl TypeSignature {
                 if x == y {
                     Ok(a.clone())
                 } else {
-                    Ok(ListUnionType(HashSet::from([x.clone(), y.clone()])))
+                    Ok(ListUnionType(BTreeSet::from([x.clone(), y.clone()])))
                 }
             }
             (ListUnionType(l), CallableType(c)) | (CallableType(c), ListUnionType(l)) => {

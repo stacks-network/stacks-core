@@ -169,7 +169,7 @@ epochs_template! {
     Epoch33,
     Epoch34,
 }
-
+#[cfg(any(test, feature = "testing"))]
 clarity_template! {
     Epoch20_Clarity1: (Epoch20, Clarity1),
     Epoch2_05_Clarity1: (Epoch2_05, Clarity1),
