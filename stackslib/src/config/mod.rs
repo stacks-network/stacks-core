@@ -4430,7 +4430,7 @@ pub struct EventObserverConfigFile {
     ///   - Events delivered to: `/proposal_response`.
     ///
     /// - Smart Contract Event: Subscribes to a specific smart contract event.
-    ///   - Format: `"{contract_address}.{contract_name}::{event_name}"`
+    ///   - Format: `"{deployer_address}.{contract_name}::{event_name}"`
     ///     (e.g., `ST0000000000000000000000000000000000000000.my-contract::my-custom-event`)
     ///   - Events delivered to: `/new_block`, `/new_microblocks`.
     ///   - Payload details: The "events" array in the delivered payloads will be
@@ -4438,7 +4438,7 @@ pub struct EventObserverConfigFile {
     ///
     /// - Asset Identifier for FT/NFT Events: Subscribes to events (mint, burn,
     ///   transfer) for a specific Fungible Token (FT) or Non-Fungible Token (NFT).
-    ///   - Format: `"{contract_address}.{contract_name}.{asset_name}"`
+    ///   - Format: `"{deployer_address}.{contract_name}.{asset_name}"`
     ///     (e.g., for an FT: `ST0000000000000000000000000000000000000000.contract.token`)
     ///   - Events delivered to: `/new_block`, `/new_microblocks`.
     ///   - Payload details: The "events" array in the delivered payloads will be
