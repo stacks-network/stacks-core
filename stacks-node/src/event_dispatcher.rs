@@ -35,7 +35,7 @@ use rand::Rng;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::ConsensusHash;
-use stacks::chainstate::coordinator::BlockEventDispatcher;
+use stacks::chainstate::coordinator::{BlockEventDispatcher, PoxTransactionReward};
 use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::RewardSetData;
@@ -393,6 +393,7 @@ impl BlockEventDispatcher for EventDispatcher {
         burn_block_height: u64,
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
+        pox_transactions: Vec<PoxTransactionReward>,
         recipient_info: Vec<PoxAddress>,
         consensus_hash: &ConsensusHash,
         parent_burn_block_hash: &BurnchainHeaderHash,
@@ -402,6 +403,7 @@ impl BlockEventDispatcher for EventDispatcher {
             burn_block_height,
             rewards,
             burns,
+            pox_transactions,
             recipient_info,
             consensus_hash,
             parent_burn_block_hash,
@@ -439,6 +441,7 @@ impl EventDispatcher {
         burn_block_height: u64,
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
+        pox_transactions: Vec<PoxTransactionReward>,
         recipient_info: Vec<PoxAddress>,
         consensus_hash: &ConsensusHash,
         parent_burn_block_hash: &BurnchainHeaderHash,
@@ -454,6 +457,7 @@ impl EventDispatcher {
             burn_block_height,
             rewards,
             burns,
+            pox_transactions,
             recipient_info,
             consensus_hash,
             parent_burn_block_hash,
@@ -1197,7 +1201,9 @@ impl EventDispatcher {
                         "attempts" => attempts
                     );
                     if disable_retries {
-                        warn!("Observer is configured in disable_retries mode: skipping retry of payload");
+                        warn!(
+                            "Observer is configured in disable_retries mode: skipping retry of payload"
+                        );
                         return Err(err.into());
                     }
                     #[cfg(test)]

@@ -20,11 +20,13 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use clarity::vm::costs::ExecutionCost;
+use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId,
 };
 use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::serde_serializers::prefix_hex;
 
 pub use self::comm::CoordinatorCommunication;
 use super::stacks::boot::{RewardSet, RewardSetData};
@@ -40,7 +42,7 @@ use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
-use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::address::{pox_addr_b58_serde, PoxAddress};
 use crate::chainstate::stacks::boot::{POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::db::accounts::MinerReward;
 #[cfg(test)]
@@ -175,6 +177,7 @@ pub trait BlockEventDispatcher {
         burn_block_height: u64,
         rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
+        pox_transactions: Vec<PoxTransactionReward>,
         reward_recipients: Vec<PoxAddress>,
         consensus_hash: &ConsensusHash,
         parent_burn_block_hash: &BurnchainHeaderHash,
@@ -397,7 +400,9 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                     //        exists between Epoch 2.4's instantiation height and the pox-3 activation height.
                     //  However, this *will* happen in testing if Epoch 2.4's instantiation height is set == a reward cycle
                     //   start height
-                    info!("PoX reward cycle defaulting to burn in Epoch 2.4 because cycle start is before PoX-3 activation");
+                    info!(
+                        "PoX reward cycle defaulting to burn in Epoch 2.4 because cycle start is before PoX-3 activation"
+                    );
                     return Ok(RewardSet::empty());
                 }
             }
@@ -416,7 +421,9 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                     //        exists between Epoch 2.5's instantiation height and the pox-4 activation height.
                     //  However, this *will* happen in testing if Epoch 2.5's instantiation height is set == a reward cycle
                     //   start height
-                    info!("PoX reward cycle defaulting to burn in Epoch 2.5 because cycle start is before PoX-4 activation");
+                    info!(
+                        "PoX reward cycle defaulting to burn in Epoch 2.5 because cycle start is before PoX-4 activation"
+                    );
                     return Ok(RewardSet::empty());
                 }
             }
@@ -861,9 +868,26 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 }
 
 /// PoX payout event to be sent to connected event observers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoxTransactionRewardRecipient {
+    #[serde(with = "pox_addr_b58_serde")]
+    pub recipient: PoxAddress,
+    pub amt: u64,
+    pub utxo_idx: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoxTransactionReward {
+    #[serde(with = "prefix_hex")]
+    pub txid: Txid,
+    pub reward_recipients: Vec<PoxTransactionRewardRecipient>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaidRewards {
     pub pox: Vec<(PoxAddress, u64)>,
     pub burns: u64,
+    pub pox_transactions: Vec<PoxTransactionReward>,
 }
 
 /// Determine the rewards paid for a given set of burnchain operations.  All of these operations
@@ -871,26 +895,42 @@ pub struct PaidRewards {
 pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
     let mut reward_recipients: HashMap<_, u64> = HashMap::new();
     let mut burn_amt = 0;
+    let mut pox_transactions = Vec::new();
     for op in ops.iter() {
         if let BlockstackOperationType::LeaderBlockCommit(commit) = op {
             if commit.commit_outs.is_empty() {
                 continue;
             }
             let amt_per_address = commit.burn_fee / (commit.commit_outs.len() as u64);
-            for addr in commit.commit_outs.iter() {
+            let mut tx_reward_recipients = Vec::new();
+            for (utxo_idx, addr) in commit.commit_outs.iter().enumerate() {
                 if addr.is_burn() {
                     burn_amt += amt_per_address;
-                } else if let Some(prior_amt) = reward_recipients.get_mut(addr) {
+                    continue;
+                }
+                if let Some(prior_amt) = reward_recipients.get_mut(addr) {
                     *prior_amt += amt_per_address;
                 } else {
                     reward_recipients.insert(addr.clone(), amt_per_address);
                 }
+                tx_reward_recipients.push(PoxTransactionRewardRecipient {
+                    recipient: addr.clone(),
+                    amt: amt_per_address,
+                    utxo_idx: utxo_idx as u32,
+                });
+            }
+            if !tx_reward_recipients.is_empty() {
+                pox_transactions.push(PoxTransactionReward {
+                    txid: commit.txid.clone(),
+                    reward_recipients: tx_reward_recipients,
+                });
             }
         }
     }
     PaidRewards {
         pox: reward_recipients.into_iter().collect(),
         burns: burn_amt,
+        pox_transactions,
     }
 }
 
@@ -916,6 +956,7 @@ pub fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
         burn_header.block_height,
         paid_rewards.pox,
         paid_rewards.burns,
+        paid_rewards.pox_transactions,
         recipients,
         consensus_hash,
         &burn_header.parent_block_hash,
@@ -1041,7 +1082,9 @@ impl<
         if let PoxAnchorBlockStatus::SelectedAndUnknown(missing_anchor_block, _) =
             &rc_info.anchor_status
         {
-            info!("Currently missing PoX anchor block {missing_anchor_block}, which is assumed to be present");
+            info!(
+                "Currently missing PoX anchor block {missing_anchor_block}, which is assumed to be present"
+            );
             return Some(missing_anchor_block.clone());
         }
 
@@ -1221,6 +1264,7 @@ impl<
                 PaidRewards {
                     pox: vec![],
                     burns: 0,
+                    pox_transactions: vec![],
                 }
             };
 
@@ -1233,7 +1277,9 @@ impl<
                 if let Some(missing_anchor_block) =
                     self.check_missing_anchor_block(&header, rc_info)
                 {
-                    info!("Burnchain block processing stops due to missing affirmed anchor stacks block hash {missing_anchor_block}");
+                    info!(
+                        "Burnchain block processing stops due to missing affirmed anchor stacks block hash {missing_anchor_block}"
+                    );
                     return Ok(Some(missing_anchor_block));
                 }
             }
@@ -1482,7 +1528,9 @@ impl<
                     }
                 }
             } else {
-                warn!("Atlas: attempted to write attachments, but stacks-node not configured with Atlas DB");
+                warn!(
+                    "Atlas: attempted to write attachments, but stacks-node not configured with Atlas DB"
+                );
             }
         }
     }
@@ -1712,7 +1760,9 @@ impl<
                         .sortition_db
                         .is_stacks_block_pox_anchor(&block_hash, &canonical_sortition_tip)?
                     {
-                        debug!("Discovered PoX anchor block {block_hash} off of canonical sortition tip {canonical_sortition_tip}");
+                        debug!(
+                            "Discovered PoX anchor block {block_hash} off of canonical sortition tip {canonical_sortition_tip}"
+                        );
 
                         return Ok(Some(pox_anchor));
                     }
@@ -1823,7 +1873,10 @@ pub fn check_chainstate_db_versions(
             return Ok(false);
         }
     } else {
-        warn!("Sortition DB {} does not exist; assuming it will be instantiated with the correct version", sortdb_path);
+        warn!(
+            "Sortition DB {} does not exist; assuming it will be instantiated with the correct version",
+            sortdb_path
+        );
     }
 
     if fs::metadata(chainstate_path).is_ok() {
@@ -1836,7 +1889,9 @@ pub fn check_chainstate_db_versions(
             return Ok(false);
         }
     } else {
-        warn!("Chainstate DB {chainstate_path} does not exist; assuming it will be instantiated with the correct version");
+        warn!(
+            "Chainstate DB {chainstate_path} does not exist; assuming it will be instantiated with the correct version"
+        );
     }
 
     Ok(true)

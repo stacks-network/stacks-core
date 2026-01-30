@@ -2543,6 +2543,7 @@ pub mod test {
             _burn_block_height: u64,
             _rewards: Vec<(PoxAddress, u64)>,
             _burns: u64,
+            _pox_transactions: Vec<crate::chainstate::coordinator::PoxTransactionReward>,
             _reward_recipients: Vec<PoxAddress>,
             _consensus_hash: &ConsensusHash,
             _parent_burn_block_hash: &BurnchainHeaderHash,

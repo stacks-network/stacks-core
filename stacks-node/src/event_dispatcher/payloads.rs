@@ -26,13 +26,15 @@ use stacks::chainstate::burn::operations::{
     BlockstackOperationType,
 };
 use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::coordinator::PoxTransactionReward;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::{
     NakamotoSignerEntry, PoxStartCycleInfo, RewardSet, RewardSetData,
 };
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
-    StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
+    BurnBlockEvent, BurnBlockEventRewardRecipient, StacksBlockEventData, StacksTransactionEvent,
+    StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{StacksTransaction, TransactionPayload};
@@ -208,34 +210,28 @@ pub fn make_new_burn_block_payload(
     burn_block_height: u64,
     rewards: Vec<(PoxAddress, u64)>,
     burns: u64,
+    pox_transactions: Vec<PoxTransactionReward>,
     slot_holders: Vec<PoxAddress>,
     consensus_hash: &ConsensusHash,
     parent_burn_block_hash: &BurnchainHeaderHash,
 ) -> serde_json::Value {
-    let reward_recipients = rewards
-        .into_iter()
-        .map(|(pox_addr, amt)| {
-            json!({
-                "recipient": pox_addr.to_b58(),
-                "amt": amt,
+    serde_json::to_value(BurnBlockEvent {
+        burn_block_hash: burn_block.clone(),
+        burn_block_height,
+        reward_recipients: rewards
+            .into_iter()
+            .map(|(pox_addr, amt)| BurnBlockEventRewardRecipient {
+                recipient: pox_addr.clone(),
+                amt,
             })
-        })
-        .collect();
-
-    let reward_slot_holders = slot_holders
-        .into_iter()
-        .map(|pox_addr| json!(pox_addr.to_b58()))
-        .collect();
-
-    json!({
-        "burn_block_hash": format!("0x{burn_block}"),
-        "burn_block_height": burn_block_height,
-        "reward_recipients": serde_json::Value::Array(reward_recipients),
-        "reward_slot_holders": serde_json::Value::Array(reward_slot_holders),
-        "burn_amount": burns,
-        "consensus_hash": format!("0x{consensus_hash}"),
-        "parent_burn_block_hash": format!("0x{parent_burn_block_hash}"),
+            .collect(),
+        reward_slot_holders: slot_holders,
+        burn_amount: burns,
+        consensus_hash: consensus_hash.clone(),
+        parent_burn_block_hash: parent_burn_block_hash.clone(),
+        pox_transactions,
     })
+    .expect("FATAL: Failed to serialized burn block payload")
 }
 
 const STATUS_RESP_TRUE: &str = "success";
