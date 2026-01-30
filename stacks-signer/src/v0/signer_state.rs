@@ -48,9 +48,9 @@ use crate::client::{ClientError, CurrentAndLastSortition, StackerDB, StacksClien
 use crate::signerdb::{BlockValidatedByReplaySet, SignerDb};
 
 /// This is the latest supported protocol version for this signer binary
-pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 1;
+pub static SUPPORTED_SIGNER_PROTOCOL_VERSION: u64 = 2;
 /// The version at which global signer state activates
-pub static GLOBAL_SIGNER_STATE_ACTIVATION_VERSION: u64 = u64::MAX;
+pub static GLOBAL_SIGNER_STATE_ACTIVATION_VERSION: u64 = 2;
 
 /// Vec of pubkeys that should ignore checking for a bitcoin fork
 #[cfg(any(test, feature = "testing"))]
@@ -187,30 +187,23 @@ impl LocalStateMachine {
             MinerState::NoValidMiner => StateMachineUpdateMinerState::NoValidMiner,
         };
 
-        let content = match state_machine.active_signer_protocol_version {
-            0 => StateMachineUpdateContent::V0 {
-                burn_block: state_machine.burn_block.clone(),
-                burn_block_height: state_machine.burn_block_height,
-                current_miner,
-            },
-            1 => StateMachineUpdateContent::V1 {
-                burn_block: state_machine.burn_block.clone(),
-                burn_block_height: state_machine.burn_block_height,
-                current_miner,
-                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
-            },
-            2 => StateMachineUpdateContent::V2 {
-                burn_block: state_machine.burn_block.clone(),
-                burn_block_height: state_machine.burn_block_height,
-                current_miner,
-                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
-            },
-            other => {
-                return Err(CodecError::DeserializeError(format!(
-                    "Active signer protocol version is unknown: {other}"
-                )))
-            }
+        let active_signer_protocol_version = state_machine.active_signer_protocol_version;
+        // Make sure we fall back to our local supported version in the case of the other signers being ahead of us
+        // so we can still participate/inform the global state what our view point is
+        let content_version = if active_signer_protocol_version
+            > local_supported_signer_protocol_version
+        {
+            warn!(
+                "Cannot create state machine update for future protocol version {active_signer_protocol_version}; falling back to supported version {local_supported_signer_protocol_version}"
+            );
+            local_supported_signer_protocol_version
+        } else {
+            active_signer_protocol_version
         };
+
+        let content =
+            StateMachineUpdateContent::new(content_version, current_miner, state_machine)?;
+
         StateMachineUpdateMessage::new(
             state_machine.active_signer_protocol_version,
             local_supported_signer_protocol_version,

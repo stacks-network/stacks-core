@@ -23,6 +23,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 
 - Avoid sending duplicate block acceptance messages when additional pre-commits arrive
+- Upgraded `SUPPORTED_SIGNER_PROTOCOL_VERSION` to 2.
+- Set `GLOBAL_SIGNER_STATE_ACTIVATION_VERSION` to 2, activating global signer state agreement block processing.
 
 ## [3.3.0.0.2.0]
 

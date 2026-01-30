@@ -776,12 +776,14 @@ impl Signer {
             );
             return Some(self.create_block_rejection(RejectReason::NoSignerConsensus, block));
         };
-        let state_version = SortitionStateVersion::from_protocol_version(latest_version);
-        if state_version.uses_global_state() {
-            self.check_block_against_global_state(stacks_client, block)
-        } else {
-            self.check_block_against_local_state(stacks_client, sortition_state, block)
-        }
+        // TODO REVERT THIS WHEN TESTING IS DONE
+        // let state_version = SortitionStateVersion::from_protocol_version(latest_version);
+        // if state_version.uses_global_state() {
+        //     self.check_block_against_global_state(stacks_client, block)
+        // } else {
+        //     self.check_block_against_local_state(stacks_client, sortition_state, block)
+        // }
+        self.check_block_against_global_state(stacks_client, block)
     }
 
     /// Check if block should be rejected based on the local view of the sortition state
