@@ -777,9 +777,7 @@ mod test {
             let tree = MerkleTree::new(&fixture.data);
 
             assert_eq!(Some(tree.clone()), fixture.res);
-            if fixture.res.is_some() {
-                let nodes = fixture.res.unwrap().nodes;
-
+            if let Some(nodes) = fixture.res.map(|res| res.nodes) {
                 if !nodes.is_empty() {
                     assert_eq!(tree.root(), nodes[nodes.len() - 1][0]);
                 } else {

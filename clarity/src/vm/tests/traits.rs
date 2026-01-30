@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,11 +21,11 @@ use super::MemoryEnvironmentGenerator;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 #[cfg(test)]
 use crate::vm::{
-    errors::{CheckErrorKind, VmExecutionError},
+    ContractContext,
+    errors::{RuntimeCheckErrorKind, VmExecutionError},
     tests::{env_factory, execute, symbols_from_values},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
     version::ClarityVersion,
-    ContractContext,
 };
 
 #[apply(test_clarity_versions)]
@@ -242,7 +242,7 @@ fn test_dynamic_dispatch_intra_contract_call(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(CheckErrorKind::CircularReference(_)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CircularReference(_)) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -557,7 +557,8 @@ fn test_dynamic_dispatch_mismatched_args(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(CheckErrorKind::BadTraitImplementation(_, _)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::BadTraitImplementation(_, _)) => {
+            }
             _ => panic!("{err_result:?}"),
         }
     }
@@ -612,7 +613,7 @@ fn test_dynamic_dispatch_mismatched_returned(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(CheckErrorKind::ReturnTypesMustMatch(_, _)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ReturnTypesMustMatch(_, _)) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -631,8 +632,7 @@ fn test_reentrant_dynamic_dispatch(
             (internal-get-1 contract))
         (define-private (internal-get-1 (contract <trait-1>))
             (contract-call? contract get-1 u0))";
-    let target_contract =
-        "(define-public (get-1 (x uint)) (contract-call? .dispatching-contract wrapped-get-1 .target-contract))";
+    let target_contract = "(define-public (get-1 (x uint)) (contract-call? .dispatching-contract wrapped-get-1 .target-contract))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let placeholder_context =
@@ -670,7 +670,7 @@ fn test_reentrant_dynamic_dispatch(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(CheckErrorKind::CircularReference(_)) => {}
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CircularReference(_)) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -725,7 +725,9 @@ fn test_readwrite_dynamic_dispatch(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(CheckErrorKind::TraitBasedContractCallInReadOnly) => {}
+            VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TraitBasedContractCallInReadOnly,
+            ) => {}
             _ => panic!("{err_result:?}"),
         }
     }
@@ -780,7 +782,9 @@ fn test_readwrite_violation_dynamic_dispatch(
             )
             .unwrap_err();
         match err_result {
-            VmExecutionError::Unchecked(CheckErrorKind::TraitBasedContractCallInReadOnly) => {}
+            VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TraitBasedContractCallInReadOnly,
+            ) => {}
             _ => panic!("{err_result:?}"),
         }
     }

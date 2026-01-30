@@ -945,6 +945,9 @@ impl Signer {
         if self.test_skip_block_response_broadcast(&block_response) {
             return;
         }
+
+        self.test_stall_block_response();
+
         const NUM_REPEATS: usize = 1;
         let mut count = 0;
         let public_keys = TEST_REPEAT_PROPOSAL_RESPONSE.get();
@@ -997,8 +1000,11 @@ impl Signer {
         update: &StateMachineUpdate,
         received_time: &SystemTime,
     ) {
+        let replay_txids = update.content.replay_txids();
+        let pubkey = signer_public_key.to_hex();
         info!(
-            "{self}: Received state machine update from signer {signer_public_key:?}: {update:?}"
+            "{self}: Received state machine update from signer {pubkey}: {update}";
+            "replay_txids" => ?replay_txids
         );
         let address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
         // Store the state machine update so we can reload it if we crash

@@ -24,7 +24,7 @@ use clarity_cli::{DEFAULT_CLI_EPOCH, read_file_or_stdin, read_file_or_stdin_byte
 use stacks_inspect::cli::{Cli, Command};
 use stacks_inspect::{
     CommonOpts, command_contract_hash, command_replay_mock_mining, command_try_mine,
-    command_validate_block, command_validate_block_nakamoto,
+    command_validate_block,
 };
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
@@ -1379,11 +1379,6 @@ fn main() {
         // Validation Commands
         Command::ValidateBlock(args) => {
             command_validate_block(&args, common_opts.config.as_ref());
-            process::exit(0);
-        }
-
-        Command::ValidateNakaBlock(args) => {
-            command_validate_block_nakamoto(&args, common_opts.config.as_ref());
             process::exit(0);
         }
 

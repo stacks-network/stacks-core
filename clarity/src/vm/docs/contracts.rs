@@ -1,14 +1,29 @@
+// Copyright (C) 2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{mem_type_check, ContractAnalysis};
+use crate::vm::analysis::{ContractAnalysis, mem_type_check};
 use crate::vm::ast::build_ast;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
+use crate::vm::errors::ClarityEvalError;
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, Value};
 use crate::vm::version::ClarityVersion;
 use crate::vm::{self, ContractContext};
@@ -67,7 +82,7 @@ fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
         .expect("BUG: failed to return constant value")
 }
 
-fn doc_execute(program: &str) -> Result<Option<Value>, vm::VmExecutionError> {
+fn doc_execute(program: &str) -> Result<Option<Value>, ClarityEvalError> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
     let mut marf = MemoryBackingStore::new();
@@ -79,17 +94,17 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::VmExecutionError> {
         LimitedCostTracker::new_free(),
         DOCS_GENERATION_EPOCH,
     );
-    global_context.execute(|g| {
-        let parsed = build_ast(
-            &contract_id,
-            program,
-            &mut (),
-            ClarityVersion::latest(),
-            StacksEpochId::latest(),
-        )?
-        .expressions;
-        vm::eval_all(&parsed, &mut contract_context, g, None)
-    })
+    let parsed = build_ast(
+        &contract_id,
+        program,
+        &mut (),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+    )?
+    .expressions;
+    global_context
+        .execute(|g| vm::eval_all(&parsed, &mut contract_context, g, None))
+        .map_err(ClarityEvalError::from)
 }
 
 #[allow(clippy::expect_used)]

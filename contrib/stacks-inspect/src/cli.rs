@@ -46,11 +46,6 @@ pub enum ValidateBlockMode {
         /// Index block hash prefix to match
         prefix: String,
     },
-    /// Validate the first N blocks by height
-    First {
-        /// Number of blocks to validate
-        count: u64,
-    },
     /// Validate the last N blocks by height
     Last {
         /// Number of blocks to validate
@@ -63,12 +58,19 @@ pub enum ValidateBlockMode {
         /// End block height
         end: u64,
     },
-    /// Validate blocks in an index range
+    /// Validate Epoch2 blocks in an index range (omit args to show count)
     IndexRange {
-        /// Start index
-        start: u64,
+        /// Start index (omit both to query count)
+        start: Option<u64>,
         /// End index
-        end: u64,
+        end: Option<u64>,
+    },
+    /// Validate Nakamoto blocks in an index range (omit args to show count)
+    NakaIndexRange {
+        /// Start index (omit both to query count)
+        start: Option<u64>,
+        /// End index
+        end: Option<u64>,
     },
 }
 
@@ -76,6 +78,10 @@ pub enum ValidateBlockMode {
 pub struct ValidateBlockArgs {
     /// Path to chainstate database
     pub database_path: String,
+
+    /// Exit on first validation error (default: collect all errors)
+    #[arg(long, default_value_t = false)]
+    pub early_exit: bool,
 
     /// Block selection mode (if not specified, validates all blocks)
     #[command(subcommand)]
@@ -420,13 +426,9 @@ pub enum Command {
     ReplayMockMining(ReplayMockMiningArgs),
 
     // ================ Validation Commands ================
-    /// Validate Stacks blocks from chainstate database
+    /// Validate Stacks blocks (Epoch2 and Nakamoto) from chainstate database
     #[command(name = "validate-block")]
     ValidateBlock(ValidateBlockArgs),
-
-    /// Validate Nakamoto blocks from chainstate database
-    #[command(name = "validate-naka-block")]
-    ValidateNakaBlock(ValidateBlockArgs),
 
     // ================ Chain State Commands ================
     /// Get block tenure information
