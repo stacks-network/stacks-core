@@ -6,7 +6,7 @@ use clarity::vm::analysis::mem_type_check;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::*;
-use clarity::vm::errors::{CheckErrorKind, StaticCheckErrorKind, VmExecutionError};
+use clarity::vm::errors::{RuntimeCheckErrorKind, StaticCheckErrorKind, VmExecutionError};
 use clarity::vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -1743,7 +1743,7 @@ fn simple_epoch21_test() {
             ClarityError::Interpreter(e) => {
                 assert_eq!(
                     e,
-                    VmExecutionError::Unchecked(CheckErrorKind::NameAlreadyUsed(
+                    VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NameAlreadyUsed(
                         "stx-account".into()
                     ))
                 );

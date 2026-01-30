@@ -128,6 +128,7 @@ pub fn http_error_from_code_and_text(code: u16, message: String) -> Box<dyn Http
         402 => Box::new(HttpPaymentRequired::new(message)),
         403 => Box::new(HttpForbidden::new(message)),
         404 => Box::new(HttpNotFound::new(message)),
+        405 => Box::new(HttpMethodNotAllowed::new(message)),
         408 => Box::new(HttpRequestTimeout::new(message)),
         500 => Box::new(HttpServerError::new(message)),
         501 => Box::new(HttpNotImplemented::new(message)),
@@ -280,6 +281,52 @@ impl HttpNotFound {
 impl HttpErrorResponse for HttpNotFound {
     fn code(&self) -> u16 {
         404
+    }
+    fn payload(&self) -> HttpResponsePayload {
+        HttpResponsePayload::Text(self.error_text.clone())
+    }
+    fn try_parse_response(
+        &self,
+        preamble: &HttpResponsePreamble,
+        body: &[u8],
+    ) -> Result<HttpResponsePayload, Error> {
+        try_parse_error_response(preamble.status_code, preamble.content_type, body)
+    }
+}
+
+/// HTTP 405
+pub struct HttpMethodNotAllowed {
+    error_text: String,
+    allowed_methods: Vec<String>,
+}
+
+impl HttpMethodNotAllowed {
+    pub fn new(error_text: String) -> Self {
+        Self {
+            error_text,
+            allowed_methods: vec![],
+        }
+    }
+
+    pub fn with_allowed_methods(allowed_methods: Vec<String>) -> Self {
+        let error_text = format!(
+            "Method Not Allowed. Allowed: {}",
+            allowed_methods.join(", ")
+        );
+        Self {
+            error_text,
+            allowed_methods,
+        }
+    }
+
+    pub fn get_allowed_methods(&self) -> &[String] {
+        &self.allowed_methods
+    }
+}
+
+impl HttpErrorResponse for HttpMethodNotAllowed {
+    fn code(&self) -> u16 {
+        405
     }
     fn payload(&self) -> HttpResponsePayload {
         HttpResponsePayload::Text(self.error_text.clone())

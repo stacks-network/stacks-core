@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,16 +18,16 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use clarity_types::errors::analysis::{CommonCheckErrorKind, StaticCheckErrorKind};
+pub use clarity_types::types::Value;
 pub use clarity_types::types::signatures::{
     AssetIdentifier, BufferLength, CallableSubtype, ListTypeData, SequenceSubtype, StringSubtype,
     StringUTF8Length, TupleTypeSignature, TypeSignature,
 };
-pub use clarity_types::types::Value;
 use stacks_common::types::StacksEpochId;
 
 use self::TypeSignature::SequenceType;
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
-use crate::vm::costs::{runtime_cost, CostOverflowingMath};
+use crate::vm::costs::{CostOverflowingMath, runtime_cost};
 use crate::vm::errors::{SyntaxBindingError, SyntaxBindingErrorType};
 use crate::vm::representations::{
     ClarityName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
@@ -236,7 +236,7 @@ impl TypeSignatureExt for TypeSignature {
             let entry_type = TypeSignature::parse_type_repr(epoch, atomic_type_arg, accounting)?;
             let max_len =
                 u32::try_from(*max_len).map_err(|_| CommonCheckErrorKind::ValueTooLarge)?;
-            ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
+            Ok(ListTypeData::new_list(entry_type, max_len)?.into())
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -268,8 +268,9 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CommonCheckErrorKind::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
-            BufferLength::try_from(*buff_len)
-                .map(|buff_len| SequenceType(SequenceSubtype::BufferType(buff_len)))
+            Ok(SequenceType(SequenceSubtype::BufferType(
+                BufferLength::try_from(*buff_len)?,
+            )))
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -284,9 +285,9 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CommonCheckErrorKind::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(utf8_len)) = &type_args[0].expr {
-            StringUTF8Length::try_from(*utf8_len).map(|utf8_len| {
-                SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(utf8_len)))
-            })
+            Ok(SequenceType(SequenceSubtype::StringType(
+                StringSubtype::UTF8(StringUTF8Length::try_from(*utf8_len)?),
+            )))
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -301,9 +302,9 @@ impl TypeSignatureExt for TypeSignature {
             return Err(CommonCheckErrorKind::InvalidTypeDescription);
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
-            BufferLength::try_from(*buff_len).map(|buff_len| {
-                SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(buff_len)))
-            })
+            Ok(SequenceType(SequenceSubtype::StringType(
+                StringSubtype::ASCII(BufferLength::try_from(*buff_len)?),
+            )))
         } else {
             Err(CommonCheckErrorKind::InvalidTypeDescription)
         }
@@ -319,7 +320,7 @@ impl TypeSignatureExt for TypeSignature {
         }
         let inner_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
 
-        TypeSignature::new_option(inner_type)
+        Ok(TypeSignature::new_option(inner_type)?)
     }
 
     fn parse_response_type_repr<A: CostTracker>(
@@ -406,7 +407,7 @@ impl TypeSignatureExt for TypeSignature {
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
         let functions_types = type_args
             .first()
-            .ok_or_else(|| CommonCheckErrorKind::InvalidTypeDescription)?
+            .ok_or(CommonCheckErrorKind::InvalidTypeDescription)?
             .match_list()
             .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
 
@@ -564,9 +565,9 @@ impl FunctionArg {
     }
 }
 
-use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::CostTracker;
 use crate::vm::ClarityVersion;
+use crate::vm::costs::CostTracker;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
 
 /// Try to parse a list of (name_i, type_i) pairs into Vec<(ClarityName, TypeSignature)>.
 /// On failure, return both the type-check error as well as the index of the symbolic expression which caused
@@ -619,7 +620,7 @@ where
         .map(|(i, (name_symbol, type_symbol))| {
             let name = name_symbol
                 .match_atom()
-                .ok_or_else(|| {
+                .ok_or({
                     (
                         CommonCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::NotAtom(
                             binding_error_type,
@@ -646,8 +647,8 @@ impl fmt::Display for FunctionArg {
 
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::CheckErrorKind;
-    use clarity_types::errors::CheckErrorKind::*;
+    use clarity_types::errors::RuntimeCheckErrorKind::*;
+    use clarity_types::errors::{ClarityTypeError, RuntimeCheckErrorKind};
     #[cfg(test)]
     use rstest::rstest;
     #[cfg(test)]
@@ -657,9 +658,13 @@ mod test {
     use super::*;
     use crate::vm::tests::test_clarity_versions;
     use crate::vm::types::QualifiedContractIdentifier;
-    use crate::vm::{execute, ClarityVersion};
+    use crate::vm::{ClarityVersion, execute};
 
-    fn fail_parse(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> CheckErrorKind {
+    fn fail_parse(
+        val: &str,
+        version: ClarityVersion,
+        epoch: StacksEpochId,
+    ) -> RuntimeCheckErrorKind {
         use crate::vm::ast::parse;
         let expr = &parse(
             &QualifiedContractIdentifier::transient(),
@@ -686,7 +691,11 @@ mod test {
         // second_tuple.type_size = k * (130+130)
         // to get a type-size greater than max_value all by itself,
         //   set k = 4033
-        let first_tuple = TypeSignature::from_string("(tuple (a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 bool))", version, epoch);
+        let first_tuple = TypeSignature::from_string(
+            "(tuple (a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 bool))",
+            version,
+            epoch,
+        );
 
         let len = 4033;
         let mut keys = Vec::with_capacity(len);
@@ -698,7 +707,7 @@ mod test {
 
         assert_eq!(
             TupleTypeSignature::try_from(keys).unwrap_err(),
-            CommonCheckErrorKind::ValueTooLarge
+            ClarityTypeError::ValueTooLarge
         );
     }
 

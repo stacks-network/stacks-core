@@ -23,4 +23,4 @@ pub mod epoch_switch;
 pub mod events;
 pub mod forking;
 pub mod large_contract;
-pub mod simple_tests;
+pub mod smoke;

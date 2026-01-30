@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,9 +17,9 @@
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
 
-pub use super::test_util::*;
 #[cfg(test)]
 use super::ClarityVersion;
+pub use super::test_util::*;
 use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
@@ -30,6 +30,7 @@ mod contracts;
 mod conversions;
 #[cfg(test)]
 mod crypto;
+#[cfg(test)]
 mod datamaps;
 mod defines;
 #[cfg(test)]
@@ -39,6 +40,7 @@ mod principals;
 pub mod proptest_utils;
 #[cfg(test)]
 mod representations;
+#[cfg(test)]
 mod sequences;
 #[cfg(test)]
 mod simple_apply_eval;
@@ -155,7 +157,7 @@ epochs_template! {
     Epoch32,
     Epoch33,
 }
-
+#[cfg(any(test, feature = "testing"))]
 clarity_template! {
     Epoch20_Clarity1: (Epoch20, Clarity1),
     Epoch2_05_Clarity1: (Epoch2_05, Clarity1),
