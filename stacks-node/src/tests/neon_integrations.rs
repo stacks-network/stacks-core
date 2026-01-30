@@ -7459,6 +7459,7 @@ fn find_new_files(dirp: &str, prev_files: &HashSet<String>) -> (Vec<String>, Has
 
 fn spawn_follower_node(
     initial_conf: &Config,
+    test_observer: &TestObserver,
 ) -> (
     Config,
     neon::RunLoopCounter,
@@ -7482,7 +7483,6 @@ fn spawn_follower_node(
         conf.burnchain.peer_version,
     );
 
-    let test_observer = TestObserver::spawn();
     test_observer.register_any(&mut conf);
 
     conf.initial_balances = initial_conf.initial_balances.clone();
@@ -7767,7 +7767,8 @@ fn test_problematic_blocks_are_not_mined() {
 
     // verify that a follower node that boots up with this node as a bootstrap peer will process
     // all of the blocks available, even if they are problematic, with the checks on.
-    let (follower_conf, _, pox_sync_comms, follower_channel) = spawn_follower_node(&conf);
+    let (follower_conf, _, pox_sync_comms, follower_channel) =
+        spawn_follower_node(&conf, &test_observer);
 
     eprintln!(
         "\nFollower booted on port {},{}\n",
