@@ -1185,7 +1185,12 @@ fn runtime_check_error_kind_could_not_determine_type_ccall() {
         function_args: &[],
         deploy_epochs: &[StacksEpochId::Epoch23],
         call_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity3, ClarityVersion::Clarity4],
+        exclude_clarity_versions: &[
+            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity3,
+            ClarityVersion::Clarity4,
+            ClarityVersion::Clarity5
+        ],
         setup_contracts: &[trait_contract, trait_impl],
     );
 }

@@ -5,12 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Added
+
+- Setup for epoch 3.4 and Clarity version 5. Epoch 3.4 is currently set to activate at Bitcoin height 3,400,000 (very far in the future) until an activation height is selected. Clarity will activate with epoch 3.4.
+
 ## [3.3.0.0.4]
 
 ### Added
 
 - New `/v3/tenures/tip_metadata` endpoint for returning some metadata along with the normal tenure tip information.
 
+
+## [3.3.0.0.3]
+
+### Fixed
+
+- Updated the documentation for `secp256r1-verify` to match the implementation. The message hash passed to `secp256r1-verify` is SHA256 hashed again before verifying the signature.
 
 ## [3.3.0.0.3]
 

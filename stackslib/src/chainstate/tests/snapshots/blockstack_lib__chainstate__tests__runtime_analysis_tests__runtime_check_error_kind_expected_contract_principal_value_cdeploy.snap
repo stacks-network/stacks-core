@@ -33,4 +33,64 @@ expression: result
       runtime: 15231,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "cb7930e3933aba988911dfa058eb09ba5fd5775e9d21aa2f821a6a5b5eee8fa9",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(ExpectedContractPrincipalValue(Principal(Standard(StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP))))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 167,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 15231,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 167,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 15231,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "92bcd8e3b5dc8986f1d39f0284acad5d209146e6482cf2584051403d2a1c3b55",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(ExpectedContractPrincipalValue(Principal(Standard(StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP))))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 167,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 15231,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 167,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 15231,
+    ),
+  )),
 ]

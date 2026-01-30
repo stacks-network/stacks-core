@@ -1973,6 +1973,8 @@ fn bitcoind_forking_test() {
             epochs[StacksEpochId::Epoch32].start_height = 3_055;
             epochs[StacksEpochId::Epoch32].end_height = 3_065;
             epochs[StacksEpochId::Epoch33].start_height = 3_065;
+            epochs[StacksEpochId::Epoch33].end_height = 3_075;
+            epochs[StacksEpochId::Epoch34].start_height = 3_075;
         },
         None,
         None,

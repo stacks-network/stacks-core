@@ -1404,6 +1404,7 @@ const SECP256R1VERIFY_API: SpecialAPI = SpecialAPI {
     signature: "(secp256r1-verify message-hash signature public-key)",
     description: "The `secp256r1-verify` function verifies that the provided signature of the message-hash
 was signed with the private key that generated the public key.
+In Clarity 4, the `message-hash` is SHA256 hashed again internally before verification (i.e. double SHA256).
 `message-hash` is typically the `sha256` of a message and `signature` is the raw 64-byte signature.
 High-S signatures are allowed.
 Note that this is NOT the Bitcoin (or default Stacks) signature scheme, secp256k1, but rather the
