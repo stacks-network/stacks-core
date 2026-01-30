@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -12,20 +12,81 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::net::PeerHost;
 
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::Error as ChainstateError;
-use crate::net::api::gettenureblocks::{RPCTenure, RPCTenureStream};
+use crate::net::api::gettenureblocks::{
+    build_tenure_from_header_else_snapshot, encode_tenure_reply,
+    get_prior_last_sortition_consensus_hash, RPCTenure,
+};
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
+
+/// Retrieve the block snapshot for a given burnchain block hash
+pub fn get_block_snapshot_by_burnchain_block_hash(
+    sortdb: &SortitionDB,
+    burn_header_hash: &BurnchainHeaderHash,
+    preamble: &HttpRequestPreamble,
+) -> Result<BlockSnapshot, StacksHttpResponse> {
+    let handle = sortdb.index_handle_at_tip();
+    let sort_id = match handle.get_sortition_id_for_bhh(burn_header_hash) {
+        Ok(sort_id) => {
+            let Some(sort_id) = sort_id else {
+                let msg = format!("No sortition found for burn block hash '{burn_header_hash}'");
+                debug!("{msg}");
+                return Err(StacksHttpResponse::new_error(
+                    preamble,
+                    &HttpNotFound::new(msg),
+                ))?;
+            };
+            sort_id
+        }
+        Err(e) => {
+            let msg = format!(
+                "Failed to get sortition snapshot for burn block hash '{burn_header_hash}': {e:?}"
+            );
+            error!("{msg}");
+            Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpServerError::new(msg),
+            ))?
+        }
+    };
+
+    // load snapshot
+    match SortitionDB::get_block_snapshot(handle.conn(), &sort_id) {
+        Ok(snap) => {
+            let Some(snap) = snap else {
+                let msg =
+                    format!("No sortition snapshot found for burn block hash '{burn_header_hash}'");
+                debug!("{msg}");
+                return Err(StacksHttpResponse::new_error(
+                    preamble,
+                    &HttpNotFound::new(msg),
+                ));
+            };
+            Ok(snap)
+        }
+        Err(e) => {
+            let msg = format!(
+                "Failed to get sortition snapshot for burn block hash '{burn_header_hash}': {e:?}"
+            );
+            error!("{msg}");
+            Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpServerError::new(msg),
+            ))
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct RPCNakamotoTenureBlocksByHashRequestHandler {
@@ -93,67 +154,31 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHashRequestHandler {
             .take()
             .ok_or(NetError::SendError("`burnchain_block_hash` not set".into()))?;
 
-        let stream_res =
-            node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-                let header_info =
-                    match NakamotoChainState::find_highest_known_block_header_in_tenure_by_block_hash(
-                        &chainstate,
+        let reply = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
+            let snapshot = get_block_snapshot_by_burnchain_block_hash(
+                sortdb,
+                &burnchain_block_hash,
+                &preamble,
+            )?;
+            let last_sortition_ch =
+                get_prior_last_sortition_consensus_hash(sortdb, &snapshot, &preamble)?;
+
+            build_tenure_from_header_else_snapshot(
+                chainstate,
+                &snapshot,
+                last_sortition_ch,
+                &preamble,
+                || {
+                    NakamotoChainState::find_highest_known_block_header_in_tenure_by_block_hash(
+                        chainstate,
                         sortdb,
                         &burnchain_block_hash,
-                    ) {
-                        Ok(Some(header)) => header,
-                        Ok(None) | Err(ChainstateError::NoSuchBlockError) => {
-                            let msg = format!("No blocks in tenure with burnchain block hash {burnchain_block_hash}");
-                            debug!("{msg}");
-                            return Err(StacksHttpResponse::new_error(
-                                &preamble,
-                                &HttpNotFound::new(msg),
-                            ));
-                        }
-                        Err(e) => {
-                            let msg = format!(
-                        "Failed to query tenure blocks by burnchain block hash '{burnchain_block_hash}': {e:?}"
-                    );
-                            error!("{msg}");
-                            return Err(StacksHttpResponse::new_error(
-                                &preamble,
-                                &HttpServerError::new(msg),
-                            ));
-                        }
-                    };
+                    )
+                },
+            )
+        });
 
-                let tenure = RPCTenure {
-                    consensus_hash: header_info.consensus_hash.clone(),
-                    burn_block_height: header_info.burn_header_height.into(),
-                    burn_block_hash: header_info.burn_header_hash.to_hex(),
-                    stacks_blocks: vec![],
-                };
-
-                match RPCTenureStream::new(chainstate, header_info.index_block_hash(), tenure) {
-                    Ok(stream) => Ok(stream),
-                    Err(e) => {
-                        let msg = format!("Failed to create tenure stream: {e:?}");
-                        error!("{msg}");
-                        return Err(StacksHttpResponse::new_error(
-                            &preamble,
-                            &HttpServerError::new(msg),
-                        ));
-                    }
-                }
-            });
-
-        let stream = match stream_res {
-            Ok(stream) => stream,
-            Err(e) => {
-                let msg = format!("Failed to create tenure stream: {e:?}");
-                error!("{msg}");
-                return e.into();
-            }
-        };
-
-        let preamble = HttpResponsePreamble::ok_json(&preamble);
-        let body = HttpResponseContents::from_stream(Box::new(stream));
-        Ok((preamble, body))
+        encode_tenure_reply(&preamble, reply)
     }
 }
 
