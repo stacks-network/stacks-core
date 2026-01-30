@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::TcpListener;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 use std::time::{Instant, SystemTime};
 
@@ -37,9 +38,12 @@ use stacks::chainstate::stacks::{
     TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
     TransactionSpendingCondition, TransactionVersion,
 };
+use stacks::net::http::HttpRequestContents;
+use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
 use stacks::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
+use stacks::types::net::PeerHost;
 use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks::util::secp256k1::MessageSignature;
 use stacks_common::bitvec::BitVec;
@@ -238,7 +242,7 @@ fn test_process_pending_payloads() {
     info!("endpoint: {}", endpoint);
     let timeout = Duration::from_secs(5);
 
-    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 0);
 
     dispatcher.register_observer(&EventObserverConfig {
         endpoint: endpoint.clone(),
@@ -408,7 +412,10 @@ fn test_send_payload_with_db() {
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
     // Call send_payload
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher
+        .dispatch_to_observer(&observer, &payload, "/test")
+        .unwrap()
+        .wait_until_complete();
 
     // Verify that the payload was sent and database is empty
     _m.assert();
@@ -453,7 +460,7 @@ fn test_send_payload_success() {
     let working_dir = dir.path().to_path_buf();
     let dispatcher = EventDispatcher::new(working_dir);
 
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher.dispatch_to_observer_or_log_error(&observer, &payload, "/test");
 
     // Wait for the server to process the request
     rx.recv_timeout(Duration::from_secs(5))
@@ -505,7 +512,7 @@ fn test_send_payload_retry() {
     let working_dir = dir.path().to_path_buf();
     let dispatcher = EventDispatcher::new(working_dir);
 
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher.dispatch_to_observer_or_log_error(&observer, &payload, "/test");
 
     // Wait for the server to process the request
     rx.recv_timeout(Duration::from_secs(5))
@@ -562,7 +569,10 @@ fn test_send_payload_timeout() {
     let dispatcher = EventDispatcher::new(working_dir);
 
     // Call the function being tested
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher
+        .dispatch_to_observer(&observer, &payload, "/test")
+        .unwrap()
+        .wait_until_complete();
 
     // Record the time after the function returns
     let elapsed_time = start_time.elapsed();
@@ -670,7 +680,10 @@ fn test_send_payload_with_db_force_restart() {
     info!("Sending payload 1");
 
     // Send the payload
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher
+        .dispatch_to_observer(&observer, &payload, "/test")
+        .unwrap()
+        .wait_until_complete();
 
     // Re-enable retrying
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
@@ -680,7 +693,7 @@ fn test_send_payload_with_db_force_restart() {
     info!("Sending payload 2");
 
     // Send another payload
-    dispatcher.dispatch_to_observer(&observer, &payload2, "/test");
+    dispatcher.dispatch_to_observer_or_log_error(&observer, &payload2, "/test");
 
     // Wait for the server to process the requests
     rx.recv_timeout(Duration::from_secs(5))
@@ -707,7 +720,10 @@ fn test_event_dispatcher_disable_retries() {
     let dispatcher = EventDispatcher::new(working_dir);
 
     // in non "disable_retries" mode this will run forever
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher
+        .dispatch_to_observer(&observer, &payload, "/test")
+        .unwrap()
+        .wait_until_complete();
 
     // Verify that the payload was sent
     _m.assert();
@@ -727,7 +743,10 @@ fn test_event_dispatcher_disable_retries_invalid_url() {
     let dispatcher = EventDispatcher::new(working_dir);
 
     // in non "disable_retries" mode this will run forever
-    dispatcher.dispatch_to_observer(&observer, &payload, "/test");
+    dispatcher
+        .dispatch_to_observer(&observer, &payload, "/test")
+        .unwrap()
+        .wait_until_complete();
 }
 
 #[test]
@@ -939,6 +958,7 @@ fn test_block_proposal_validation_event() {
     let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
     let dir = tempdir().unwrap();
     let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+
     dispatcher.register_observer(&EventObserverConfig {
         endpoint: endpoint.clone(),
         events_keys: vec![EventKeyType::BlockProposal],
@@ -967,6 +987,256 @@ fn test_block_proposal_validation_event() {
     });
 
     validation_thread.join().unwrap();
+
+    mock.assert();
+}
+
+#[test]
+fn test_http_delivery_non_blocking() {
+    let mut slow_server = mockito::Server::new();
+
+    let start_count = Arc::new(AtomicU32::new(0));
+    let end_count = Arc::new(AtomicU32::new(0));
+
+    let start_count2 = start_count.clone();
+    let end_count2 = end_count.clone();
+
+    let mock = slow_server
+        .mock("POST", "/mined_nakamoto_block")
+        .with_body_from_request(move |_| {
+            start_count2.fetch_add(1, Ordering::SeqCst);
+            thread::sleep(Duration::from_secs(2));
+            end_count2.fetch_add(1, Ordering::SeqCst);
+            "".into()
+        })
+        .create();
+
+    let endpoint = slow_server
+        .url()
+        .strip_prefix("http://")
+        .unwrap()
+        .to_string();
+
+    let dir = tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+
+    dispatcher.register_observer(&EventObserverConfig {
+        endpoint: endpoint.clone(),
+        events_keys: vec![EventKeyType::MinedBlocks],
+        timeout_ms: 3_000,
+        disable_retries: false,
+    });
+
+    let nakamoto_block = NakamotoBlock {
+        header: NakamotoBlockHeader::empty(),
+        txs: vec![],
+    };
+
+    let start = Instant::now();
+
+    dispatcher.process_mined_nakamoto_block_event(
+        0,
+        &nakamoto_block,
+        0,
+        &ExecutionCost::max_value(),
+        vec![],
+    );
+
+    assert!(
+        start.elapsed() < Duration::from_millis(100),
+        "dispatcher blocked while sending event"
+    );
+
+    thread::sleep(Duration::from_secs(1));
+
+    assert!(start_count.load(Ordering::SeqCst) == 1);
+    assert!(end_count.load(Ordering::SeqCst) == 0);
+
+    thread::sleep(Duration::from_secs(2));
+
+    assert!(start_count.load(Ordering::SeqCst) == 1);
+    assert!(end_count.load(Ordering::SeqCst) == 1);
+
+    mock.assert();
+}
+
+#[test]
+fn test_http_delivery_blocks_once_queue_is_full() {
+    let mut slow_server = mockito::Server::new();
+
+    let start_count = Arc::new(AtomicU32::new(0));
+    let end_count = Arc::new(AtomicU32::new(0));
+
+    let start_count2 = start_count.clone();
+    let end_count2 = end_count.clone();
+
+    // this server takes 2 seconds until it finally responds
+    let mock = slow_server
+        .mock("POST", "/mined_nakamoto_block")
+        .expect(4)
+        .with_body_from_request(move |_| {
+            start_count2.fetch_add(1, Ordering::SeqCst);
+            thread::sleep(Duration::from_secs(2));
+            end_count2.fetch_add(1, Ordering::SeqCst);
+            "".into()
+        })
+        .create();
+
+    let endpoint = slow_server
+        .url()
+        .strip_prefix("http://")
+        .unwrap()
+        .to_string();
+
+    let dir = tempdir().unwrap();
+
+    // Create a dispatcher with a queue size of 3, so that three pending requests
+    // don't block, but the fourth one does.
+    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 3);
+
+    dispatcher.register_observer(&EventObserverConfig {
+        endpoint: endpoint.clone(),
+        events_keys: vec![EventKeyType::MinedBlocks],
+        timeout_ms: 3_000,
+        disable_retries: false,
+    });
+
+    let nakamoto_block = NakamotoBlock {
+        header: NakamotoBlockHeader::empty(),
+        txs: vec![],
+    };
+
+    let start = Instant::now();
+
+    // send the first three requests
+    for _ in 1..=3 {
+        dispatcher.process_mined_nakamoto_block_event(
+            0,
+            &nakamoto_block,
+            0,
+            &ExecutionCost::max_value(),
+            vec![],
+        );
+    }
+
+    let elapsed = start.elapsed();
+    // this shouldn't block because they fit in the queue
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "dispatcher blocked while sending first three events"
+    );
+
+    thread::sleep(Duration::from_millis(500) - elapsed);
+
+    assert_eq!(start_count.load(Ordering::SeqCst), 1);
+    assert_eq!(end_count.load(Ordering::SeqCst), 0);
+
+    let start = Instant::now();
+
+    // send the fourth request -- this should now block until the first request is complete
+    dispatcher.process_mined_nakamoto_block_event(
+        0,
+        &nakamoto_block,
+        0,
+        &ExecutionCost::max_value(),
+        vec![],
+    );
+
+    // we waited 500ms previously, so it should take on the order of 1.5s until
+    // the first request is complete
+    assert!(
+        start.elapsed() > Duration::from_millis(1000),
+        "dispatcher did not block when sending fourth event"
+    );
+
+    assert!(
+        start.elapsed() < Duration::from_millis(2000),
+        "dispatcher blocked unexpectedly long after sending fourth event"
+    );
+
+    thread::sleep(Duration::from_millis(100));
+
+    assert_eq!(start_count.load(Ordering::SeqCst), 2);
+    assert_eq!(end_count.load(Ordering::SeqCst), 1);
+
+    thread::sleep(Duration::from_secs(2));
+
+    assert_eq!(start_count.load(Ordering::SeqCst), 3);
+    assert_eq!(end_count.load(Ordering::SeqCst), 2);
+
+    thread::sleep(Duration::from_secs(2));
+
+    assert_eq!(start_count.load(Ordering::SeqCst), 4);
+    assert_eq!(end_count.load(Ordering::SeqCst), 3);
+
+    thread::sleep(Duration::from_secs(2));
+
+    assert_eq!(start_count.load(Ordering::SeqCst), 4);
+    assert_eq!(end_count.load(Ordering::SeqCst), 4);
+
+    mock.assert();
+}
+
+#[test]
+fn test_http_delivery_always_blocks_if_queue_size_is_zero() {
+    let mut slow_server = mockito::Server::new();
+
+    let start_count = Arc::new(AtomicU32::new(0));
+    let end_count = Arc::new(AtomicU32::new(0));
+
+    let start_count2 = start_count.clone();
+    let end_count2 = end_count.clone();
+
+    let mock = slow_server
+        .mock("POST", "/mined_nakamoto_block")
+        .with_body_from_request(move |_| {
+            start_count2.fetch_add(1, Ordering::SeqCst);
+            thread::sleep(Duration::from_secs(2));
+            end_count2.fetch_add(1, Ordering::SeqCst);
+            "".into()
+        })
+        .create();
+
+    let endpoint = slow_server
+        .url()
+        .strip_prefix("http://")
+        .unwrap()
+        .to_string();
+
+    let dir = tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 0);
+
+    dispatcher.register_observer(&EventObserverConfig {
+        endpoint: endpoint.clone(),
+        events_keys: vec![EventKeyType::MinedBlocks],
+        timeout_ms: 3_000,
+        disable_retries: false,
+    });
+
+    let nakamoto_block = NakamotoBlock {
+        header: NakamotoBlockHeader::empty(),
+        txs: vec![],
+    };
+
+    let start = Instant::now();
+
+    dispatcher.process_mined_nakamoto_block_event(
+        0,
+        &nakamoto_block,
+        0,
+        &ExecutionCost::max_value(),
+        vec![],
+    );
+
+    assert!(
+        start.elapsed() > Duration::from_millis(1900),
+        "dispatcher did not block while sending event"
+    );
+
+    thread::sleep(Duration::from_millis(100));
+
+    assert!(start_count.load(Ordering::SeqCst) == 1);
+    assert!(end_count.load(Ordering::SeqCst) == 1);
 
     mock.assert();
 }

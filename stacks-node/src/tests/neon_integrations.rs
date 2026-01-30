@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -292,7 +308,9 @@ pub mod test_observer {
     use warp::Filter;
     use {tokio, warp};
 
-    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
+    use crate::event_dispatcher::{
+        self, MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent,
+    };
     use crate::Config;
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
@@ -520,51 +538,70 @@ pub mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
+    /// Waits until all events that have been queued for dispatch until now
+    /// have actually been delivered. This ensures the tests have all the data
+    /// they need to assert on.
+    fn catch_up() {
+        event_dispatcher::catch_up_all_event_dispatchers();
+    }
+
     pub fn get_stacker_sets() -> Vec<(StacksBlockId, u64, RewardSet)> {
+        catch_up();
         STACKER_SETS.lock().unwrap().clone()
     }
 
     pub fn get_memtxs() -> Vec<String> {
+        catch_up();
         MEMTXS.lock().unwrap().clone()
     }
 
     pub fn get_memtx_drops() -> Vec<(String, String)> {
+        catch_up();
         MEMTXS_DROPPED.lock().unwrap().clone()
     }
 
     pub fn get_blocks() -> Vec<serde_json::Value> {
+        catch_up();
         NEW_BLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_microblocks() -> Vec<serde_json::Value> {
+        catch_up();
         NEW_MICROBLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_burn_blocks() -> Vec<BurnBlockEvent> {
+        catch_up();
         BURN_BLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_attachments() -> Vec<serde_json::Value> {
+        catch_up();
         ATTACHMENTS.lock().unwrap().clone()
     }
 
     pub fn get_mined_blocks() -> Vec<MinedBlockEvent> {
+        catch_up();
         MINED_BLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_mined_microblocks() -> Vec<MinedMicroblockEvent> {
+        catch_up();
         MINED_MICROBLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_mined_nakamoto_blocks() -> Vec<MinedNakamotoBlockEvent> {
+        catch_up();
         MINED_NAKAMOTO_BLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_stackerdb_chunks() -> Vec<StackerDBChunksEvent> {
+        catch_up();
         NEW_STACKERDB_CHUNKS.lock().unwrap().clone()
     }
 
     pub fn get_proposal_responses() -> Vec<BlockValidateResponse> {
+        catch_up();
         PROPOSAL_RESPONSES.lock().unwrap().clone()
     }
 
@@ -655,6 +692,7 @@ pub mod test_observer {
     }
 
     pub fn clear() {
+        catch_up();
         NEW_BLOCKS.lock().unwrap().clear();
         MINED_BLOCKS.lock().unwrap().clear();
         MINED_MICROBLOCKS.lock().unwrap().clear();

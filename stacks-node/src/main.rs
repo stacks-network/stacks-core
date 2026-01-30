@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
@@ -249,6 +265,20 @@ fn cli_get_miner_spend(
     spend_amount
 }
 
+/// If the previous session was terminated before all the pending events had been sent,
+/// the DB will still contain them. Work through that before doing anything new.
+/// Pending events for observers that are no longer registered will be discarded.
+fn send_pending_event_payloads(conf: &Config) {
+    // This dispatcher gets a queue size of 0 to ensure that it blocks. Technically
+    // process_pending_payloads() always blocks; this is just and additional safeguard.
+    let mut event_dispatcher =
+        EventDispatcher::new_with_custom_queue_size(conf.get_working_dir(), 0);
+    for observer in &conf.events_observers {
+        event_dispatcher.register_observer(observer);
+    }
+    event_dispatcher.process_pending_payloads();
+}
+
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
         error!("Process abort due to thread panic: {panic_info}");
@@ -410,6 +440,8 @@ fn main() {
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
+
+    send_pending_event_payloads(&conf);
 
     let num_round: u64 = 0; // Infinite number of rounds
 

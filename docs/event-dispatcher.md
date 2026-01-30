@@ -22,6 +22,20 @@ disable_retries = false                 # Optional: If true, failed deliveries w
 
 The `stacks-node` will then execute HTTP POST requests with JSON payloads to the configured `endpoint` for the subscribed events.
 
+By default, when sending a payload the event dispatcher will block node operation until it has received a successful response from your observer. Your event observer should therefore be quick to respond, and offload any expensive computation to an asynchronous background task. Alternatively, you can configure the events to be delivered in a non-blocking fashion like this:
+
+```toml
+[node]
+...
+event_dispatcher_blocking = false
+# By default, up to 1,000 requests can be held in a queue before the event dispatcher will start blocking
+# again. If you expect bigger bursts than that, you can further tweak this value.
+#
+# event_dispatcher_queue_size = 1_000
+```
+
+Note that this is only meant to deal with bursts of events. If your event observer is continuously slower than the stream of incoming events, it will fall behind more and more, and the dispatcher will eventually start blocking again to catch up.
+
 ## Important Notes
 
 *   **`/new_microblocks` Endpoint Limitation:** Event delivery via the `/new_microblocks` endpoint (and by extension, events sourced from microblocks delivered to `/new_block`) is **only supported until epoch 2.5**. After this epoch, observers will no longer receive events on this path for new microblocks.

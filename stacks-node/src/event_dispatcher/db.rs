@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,12 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Row};
 use stacks::util_lib::db::{table_exists, Error as db_error};
 
 use crate::event_dispatcher::EventRequestData;
@@ -32,6 +33,7 @@ pub struct PendingPayload {
 }
 
 /// Wraps a SQlite connection to the database in which pending event payloads are stored
+#[derive(Debug)]
 pub struct EventDispatcherDbConnection {
     connection: Connection,
 }
@@ -68,33 +70,17 @@ impl EventDispatcherDbConnection {
 
     /// Insert a payload into the database, retrying on failure. Returns the id of of the inserted record.
     pub fn insert_payload_with_retry(&self, data: &EventRequestData, timestamp: SystemTime) -> i64 {
-        let mut attempts = 0i64;
-        let mut backoff = Duration::from_millis(100); // Initial backoff duration
-        let max_backoff = Duration::from_secs(5); // Cap the backoff duration
+        with_retry(
+            || self.insert_payload(data, timestamp),
+            "Failed to insert payload into event observer database".to_string(),
+        )
+    }
 
-        loop {
-            match self.insert_payload(data, timestamp) {
-                Ok(id) => {
-                    // Successful insert, break the loop
-                    return id;
-                }
-                Err(err) => {
-                    // Log the error, then retry after a delay
-                    warn!("Failed to insert payload into event observer database: {err:?}";
-                        "backoff" => ?backoff,
-                        "attempts" => attempts
-                    );
-
-                    // Wait for the backoff duration
-                    sleep(backoff);
-
-                    // Increase the backoff duration (with exponential backoff)
-                    backoff = std::cmp::min(backoff.saturating_mul(2), max_backoff);
-
-                    attempts = attempts.saturating_add(1);
-                }
-            }
-        }
+    pub fn get_payload_with_retry(&self, id: i64) -> PendingPayload {
+        with_retry(
+            || self.get_payload(id),
+            "Failed to retrieve payload {id} from event observer database".to_string(),
+        )
     }
 
     pub fn insert_payload(
@@ -121,29 +107,19 @@ impl EventDispatcherDbConnection {
         Ok(id)
     }
 
-    pub fn get_pending_payloads(&self) -> Result<Vec<PendingPayload>, db_error> {
-        let mut stmt = self.connection.prepare(
-            "SELECT id, url, payload, timeout, timestamp FROM pending_payloads ORDER BY id",
-        )?;
-        let payload_iter = stmt.query_and_then([], |row| -> Result<PendingPayload, db_error> {
-            let id: i64 = row.get(0)?;
-            let url: String = row.get(1)?;
-            let payload_bytes: Vec<u8> = row.get(2)?;
-            let payload_bytes = Arc::<[u8]>::from(payload_bytes);
-            let timeout_ms: u64 = row.get(3)?;
-            let timestamp_s: u64 = row.get(4)?;
-            let request_data = EventRequestData {
-                url,
-                payload_bytes,
-                timeout: Duration::from_millis(timeout_ms),
-            };
+    pub fn get_payload(&self, id: i64) -> Result<PendingPayload, db_error> {
+        self.connection.query_row_and_then(
+            &format!("SELECT {PAYLOAD_FIELDS} FROM pending_payloads WHERE id = ?1"),
+            [id],
+            row_to_pending_payload,
+        )
+    }
 
-            Ok(PendingPayload {
-                id,
-                request_data,
-                timestamp: UNIX_EPOCH + Duration::from_secs(timestamp_s),
-            })
-        })?;
+    pub fn get_pending_payloads(&self) -> Result<Vec<PendingPayload>, db_error> {
+        let mut stmt = self.connection.prepare(&format!(
+            "SELECT {PAYLOAD_FIELDS} FROM pending_payloads ORDER BY id"
+        ))?;
+        let payload_iter = stmt.query_and_then([], row_to_pending_payload)?;
         payload_iter.collect()
     }
 
@@ -267,8 +243,78 @@ impl EventDispatcherDbConnection {
     }
 }
 
+// If you change this, make sure to change `row_to_pending_payload` in sync.
+const PAYLOAD_FIELDS: &str = "id, url, payload, timeout, timestamp";
+
+/// This function should only be used with rows that were SELECTed using the
+/// `PAYLOAD_FIELDS` constant.
+fn row_to_pending_payload(row: &Row) -> Result<PendingPayload, db_error> {
+    let id: i64 = row.get(0)?;
+    let url: String = row.get(1)?;
+    let payload_bytes: Vec<u8> = row.get(2)?;
+    let payload_bytes = Arc::<[u8]>::from(payload_bytes);
+    let timeout_ms: u64 = row.get(3)?;
+    let timestamp_s: u64 = row.get(4)?;
+    let request_data = EventRequestData {
+        url,
+        payload_bytes,
+        timeout: Duration::from_millis(timeout_ms),
+    };
+
+    Ok(PendingPayload {
+        id,
+        request_data,
+        timestamp: UNIX_EPOCH + Duration::from_secs(timestamp_s),
+    })
+}
+
+/// Calls the given function, repeatedly if necessary, until it doesn't fail, and then
+/// returns the result from the successful call. Initially backs off for 0.1s and increases
+/// backoff exponentially up to a max of five seconds. If the function never returns a
+/// success result, `with_retry` will block forever.
+///
+/// # Example
+///
+///     let response = with_retry(|| perform_db_op(42), "database operation 42 failed");
+fn with_retry<T, E, F>(f: F, error_log_text: String) -> T
+where
+    F: Fn() -> Result<T, E>,
+    E: Debug,
+{
+    let mut attempts = 0i64;
+    let mut backoff = Duration::from_millis(100); // Initial backoff duration
+    let max_backoff = Duration::from_secs(5); // Cap the backoff duration
+
+    loop {
+        match f() {
+            Ok(thing) => {
+                // Successful operation, break the loop
+                return thing;
+            }
+            Err(err) => {
+                // Log the error, then retry after a delay
+                warn!("{error_log_text}: {err:?}";
+                    "backoff" => ?backoff,
+                    "attempts" => attempts
+                );
+
+                // Wait for the backoff duration
+                sleep(backoff);
+
+                // Increase the backoff duration (with exponential backoff)
+                backoff = std::cmp::min(backoff.saturating_mul(2), max_backoff);
+
+                attempts = attempts.saturating_add(1);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
+    use std::cell::RefCell;
+    use std::time::Instant;
+
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -462,5 +508,37 @@ mod test {
             .get_pending_payloads()
             .expect("Failed to get pending payloads");
         assert_eq!(pending_payloads.len(), 0, "Expected no pending payloads");
+    }
+
+    #[test]
+    fn test_with_retry_returns_original_result() {
+        let f = || Result::<i32, String>::Ok(6_7);
+        let result = with_retry(f, "failed".to_string());
+        assert_eq!(result, 67);
+    }
+
+    #[test]
+    fn test_with_retry_retries_as_often_as_necessary() {
+        let call_count = RefCell::new(0);
+        let f = || {
+            *call_count.borrow_mut() += 1;
+            if *call_count.borrow() < 5 {
+                return Err("keep trying");
+            } else {
+                return Ok("you did it");
+            }
+        };
+        let now = Instant::now();
+        let result = with_retry(f, "failed".to_string());
+        let elapsed_millis = now.elapsed().as_millis();
+        assert_eq!(result, "you did it");
+        let count = *call_count.borrow();
+        assert_eq!(
+            count, 5,
+            "inner function was not called the expected number of times"
+        );
+        // We retry 4 times, with delays of 100, 200, 400, and 800 ms, respectively,
+        // for a total of 1,500.
+        assert!(1_450 < elapsed_millis && elapsed_millis < 1_550);
     }
 }
