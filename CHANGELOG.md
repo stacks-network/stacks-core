@@ -9,6 +9,19 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- Setup for epoch 3.4 and Clarity version 5. Epoch 3.4 is currently set to activate at Bitcoin height 3,400,000 (very far in the future) until an activation height is selected. Clarity will activate with epoch 3.4.
+
+## [3.3.0.0.4]
+
+### Added
+
+- New `/v3/tenures/tip_metadata` endpoint for returning some metadata along with the normal tenure tip information.
+
+
+## [3.3.0.0.3]
+
+### Added
+
 - In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
 - Improved block validation in `stacks-inspect`.
 

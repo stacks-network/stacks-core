@@ -1636,9 +1636,7 @@ fn clarity_trait_experiments_use_undefined(
     let err = db
         .execute(|db| load_versioned(db, "no-trait", version, epoch))
         .unwrap_err();
-    assert!(err.starts_with(
-        "ASTError(ParseError { err: TraitReferenceUnknown(\"trait-to-be-defined-later\")"
-    ));
+    assert!(err.starts_with("TraitReferenceUnknown(\"trait-to-be-defined-later\")"));
 }
 
 #[apply(test_clarity_versions)]
@@ -1656,7 +1654,7 @@ fn clarity_trait_experiments_circular(
             load_versioned(db, "circular-trait-2", version, epoch)
         })
         .unwrap_err();
-    assert!(err.starts_with("ASTError(ParseError { err: CircularReference([\"circular\"])"));
+    assert!(err.starts_with("CircularReference([\"circular\"])"));
 }
 
 #[apply(test_clarity_versions)]
@@ -1894,7 +1892,7 @@ fn clarity_trait_experiments_selfret_trait(
     let err = db
         .execute(|db| load_versioned(db, "selfret-trait", version, epoch))
         .unwrap_err();
-    assert!(err.starts_with("ASTError(ParseError { err: CircularReference([\"self-return\"])"));
+    assert!(err.starts_with("CircularReference([\"self-return\"])"));
 }
 
 #[apply(test_clarity_versions)]
@@ -2300,7 +2298,7 @@ fn clarity_trait_experiments_trait_data_1(
             load_versioned(db, "trait-data-1", version, epoch)
         })
         .unwrap_err();
-    assert!(err.starts_with("ASTError(ParseError { err: TraitReferenceNotAllowed"));
+    assert!(err.starts_with("TraitReferenceNotAllowed"));
 }
 
 #[apply(test_clarity_versions)]
@@ -2319,7 +2317,7 @@ fn clarity_trait_experiments_trait_data_2(
             load_versioned(db, "trait-data-2", version, epoch)
         })
         .unwrap_err();
-    assert!(err.starts_with("ASTError(ParseError { err: TraitReferenceNotAllowed"));
+    assert!(err.starts_with("TraitReferenceNotAllowed"));
 }
 
 #[apply(test_clarity_versions)]

@@ -3,7 +3,6 @@ type: object
 required:
   - error
   - reason
-  - reason_data
   - txid
 properties:
   error:

@@ -19,7 +19,7 @@ use stacks_common::util::hash::{Sha256Sum, to_hex};
 use stacks_common::util::secp256k1::MessageSignature as Secp256k1Signature;
 use stacks_common::util::secp256r1::{Secp256r1PrivateKey, Secp256r1PublicKey};
 
-use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError};
+use crate::vm::errors::{ClarityEvalError, RuntimeCheckErrorKind, VmExecutionError};
 use crate::vm::types::{ResponseData, TypeSignature, Value};
 use crate::vm::{ClarityVersion, execute_with_parameters};
 
@@ -177,7 +177,9 @@ fn test_secp256r1_verify_signature_too_long_errors() {
     )
     .unwrap_err();
     match err {
-        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(expected, _)) => {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
             assert_eq!(*expected, TypeSignature::BUFFER_64);
         }
         _ => panic!("expected BUFFER_65 type error, found {err:?}"),
@@ -327,7 +329,9 @@ fn test_secp256k1_verify_signature_too_long_errors() {
     )
     .unwrap_err();
     match err {
-        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(expected, _)) => {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
             assert_eq!(*expected, TypeSignature::BUFFER_65);
         }
         _ => panic!("expected BUFFER_65 type error, found {err:?}"),
