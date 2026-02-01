@@ -1,6 +1,6 @@
 # Git Branching
 
-The following is a slightly modified version of the gitflow branching strategy described in <https://nvie.com/posts/a-successful-git-branching-model/>
+The following is a slightly modified version of the gitflow branching strategy described in [A successful Git branching model](https://nvie.com/posts/a-successful-git-branching-model/).
 
 ## Main Branches
 
