@@ -16,6 +16,8 @@ private keys used in the tutorial below are already added.
 
 Here, we have generated a keypair that will be used for signing the upcoming transactions:
 
+> **Note:** The `blockstack-cli` binary has been renamed to `stacks-cli` in recent releases.
+
 ```bash
 cargo run --bin blockstack-cli generate-sk --testnet
 
