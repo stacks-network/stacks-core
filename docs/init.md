@@ -3,8 +3,10 @@
 Sample scripts and configuration files for systemd and SysVinit
 can be found in the [contrib/init](../contrib/init) folder.
 
-    contrib/init/stacks.service:    systemd service unit configuration
-    contrib/init/stacks.init:       SysV style init script
+```
+contrib/init/stacks.service:    systemd service unit configuration
+contrib/init/stacks.init:       SysV style init script
+```
 
 ## Service User
 
