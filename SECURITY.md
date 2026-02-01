@@ -16,6 +16,13 @@ Learn more here: [https://bounty.stacks.org](https://bounty.stacks.org)
 
 Please visit [https://stacks.org/security](https://stacks.org/security) for the most up-to-date information on our security policy.
 
+### In Scope
+
+- Stacks blockchain consensus code
+- Smart contract execution (Clarity VM)
+- Peer-to-peer networking
+- RPC endpoints
+
 You may also contact us with any questions or to report a vulnerabilty using the following key(s):
 
 
