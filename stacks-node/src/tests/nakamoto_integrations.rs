@@ -6389,7 +6389,7 @@ fn clarity_burn_state() {
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let tenure_count = 5;
-    let inter_blocks_per_tenure = 9;
+    let min_inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
@@ -6397,7 +6397,7 @@ fn clarity_burn_state() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        deploy_fee + tx_fee * tenure_count + tx_fee * tenure_count * inter_blocks_per_tenure,
+        deploy_fee + tx_fee * tenure_count + tx_fee * tenure_count * min_inter_blocks_per_tenure,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -6568,9 +6568,10 @@ fn clarity_burn_state() {
                 }
             });
 
-        // mine the interim blocks
-        for interim_block_ix in 0..inter_blocks_per_tenure {
-            info!("Mining interim block {interim_block_ix}");
+        // mine the interim blocks (we may end up mining more than
+        // one block per run, thus the `min_...` naming)
+        for interim_ix in 0..min_inter_blocks_per_tenure {
+            info!("Interim block mining iteration #{interim_ix}");
             let blocks_processed_before = coord_channel
                 .lock()
                 .expect("Mutex poisoned")
@@ -6602,7 +6603,7 @@ fn clarity_burn_state() {
                 &[expected_height],
             );
             sender_nonce += 1;
-            submit_tx(&http_origin, &call_tx);
+            let txid = submit_tx(&http_origin, &call_tx);
 
             loop {
                 let blocks_processed = coord_channel
@@ -6610,7 +6611,19 @@ fn clarity_burn_state() {
                     .expect("Mutex poisoned")
                     .get_stacks_blocks_processed();
                 if blocks_processed > blocks_processed_before {
-                    break;
+                    // ensure that the transaction was included in the block -- it's possible
+                    // that it only makes it into the second block, and if this is the last interim
+                    // iteration before the next burnblock, the transaction would otherwise be
+                    // executed in the next tenure and thus fail because the burn height has changed
+                    if test_observer::get_mined_nakamoto_blocks()
+                        .last()
+                        .unwrap()
+                        .tx_events
+                        .iter()
+                        .any(|tx| tx.txid().to_string() == txid)
+                    {
+                        break;
+                    }
                 }
                 thread::sleep(Duration::from_millis(100));
             }
