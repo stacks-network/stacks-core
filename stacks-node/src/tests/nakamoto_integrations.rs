@@ -11406,7 +11406,7 @@ fn reload_miner_config() {
     let reward_amount = burn_block
         .reward_recipients
         .iter()
-        .map(|r| r.get("amt").unwrap().as_u64().unwrap())
+        .map(|r| r.amt)
         .sum::<u64>();
 
     let burn_amount = burn_block.burn_amount;
@@ -11431,7 +11431,7 @@ fn reload_miner_config() {
     let reward_amount = burn_block
         .reward_recipients
         .iter()
-        .map(|r| r.get("amt").unwrap().as_u64().unwrap())
+        .map(|r| r.amt)
         .sum::<u64>();
 
     let burn_amount = burn_block.burn_amount;
