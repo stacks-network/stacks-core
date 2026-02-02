@@ -8459,7 +8459,11 @@ fn burn_block_payload_includes_pox_transactions() {
         .expect("Failed to mine BTC block.");
     miners.wait_for_chains(120);
 
-    let burn_blocks = test_observer::get_burn_blocks();
+    let burn_blocks = miners
+        .signer_test
+        .running_nodes
+        .test_observer
+        .get_burn_blocks();
     let new_burn_block = burn_blocks.last().unwrap();
 
     info!("New burn block: {new_burn_block:?}";
