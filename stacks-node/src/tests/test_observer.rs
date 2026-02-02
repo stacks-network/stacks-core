@@ -4,9 +4,8 @@ use std::ops::{Bound, RangeBounds};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use libsigner::BurnBlockEvent;
 use stacks::chainstate::stacks::boot::RewardSet;
-use stacks::chainstate::stacks::events::StackerDBChunksEvent;
+use stacks::chainstate::stacks::events::{BurnBlockEvent, StackerDBChunksEvent};
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{EventKeyType, EventObserverConfig};

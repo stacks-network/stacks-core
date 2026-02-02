@@ -413,6 +413,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _burn_block_height: u64,
         _rewards: Vec<(PoxAddress, u64)>,
         _burns: u64,
+        _pox_transactions: Vec<crate::chainstate::coordinator::PoxTransactionReward>,
         _slot_holders: Vec<PoxAddress>,
         _consensus_hash: &ConsensusHash,
         _parent_burn_block_hash: &BurnchainHeaderHash,
@@ -865,7 +866,13 @@ fn make_stacks_block_with_input(
 
     eprintln!(
         "Find parents stacks header: {} in sortition {} (height {}, parent {}/{},{}, index block hash {})",
-        &parent_block, &parents_sortition.sortition_id, parents_sortition.block_height, &parents_sortition.consensus_hash, parent_block, parent_height, &StacksBlockHeader::make_index_block_hash(&parents_sortition.consensus_hash, parent_block)
+        &parent_block,
+        &parents_sortition.sortition_id,
+        parents_sortition.block_height,
+        &parents_sortition.consensus_hash,
+        parent_block,
+        parent_height,
+        &StacksBlockHeader::make_index_block_hash(&parents_sortition.consensus_hash, parent_block)
     );
 
     let parent_vtxindex =
@@ -1271,9 +1278,11 @@ fn missed_block_commits_2_05() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111",
-                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(
+            &pox_id.to_string(),
+            "111111111111",
+            "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis"
+        );
     }
 }
 
@@ -1618,9 +1627,11 @@ fn missed_block_commits_2_1() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111",
-                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(
+            &pox_id.to_string(),
+            "111111111111",
+            "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis"
+        );
     }
 }
 
@@ -1872,7 +1883,10 @@ fn late_block_commits_2_1() {
                 );
             }
 
-            info!("ix = {}: expected_window_commits = {}, expected_window_size = {}, last_bad_op_height = {}", ix, expected_window_commits, expected_window_size, last_bad_op_height);
+            info!(
+                "ix = {}: expected_window_commits = {}, expected_window_size = {}, last_bad_op_height = {}",
+                ix, expected_window_commits, expected_window_size, last_bad_op_height
+            );
 
             let min_burn = 1;
             let median_burn = if expected_window_commits > expected_window_size / 2 {
@@ -1960,9 +1974,11 @@ fn late_block_commits_2_1() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "1111111",
-                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(
+            &pox_id.to_string(),
+            "1111111",
+            "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis"
+        );
     }
 }
 
@@ -2132,9 +2148,11 @@ fn test_simple_setup() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111",
-                   "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(
+            &pox_id.to_string(),
+            "111111111111",
+            "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis"
+        );
     }
 
     {
@@ -2434,9 +2452,11 @@ fn test_sortition_with_reward_set() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111",
-                   "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(
+            &pox_id.to_string(),
+            "111111111111",
+            "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis"
+        );
     }
 }
 
@@ -2673,9 +2693,11 @@ fn test_sortition_with_burner_reward_set() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111",
-                   "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(
+            &pox_id.to_string(),
+            "111111111111",
+            "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis"
+        );
     }
 }
 
@@ -2959,9 +2981,11 @@ fn test_pox_btc_ops() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111",
-                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(
+            &pox_id.to_string(),
+            "111111111111",
+            "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis"
+        );
     }
 }
 
@@ -3300,9 +3324,11 @@ fn test_stx_transfer_btc_ops() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111",
-                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(
+            &pox_id.to_string(),
+            "111111111111",
+            "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis"
+        );
     }
 }
 
@@ -5285,7 +5311,11 @@ fn test_sortition_with_sunset() {
                     > last_reward_cycle_block
                         + (pox_consts.as_ref().unwrap().reward_cycle_length as u64)
                 {
-                    eprintln!("End of PoX (beyond sunset height {} and in next reward cycle): reward set size is {}", burnchain_tip.block_height, reward_recipients.len());
+                    eprintln!(
+                        "End of PoX (beyond sunset height {} and in next reward cycle): reward set size is {}",
+                        burnchain_tip.block_height,
+                        reward_recipients.len()
+                    );
                     assert!(reward_recipients.is_empty());
                 } else if burnchain_tip.block_height > last_reward_cycle_block {
                     eprintln!(
@@ -5458,9 +5488,11 @@ fn test_sortition_with_sunset() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111111111",
-                   "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(
+            &pox_id.to_string(),
+            "111111111111111111",
+            "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis"
+        );
     }
 }
 
@@ -5595,7 +5627,11 @@ fn test_sortition_with_sunset_and_epoch_switch() {
                         > last_reward_cycle_block
                             + (pox_consts.as_ref().unwrap().reward_cycle_length as u64)
                     {
-                        eprintln!("End of PoX (beyond sunset height {} and in next reward cycle): reward set size is {}", burnchain_tip.block_height, reward_recipients.len());
+                        eprintln!(
+                            "End of PoX (beyond sunset height {} and in next reward cycle): reward set size is {}",
+                            burnchain_tip.block_height,
+                            reward_recipients.len()
+                        );
                         assert!(reward_recipients.is_empty());
                     } else if burnchain_tip.block_height > last_reward_cycle_block {
                         eprintln!(
@@ -5800,9 +5836,11 @@ fn test_sortition_with_sunset_and_epoch_switch() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111111111",
-                   "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(
+            &pox_id.to_string(),
+            "111111111111111111",
+            "PoX ID should reflect the 10 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis"
+        );
     }
 }
 

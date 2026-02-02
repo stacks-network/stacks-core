@@ -190,6 +190,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _burn_block_height: u64,
         _rewards: Vec<(PoxAddress, u64)>,
         _burns: u64,
+        _pox_transactions: Vec<crate::chainstate::coordinator::PoxTransactionReward>,
         _slot_holders: Vec<PoxAddress>,
         _consensus_hash: &ConsensusHash,
         _parent_burn_block_hash: &BurnchainHeaderHash,

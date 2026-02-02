@@ -5130,10 +5130,10 @@ fn pox_integration_test() {
 
     for block in burn_blocks.iter() {
         for holder in block.reward_slot_holders.iter() {
-            if let Some(current) = recipient_slots.get_mut(holder) {
+            if let Some(current) = recipient_slots.get_mut(&holder.clone().to_b58()) {
                 *current += 1;
             } else {
-                recipient_slots.insert(holder.clone(), 1);
+                recipient_slots.insert(holder.clone().to_b58(), 1);
             }
         }
     }
