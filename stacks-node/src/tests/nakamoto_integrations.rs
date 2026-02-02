@@ -6615,7 +6615,8 @@ fn clarity_burn_state() {
                     // that it only makes it into the second block, and if this is the last interim
                     // iteration before the next burnblock, the transaction would otherwise be
                     // executed in the next tenure and thus fail because the burn height has changed
-                    if test_observer::get_mined_nakamoto_blocks()
+                    if test_observer
+                        .get_mined_nakamoto_blocks()
                         .last()
                         .unwrap()
                         .tx_events
