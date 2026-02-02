@@ -1123,6 +1123,11 @@ fn build_listlike_cost_analysis_tree(
 pub(crate) fn get_trait_count(costs: &HashMap<String, CostAnalysisNode>) -> Option<TraitCount> {
     // First pass: collect trait counts and trait names
     let mut collector = TraitCountCollector::new();
+    // Track all function names upfront so we can identify function calls even before
+    // the function definitions are fully processed
+    for name in costs.keys() {
+        collector.visited_functions.insert(name.clone());
+    }
     for (name, cost_analysis_node) in costs.iter() {
         let context = TraitCountContext::new(name.clone(), (1, 1));
         collector.visit(cost_analysis_node, &context);
@@ -1131,8 +1136,11 @@ pub(crate) fn get_trait_count(costs: &HashMap<String, CostAnalysisNode>) -> Opti
     // Second pass: propagate trait counts through function calls
     // If function A calls function B and uses a map, filter, or fold with
     // traits, the maximum will reflect that in A's trait call counts
-    let mut propagator =
-        TraitCountPropagator::new(&mut collector.trait_counts, &collector.trait_names);
+    let mut propagator = TraitCountPropagator::new(
+        &mut collector.trait_counts,
+        &collector.trait_names,
+        &collector.visited_functions,
+    );
     for (name, cost_analysis_node) in costs.iter() {
         let context = TraitCountContext::new(name.clone(), (1, 1));
         propagator.visit(cost_analysis_node, &context);
