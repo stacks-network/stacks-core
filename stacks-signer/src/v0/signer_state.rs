@@ -386,8 +386,8 @@ impl LocalStateMachine {
             .ok()
             .map(|header| {
                 (
-                    header.height(),
-                    StacksBlockId::new(parent_tenure_id, &header.block_hash()),
+                    header.anchored_header.height(),
+                    StacksBlockId::new(parent_tenure_id, &header.anchored_header.block_hash()),
                 )
             });
         let signerdb_last_block = SortitionData::get_tenure_last_block_info(

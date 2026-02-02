@@ -17,7 +17,7 @@ use std::{error, fmt};
 
 use clarity_types::Value;
 pub use clarity_types::errors::{ClarityTypeError, IncomparableError};
-use clarity_types::errors::{CostErrors, ParseError, ParseErrorKind};
+use clarity_types::errors::{CostErrors, ParseError};
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::FunctionIdentifier;
 #[cfg(feature = "rusqlite")]
@@ -134,12 +134,6 @@ pub enum RuntimeError {
     SupplyUnderflow(u128, u128),
     /// Attempt to divide or compute modulo by zero.
     DivisionByZero,
-    /// Failure to parse types dynamically during contract execution.
-    /// The `String` represents the specific parsing issue, such as invalid data formats.
-    TypeParseFailure(String),
-    /// Failure to parse the abstract syntax tree (AST) during dynamic evaluation.
-    /// The `Box<ParseError>` wraps the specific parsing error encountered, detailing code interpretation issues.
-    ASTError(Box<ParseError>),
     /// The call stack exceeded the virtual machine's maximum depth.
     MaxStackDepthReached,
     /// The execution context depth exceeded the virtual machine's limit.
@@ -169,6 +163,8 @@ pub enum RuntimeError {
     PoxAlreadyLocked,
     /// Block time unavailable during execution.
     BlockTimeNotAvailable,
+    /// A Clarity string used as a token name for a post-condition is not a valid Clarity name.
+    BadTokenName(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -248,17 +244,6 @@ impl From<ClarityTypeError> for VmExecutionError {
     }
 }
 
-impl From<ParseError> for VmExecutionError {
-    fn from(err: ParseError) -> Self {
-        match *err.err {
-            ParseErrorKind::InterpreterFailure => VmExecutionError::from(VmInternalError::Expect(
-                "Unexpected interpreter failure during parsing".into(),
-            )),
-            _ => VmExecutionError::from(RuntimeError::ASTError(Box::new(err))),
-        }
-    }
-}
-
 impl From<CostErrors> for VmExecutionError {
     fn from(err: CostErrors) -> Self {
         match err {
@@ -319,6 +304,46 @@ impl From<EarlyReturnError> for Value {
         match val {
             EarlyReturnError::UnwrapFailed(v) => *v,
             EarlyReturnError::AssertionFailed(v) => *v,
+        }
+    }
+}
+
+/// An error that occurs during Clarity evaluation, either a VM execution error or a parse error.
+#[derive(Debug, PartialEq)]
+pub enum ClarityEvalError {
+    Vm(VmExecutionError),
+    Parse(ParseError),
+}
+
+impl From<VmExecutionError> for ClarityEvalError {
+    fn from(err: VmExecutionError) -> Self {
+        Self::Vm(err)
+    }
+}
+
+impl From<ParseError> for ClarityEvalError {
+    fn from(err: ParseError) -> Self {
+        Self::Parse(err)
+    }
+}
+
+impl From<RuntimeCheckErrorKind> for ClarityEvalError {
+    fn from(err: RuntimeCheckErrorKind) -> Self {
+        Self::Vm(err.into())
+    }
+}
+
+impl From<RuntimeError> for ClarityEvalError {
+    fn from(err: RuntimeError) -> Self {
+        Self::Vm(err.into())
+    }
+}
+
+impl fmt::Display for ClarityEvalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ClarityEvalError::Vm(err) => write!(f, "{err}"),
+            ClarityEvalError::Parse(err) => write!(f, "{err}"),
         }
     }
 }

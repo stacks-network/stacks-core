@@ -123,4 +123,154 @@ expression: result
       runtime: 203313,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5e79cdf84c0206a24f3696f4facbee2be2ddbba007a9b3992084a8f277b55cbd",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: max-stack-depth-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 4080,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 203377,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 4080,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 203377,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b22c1343016ed56889d6ffb0d120e2e3b2dcb11377a740faaf7b867d9d4c4763",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: max-stack-depth-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 4080,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 203313,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 4080,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 203313,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "540e2835fc579e7c535846baf83215be4357b77f369d2ccea51fc6d7d7ad9685",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: max-stack-depth-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 4080,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 203313,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 4080,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 203313,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "952187db03037b381be3cda733843513c9dd984195b1bd1dc4d1f5ffaeb99695",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: max-stack-depth-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 4080,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 203313,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 4080,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 203313,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "baeb4a315aa346743c80a403a0e9032279e9296f86d5388ae6da45da06990730",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: max-stack-depth-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(MaxStackDepthReached) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 4080,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 203313,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 4080,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 203313,
+    ),
+  )),
 ]

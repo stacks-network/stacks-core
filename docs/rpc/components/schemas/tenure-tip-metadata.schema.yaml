@@ -1,0 +1,124 @@
+description: |
+  JSON encoding of `BlockHeaderWithMetadata` returned by /v3/tenures/tip_metadata.
+  Exactly one variant property will be present: either `Epoch2` or `Nakamoto`.
+type: object
+required:
+  - anchored_header
+properties:
+  burn_view:
+    type: string
+    description: Hex-encoded bitcoin block hash
+  anchored_header:
+    oneOf:
+      - title: Epoch2HeaderVariant
+        type: object
+        required: [Epoch2]
+        additionalProperties: false
+        properties:
+          Epoch2:
+            type: object
+            description: Header structure for a Stacks 2.x anchored block.
+            required:
+              - version
+              - total_work
+              - proof
+              - parent_block
+              - parent_microblock
+              - parent_microblock_sequence
+              - tx_merkle_root
+              - state_index_root
+              - microblock_pubkey_hash
+            properties:
+              version:
+                type: integer
+                minimum: 0
+              total_work:
+                type: object
+                required: [burn, work]
+                properties:
+                  burn:
+                    type: integer
+                    format: uint64
+                  work:
+                    type: integer
+                    format: uint64
+              proof:
+                type: string
+                description: Hex-encoded VRF proof
+              parent_block:
+                type: string
+                description: 32-byte hex of the parent block header hash
+              parent_microblock:
+                type: string
+                description: 32-byte hex of the parent microblock header hash
+              parent_microblock_sequence:
+                type: integer
+              tx_merkle_root:
+                type: string
+                description: Hex-encoded merkle root of the transactions in the block
+              state_index_root:
+                type: string
+                description: Hex-encoded MARF trie root after this block
+              microblock_pubkey_hash:
+                type: string
+                description: Hash160 (20-byte hex) of the microblock public key
+            additionalProperties: false
+      - title: NakamotoHeaderVariant
+        type: object
+        required: [Nakamoto]
+        additionalProperties: false
+        properties:
+          Nakamoto:
+            type: object
+            description: Header structure for a Nakamoto-epoch Stacks block.
+            required:
+              - version
+              - chain_length
+              - burn_spent
+              - consensus_hash
+              - parent_block_id
+              - tx_merkle_root
+              - state_index_root
+              - timestamp
+              - miner_signature
+              - signer_signature
+              - pox_treatment
+            properties:
+              version:
+                type: integer
+                minimum: 0
+              chain_length:
+                type: integer
+                format: uint64
+                description: Number of ancestor blocks including Stacks 2.x blocks
+              burn_spent:
+                type: integer
+                format: uint64
+                description: Total BTC spent by the sortition that elected this block
+              consensus_hash:
+                type: string
+                description: 20-byte hex consensus hash that identifies the tenure
+              parent_block_id:
+                type: string
+                description: 32-byte hex identifier of the parent block (hash+consensus)
+              tx_merkle_root:
+                type: string
+                description: Hex-encoded merkle root of all transactions in the block
+              state_index_root:
+                type: string
+                description: Hex-encoded MARF trie root after this block
+              timestamp:
+                type: integer
+                description: Unix timestamp (seconds)
+              miner_signature:
+                type: string
+                description: Recoverable ECDSA signature from the miner
+              signer_signature:
+                type: array
+                description: Signer-set signatures over the block header
+                items:
+                  type: string
+              pox_treatment:
+                type: string
+                description: Bit-vector, hex-encoded, indicating PoX reward treatment
+            additionalProperties: false

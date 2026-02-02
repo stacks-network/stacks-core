@@ -26,7 +26,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use crate::vm::{
     ContractContext,
     contexts::AssetMapEntry,
-    errors::{RuntimeCheckErrorKind, RuntimeError},
+    errors::{ClarityEvalError, RuntimeCheckErrorKind, RuntimeError},
     tests::{
         TopLevelMemoryEnvironmentGenerator, execute, is_committed, is_err_code,
         symbols_from_values, tl_env_factory as env_factory,
@@ -835,7 +835,9 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(_, _))
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(_, _)
+        ))
     ));
 
     let err = owned_env
@@ -843,7 +845,9 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(_, _))
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(_, _)
+        ))
     ));
 
     owned_env

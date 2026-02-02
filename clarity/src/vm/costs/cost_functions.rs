@@ -13,13 +13,15 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use stacks_common::types::StacksEpochId;
+
 use super::ExecutionCost;
 use super::costs_1::Costs1;
 use super::costs_2::Costs2;
 use super::costs_3::Costs3;
 use super::costs_4::Costs4;
-use stacks_common::types::StacksEpochId;
-use crate::vm::{errors::{RuntimeError, VmExecutionError}, functions::NativeFunctions};
+use crate::vm::errors::{RuntimeError, VmExecutionError};
+use crate::vm::functions::NativeFunctions;
 
 define_named_enum!(ClarityCostFunction {
     AnalysisTypeAnnotate("cost_analysis_type_annotate"),
@@ -489,6 +491,7 @@ impl ClarityCostFunction {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => self.eval::<Costs3>(n),
             StacksEpochId::Epoch33 => self.eval::<Costs4>(n),
+            StacksEpochId::Epoch34 => self.eval::<Costs4>(n),
             StacksEpochId::Epoch10 => {
                 // fallback to costs 1 since epoch 1 doesn't have direct cost mapping
                 self.eval::<Costs1>(n)
@@ -496,7 +499,7 @@ impl ClarityCostFunction {
         }
     }
 
-     pub fn eval<C: CostValues>(&self, n: u64) -> Result<ExecutionCost, VmExecutionError> {
+    pub fn eval<C: CostValues>(&self, n: u64) -> Result<ExecutionCost, VmExecutionError> {
         match self {
             ClarityCostFunction::AnalysisTypeAnnotate => C::cost_analysis_type_annotate(n),
             ClarityCostFunction::AnalysisTypeCheck => C::cost_analysis_type_check(n),

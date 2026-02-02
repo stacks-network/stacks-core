@@ -365,7 +365,7 @@ impl SortitionData {
         }
 
         let tip = match client.get_tenure_tip(tenure_id) {
-            Ok(tip) => tip,
+            Ok(tip) => tip.anchored_header,
             Err(e) => {
                 warn!(
                     "Failed to fetch the tenure tip for the parent tenure: {e:?}. Assuming proposal is higher than the parent tenure for now.";

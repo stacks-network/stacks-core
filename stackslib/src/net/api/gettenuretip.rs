@@ -166,8 +166,11 @@ impl StacksHttpResponse {
     pub fn decode_tenure_tip(self) -> Result<StacksBlockHeaderTypes, NetError> {
         let contents = self.get_http_payload_ok()?;
         let response_json: serde_json::Value = contents.try_into()?;
-        let tenure_tip: StacksBlockHeaderTypes = serde_json::from_value(response_json)
-            .map_err(|_e| Error::DecodeError("Failed to decode JSON".to_string()))?;
+        let tenure_tip: StacksBlockHeaderTypes =
+            serde_json::from_value(response_json).map_err(|e| {
+                error!("Failed to decode JSON"; "err" => ?e);
+                Error::DecodeError("Failed to decode JSON".to_string())
+            })?;
         Ok(tenure_tip)
     }
 }
