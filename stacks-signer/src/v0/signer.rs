@@ -764,7 +764,7 @@ impl Signer {
     fn check_block_against_state(
         &mut self,
         stacks_client: &StacksClient,
-        sortition_state: &mut Option<SortitionsView>,
+        _sortition_state: &mut Option<SortitionsView>,
         block: &NakamotoBlock,
     ) -> Option<BlockRejection> {
         // First update our global state evaluator with our local state if we have one
@@ -776,7 +776,7 @@ impl Signer {
             self.global_state_evaluator
                 .insert_update(self.stacks_address.clone(), update);
         };
-        let Some(latest_version) = self
+        let Some(_latest_version) = self
             .global_state_evaluator
             .determine_latest_supported_signer_protocol_version()
             .or_else(|| {
@@ -809,6 +809,8 @@ impl Signer {
     /// Check if block should be rejected based on the local view of the sortition state
     /// Will return a BlockRejection if the block is invalid, none otherwise.
     /// This is the pre-global signer state activation path.
+    // TODO: remove this clippy allow
+    #[allow(dead_code)]
     fn check_block_against_local_state(
         &mut self,
         stacks_client: &StacksClient,
