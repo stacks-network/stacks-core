@@ -1,4 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2013-2026 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
