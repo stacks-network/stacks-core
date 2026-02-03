@@ -1917,8 +1917,8 @@ proptest! {
         let snippet = format!("(restrict-assets? tx-sender () {body})");
         let sender_principal = sender.clone().into();
         assert_results_match(
-            (body.as_str(), ClarityVersion::Clarity4),
-            (snippet.as_str(), ClarityVersion::Clarity4),
+            (body.as_str(), ClarityVersion::latest()),
+            (snippet.as_str(), ClarityVersion::latest()),
             sender,
             |unrestricted_assets, restricted_assets| {
                 let stx_moved = unrestricted_assets.get_stx(&sender_principal).unwrap_or(0);
@@ -1958,8 +1958,8 @@ proptest! {
         };
 
         assert_results_match(
-            (body_program.as_str(), ClarityVersion::Clarity4),
-            (wrapper_program.as_str(), ClarityVersion::Clarity4),
+            (body_program.as_str(), ClarityVersion::latest()),
+            (wrapper_program.as_str(), ClarityVersion::latest()),
             sender,
             move |unrestricted_assets, restricted_assets| {
                 let moved = unrestricted_assets
@@ -2001,8 +2001,8 @@ proptest! {
         };
 
         assert_results_match(
-            (body_program.as_str(), ClarityVersion::Clarity4),
-            (wrapper_program.as_str(), ClarityVersion::Clarity4),
+            (body_program.as_str(), ClarityVersion::latest()),
+            (wrapper_program.as_str(), ClarityVersion::latest()),
             sender,
             move |unrestricted_assets, restricted_assets| {
                 let moved = unrestricted_assets
@@ -2068,7 +2068,7 @@ proptest! {
         let contract = PrincipalData::Contract(contract_id);
         assert_results_match(
             (c3_snippet.as_str(), ClarityVersion::Clarity3),
-            (snippet.as_str(), ClarityVersion::Clarity4),
+            (snippet.as_str(), ClarityVersion::latest()),
             sender,
             |unrestricted_assets, restricted_assets| {
                 let stx_moved = unrestricted_assets.get_stx(&contract).unwrap_or(0);
@@ -2094,7 +2094,7 @@ proptest! {
         let c3_snippet = format!("(as-contract {body})");
         assert_results_match(
             (c3_snippet.as_str(), ClarityVersion::Clarity3),
-            (snippet.as_str(), ClarityVersion::Clarity4),
+            (snippet.as_str(), ClarityVersion::latest()),
             sender,
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
@@ -2119,7 +2119,7 @@ proptest! {
             format!("{TOKEN_DEFINITIONS}(as-contract (begin {ft_mint} {nft_mint} {body}))");
         assert_results_match(
             (c3_snippet.as_str(), ClarityVersion::Clarity3),
-            (snippet.as_str(), ClarityVersion::Clarity4),
+            (snippet.as_str(), ClarityVersion::latest()),
             sender,
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
@@ -2142,7 +2142,7 @@ proptest! {
        let simple_snippet = format!("{TOKEN_DEFINITIONS}(begin {ft_mint} {nft_mint} {body})");
        assert_results_match(
             (simple_snippet.as_str(), ClarityVersion::Clarity3),
-            (snippet.as_str(), ClarityVersion::Clarity4),
+            (snippet.as_str(), ClarityVersion::latest()),
             sender,
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);

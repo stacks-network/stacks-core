@@ -51,7 +51,7 @@ use stacks::core::test_util::{
     insert_tx_in_mempool, make_contract_call, make_contract_publish,
     make_stacks_transfer_serialized,
 };
-use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
+use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::getsigner::GetSignerResponse;
 use stacks::net::api::postblock_proposal::{
@@ -2825,14 +2825,10 @@ fn mock_sign_epoch_25() {
         |node_config| {
             node_config.miner.pre_nakamoto_mock_signing = true;
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
+            epochs.truncate_after(StacksEpochId::Epoch30);
             epochs[StacksEpochId::Epoch25].end_height = 251;
             epochs[StacksEpochId::Epoch30].start_height = 251;
-            epochs[StacksEpochId::Epoch30].end_height = 265;
-            epochs[StacksEpochId::Epoch31].start_height = 265;
-            epochs[StacksEpochId::Epoch31].end_height = 285;
-            epochs[StacksEpochId::Epoch32].start_height = 285;
-            epochs[StacksEpochId::Epoch32].end_height = 305;
-            epochs[StacksEpochId::Epoch33].start_height = 305;
+            epochs[StacksEpochId::Epoch30].end_height = STACKS_EPOCH_MAX;
         },
         None,
         None,
@@ -2947,14 +2943,10 @@ fn multiple_miners_mock_sign_epoch_25() {
         |config| {
             config.miner.pre_nakamoto_mock_signing = true;
             let epochs = config.burnchain.epochs.as_mut().unwrap();
+            epochs.truncate_after(StacksEpochId::Epoch30);
             epochs[StacksEpochId::Epoch25].end_height = 251;
             epochs[StacksEpochId::Epoch30].start_height = 251;
-            epochs[StacksEpochId::Epoch30].end_height = 265;
-            epochs[StacksEpochId::Epoch31].start_height = 265;
-            epochs[StacksEpochId::Epoch31].end_height = 285;
-            epochs[StacksEpochId::Epoch32].start_height = 285;
-            epochs[StacksEpochId::Epoch32].end_height = 305;
-            epochs[StacksEpochId::Epoch33].start_height = 305;
+            epochs[StacksEpochId::Epoch30].end_height = STACKS_EPOCH_MAX;
         },
         |_| {},
     );
@@ -8239,4 +8231,71 @@ fn signers_treat_signatures_as_precommits() {
 
     info!("------------------------- Shutdown -------------------------");
     signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Ensure that the `/new_burn_block` payload includes data on individual PoX transactions.
+fn burn_block_payload_includes_pox_transactions() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    let mut miners = MultipleMinerTest::new(5, 0);
+
+    let (conf_1, _conf_2) = miners.get_node_configs();
+    miners.boot_to_epoch_3();
+    let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
+
+    info!("---- Starting test -----");
+
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
+        .expect("Failed to mine BTC block.");
+    miners.wait_for_chains(120);
+
+    let burn_blocks = test_observer::get_burn_blocks();
+    let new_burn_block = burn_blocks.last().unwrap();
+
+    info!("New burn block: {new_burn_block:?}";
+        "pox_transactions" => ?new_burn_block.pox_transactions,
+    );
+
+    let pox_transactions = new_burn_block.pox_transactions.clone();
+    assert_eq!(
+        pox_transactions.len(),
+        2,
+        "Expected 1 transaction from each miner"
+    );
+
+    let total_amt = new_burn_block
+        .reward_recipients
+        .iter()
+        .map(|r| r.amt)
+        .sum::<u64>();
+
+    let total_from_transactions = pox_transactions
+        .iter()
+        .map(|t| t.reward_recipients.iter().map(|r| r.amt).sum::<u64>())
+        .sum::<u64>();
+
+    assert_eq!(total_amt, total_from_transactions, "Expected the total sum from `reward_recipients` to match the total sum from `pox_transactions`");
+
+    let total_per_recipient: HashMap<PoxAddress, u64> = new_burn_block
+        .reward_recipients
+        .iter()
+        .map(|r| (r.recipient.clone(), r.amt))
+        .collect();
+
+    let mut total_per_recipient_from_transactions: HashMap<PoxAddress, u64> = HashMap::new();
+
+    for t in pox_transactions.iter() {
+        for r in t.reward_recipients.iter() {
+            total_per_recipient_from_transactions
+                .entry(r.recipient.clone())
+                .and_modify(|amt| *amt += r.amt)
+                .or_insert(r.amt);
+        }
+    }
+
+    assert_eq!(total_per_recipient, total_per_recipient_from_transactions);
 }
