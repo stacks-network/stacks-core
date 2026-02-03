@@ -17,6 +17,9 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+use blockstack_lib::chainstate::stacks::StacksTransaction;
+use clarity::types::chainstate::{ConsensusHash, StacksAddress, StacksBlockId};
+use clarity::util::hash::Sha512Trunc256Sum;
 use libsigner::v0::messages::{BlockRejection, BlockResponse, RejectReason};
 use libsigner::BlockProposal;
 use stacks_common::types::chainstate::StacksPublicKey;
@@ -59,6 +62,18 @@ pub static TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST: LazyLock<TestFlag<Vec<Sta
 
 /// A global variable that can be used to stall the block response broadcast
 pub static TEST_STALL_BLOCK_RESPONSE: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
+/// A global variable that can be used to ignore all block responses from other signers if the signer's public key is in the provided list
+pub static TEST_SIGNERS_IGNORE_BLOCK_RESPONSES: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
+
+/// A global variable that can be used to ignore all block pre-commits from other signers if the signer's public key is in the provided list
+pub static TEST_SIGNERS_IGNORE_PRE_COMMITS: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
+
+/// A global variable that can be used to ignore all block announcements if the signer's public key is in the provided list
+pub static TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
 
 impl Signer {
     /// Skip the block broadcast if the TEST_SKIP_BLOCK_BROADCAST flag is set
@@ -206,5 +221,63 @@ impl Signer {
             }
             warn!("{self}: Block response is no longer stalled due to testing directive. Continuing...");
         }
+    }
+
+    /// Ignore block responses if the TEST_SIGNERS_IGNORE_BLOCK_RESPONSES flag is set for the signer's public key
+    pub fn test_ignore_all_block_responses(&self, block_response: &BlockResponse) -> bool {
+        let public_keys = TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.get();
+        if public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!("{self}: Ignoring block response due to testing directive";
+                "block_response" => %block_response,
+            );
+            return true;
+        }
+        false
+    }
+
+    /// Ignore block responses if the TEST_SIGNERS_IGNORE_PRE_COMMITS flag is set for the signer's public key
+    pub fn test_ignore_all_pre_commits(
+        &self,
+        signer_address: &StacksAddress,
+        pre_commit: &Sha512Trunc256Sum,
+    ) -> bool {
+        let public_keys = TEST_SIGNERS_IGNORE_PRE_COMMITS.get();
+        if public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!("{self}: Ignoring block pre-commit due to testing directive";
+                "pre_commit" => %pre_commit,
+                "signer_address" => %signer_address,
+            );
+            return true;
+        }
+        false
+    }
+
+    /// Ignore block announcements if the TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT flag is set for the signer's public key
+    pub fn test_ignore_all_block_announcements(
+        &self,
+        block_height: u64,
+        block_id: &StacksBlockId,
+        consensus_hash: &ConsensusHash,
+        signer_sighash: &Option<Sha512Trunc256Sum>,
+        transactions: &[StacksTransaction],
+    ) -> bool {
+        let public_keys = TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT.get();
+        if public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!("{self}: Ignoring block announcement due to testing directive";
+                "block_id" => %block_id,
+                "height" => block_height,
+                "consensus_hash" => %consensus_hash,
+                "signer_sighash" => ?signer_sighash,
+                "nmb_transactions" => transactions.len()
+            );
+            return true;
+        }
+        false
     }
 }

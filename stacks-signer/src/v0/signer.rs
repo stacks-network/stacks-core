@@ -531,19 +531,32 @@ impl Signer {
                         return;
                     }
                     match message {
-                        SignerMessage::BlockResponse(block_response) => self.handle_block_response(
-                            stacks_client,
-                            block_response,
-                            sortition_state,
-                        ),
+                        SignerMessage::BlockResponse(block_response) => {
+                            #[cfg(any(test, feature = "testing"))]
+                            if self.test_ignore_all_block_responses(block_response) {
+                                continue;
+                            }
+                            self.handle_block_response(
+                                stacks_client,
+                                block_response,
+                                sortition_state,
+                            )
+                        }
                         SignerMessage::StateMachineUpdate(update) => self
                             .handle_state_machine_update(signer_public_key, update, received_time),
-                        SignerMessage::BlockPreCommit(signer_signature_hash) => self
-                            .handle_block_pre_commit(
+                        SignerMessage::BlockPreCommit(signer_signature_hash) => {
+                            #[cfg(any(test, feature = "testing"))]
+                            if self
+                                .test_ignore_all_pre_commits(&signer_address, signer_signature_hash)
+                            {
+                                continue;
+                            }
+                            self.handle_block_pre_commit(
                                 stacks_client,
                                 &signer_address,
                                 signer_signature_hash,
-                            ),
+                            )
+                        }
                         _ => {}
                     }
                 }
@@ -574,10 +587,6 @@ impl Signer {
                                 "block_height" => b.header.chain_length,
                                 "signer_signature_hash" => %b.header.signer_signature_hash(),
                             );
-                            #[cfg(any(test, feature = "testing"))]
-                            if self.test_skip_block_broadcast(b) {
-                                continue;
-                            }
                             self.handle_post_block(stacks_client, b);
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
@@ -650,6 +659,17 @@ impl Signer {
                 signer_sighash,
                 transactions,
             } => {
+                #[cfg(any(test, feature = "testing"))]
+                if self.test_ignore_all_block_announcements(
+                    *block_height,
+                    block_id,
+                    consensus_hash,
+                    signer_sighash,
+                    transactions,
+                ) {
+                    return;
+                }
+
                 let Some(signer_sighash) = signer_sighash else {
                     debug!("{self}: received a new block event for a pre-nakamoto block, no processing necessary");
                     return;
@@ -1948,16 +1968,15 @@ impl Signer {
 
         block.header.signer_signature_hash();
         block.header.signer_signature = signatures;
-
-        #[cfg(any(test, feature = "testing"))]
-        if self.test_skip_block_broadcast(&block) {
-            return;
-        }
         self.handle_post_block(stacks_client, &block);
     }
 
     /// Attempt to post a block to the stacks-node and handle the result
     pub fn handle_post_block(&mut self, stacks_client: &StacksClient, block: &NakamotoBlock) {
+        #[cfg(any(test, feature = "testing"))]
+        if self.test_skip_block_broadcast(block) {
+            return;
+        }
         let block_hash = block.header.signer_signature_hash();
         match stacks_client.post_block(block) {
             Ok(accepted) => {

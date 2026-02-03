@@ -117,6 +117,7 @@ use crate::tests::signer::SpawnedSignerTrait;
 use crate::tests::{self, gen_random_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
+pub mod capitulate_parent_tenure_view;
 pub mod reorg;
 pub mod tenure_extend;
 pub mod tx_replay;
