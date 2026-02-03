@@ -123,4 +123,154 @@ expression: result
       runtime: 423,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "747b040fa0a68baf513f26c1c9e9a430646f70637d2fd64cc8c6d3d6178ce1c8",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unknown-function-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 423,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 423,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "77dfb512c60038189acd6a9aeb9e7c73a6c813bf5fc984545efb321961c6eeae",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unknown-function-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 423,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 423,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "47c73ee9304a8cdf92c0b5b8af0fb8affeec1028b545f815c0b67e06014408a9",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unknown-function-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 423,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 423,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "01993702e36660f24f59ce7feb016b2a62a2e9014eda6331a105e14f58ff14a5",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unknown-function-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 423,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 423,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8ad94986fbba41555a624165bebdee08cf553896fde048381fd38d97bcc848f1",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unknown-function-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: use of unresolved function \'ynot\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 423,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 423,
+    ),
+  )),
 ]

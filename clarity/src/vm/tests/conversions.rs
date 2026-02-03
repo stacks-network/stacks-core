@@ -597,7 +597,7 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
 }
 
 fn evaluate_to_ascii(snippet: &str) -> Value {
-    execute_versioned(snippet, ClarityVersion::Clarity4)
+    execute_versioned(snippet, ClarityVersion::latest())
         .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))
         .unwrap_or_else(|| panic!("Execution returned no value for snippet `{snippet}`"))
 }
@@ -690,7 +690,7 @@ proptest! {
         let evaluation = evaluate_to_ascii(&snippet);
 
         let ascii_snippet = &utf8_string[1..]; // Remove the u prefix
-        let expected_inner = execute_versioned(ascii_snippet, ClarityVersion::Clarity4)
+        let expected_inner = execute_versioned(ascii_snippet, ClarityVersion::latest())
             .unwrap_or_else(|e| panic!("Execution failed for `{ascii_snippet}`: {e:?}"))
             .unwrap_or_else(|| panic!("Execution returned no value for `{ascii_snippet}`"));
         let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
@@ -703,7 +703,7 @@ proptest! {
         let snippet = format!("(to-ascii? {utf8_string})");
         let evaluation = evaluate_to_ascii(&snippet);
 
-        let literal_value = execute_versioned(&utf8_string, ClarityVersion::Clarity4)
+        let literal_value = execute_versioned(&utf8_string, ClarityVersion::latest())
             .unwrap_or_else(|e| panic!("Execution failed for literal `{utf8_string}`: {e:?}"))
             .unwrap_or_else(|| panic!("Execution returned no value for literal `{utf8_string}`"));
 

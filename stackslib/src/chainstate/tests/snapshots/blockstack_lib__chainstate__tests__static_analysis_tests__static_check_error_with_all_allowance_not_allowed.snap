@@ -33,4 +33,64 @@ expression: result
       runtime: 2029,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d75153eef720bb7ba959fbf5550f3bef68be851078477ebcf43587df6cb70f3f",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: all-allow-not-allowed-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 8,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2029,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 8,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2029,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "830d5f5dcfa6aac18b451a3376eed858f790768612758cd83ed1c57c4ec93c42",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: all-allow-not-allowed-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 8,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2029,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 8,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2029,
+    ),
+  )),
 ]

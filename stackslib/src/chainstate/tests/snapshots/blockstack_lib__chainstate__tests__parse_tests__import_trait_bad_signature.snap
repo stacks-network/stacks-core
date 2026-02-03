@@ -123,4 +123,154 @@ expression: result
       runtime: 450,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3d99537d319a20575ed3db40e9cf7e05fcfc29295d0c9f605cbfea6c386c4a86",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some((use-trait ...) expects a trait name and a trait identifier) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 450,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 450,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ebfb80bac096361c988af4a3be5352d917e8a7258d274bfee2271e99b3e27846",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some((use-trait ...) expects a trait name and a trait identifier) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 450,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 450,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6c96a041d6315af7d00111c9c53fba84781bf7b2769f49b21f50e62cca622937",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some((use-trait ...) expects a trait name and a trait identifier) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 450,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 450,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a24cbcdc8a52fdf2654bd9211b2db672c18e44c35316a4d8ffe9f317da84c698",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some((use-trait ...) expects a trait name and a trait identifier) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 450,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 450,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d23199d17832e0057762240f0f98a28e49b7e1b867d4e1a9a129152a1f399fd7",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some((use-trait ...) expects a trait name and a trait identifier) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 450,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 450,
+    ),
+  )),
 ]

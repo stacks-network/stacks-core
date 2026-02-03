@@ -297,7 +297,8 @@ impl DBConfig {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
         }
     }
 }

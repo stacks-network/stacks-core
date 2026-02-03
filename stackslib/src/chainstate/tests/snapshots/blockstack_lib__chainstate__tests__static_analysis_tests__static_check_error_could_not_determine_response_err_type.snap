@@ -123,4 +123,154 @@ expression: result
       runtime: 966,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5bce905939e6a50de9ed7c630fbf21b1f77389569c1a308e367e143845ab79ae",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: attempted to obtain \'err\' value from response, but \'err\' type is indeterminate) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 966,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 966,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3aa8d87c4e6fd57b958f5068d1677b7482ea26ea73af241acd7a4658c1bea493",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: attempted to obtain \'err\' value from response, but \'err\' type is indeterminate) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 966,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 966,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c4a6b4f23b134ba8c05b5fa02c9fa81546b6ca45d58114fb7e0874b513de2227",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: attempted to obtain \'err\' value from response, but \'err\' type is indeterminate) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 966,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 966,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8160f08e2a5f92d51a92432183dc848b649b93b0ab60e1c2824cc0ab935d8d43",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: attempted to obtain \'err\' value from response, but \'err\' type is indeterminate) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 966,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 966,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4950f7a9b1e0408b4a45dc5e9ea96c57c4a7de3933d65ea9d414028b87734c55",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: attempted to obtain \'err\' value from response, but \'err\' type is indeterminate) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 966,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 966,
+    ),
+  )),
 ]

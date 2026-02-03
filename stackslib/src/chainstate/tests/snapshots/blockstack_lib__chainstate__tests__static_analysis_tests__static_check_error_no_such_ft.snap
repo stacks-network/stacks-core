@@ -123,4 +123,154 @@ expression: result
       runtime: 1201,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ce92c889f2a0a8c29f426e60a0762562a484bea75fea6e9010fa8bb22fc59e4b",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-ft-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: tried to use token function with a undefined token (\'stackoos\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1201,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1201,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ef8e48004e98e7d69576c2e27e371a9fc96e5b06aad031c1e12d0608392e14e0",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-ft-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: tried to use token function with a undefined token (\'stackoos\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1201,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1201,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "982e67c79b1dad4a59d9acc76fcdf01a7c1e2699485e9241814624a28cc726ae",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-ft-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: tried to use token function with a undefined token (\'stackoos\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1201,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1201,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "22b05c8df394c0da4a23160a346285cf2dcee2390bdcd1c44792708b29032164",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-ft-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: tried to use token function with a undefined token (\'stackoos\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1201,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1201,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6a8e0251a1771ca76196e7b5757afb50a88fb22c0803c13176f12895f7f251a4",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-ft-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: tried to use token function with a undefined token (\'stackoos\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1201,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1201,
+    ),
+  )),
 ]

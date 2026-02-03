@@ -1700,6 +1700,9 @@ pub mod test {
     pub const TestBurnStateDB_33: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch33,
     };
+    pub const TestBurnStateDB_34: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch34,
+    };
 
     pub const ALL_BURN_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_20 as &dyn BurnStateDB,
@@ -1709,6 +1712,7 @@ pub mod test {
         &TestBurnStateDB_31 as &dyn BurnStateDB,
         &TestBurnStateDB_32 as &dyn BurnStateDB,
         &TestBurnStateDB_33 as &dyn BurnStateDB,
+        &TestBurnStateDB_34 as &dyn BurnStateDB,
     ];
 
     pub const PRE_33_DBS: &[&dyn BurnStateDB] = &[
@@ -1730,6 +1734,7 @@ pub mod test {
         &TestBurnStateDB_31 as &dyn BurnStateDB,
         &TestBurnStateDB_32 as &dyn BurnStateDB,
         &TestBurnStateDB_33 as &dyn BurnStateDB,
+        &TestBurnStateDB_34 as &dyn BurnStateDB,
     ];
 
     #[test]
@@ -8562,6 +8567,7 @@ pub mod test {
                     StacksEpochId::Epoch31 => self.get_stacks_epoch(8),
                     StacksEpochId::Epoch32 => self.get_stacks_epoch(9),
                     StacksEpochId::Epoch33 => self.get_stacks_epoch(10),
+                    StacksEpochId::Epoch34 => self.get_stacks_epoch(11),
                 }
             }
             fn get_pox_payout_addrs(

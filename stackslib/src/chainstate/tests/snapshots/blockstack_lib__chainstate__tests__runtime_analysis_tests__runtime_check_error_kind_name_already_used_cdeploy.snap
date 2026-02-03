@@ -123,4 +123,154 @@ expression: result
       runtime: 8785,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "30149b6f2c600560721f83b2d9812b0508004315207310781c3bbbdbe2037ed2",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 41,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8785,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 41,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 8785,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "364ddc2c94ce5861dfd395f5d8aac82d7d78be21a8d0f4393041ff55a60d8d53",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 41,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8785,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 41,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 8785,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "03c987a1ea1251739daf5ae4b80f174e615a87ef94a1f86639e14e57c930bf1b",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 41,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8785,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 41,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 8785,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "51642d59beafd6e89bf6450219ed9719a43502607b1b2c52a1e8cbe28d5e7e75",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 41,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8785,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 41,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 8785,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f154f382fe4b747caf2bb8f82f85919db5b9212f25a0841a0aba707af21f1523",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: name-already-used-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(NameAlreadyUsed(\"ft-get-supply\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 41,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8785,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 41,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 8785,
+    ),
+  )),
 ]
