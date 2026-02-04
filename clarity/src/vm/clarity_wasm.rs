@@ -2213,6 +2213,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_get_burn_block_info_header_hash_property_fn(linker)?;
     link_get_burn_block_info_pox_addrs_property_fn(linker)?;
     link_contract_call_fn(linker)?;
+    link_contract_hash_fn(linker)?;
     link_begin_public_call_fn(linker)?;
     link_begin_read_only_call_fn(linker)?;
     link_commit_call_fn(linker)?;
@@ -6692,6 +6693,109 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "contract_call".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_contract_hash_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "contract_hash",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             contract_offset: i32,
+             contract_length: i32,
+             return_offset: i32,
+             _return_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let epoch = caller.data_mut().global_context.epoch_id;
+
+                // Read the contract identifier from the Wasm memory
+                let contract_val = read_from_wasm(
+                    memory,
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    contract_offset,
+                    contract_length,
+                    epoch,
+                )?;
+
+                // (response (buff 32) uint)
+                let return_ty = TypeSignature::ResponseType(Box::new((
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        BufferLength::try_from(32u32)?,
+                    )),
+                    TypeSignature::UIntType,
+                )));
+
+                let contract_id = match &contract_val {
+                    Value::Principal(PrincipalData::Contract(contract_id)) => contract_id,
+                    _ => {
+                        let err_val = Value::Response(ResponseData {
+                            committed: false,
+                            data: Box::new(Value::UInt(1)), // err u1
+                        });
+
+                        write_to_wasm(
+                            &mut caller,
+                            memory,
+                            &return_ty,
+                            return_offset,
+                            return_offset + get_type_size(&return_ty),
+                            &err_val,
+                            true,
+                        )?;
+                        return Ok(());
+                    }
+                };
+                let contract_hash = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_contract_hash(contract_id)?;
+
+                let resp_val = match contract_hash {
+                    Some(contract_hash) => {
+                        // success: (ok <buff-32>)
+                        let ok_val = Value::Sequence(SequenceData::Buffer(BuffData {
+                            data: contract_hash.0.to_vec(),
+                        }));
+                        Value::Response(ResponseData {
+                            committed: true,
+                            data: Box::new(ok_val),
+                        })
+                    }
+                    None => {
+                        // contract missing => (err u2)
+                        Value::Response(ResponseData {
+                            committed: false,
+                            data: Box::new(Value::UInt(2)), // err u2
+                        })
+                    }
+                };
+
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &return_ty, // (response (buff 32) uint)
+                    return_offset,
+                    return_offset + get_type_size(&return_ty),
+                    &resp_val,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "contract_hash".to_string(),
                 e,
             ))
         })
