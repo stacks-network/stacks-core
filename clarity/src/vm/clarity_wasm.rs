@@ -1,3 +1,5 @@
+use std::io::{Cursor, Write as _};
+
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
@@ -2229,6 +2231,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_principal_of_fn(linker)?;
     link_save_constant_fn(linker)?;
     link_load_constant_fn(linker)?;
+    link_principal_to_string_ascii(linker)?;
     link_skip_list(linker)?;
 
     link_log(linker)?;
@@ -7507,6 +7510,58 @@ fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "load_constant".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_principal_to_string_ascii(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "principal_to_string_ascii",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             principal_offset: i32,
+             principal_length: i32,
+             result_offset: i32,
+             result_length: i32| {
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                let epoch = caller.data().global_context.epoch_id;
+
+                let principal = read_from_wasm(
+                    memory,
+                    &mut caller,
+                    &TypeSignature::PrincipalType,
+                    principal_offset,
+                    principal_length,
+                    epoch,
+                )?;
+
+                let result_beg = result_offset as usize;
+                let result_end = result_beg + result_length as usize;
+                let mut result_buffer = Cursor::new(
+                    memory
+                        .data_mut(&mut caller)
+                        .get_mut(result_beg..result_end)
+                        .ok_or(Error::Wasm(WasmError::UnableToWriteMemory(
+                            wasmtime::Error::msg("Non-existing addresses in memory"),
+                        )))?,
+                );
+
+                write!(result_buffer, "{principal}")
+                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+
+                Ok(result_buffer.position() as i32)
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "principal_to_string_ascii".to_string(),
                 e,
             ))
         })
