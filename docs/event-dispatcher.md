@@ -70,6 +70,16 @@ Below is a comprehensive list of valid keys and their behaviors:
     *   **Events delivered to**: `/stackerdb_chunks`.
     *   **Note**: Requires specific subscription; not included in `*`.
 
+*   `"mined_blocks"`: Subscribes to mined block events.
+    *   **Description**: Captures notifications for blocks mined by this node.
+    *   **Events delivered to**: `/mined_nakamoto_block` (Nakamoto), `/mined_block` (legacy).
+    *   **Note**: Requires specific subscription; not included in `*`.
+
+*   `"mined_microblocks"`: Subscribes to mined microblock events.
+    *   **Description**: Captures notifications for microblocks mined by this node.
+    *   **Events delivered to**: `/mined_microblock`.
+    *   **Note**: Requires specific subscription; not included in `*`. Microblocks are deprecated since epoch 2.5.
+
 *   `"block_proposal"`: Subscribes to block proposal response events.
     *   **Description**: Captures validation responses for block proposals (relevant for Nakamoto consensus).
     *   **Events delivered to**: `/proposal_response`.
@@ -458,6 +468,27 @@ Reason can be one of:
 * `ReplaceAcrossFork` - replaced by a transaction with the same nonce but in the canonical fork
 * `TooExpensive` - the transaction is too expensive to include in a block
 * `StaleGarbageCollect` - transaction was dropped because it became stale
+
+### `POST /mined_nakamoto_block`
+
+Delivers data when this node successfully mines a Nakamoto block.
+*   **Triggered by keys**: `"mined_blocks"`.
+*   **Payload Summary**: Contains mined block metadata including burn target, block IDs, execution cost, signer/miner signatures, and per-transaction miner event data.
+*   **Note**: This endpoint is only relevant when the node is mining Nakamoto blocks.
+
+### `POST /mined_block` (legacy)
+
+Delivers data when this node mines a legacy (pre-Nakamoto) anchored block.
+*   **Triggered by keys**: `"mined_blocks"`.
+*   **Payload Summary**: Contains mined block metadata and per-transaction miner event data.
+*   **Note**: This endpoint is for legacy mining flows.
+
+### `POST /mined_microblock` (legacy)
+
+Delivers data when this node mines legacy microblocks.
+*   **Triggered by keys**: `"mined_microblocks"`.
+*   **Payload Summary**: Contains mined microblock metadata and per-transaction miner event data.
+*   **Note**: Microblocks are deprecated since epoch 2.5.
 
 ### `POST /stackerdb_chunks`
 

@@ -4383,6 +4383,15 @@ pub struct EventObserverConfigFile {
     /// - `"stackerdb"`: Subscribes to StackerDB chunk update events.
     ///   - Events delivered to: `/stackerdb_chunks`.
     ///
+    /// - `"mined_blocks"`: Subscribes to mined block notifications.
+    ///   - Events delivered to:
+    ///     - `/mined_nakamoto_block` for Nakamoto mining.
+    ///     - `/mined_block` for legacy mining flows.
+    ///
+    /// - `"mined_microblocks"`: Subscribes to mined microblock notifications.
+    ///   - Events delivered to: `/mined_microblock`.
+    ///   - Note: Microblocks are deprecated since epoch 2.5.
+    ///
     /// - `"block_proposal"`: Subscribes to block proposal response events (for Nakamoto consensus).
     ///   - Events delivered to: `/proposal_response`.
     ///
@@ -4492,6 +4501,14 @@ impl EventKeyType {
 
         if raw_key == "stackerdb" {
             return Some(EventKeyType::StackerDBChunks);
+        }
+
+        if raw_key == "mined_blocks" {
+            return Some(EventKeyType::MinedBlocks);
+        }
+
+        if raw_key == "mined_microblocks" {
+            return Some(EventKeyType::MinedMicroblocks);
         }
 
         if raw_key == "block_proposal" {
@@ -4813,6 +4830,50 @@ mod tests {
             balances[3].address,
             "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
         );
+    }
+
+    #[test]
+    fn test_events_observer_can_parse_mined_blocks_key() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [[events_observer]]
+                endpoint = "localhost:30000"
+                events_keys = ["mined_blocks"]
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("Expected to parse mined_blocks observer key");
+
+        assert_eq!(config.events_observers.len(), 1);
+        assert!(config.events_observers.iter().any(|observer| {
+            observer.endpoint == "localhost:30000"
+                && observer.events_keys == vec![EventKeyType::MinedBlocks]
+        }));
+    }
+
+    #[test]
+    fn test_events_observer_can_parse_mined_microblocks_key() {
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [[events_observer]]
+                endpoint = "localhost:30000"
+                events_keys = ["mined_microblocks"]
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("Expected to parse mined_microblocks observer key");
+
+        assert_eq!(config.events_observers.len(), 1);
+        assert!(config.events_observers.iter().any(|observer| {
+            observer.endpoint == "localhost:30000"
+                && observer.events_keys == vec![EventKeyType::MinedMicroblocks]
+        }));
     }
 
     #[test]
