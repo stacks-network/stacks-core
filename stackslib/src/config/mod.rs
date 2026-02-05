@@ -966,6 +966,15 @@ impl Config {
 
         // check for observer config in env vars
         if let Ok(val) = std::env::var("STACKS_EVENT_OBSERVER") {
+            if events_observers
+                .iter()
+                .any(|observer| observer.endpoint == val)
+            {
+                return Err(format!(
+                    "Duplicate event observer endpoint `{val}` configured in both [[events_observer]] and STACKS_EVENT_OBSERVER"
+                ));
+            }
+
             events_observers.insert(EventObserverConfig {
                 endpoint: val,
                 events_keys: vec![EventKeyType::AnyEvent],
@@ -4562,8 +4571,37 @@ pub struct InitialBalanceFile {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
 
     use super::*;
+
+    static STACKS_EVENT_OBSERVER_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    struct StacksEventObserverEnvRestore(Option<String>);
+
+    impl Drop for StacksEventObserverEnvRestore {
+        fn drop(&mut self) {
+            match &self.0 {
+                Some(value) => std::env::set_var("STACKS_EVENT_OBSERVER", value),
+                None => std::env::remove_var("STACKS_EVENT_OBSERVER"),
+            }
+        }
+    }
+
+    fn with_stacks_event_observer_env<T, F: FnOnce() -> T>(value: Option<&str>, test_fn: F) -> T {
+        let env_lock = STACKS_EVENT_OBSERVER_ENV_LOCK.get_or_init(|| Mutex::new(()));
+        let _guard = env_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let _restore = StacksEventObserverEnvRestore(std::env::var("STACKS_EVENT_OBSERVER").ok());
+        match value {
+            Some(value) => std::env::set_var("STACKS_EVENT_OBSERVER", value),
+            None => std::env::remove_var("STACKS_EVENT_OBSERVER"),
+        }
+
+        test_fn()
+    }
 
     #[test]
     fn test_config_file() {
@@ -4813,6 +4851,53 @@ mod tests {
             balances[3].address,
             "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
         );
+    }
+
+    #[test]
+    fn test_stacks_event_observer_rejects_duplicate_endpoint_with_toml_observer() {
+        with_stacks_event_observer_env(Some("localhost:3700"), || {
+            let config_file = ConfigFile::from_str(
+                r#"
+                [[events_observer]]
+                endpoint = "localhost:3700"
+                events_keys = ["*"]
+                "#,
+            )
+            .unwrap();
+
+            let err = Config::from_config_file(config_file, false).unwrap_err();
+            assert!(
+                err.contains(
+                    "Duplicate event observer endpoint `localhost:3700` configured in both [[events_observer]] and STACKS_EVENT_OBSERVER"
+                ),
+                "Unexpected error: {err}"
+            );
+        });
+    }
+
+    #[test]
+    fn test_stacks_event_observer_allows_distinct_endpoint_from_toml_observer() {
+        with_stacks_event_observer_env(Some("localhost:3701"), || {
+            let config_file = ConfigFile::from_str(
+                r#"
+                [[events_observer]]
+                endpoint = "localhost:3700"
+                events_keys = ["*"]
+                "#,
+            )
+            .unwrap();
+
+            let config = Config::from_config_file(config_file, false).unwrap();
+            assert_eq!(config.events_observers.len(), 2);
+            assert!(config
+                .events_observers
+                .iter()
+                .any(|observer| observer.endpoint == "localhost:3700"));
+            assert!(config
+                .events_observers
+                .iter()
+                .any(|observer| observer.endpoint == "localhost:3701"));
+        });
     }
 
     #[test]
