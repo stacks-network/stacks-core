@@ -19,6 +19,7 @@ use clarity::vm::analysis::contract_interface_builder::{
 };
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::Value;
+use clarity::vm::ClarityVersion;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::{
@@ -174,6 +175,8 @@ pub struct TransactionEventPayload<'a> {
     pub raw_tx: String,
     /// The contract interface
     pub contract_interface: Option<ContractInterface>,
+    /// Clarity language version for a contract publish transaction
+    pub clarity_version: Option<ClarityVersion>,
     /// The burnchain op
     #[serde(
         serialize_with = "blockstack_op_extended_serialize_opt",
@@ -281,6 +284,21 @@ pub fn make_new_block_txs_payload(
         }
     };
 
+    let clarity_version = match tx {
+        TransactionOrigin::Stacks(stacks_tx) => match &stacks_tx.payload {
+            TransactionPayload::SmartContract(_, version_opt) => {
+                version_opt.clone().or_else(|| {
+                    receipt
+                        .contract_analysis
+                        .as_ref()
+                        .map(|analysis| analysis.clarity_version)
+                })
+            }
+            _ => None,
+        },
+        TransactionOrigin::Burn(_) => None,
+    };
+
     TransactionEventPayload {
         txid,
         tx_index,
@@ -291,6 +309,7 @@ pub fn make_new_block_txs_payload(
             build_contract_interface(analysis)
                 .expect("FATAL: failed to serialize contract publish receipt")
         }),
+        clarity_version,
         burnchain_op,
         execution_cost: receipt.execution_cost.clone(),
         microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),

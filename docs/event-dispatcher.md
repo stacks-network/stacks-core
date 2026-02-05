@@ -99,6 +99,7 @@ Delivers data for a newly processed Stacks block, including transactions and ass
 *   **Triggered by keys**: `*`, `"stx"`, specific smart contract or asset identifiers.
 *   **Payload Summary**: Contains block details, an array of transactions, and an array of filtered events based on subscription.
 *   **Note**: If the `raw_tx` field for a transaction is `"0x00"`, it indicates a burnchain operation (see "Burnchain Operations" below).
+*   **Contract Deploy Metadata**: For smart contract publish transactions, each transaction object now includes `clarity_version` (inferred when not explicitly encoded in the publish payload).
 
 The section below has example json encodings for each of the burnchain operations.
 
@@ -129,6 +130,7 @@ The section below has example json encodings for each of the burnchain operation
   "transactions": [
     {
       "contract_abi": null,
+      "clarity_version": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x808000000004008bc5147525b8f477f0bc4522a88c8339b2494db50000000000000002000000000000000001015814daf929d8700af344987681f44e913890a12e38550abe8e40f149ef5269f40f4008083a0f2e0ddf65dcd05ecfc151c7ff8a5308ad04c77c0e87b5aeadad31010200000000040000000000000000000000000000000000000000000000000000000000000000",
@@ -141,6 +143,7 @@ The section below has example json encodings for each of the burnchain operation
     },
     {
       "contract_abi": null,
+      "clarity_version": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x80800000000400f942874ce525e87f21bbe8c121b12fac831d02f4000000000000000000000000000003e800006ae29867aec4b0e4f776bebdcea7f6d9a24eeff370c8c739defadfcbb52659b30736ad4af021e8fb741520a6c65da419fdec01989fdf0032fc1838f427a9a36102010000000000051ac2d519faccba2e435f3272ff042b89435fd160ff00000000000003e800000000000000000000000000000000000000000000000000000000000000000000",
@@ -173,6 +176,7 @@ The section below has example json encodings for each of the burnchain operation
         }
       },
       "contract_abi": null,
+      "clarity_version": null,
       "execution_cost": {
         "read_count": 0,
         "read_length": 0,
@@ -390,6 +394,7 @@ Delivers data for one or more microblocks, either self-emitted or received from 
   "transactions": [
     {
       "contract_abi": null,
+      "clarity_version": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x808000000004008bc5147525b8f477f0bc4522a88c8339b2494db50000000000000002000000000000000001015814daf929d8700af344987681f44e913890a12e38550abe8e40f149ef5269f40f4008083a0f2e0ddf65dcd05ecfc151c7ff8a5308ad04c77c0e87b5aeadad31010200000000040000000000000000000000000000000000000000000000000000000000000000",
@@ -402,6 +407,7 @@ Delivers data for one or more microblocks, either self-emitted or received from 
     },
     {
       "contract_abi": null,
+      "clarity_version": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x80800000000400f942874ce525e87f21bbe8c121b12fac831d02f4000000000000000000000000000003e800006ae29867aec4b0e4f776bebdcea7f6d9a24eeff370c8c739defadfcbb52659b30736ad4af021e8fb741520a6c65da419fdec01989fdf0032fc1838f427a9a36102010000000000051ac2d519faccba2e435f3272ff042b89435fd160ff00000000000003e800000000000000000000000000000000000000000000000000000000000000000000",

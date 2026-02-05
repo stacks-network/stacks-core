@@ -19,10 +19,11 @@ use std::thread;
 use std::time::Instant;
 
 use clarity::boot_util::boot_code_id;
-use clarity::vm::costs::ExecutionCost;
+use clarity::vm::analysis::types::ContractAnalysis;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::events::SmartContractEventData;
 use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::Value;
+use clarity::vm::{ClarityVersion, ContractName, Value};
 use rusqlite::Connection;
 use serial_test::serial;
 use stacks::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -35,13 +36,15 @@ use stacks::chainstate::stacks::{
     SinglesigHashMode, SinglesigSpendingCondition, StacksBlock, TenureChangeCause,
     TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
     TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
-    TransactionSpendingCondition, TransactionVersion,
+    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
 };
+use stacks::core::StacksEpochId;
 use stacks::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
 use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks::util::secp256k1::MessageSignature;
+use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 use tempfile::tempdir;
@@ -870,6 +873,100 @@ fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
         post_conditions: vec![],
         payload: TransactionPayload::TenureChange(payload),
     }
+}
+
+fn make_contract_publish_tx(version: Option<ClarityVersion>) -> StacksTransaction {
+    let name = ContractName::from("hello-world");
+    let contract_source = "(define-public (hello) (ok true))".to_string();
+    let code_body = StacksString::from_string(&contract_source).unwrap();
+
+    StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: 1,
+        auth: TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
+            SinglesigSpendingCondition {
+                hash_mode: SinglesigHashMode::P2PKH,
+                signer: Hash160([0; 20]),
+                nonce: 0,
+                tx_fee: 0,
+                key_encoding: TransactionPublicKeyEncoding::Compressed,
+                signature: MessageSignature([0; 65]),
+            },
+        )),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::SmartContract(
+            TransactionSmartContract { name, code_body },
+            version,
+        ),
+    }
+}
+
+fn make_contract_analysis(clarity_version: ClarityVersion) -> ContractAnalysis {
+    ContractAnalysis::new(
+        boot_code_id("hello-world", false),
+        vec![],
+        LimitedCostTracker::new_free(),
+        StacksEpochId::Epoch31,
+        clarity_version,
+    )
+}
+
+#[test]
+fn make_new_block_txs_payload_uses_explicit_publish_clarity_version() {
+    let receipt = StacksTransactionReceipt {
+        transaction: TransactionOrigin::Stacks(make_contract_publish_tx(Some(
+            ClarityVersion::Clarity3,
+        ))),
+        events: vec![],
+        post_condition_aborted: false,
+        result: Value::okay_true(),
+        stx_burned: 0,
+        contract_analysis: Some(make_contract_analysis(ClarityVersion::Clarity2)),
+        execution_cost: ExecutionCost::ZERO,
+        microblock_header: None,
+        tx_index: 0,
+        vm_error: None,
+    };
+
+    let payload = make_new_block_txs_payload(&receipt, 0);
+    assert_eq!(payload.clarity_version, Some(ClarityVersion::Clarity3));
+
+    let serialized_payload = serde_json::to_value(payload).expect("Failed");
+    assert_eq!(
+        serialized_payload
+            .get("clarity_version")
+            .and_then(|value| value.as_str()),
+        Some("Clarity3")
+    );
+}
+
+#[test]
+fn make_new_block_txs_payload_infers_publish_clarity_version_from_analysis() {
+    let receipt = StacksTransactionReceipt {
+        transaction: TransactionOrigin::Stacks(make_contract_publish_tx(None)),
+        events: vec![],
+        post_condition_aborted: false,
+        result: Value::okay_true(),
+        stx_burned: 0,
+        contract_analysis: Some(make_contract_analysis(ClarityVersion::Clarity2)),
+        execution_cost: ExecutionCost::ZERO,
+        microblock_header: None,
+        tx_index: 0,
+        vm_error: None,
+    };
+
+    let payload = make_new_block_txs_payload(&receipt, 0);
+    assert_eq!(payload.clarity_version, Some(ClarityVersion::Clarity2));
+
+    let serialized_payload = serde_json::to_value(payload).expect("Failed");
+    assert_eq!(
+        serialized_payload
+            .get("clarity_version")
+            .and_then(|value| value.as_str()),
+        Some("Clarity2")
+    );
 }
 
 #[test]
