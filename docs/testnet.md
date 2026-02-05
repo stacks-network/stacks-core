@@ -65,6 +65,12 @@ testnet requires one microSTX per byte minimum, and this transaction should be
 less than 515 bytes.
 The third argument `0` is a nonce, that must be increased monotonically with each new transaction.
 
+If you need to pin the contract to a specific Clarity version, add the `--clarity-version` flag:
+
+```bash
+cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 515 0 kv-store ./kv-store.clar --clarity-version 2 --testnet
+```
+
 This command will output the **binary format** of the transaction. In our case, we want to pipe this output and dump it to a file that will be used later in this tutorial.
 
 ```bash

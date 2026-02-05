@@ -89,6 +89,10 @@ is that the miner chooses, but you can decide which with the following options:
 The post-condition mode for the transaction can be controlled with the following option:
 
   --postcondition-mode  indicates the post-condition mode for the contract. Allowed values: [`allow`, `deny`]. Default: `deny`.
+
+The Clarity version for the contract can be controlled with the following option:
+
+  --clarity-version  indicates the Clarity version for the contract. Allowed values: `1`, `2`, `3`, `4`, or `clarity1`-`clarity4`.
 ";
 
 const CALL_USAGE: &str = "blockstack-cli (options) contract-call [origin-secret-key-hex] [fee-rate] [nonce] [contract-publisher-address] [contract-name] [function-name] [args...]
@@ -512,6 +516,52 @@ fn parse_postcondition_mode(
     }
 }
 
+/// Parses the `--clarity-version` flag from the CLI arguments.
+///
+/// This function looks for the `--clarity-version` flag in the provided `args` vector
+/// and extracts its associated value. The flag must be specified at most once, and the value
+/// must be one of: `1`, `2`, `3`, `4`, `clarity1`, `clarity2`, `clarity3`, or `clarity4`.
+/// If the flag is not present, `None` is returned to indicate the default behavior.
+///
+/// The flag and its value are removed from `args` if found.
+fn parse_clarity_version(
+    args: &mut Vec<String>,
+    usage: &str,
+) -> Result<Option<ClarityVersion>, CliError> {
+    const FLAG_CLARITY_VERSION: &str = "--clarity-version";
+
+    match count_flag(args, FLAG_CLARITY_VERSION) {
+        0 => return Ok(None),
+        1 => { /* continue below */ }
+        _ => {
+            return Err(CliError::Message(format!(
+                "Duplicated `{FLAG_CLARITY_VERSION}`.\n\nUSAGE:\n{usage}"
+            )));
+        }
+    }
+
+    match extract_flag_with_value(args, FLAG_CLARITY_VERSION) {
+        Some(value) => {
+            let normalized = value.to_ascii_lowercase();
+            let clarity_version = match normalized.as_str() {
+                "1" | "clarity1" => ClarityVersion::Clarity1,
+                "2" | "clarity2" => ClarityVersion::Clarity2,
+                "3" | "clarity3" => ClarityVersion::Clarity3,
+                "4" | "clarity4" => ClarityVersion::Clarity4,
+                _ => {
+                    return Err(CliError::Message(format!(
+                        "Invalid value for `{FLAG_CLARITY_VERSION}`.\n\nUSAGE:\n{usage}"
+                    )))
+                }
+            };
+            Ok(Some(clarity_version))
+        }
+        None => Err(CliError::Message(format!(
+            "Missing value for `{FLAG_CLARITY_VERSION}`.\n\nUSAGE:\n{usage}"
+        ))),
+    }
+}
+
 #[allow(clippy::indexing_slicing)]
 fn handle_contract_publish(
     args_slice: &[String],
@@ -530,6 +580,7 @@ fn handle_contract_publish(
     }
     let anchor_mode = parse_anchor_mode(&mut args, PUBLISH_USAGE)?;
     let postcond_mode = parse_postcondition_mode(&mut args, PUBLISH_USAGE)?;
+    let clarity_version = parse_clarity_version(&mut args, PUBLISH_USAGE)?;
     let sk_publisher = &args[0];
     let tx_fee = args[1].parse()?;
     let nonce = args[2].parse()?;
@@ -547,10 +598,11 @@ fn handle_contract_publish(
     let sk_publisher = StacksPrivateKey::from_hex(sk_publisher)?;
 
     let payload = make_contract_publish(contract_name.clone(), contract_contents)?;
+    let payload = TransactionPayload::SmartContract(payload, clarity_version);
     let mut unsigned_tx = make_standard_single_sig_tx(
         version,
         chain_id,
-        payload.into(),
+        payload,
         &StacksPublicKey::from_private(&sk_publisher),
         nonce,
         tx_fee,
@@ -1316,6 +1368,99 @@ mod test {
         assert!(result.is_err());
 
         let exp_err_msg = format!("Duplicated `--postcondition-mode`.\n\nUSAGE:\n{PUBLISH_USAGE}");
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+    }
+
+    #[test]
+    fn test_contract_publish_ok_with_clarity_version() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--clarity-version",
+            "1",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_ok());
+
+        let serial_tx = result.unwrap();
+        let deser_tx = utils::tx_deserialize(&serial_tx);
+
+        let (_, clarity) = match deser_tx.payload {
+            TransactionPayload::SmartContract(a, b) => (a, b),
+            _ => panic!("Should not happen!"),
+        };
+        assert_eq!(Some(ClarityVersion::Clarity1), clarity);
+    }
+
+    #[test]
+    fn test_contract_publish_fails_with_clarity_version() {
+        let contract_path = cargo_workspace("sample/contracts/tokens.clar")
+            .display()
+            .to_string();
+
+        // Scenario FAIL with invalid clarity version
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--clarity-version",
+            "invalid",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg =
+            format!("Invalid value for `--clarity-version`.\n\nUSAGE:\n{PUBLISH_USAGE}");
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+
+        // Scenario FAIL with missing clarity version value
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--clarity-version",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg =
+            format!("Missing value for `--clarity-version`.\n\nUSAGE:\n{PUBLISH_USAGE}");
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+
+        // Scenario FAIL with duplicated clarity version flag
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            &contract_path,
+            "--clarity-version",
+            "2",
+            "--clarity-version",
+            "3",
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!("Duplicated `--clarity-version`.\n\nUSAGE:\n{PUBLISH_USAGE}");
         assert_eq!(exp_err_msg, result.unwrap_err().to_string());
     }
 
