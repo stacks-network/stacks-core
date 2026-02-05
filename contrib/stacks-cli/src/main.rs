@@ -40,7 +40,7 @@ use stackslib::chainstate::stacks::{
     StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
     StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion, MAX_TRANSACTION_LEN,
 };
 use stackslib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stackslib::net::Error as NetError;
@@ -562,6 +562,13 @@ fn handle_contract_publish(
     unsigned_tx
         .consensus_serialize(&mut unsigned_tx_bytes)
         .expect("FATAL: invalid transaction");
+    if unsigned_tx_bytes.len() > MAX_TRANSACTION_LEN as usize {
+        return Err(CliError::Message(format!(
+            "Transaction size {} exceeds maximum {}",
+            unsigned_tx_bytes.len(),
+            MAX_TRANSACTION_LEN
+        )));
+    }
     let signed_tx =
         sign_transaction_single_sig_standard(&to_hex(&unsigned_tx_bytes), &sk_publisher)?;
 
@@ -569,6 +576,13 @@ fn handle_contract_publish(
     signed_tx
         .consensus_serialize(&mut signed_tx_bytes)
         .expect("FATAL: invalid signed transaction");
+    if signed_tx_bytes.len() > MAX_TRANSACTION_LEN as usize {
+        return Err(CliError::Message(format!(
+            "Transaction size {} exceeds maximum {}",
+            signed_tx_bytes.len(),
+            MAX_TRANSACTION_LEN
+        )));
+    }
     Ok(to_hex(&signed_tx_bytes))
 }
 
@@ -1143,6 +1157,82 @@ mod test {
 
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.starts_with("IO error reading CLI input:"));
+    }
+
+    #[test]
+    fn test_contract_publish_fails_with_invalid_name() {
+        let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
+        write!(file, "(define-public (hello) (ok true))").expect("Cannot write to temp file");
+        let file_path = file.path().to_str().unwrap();
+
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "1bad-name",
+            file_path,
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("BadNameValue") && err_msg.contains("ContractName"),
+            "Unexpected error: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_contract_publish_fails_with_non_ascii_contract_source() {
+        let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
+        write!(file, "π").expect("Cannot write to temp file");
+        let file_path = file.path().to_str().unwrap();
+
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "foo-contract",
+            file_path,
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Non-legal characters in contract-content"),
+            "Unexpected error: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_contract_publish_fails_with_oversized_source() {
+        let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
+        let oversized = "a".repeat(MAX_TRANSACTION_LEN as usize + 1024);
+        write!(file, "{oversized}").expect("Cannot write to temp file");
+        let file_path = file.path().to_str().unwrap();
+
+        let publish_args = [
+            "publish",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "big-contract",
+            file_path,
+        ];
+
+        let result = main_handler(to_string_vec(&publish_args));
+        assert!(result.is_err());
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Transaction size") && err_msg.contains("exceeds maximum"),
+            "Unexpected error: {err_msg}"
+        );
     }
 
     #[test]

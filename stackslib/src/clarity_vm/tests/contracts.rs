@@ -144,6 +144,32 @@ fn test_get_burn_block_info_eval() {
 }
 
 #[test]
+fn test_contract_hash_rejected_in_clarity2() {
+    let mut sim = ClarityTestSim::new();
+    sim.execute_next_block_as_conn(|conn| {
+        let contract_identifier = QualifiedContractIdentifier::local("contract-hash-test").unwrap();
+        let contract =
+            "(define-read-only (get-hash (contract principal)) (contract-hash? contract))";
+        conn.as_transaction(|clarity_db| {
+            let res = clarity_db.analyze_smart_contract(
+                &contract_identifier,
+                ClarityVersion::Clarity2,
+                contract,
+            );
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
+                if let StaticCheckErrorKind::UnknownFunction(func_name) = *check_error.err {
+                    assert_eq!(func_name, "contract-hash?");
+                } else {
+                    panic!("Bad analysis error: {:?}", &check_error);
+                }
+            } else {
+                panic!("Bad analysis result: {:?}", &res);
+            }
+        });
+    });
+}
+
+#[test]
 fn test_get_block_info_eval_v210() {
     let mut sim = ClarityTestSim::new();
     sim.epoch_bounds = vec![0, 3, 5];
