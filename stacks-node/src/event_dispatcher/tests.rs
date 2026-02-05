@@ -50,6 +50,19 @@ use tiny_http::{Method, Response, Server, StatusCode};
 use crate::event_dispatcher::payloads::*;
 use crate::event_dispatcher::*;
 
+fn assert_payload_has_required_fields(payload: &serde_json::Value, required_fields: &[&str]) {
+    let payload_object = payload
+        .as_object()
+        .expect("Expected payload to serialize to a JSON object");
+
+    for field in required_fields {
+        assert!(
+            payload_object.contains_key(*field),
+            "Missing expected field `{field}` in payload: {payload}"
+        );
+    }
+}
+
 #[test]
 fn build_block_processed_event() {
     let filtered_events = vec![];
@@ -88,6 +101,41 @@ fn build_block_processed_event() {
         block_timestamp,
         coinbase_height,
     );
+
+    assert_payload_has_required_fields(
+        &payload,
+        &[
+            "block_hash",
+            "block_height",
+            "block_time",
+            "burn_block_hash",
+            "burn_block_height",
+            "miner_txid",
+            "burn_block_time",
+            "index_block_hash",
+            "parent_block_hash",
+            "parent_index_block_hash",
+            "parent_microblock",
+            "parent_microblock_sequence",
+            "matured_miner_rewards",
+            "events",
+            "transactions",
+            "parent_burn_block_hash",
+            "parent_burn_block_height",
+            "parent_burn_block_timestamp",
+            "anchored_cost",
+            "confirmed_microblocks_cost",
+            "pox_v1_unlock_height",
+            "pox_v2_unlock_height",
+            "pox_v3_unlock_height",
+            "signer_bitvec",
+            "reward_set",
+            "cycle_number",
+            "tenure_height",
+            "consensus_hash",
+        ],
+    );
+
     assert_eq!(
         payload
             .get("pox_v1_unlock_height")
@@ -870,6 +918,55 @@ fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
         post_conditions: vec![],
         payload: TransactionPayload::TenureChange(payload),
     }
+}
+
+#[test]
+fn new_block_transaction_payload_contains_required_fields() {
+    let tx = make_tenure_change_tx(make_tenure_change_payload());
+    let receipt = StacksTransactionReceipt {
+        transaction: TransactionOrigin::Burn(BlockstackOperationType::PreStx(PreStxOp {
+            output: StacksAddress::new(0, Hash160([1; 20])).unwrap(),
+            txid: tx.txid(),
+            vtxindex: 0,
+            block_height: 1,
+            burn_header_hash: BurnchainHeaderHash([5u8; 32]),
+        })),
+        events: vec![],
+        post_condition_aborted: false,
+        result: Value::okay_true(),
+        stx_burned: 100,
+        contract_analysis: None,
+        execution_cost: ExecutionCost {
+            write_length: 1,
+            write_count: 2,
+            read_length: 3,
+            read_count: 4,
+            runtime: 5,
+        },
+        microblock_header: None,
+        tx_index: 1,
+        vm_error: None,
+    };
+
+    let payload_json =
+        serde_json::to_value(make_new_block_txs_payload(&receipt, 0)).expect("Failed");
+    assert_payload_has_required_fields(
+        &payload_json,
+        &[
+            "txid",
+            "tx_index",
+            "status",
+            "raw_result",
+            "raw_tx",
+            "contract_interface",
+            "burnchain_op",
+            "execution_cost",
+            "microblock_sequence",
+            "microblock_hash",
+            "microblock_parent_hash",
+            "vm_error",
+        ],
+    );
 }
 
 #[test]
