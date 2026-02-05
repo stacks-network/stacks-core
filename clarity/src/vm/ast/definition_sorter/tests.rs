@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@ use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
 
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check as run_analysis_helper;
 use crate::vm::ast::definition_sorter::DefinitionSorter;
 use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
@@ -26,7 +27,6 @@ use crate::vm::ast::expression_identifier::ExpressionIdentifier;
 use crate::vm::ast::parser;
 use crate::vm::ast::types::ContractAST;
 use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::ClarityVersion;
 
 #[template]
 #[rstest]

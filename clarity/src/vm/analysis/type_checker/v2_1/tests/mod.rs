@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -29,16 +29,16 @@ use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::types::signatures::TypeSignature::OptionalType;
-use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
+use crate::vm::types::signatures::TypeSignature::OptionalType;
+use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
     TypeSignature, TypeSignatureExt as _,
 };
-use crate::vm::{execute_v2, ClarityName, ClarityVersion};
+use crate::vm::{ClarityName, ClarityVersion, execute_v2};
 
 mod assets;
 pub mod contracts;
@@ -47,14 +47,11 @@ mod post_conditions;
 
 const SECP256_MESSAGE_HASH: &str =
     "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
-const SECP256K1_SIGNATURE: &str =
-    "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40";
-const SECP256K1_SIGNATURE_TOO_LONG: &str =
-    "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f4041";
+const SECP256K1_SIGNATURE: &str = "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40";
+const SECP256K1_SIGNATURE_TOO_LONG: &str = "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f4041";
 const SECP256K1_PUBLIC_KEY: &str =
     "0xfffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0df";
-const SECP256R1_SIGNATURE: &str =
-    "0x000306090c0f1215181b1e2124272a2d303336393c3f4245484b4e5154575a5d606366696c6f7275787b7e8184878a8d909396999c9fa2a5a8abaeb1b4b7babd";
+const SECP256R1_SIGNATURE: &str = "0x000306090c0f1215181b1e2124272a2d303336393c3f4245484b4e5154575a5d606366696c6f7275787b7e8184878a8d909396999c9fa2a5a8abaeb1b4b7babd";
 
 /// Backwards-compatibility shim for type_checker tests. Runs at latest Clarity version.
 pub fn mem_type_check(
@@ -179,12 +176,21 @@ fn test_to_consensus_buff() {
         ("(to-consensus-buff? 0x00)", "(optional (buff 6))"),
         ("(to-consensus-buff? \"a\")", "(optional (buff 6))"),
         ("(to-consensus-buff? u\"ab\")", "(optional (buff 13))"),
-        ("(to-consensus-buff? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)", "(optional (buff 151))"),
-        ("(to-consensus-buff? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.abcdeabcdeabcdeabcdeabcdeabcdeabcdeabcde)", "(optional (buff 151))"),
+        (
+            "(to-consensus-buff? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
+            "(optional (buff 151))",
+        ),
+        (
+            "(to-consensus-buff? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.abcdeabcdeabcdeabcdeabcdeabcdeabcdeabcde)",
+            "(optional (buff 151))",
+        ),
         ("(to-consensus-buff? true)", "(optional (buff 1))"),
         ("(to-consensus-buff? -1)", "(optional (buff 17))"),
         ("(to-consensus-buff? u1)", "(optional (buff 17))"),
-        ("(to-consensus-buff? (list 1 2 3 4))", "(optional (buff 73))"),
+        (
+            "(to-consensus-buff? (list 1 2 3 4))",
+            "(optional (buff 73))",
+        ),
         (
             "(to-consensus-buff? { apple: u1, orange: 2, blue: true })",
             "(optional (buff 58))",
@@ -585,20 +591,20 @@ fn test_stx_ops() {
         r#"(stx-transfer? u4 u3  'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#,
         r#"(stx-transfer? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true)"#,
         r#"(stx-transfer? u10 tx-sponsor? 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"#,
-        r#"(stx-transfer? u10 tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 0x0102)"#,  // valid arguments for stx-transfer-memo
+        r#"(stx-transfer? u10 tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 0x0102)"#, // valid arguments for stx-transfer-memo
         r#"(stx-transfer-memo? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x7759 0x0102)"#,
         r#"(stx-transfer-memo? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x0102)"#,
         r#"(stx-transfer-memo? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true 0x00) 0x0102"#,
         r#"(stx-transfer-memo? u4 u3  'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x0102)"#,
         r#"(stx-transfer-memo? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR true 0x0102)"#,
         r#"(stx-transfer-memo? u10 tx-sponsor? 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 0x0102)"#,
-        r#"(stx-transfer-memo? u10 tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"#,  // valid arguments for stx-transfer
+        r#"(stx-transfer-memo? u10 tx-sender 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"#, // valid arguments for stx-transfer
         "(stx-burn? u4)",
         "(stx-burn? 4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(stx-burn? u4 true)",
         "(stx-burn? u4 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         "(stx-get-balance true)",
-        "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
+        "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
     ];
     let bad_expected = [
         StaticCheckErrorKind::TypeError(
@@ -3515,7 +3521,7 @@ fn test_principal_destruct() {
     ];
     let expected = [
         "(response (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))) (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))))",
-        "(response (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))) (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))))"
+        "(response (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))) (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))))",
     ];
 
     let bad = [

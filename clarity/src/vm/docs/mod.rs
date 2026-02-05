@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,13 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
-use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::TypedNativeFunction;
-use crate::vm::functions::define::DefineFunctions;
+use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
 use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::define::DefineFunctions;
 use crate::vm::types::{FixedFunction, FunctionType};
 use crate::vm::variables::NativeVariables;
-use crate::vm::ClarityVersion;
 
 #[cfg(feature = "rusqlite")]
 pub mod contracts;
@@ -102,8 +102,7 @@ const BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     description: "Returns the current block height of the Stacks blockchain in Clarity 1 and 2.
 Upon activation of epoch 3.0, `block-height` will return the same value as `tenure-height`.
 In Clarity 3, `block-height` is removed and has been replaced with `stacks-block-height`.",
-    example:
-        "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
+    example: "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
 };
 
 const BURN_BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -130,8 +129,7 @@ const CURRENT_CONTRACT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     snippet: "current-contract",
     output_type: "principal",
     description: "Returns the principal of the current contract.",
-    example:
-        "(print current-contract) ;; Will print out the Stacks address of the current contract",
+    example: "(print current-contract) ;; Will print out the Stacks address of the current contract",
 };
 
 const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -192,8 +190,7 @@ const REGTEST_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     snippet: "is-in-regtest",
     output_type: "bool",
     description: "Returns whether or not the code is running in a regression test",
-    example:
-        "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
+    example: "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
 };
 
 const MAINNET_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -568,8 +565,7 @@ const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "bit-xor ${1:expr-1} ${2:expr-2}",
     signature: "(bit-xor i1 i2...)",
-    description:
-        "Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
+    description: "Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
     example: "(bit-xor 1 2) ;; Returns 3
 (bit-xor 120 280) ;; Returns 352
 (bit-xor -128 64) ;; Returns -64
@@ -595,8 +591,7 @@ const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "bit-or ${1:expr-1} ${2:expr-2}",
     signature: "(bit-or i1 i2...)",
-    description:
-        "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
+    description: "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
     example: "(bit-or 4 8) ;; Returns 12
 (bit-or 1 2 4) ;; Returns 7
 (bit-or 64 -32 -16) ;; Returns -16
@@ -767,12 +762,12 @@ the `<`-comparable types are expanded to include `string-ascii`, `string-utf8` a
 
 pub fn get_input_type_string(function_type: &FunctionType) -> String {
     match function_type {
-        FunctionType::Variadic(ref in_type, _) => format!("{in_type}, ..."),
-        FunctionType::Fixed(FixedFunction { ref args, .. }) => {
+        FunctionType::Variadic(in_type, _) => format!("{in_type}, ..."),
+        FunctionType::Fixed(FixedFunction { args, .. }) => {
             let in_types: Vec<String> = args.iter().map(|x| format!("{}", x.signature)).collect();
             in_types.join(", ")
         }
-        FunctionType::UnionArgs(ref in_types, _) => {
+        FunctionType::UnionArgs(in_types, _) => {
             let in_types: Vec<String> = in_types.iter().map(|x| format!("{x}")).collect();
             in_types.join(" | ")
         }
@@ -781,7 +776,7 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
         FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
             "int, int | uint, uint | string-ascii, string-ascii | string-utf8, string-utf8 | buff, buff".to_string()
         },
-        FunctionType::Binary(ref left_sig, ref right_sig, _) => {
+        FunctionType::Binary(left_sig, right_sig, _) => {
             let mut in_types: Vec<String> = Vec::new();
             match left_sig {
                 FunctionArgSignature::Single(left) => {
@@ -819,14 +814,14 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
 #[allow(clippy::panic)]
 pub fn get_output_type_string(function_type: &FunctionType) -> String {
     match function_type {
-        FunctionType::Variadic(_, ref out_type) => format!("{out_type}"),
-        FunctionType::Fixed(FixedFunction { ref returns, .. }) => format!("{returns}"),
-        FunctionType::UnionArgs(_, ref out_type) => format!("{out_type}"),
+        FunctionType::Variadic(_, out_type) => format!("{out_type}"),
+        FunctionType::Fixed(FixedFunction { returns, .. }) => format!("{returns}"),
+        FunctionType::UnionArgs(_, out_type) => format!("{out_type}"),
         FunctionType::ArithmeticVariadic
         | FunctionType::ArithmeticUnary
         | FunctionType::ArithmeticBinary => "int | uint".to_string(),
         FunctionType::ArithmeticComparison => "bool".to_string(),
-        FunctionType::Binary(left, right, ref out_sig) => match out_sig {
+        FunctionType::Binary(left, right, out_sig) => match out_sig {
             FunctionReturnsSignature::Fixed(out_type) => format!("{out_type}"),
             FunctionReturnsSignature::TypeOfArgAtPosition(pos) => {
                 let arg_sig = match pos {
@@ -851,7 +846,7 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
 }
 
 pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Option<String> {
-    if let FunctionType::Fixed(FixedFunction { ref args, .. }) = function_type {
+    if let FunctionType::Fixed(FixedFunction { args, .. }) = function_type {
         let in_names: Vec<String> = args.iter().map(|x| x.name.to_string()).collect();
         let arg_examples = in_names.join(" ");
         Some(format!(
@@ -1601,8 +1596,7 @@ If the supplied argument is an `(ok ...)` value,
 };
 
 const MATCH_API: SpecialAPI = SpecialAPI {
-    input_type:
-        "(optional A) name expression expression | (response A B) name expression name expression",
+    input_type: "(optional A) name expression expression | (response A B) name expression name expression",
     snippet: "match ${1:algebraic-expr} ${2:some-binding-name} ${3:some-branch} ${4:none-branch}",
     output_type: "C",
     signature: "(match opt-input some-binding-name some-branch none-branch) |
@@ -3013,11 +3007,11 @@ pub fn make_json_api_reference() -> String {
 mod test {
     use clarity_types::types::StandardPrincipalData;
     use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
+    use stacks_common::types::StacksEpochId;
     use stacks_common::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
         StacksBlockId, VRFSeed,
     };
-    use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::hex_bytes;
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
@@ -3033,8 +3027,8 @@ mod test {
         FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
     };
     use crate::vm::{
-        ast, eval_all, execute, ClarityVersion, ContractContext, GlobalContext, LimitedCostTracker,
-        StacksEpoch, Value,
+        ClarityVersion, ContractContext, GlobalContext, LimitedCostTracker, StacksEpoch, Value,
+        ast, eval_all, execute,
     };
 
     struct DocHeadersDB {}

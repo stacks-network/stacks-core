@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,36 +23,36 @@ use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
 pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
-use super::contexts::{TypeMap, TypingContext};
 use super::ContractAnalysis;
-pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, StaticCheckError,
-    StaticCheckErrorKind, SyntaxBindingErrorType,
-};
+use super::contexts::{TypeMap, TypingContext};
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::AnalysisDatabase;
+pub use crate::vm::analysis::errors::{
+    StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, check_argument_count,
+    check_arguments_at_least, check_arguments_at_most,
+};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    analysis_typecheck_cost, runtime_cost, CostErrors, CostOverflowingMath, CostTracker,
-    ExecutionCost, LimitedCostTracker,
+    CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
+    analysis_typecheck_cost, runtime_cost,
 };
 use crate::vm::diagnostic::Diagnostic;
-use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
-use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
+use crate::vm::representations::{ClarityName, SymbolicExpression, depth_traverse};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, FunctionSignature,
 };
 use crate::vm::types::{
-    parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, ListData, ListTypeData,
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
-    SequenceSubtype, StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature,
-    TypeSignatureExt as _, Value, MAX_TYPE_DEPTH,
+    FixedFunction, FunctionArg, FunctionType, ListData, ListTypeData, MAX_TYPE_DEPTH, OptionalData,
+    PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData, SequenceSubtype,
+    StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature,
+    TypeSignatureExt as _, Value, parse_name_type_pairs,
 };
 use crate::vm::variables::NativeVariables;
-use crate::vm::ClarityVersion;
 
 #[cfg(test)]
 pub mod tests;
@@ -186,7 +186,7 @@ impl FunctionType {
                 let cost = Some(compute_typecheck_cost(accounting, expected_type, arg_type));
                 let admitted = match expected_type.admits_type(&StacksEpochId::Epoch21, arg_type) {
                     Ok(admitted) => admitted,
-                    Err(e) => return (cost, Err(e.into())),
+                    Err(e) => return (cost, Err(StaticCheckError::from(e))),
                 };
                 if !admitted {
                     return (
@@ -219,7 +219,7 @@ impl FunctionType {
                     (cost, return_type)
                 } else {
                     let return_type = accumulated_type
-                        .ok_or_else(|| StaticCheckErrorKind::Expects("Failed to set accumulated type for arg indices >= 1 in variadic arithmetic".into()).into());
+                        .ok_or_else(|| StaticCheckErrorKind::ExpectsRejectable("Failed to set accumulated type for arg indices >= 1 in variadic arithmetic".into()).into());
                     let check_result = return_type.and_then(|return_type| {
                         if arg_type != return_type {
                             Err(StaticCheckErrorKind::TypeError(
@@ -568,7 +568,10 @@ impl FunctionType {
         let (expected_args, returns) = match self {
             FunctionType::Fixed(FixedFunction { args, returns }) => (args, returns),
             _ => {
-                return Err(StaticCheckErrorKind::Expects("Unexpected function type".into()).into())
+                return Err(StaticCheckErrorKind::ExpectsRejectable(
+                    "Unexpected function type".into(),
+                )
+                .into());
             }
         };
         check_argument_count(expected_args.len(), func_args)?;
@@ -592,7 +595,9 @@ impl FunctionType {
                                 &StacksEpochId::Epoch21,
                             )
                             .map_err(|_| {
-                                StaticCheckErrorKind::Expects("Failed to get trait".into())
+                                StaticCheckErrorKind::ExpectsRejectable(
+                                    "Failed to get trait".into(),
+                                )
                             })?
                             .ok_or(StaticCheckErrorKind::NoSuchContract(
                                 trait_id.contract_identifier.to_string(),
@@ -1021,14 +1026,14 @@ fn type_reserved_variable(
         let var_type = match variable {
             TxSender => TypeSignature::PrincipalType,
             TxSponsor => TypeSignature::new_option(TypeSignature::PrincipalType)
-                .map_err(|_| StaticCheckErrorKind::Expects("Bad construction".into()))?,
+                .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad construction".into()))?,
             ContractCaller => TypeSignature::PrincipalType,
             BlockHeight => TypeSignature::UIntType,
             StacksBlockHeight => TypeSignature::UIntType,
             TenureHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,
             NativeNone => TypeSignature::new_option(no_type())
-                .map_err(|_| StaticCheckErrorKind::Expects("Bad construction".into()))?,
+                .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad construction".into()))?,
             NativeTrue => TypeSignature::BoolType,
             NativeFalse => TypeSignature::BoolType,
             TotalLiquidMicroSTX => TypeSignature::UIntType,
@@ -1128,7 +1133,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 }
                 Err(e) => Err(e),
             })?
-            .ok_or_else(|| StaticCheckErrorKind::Expects("Expected a depth result".into()))?;
+            .ok_or_else(|| {
+                StaticCheckErrorKind::ExpectsRejectable("Expected a depth result".into())
+            })?;
         }
 
         runtime_cost(ClarityCostFunction::AnalysisStorage, self, size)?;
@@ -1137,10 +1144,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
         for exp in contract_analysis.expressions.iter() {
             let mut result_res = self.try_type_check_define(exp, &mut local_context);
-            if let Err(ref mut error) = result_res {
-                if !error.has_expression() {
-                    error.set_expression(exp);
-                }
+            if let Err(ref mut error) = result_res
+                && !error.has_expression()
+            {
+                error.set_expression(exp);
             }
             let result = result_res?;
             if result.is_none() {
@@ -1183,10 +1190,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
         let mut result = self.inner_type_check(expr, context);
 
-        if let Err(ref mut error) = result {
-            if !error.has_expression() {
-                error.set_expression(expr);
-            }
+        if let Err(ref mut error) = result
+            && !error.has_expression()
+        {
+            error.set_expression(expr);
         }
 
         result
@@ -1276,15 +1283,15 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 };
             }
         }
-        if let Err(mut check_error) = check_result {
+        if let Err(mut static_check_error) = check_result {
             if let StaticCheckErrorKind::IncorrectArgumentCount(expected, _actual) =
-                *check_error.err
+                *static_check_error.err
             {
-                check_error.err = Box::new(StaticCheckErrorKind::IncorrectArgumentCount(
+                static_check_error.err = Box::new(StaticCheckErrorKind::IncorrectArgumentCount(
                     expected,
                     args.len(),
                 ));
-                check_error.diagnostic = Diagnostic::err(check_error.err.as_ref());
+                static_check_error.diagnostic = Diagnostic::err(static_check_error.err.as_ref());
             }
             // accumulate the checking costs
             // the reason we do this now (instead of within the loop) is for backwards compatibility
@@ -1292,7 +1299,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 self.add_cost(cost?)?;
             }
 
-            return Err(check_error);
+            return Err(static_check_error);
         }
         // otherwise, just invoke the normal checking routine
         func_type.check_args(self, &accumulated_types, epoch, clarity_version)
@@ -1334,7 +1341,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         )?;
 
         if self.function_return_tracker.is_some() {
-            return Err(StaticCheckErrorKind::Expects(
+            return Err(StaticCheckErrorKind::ExpectsRejectable(
                 "Interpreter error: Previous function define left dirty typecheck state.".into(),
             )
             .into());
@@ -1535,7 +1542,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         expected_type: &TypeSignature,
     ) -> Result<TypeSignature, StaticCheckError> {
         if let (
-            LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
+            LiteralValue(Value::Principal(PrincipalData::Contract(contract_identifier))),
             TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
         ) = (&expr.expr, expected_type)
         {

@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Stacks Open Internet Foundation
+// Copyright (C) 2024-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -54,32 +54,62 @@ impl RawRewardSetEntry {
     pub fn from_pox_4_tuple(is_mainnet: bool, tuple: TupleData) -> Result<Self, ChainstateError> {
         let mut tuple_data = tuple.data_map;
 
-        let pox_addr_tuple = tuple_data
-            .remove("pox-addr")
-            .expect("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address)");
+        let pox_addr_tuple = tuple_data.remove("pox-addr").ok_or_else(|| {
+            ChainstateError::Expects(
+                "no `pox-addr` in return value from (get-reward-set-pox-address)".into(),
+            )
+        })?;
 
         let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
-            .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {pox_addr_tuple}"));
+            .ok_or_else(|| {
+                ChainstateError::Expects(format!("not a valid PoX address: {pox_addr_tuple}"))
+            })?;
 
         let total_ustx = tuple_data
             .remove("total-ustx")
-            .expect(
-                "FATAL: no 'total-ustx' in return value from (pox-4.get-reward-set-pox-address)",
-            )
-            .expect_u128()
-            .expect("FATAL: total-ustx is not a u128");
+            .ok_or_else(|| {
+                ChainstateError::Expects(
+                    "no 'total-ustx' in return value from (pox-4.get-reward-set-pox-address)"
+                        .into(),
+                )
+            })?
+            .expect_u128().map_err(|_| {
+                ChainstateError::Expects(
+                    "'total-ustx' in return value from (pox-4.get-reward-set-pox-address) is not a u128".into(),
+                )
+            })?.try_into().map_err(|_| ChainstateError::Expects("'total-ustx' value out of range for u64".into()))?;
 
         let stacker = tuple_data
             .remove("stacker")
-            .expect("FATAL: no 'stacker' in return value from (pox-4.get-reward-set-pox-address)")
-            .expect_optional()?
+            .ok_or_else(|| {
+                ChainstateError::Expects(
+                    "no 'stacker' in return value from (pox-4.get-reward-set-pox-address)".into(),
+                )
+            })?
+            .expect_optional().map_err(|_| {
+                ChainstateError::Expects(
+                    "'stacker' in return value from (pox-4.get-reward-set-pox-address) is not optional".into(),
+                )
+            })?
             .map(|value| value.expect_principal())
-            .transpose()?;
+            .transpose().map_err(|_| {
+                ChainstateError::Expects(
+                    "'stacker' in return value from (pox-4.get-reward-set-pox-address) is not a principal".into(),
+                )
+            })?;
 
         let signer = tuple_data
             .remove("signer")
-            .expect("FATAL: no 'signer' in return value from (pox-4.get-reward-set-pox-address)")
-            .expect_buff(SIGNERS_PK_LEN)?;
+            .ok_or_else(|| {
+                ChainstateError::Expects(
+                    "no 'signer' in return value from (pox-4.get-reward-set-pox-address)".into(),
+                )
+            })?
+            .expect_buff(SIGNERS_PK_LEN).map_err(|_| {
+                ChainstateError::Expects(
+                    format!("'signer' in return value from (pox-4.get-reward-set-pox-address) is not a buff of length {SIGNERS_PK_LEN}"),
+                )
+            })?;
 
         // (buff 33) only enforces max size, not min size, so we need to do a len check
         let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
@@ -131,7 +161,10 @@ impl NakamotoSigners {
                     reward_cycle.into(),
                 ))],
             )?
-            .expect_u128()?;
+            .expect_u128()
+            .map_err(|_| {
+                ChainstateError::Expects("get-reward-set-size did not return u128".into())
+            })?;
 
         let mut slots = vec![];
         for index in 0..list_length {
@@ -144,14 +177,15 @@ impl NakamotoSigners {
                         SymbolicExpression::atom_value(Value::UInt(index)),
                     ],
                 )?
-                .expect_optional()?
-                .unwrap_or_else(|| {
-                    panic!(
-                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                        index, list_length, reward_cycle
-                    )
-                })
-                .expect_tuple()?;
+                .expect_optional().map_err(|_| {
+                    ChainstateError::Expects("get-reward-set-pox-address did not return optional".into())
+                })?
+                .ok_or_else(|| {
+                    ChainstateError::Expects(format!("Missing PoX address in slot {index} out of {list_length} in reward cycle {reward_cycle}"))
+                })?
+                .expect_tuple().map_err(|_| {
+                    ChainstateError::Expects(format!("PoX address in slot {index} out of {list_length} in reward cycle {reward_cycle} is not a tuple"))
+                })?;
 
             let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple)?;
 
@@ -196,20 +230,21 @@ impl NakamotoSigners {
                 .map(|signer| {
                     let signer_hash = Hash160::from_data(&signer.signing_key);
                     let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
-                    Value::Tuple(
-                        TupleData::from_data(vec![
-                            (
-                                "signer".into(),
-                                Value::Principal(PrincipalData::from(signing_address)),
-                            ),
-                            ("num-slots".into(), Value::UInt(1))
-                        ])
-                            .expect(
-                                "BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple",
-                            ),
-                    )
+                    let tuple_data = TupleData::from_data(vec![
+                        (
+                            "signer".into(),
+                            Value::Principal(PrincipalData::from(signing_address)),
+                        ),
+                        ("num-slots".into(), Value::UInt(1)),
+                    ])
+                    .map_err(|e| {
+                        ChainstateError::Expects(format!(
+                            "Failed to create tuple for stackerdb entry: {e}"
+                        ))
+                    })?;
+                    Ok::<Value, ChainstateError>(Value::Tuple(tuple_data))
                 })
-                .collect()
+                .collect::<Result<Vec<_>, _>>()?
         };
 
         let signers_list = if participation == 0 {
@@ -223,66 +258,72 @@ impl NakamotoSigners {
                 .map(|signer| {
                     let signer_hash = Hash160::from_data(&signer.signing_key);
                     let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
-                    Value::Tuple(
-                        TupleData::from_data(vec![
-                            (
-                                "signer".into(),
-                                Value::Principal(PrincipalData::from(signing_address)),
-                            ),
-                            ("weight".into(), Value::UInt(signer.weight.into())),
-                        ])
-                        .expect(
-                            "BUG: Failed to construct `{ signer: principal, weight: uint }` tuple",
+                    let tuple = TupleData::from_data(vec![
+                        (
+                            "signer".into(),
+                            Value::Principal(PrincipalData::from(signing_address)),
                         ),
-                    )
+                        ("weight".into(), Value::UInt(signer.weight.into())),
+                    ])
+                    .map_err(|e| {
+                        ChainstateError::Expects(format!(
+                            "Failed to create tuple for signers entry: {e}"
+                        ))
+                    })?;
+                    Ok::<Value, ChainstateError>(Value::Tuple(tuple))
                 })
-                .collect()
+                .collect::<Result<Vec<_>, _>>()?
         };
 
         if signers_list.len() > SIGNERS_MAX_LIST_SIZE {
-            panic!(
-                "FATAL: signers list returned by reward set calculations longer than maximum ({} > {})",
-                signers_list.len(),
-                SIGNERS_MAX_LIST_SIZE,
-            );
+            return Err(ChainstateError::Expects(format!(
+                "signers list returned by reward set calculations longer than maximum ({} > {SIGNERS_MAX_LIST_SIZE})",
+                signers_list.len()
+            )));
         }
 
         let set_stackerdb_args = [
-            SymbolicExpression::atom_value(Value::cons_list_unsanitized(stackerdb_list).expect(
-                "BUG: Failed to construct `(list 4000 { signer: principal, num-slots: u64 })` list",
-            )),
+            SymbolicExpression::atom_value(Value::cons_list_unsanitized(stackerdb_list).map_err(
+                |e| {
+                    ChainstateError::Expects(format!(
+                        "Failed to create cons list for stackerdb arg: {e}"
+                    ))
+                },
+            )?),
             SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
             SymbolicExpression::atom_value(Value::UInt(coinbase_height.into())),
         ];
 
         let set_signers_args = [
             SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
-            SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).expect(
-                "BUG: Failed to construct `(list 4000 { signer: principal, weight: uint })` list",
-            )),
+            SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).map_err(
+                |e| {
+                    ChainstateError::Expects(format!(
+                        "Failed to create cons list for signers arg: {e}"
+                    ))
+                },
+            )?),
         ];
 
-        let (value, _, events, _) = clarity
-            .with_abort_callback(
-                |vm_env| {
-                    vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
-                        env.execute_contract_allow_private(
-                            signers_contract,
-                            "stackerdb-set-signer-slots",
-                            &set_stackerdb_args,
-                            false,
-                        )?;
-                        env.execute_contract_allow_private(
-                            signers_contract,
-                            "set-signers",
-                            &set_signers_args,
-                            false,
-                        )
-                    })
-                },
-                |_, _| None,
-            )
-            .expect("FATAL: failed to update signer stackerdb");
+        let (value, _, events, _) = clarity.with_abort_callback(
+            |vm_env| {
+                vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
+                    env.execute_contract_allow_private(
+                        signers_contract,
+                        "stackerdb-set-signer-slots",
+                        &set_stackerdb_args,
+                        false,
+                    )?;
+                    env.execute_contract_allow_private(
+                        signers_contract,
+                        "set-signers",
+                        &set_signers_args,
+                        false,
+                    )
+                })
+            },
+            |_, _| None,
+        )?;
 
         if let Value::Response(ref data) = value {
             if !data.committed {
@@ -291,7 +332,9 @@ impl NakamotoSigners {
                     "reward_cycle" => reward_cycle,
                     "cc_response" => %value,
                 );
-                panic!();
+                return Err(ChainstateError::Expects(
+                    "Failed to update .signers contract".into(),
+                ));
             }
         }
 
@@ -343,24 +386,27 @@ impl NakamotoSigners {
         let signers_contract = &boot_code_id(SIGNERS_NAME, clarity_tx.config.mainnet);
 
         // are we the first block in the prepare phase in our fork?
-        let needs_update: Result<_, ChainstateError>  = clarity_tx.connection().with_clarity_db_readonly(|clarity_db| {
-            if !clarity_db.has_contract(signers_contract) {
-                // if there's no signers contract, no need to update anything.
-                return Ok(false)
-            }
-            let Ok(value) = clarity_db.lookup_variable_unknown_descriptor(
-                signers_contract,
-                SIGNERS_UPDATE_STATE,
-                &current_epoch,
-            ) else {
-                error!("FATAL: Failed to read `{SIGNERS_UPDATE_STATE}` variable from .signers contract");
-                panic!();
-            };
-            let cycle_number = value.expect_u128()?;
-            // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
-            //  the .signers state.
-            Ok(cycle_number < u128::from(cycle_of_prepare_phase))
-        });
+        let needs_update: Result<_, ChainstateError> = clarity_tx
+            .connection()
+            .with_clarity_db_readonly(|clarity_db| {
+                if !clarity_db.has_contract(signers_contract) {
+                    // if there's no signers contract, no need to update anything.
+                    return Ok(false);
+                }
+                let value = clarity_db.lookup_variable_unknown_descriptor(
+                    signers_contract,
+                    SIGNERS_UPDATE_STATE,
+                    &current_epoch,
+                )?;
+                let cycle_number = value.expect_u128().map_err(|_| {
+                    ChainstateError::Expects(format!(
+                        "Expected u128 for .signers {SIGNERS_UPDATE_STATE} variable"
+                    ))
+                })?;
+                // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
+                //  the .signers state.
+                Ok(cycle_number < u128::from(cycle_of_prepare_phase))
+            });
 
         if !needs_update? {
             debug!("Current cycle has already been setup in .signers or .signers is not initialized yet");
@@ -416,24 +462,53 @@ impl NakamotoSigners {
                 sortdb,
                 block_id,
                 SIGNERS_NAME,
-                &format!("(get-signers u{})", reward_cycle),
+                &format!("(get-signers u{reward_cycle})"),
             )?
-            .expect_optional()?;
+            .expect_optional()
+            .map_err(|_| ChainstateError::Expects("get-signers did not return optional".into()))?;
         let mut signers = HashMap::new();
         if let Some(signers_list) = signers_opt {
-            for signer in signers_list.expect_list()? {
-                let signer_tuple = signer.expect_tuple()?;
-                let principal_data = signer_tuple.get("signer")?.clone().expect_principal()?;
+            for signer in signers_list
+                .expect_list()
+                .map_err(|_| ChainstateError::Expects("get-signers did not return a list".into()))?
+            {
+                let signer_tuple = signer.expect_tuple().map_err(|_| {
+                    ChainstateError::Expects(
+                        "Signer returned from get-signers is not a tuple".into(),
+                    )
+                })?;
+                let principal_data = signer_tuple
+                    .get("signer")
+                    .map_err(|_| {
+                        ChainstateError::Expects("Failed to get 'signer' from tuple".into())
+                    })?
+                    .clone()
+                    .expect_principal()
+                    .map_err(|_| {
+                        ChainstateError::Expects("'signer' in tuple is not a principal".into())
+                    })?;
                 let signer_address = if let PrincipalData::Standard(signer) = principal_data {
                     signer.into()
                 } else {
-                    panic!(
-                        "FATAL: Signer returned from get-signers is not a standard principal: {:?}",
-                        principal_data
-                    );
+                    return Err(ChainstateError::Expects(
+                        "Signer returned from get-signers is not a standard principal".into(),
+                    ));
                 };
-                let weight = u64::try_from(signer_tuple.get("weight")?.to_owned().expect_u128()?)
-                    .expect("FATAL: Signer weight greater than a u64::MAX");
+                let weight = u64::try_from(
+                    signer_tuple
+                        .get("weight")
+                        .map_err(|_| {
+                            ChainstateError::Expects("Failed to get 'weight' from tuple".into())
+                        })?
+                        .to_owned()
+                        .expect_u128()
+                        .map_err(|_| {
+                            ChainstateError::Expects("'weight' in tuple is not a u128".into())
+                        })?,
+                )
+                .map_err(|_| {
+                    ChainstateError::Expects("Signer weight greater than a u64::MAX".into())
+                })?;
                 signers.insert(signer_address, weight);
             }
         }

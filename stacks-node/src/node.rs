@@ -338,7 +338,7 @@ impl Node {
         )
         .expect("FATAL: failed to initiate mempool");
 
-        let mut event_dispatcher = EventDispatcher::new(Some(config.get_working_dir()));
+        let mut event_dispatcher = EventDispatcher::new(config.get_working_dir());
 
         for observer in &config.events_observers {
             event_dispatcher.register_observer(observer);

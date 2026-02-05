@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// This file implements the cost functions from costs-2.clar in Rust.
-use super::cost_functions::{linear, logn, nlogn, CostValues};
 use super::ExecutionCost;
+/// This file implements the cost functions from costs-2.clar in Rust.
+use super::cost_functions::{CostValues, linear, logn, nlogn};
 use crate::vm::errors::{RuntimeError, VmExecutionError};
 
 pub struct Costs2;

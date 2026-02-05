@@ -446,7 +446,7 @@ object of the following form:
 ```json
 {
   "okay": false,
-  "cause": "Unchecked(PublicFunctionNotReadOnly(..."
+  "cause": "RuntimeCheck(PublicFunctionNotReadOnly(..."
 }
 ```
 

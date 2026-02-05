@@ -677,7 +677,7 @@ impl TransactionResult {
                 }
                 ClarityRuntimeTxError::AnalysisError(e) => {
                     let clarity_err = Error::ClarityError(ClarityError::Interpreter(
-                        VmExecutionError::Unchecked(e),
+                        VmExecutionError::RuntimeCheck(e),
                     ));
                     if epoch_id < StacksEpochId::Epoch21 {
                         // this would invalidate the block, so it's problematic

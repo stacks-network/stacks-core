@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,19 +17,19 @@
 use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_05::{
-    check_argument_count, check_arguments_at_least, StaticCheckError, StaticCheckErrorKind,
-    TypeChecker, TypingContext,
+    StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext, check_argument_count,
+    check_arguments_at_least,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
-pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length};
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
+pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length};
 use crate::vm::types::{FunctionType, TypeSignature, Value};
-use crate::vm::ClarityVersion;
 
 fn get_simple_native_or_user_define(
     function_name: &str,
@@ -263,7 +263,7 @@ pub fn check_special_concat(
                         Box::new(lhs_type.clone()),
                         Box::new(rhs_type.clone()),
                     )
-                    .into())
+                    .into());
                 }
             }
         }
@@ -397,21 +397,23 @@ pub fn check_special_element_at(
     match collection_type {
         TypeSignature::SequenceType(ListType(list)) => {
             let (entry_type, _) = list.destruct();
-            TypeSignature::new_option(entry_type).map_err(|e| e.into())
+            Ok(TypeSignature::new_option(entry_type)?)
         }
         TypeSignature::SequenceType(BufferType(_)) => Ok(TypeSignature::OptionalType(Box::new(
             TypeSignature::BUFFER_1,
         ))),
         TypeSignature::SequenceType(StringType(ASCII(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(ASCII(
-                BufferLength::try_from(1u32)
-                    .map_err(|_| StaticCheckErrorKind::Expects("Bad constructor".into()))?,
+                BufferLength::try_from(1u32).map_err(|_| {
+                    StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into())
+                })?,
             )))),
         )),
         TypeSignature::SequenceType(StringType(UTF8(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(UTF8(
-                StringUTF8Length::try_from(1u32)
-                    .map_err(|_| StaticCheckErrorKind::Expects("Bad constructor".into()))?,
+                StringUTF8Length::try_from(1u32).map_err(|_| {
+                    StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into())
+                })?,
             )))),
         )),
         _ => Err(StaticCheckErrorKind::ExpectedSequence(Box::new(collection_type)).into()),
@@ -435,5 +437,5 @@ pub fn check_special_index_of(
 
     checker.type_check_expects(&args[1], context, &expected_input_type)?;
 
-    TypeSignature::new_option(TypeSignature::UIntType).map_err(|e| e.into())
+    Ok(TypeSignature::new_option(TypeSignature::UIntType)?)
 }

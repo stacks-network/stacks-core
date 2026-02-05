@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.3.0.0.5]
+
+### Added
+
+- New endpoint `/v3/blocks/simulate/{block_id}` allows to simulate the execution of a specific block with a brand new set of transactions
+- Improved block validation in `stacks-inspect`.
+
+### Changed
+
+- Removed `validate-naka-block` option in `stacks-inspect`, merging it with `validate-block` so that users do not need to differentiate between the two.
+
 ## [3.3.0.0.4]
 
 ### Added

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use super::ExecutionCost;
 /// This file implements the cost functions from costs-4.clar in Rust.
 /// For Clarity 4, all cost functions are the same as in costs-3, except
 /// for the new `cost_contract_hash` function. To avoid duplication, this
@@ -20,7 +21,6 @@
 /// overrides only `cost_contract_hash`.
 use super::cost_functions::CostValues;
 use super::costs_3::Costs3;
-use super::ExecutionCost;
 use crate::vm::costs::cost_functions::linear;
 use crate::vm::errors::VmExecutionError;
 

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,22 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::vm::callables::DefineType;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
+use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, RuntimeError, VmExecutionError,
-    VmInternalError,
+    RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError, check_argument_count,
+    check_arguments_at_least,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, PrincipalData, SequenceData,
     StacksBlockInfoProperty, TenureInfoProperty, TupleData, TypeSignature, Value,
 };
-use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
+use crate::vm::{ClarityVersion, Environment, LocalContext, eval};
 
 switch_on_global_epoch!(special_fetch_variable(
     special_fetch_variable_v200,
@@ -69,20 +69,22 @@ pub fn special_contract_call(
     //   is checked in callables::DefinedFunction::execute_apply.
     runtime_cost(ClarityCostFunction::ContractCall, env, 0)?;
 
-    let function_name = args[1].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let function_name = args[1]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
     let rest_args_slice = &args[2..];
     let rest_args_len = rest_args_slice.len();
     let mut rest_args = Vec::with_capacity(rest_args_len);
     let mut rest_args_sizes = Vec::with_capacity(rest_args_len);
     for arg in rest_args_slice.iter() {
         let evaluated_arg = eval(arg, env, context)?;
-        rest_args_sizes.push(evaluated_arg.size()? as u64);
+        rest_args_sizes.push(evaluated_arg.size()?.into());
         rest_args.push(SymbolicExpression::atom_value(evaluated_arg));
     }
 
     let (contract_identifier, type_returns_constraint) = match &args[0].expr {
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(
-            ref contract_identifier,
+            contract_identifier,
         ))) => {
             // Static dispatch
             (contract_identifier, None)
@@ -93,10 +95,9 @@ pub fn special_contract_call(
                 Some(trait_data) => {
                     // Ensure that contract-call is used for inter-contract calls only
                     if trait_data.contract_identifier == env.contract_context.contract_identifier {
-                        return Err(CheckErrorKind::CircularReference(vec![trait_data
-                            .contract_identifier
-                            .name
-                            .to_string()])
+                        return Err(RuntimeCheckErrorKind::CircularReference(vec![
+                            trait_data.contract_identifier.name.to_string(),
+                        ])
                         .into());
                     }
 
@@ -105,7 +106,7 @@ pub fn special_contract_call(
                         .database
                         .get_contract(&trait_data.contract_identifier)
                         .map_err(|_e| {
-                            CheckErrorKind::NoSuchContract(
+                            RuntimeCheckErrorKind::NoSuchContract(
                                 trait_data.contract_identifier.to_string(),
                             )
                         })?;
@@ -116,7 +117,7 @@ pub fn special_contract_call(
                     let trait_identifier = trait_data
                         .trait_identifier
                         .as_ref()
-                        .ok_or(CheckErrorKind::ExpectedTraitIdentifier)?;
+                        .ok_or(RuntimeCheckErrorKind::ExpectedTraitIdentifier)?;
 
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
@@ -133,7 +134,7 @@ pub fn special_contract_call(
                             .database
                             .get_contract(&trait_identifier.contract_identifier)
                             .map_err(|_e| {
-                                CheckErrorKind::NoSuchContract(
+                                RuntimeCheckErrorKind::NoSuchContract(
                                     trait_identifier.contract_identifier.to_string(),
                                 )
                             })?;
@@ -143,19 +144,21 @@ pub fn special_contract_call(
                         // Retrieve the function that will be invoked
                         let function_to_check = contract_context_to_check
                             .lookup_function(function_name)
-                            .ok_or(CheckErrorKind::BadTraitImplementation(
+                            .ok_or(RuntimeCheckErrorKind::BadTraitImplementation(
                                 trait_name.clone(),
                                 function_name.to_string(),
                             ))?;
 
                         // Check read/write compatibility
                         if env.global_context.is_read_only() {
-                            return Err(CheckErrorKind::TraitBasedContractCallInReadOnly.into());
+                            return Err(
+                                RuntimeCheckErrorKind::TraitBasedContractCallInReadOnly.into()
+                            );
                         }
 
                         // Check visibility
                         if function_to_check.define_type == DefineType::Private {
-                            return Err(CheckErrorKind::NoSuchPublicFunction(
+                            return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(
                                 trait_data.contract_identifier.to_string(),
                                 function_name.to_string(),
                             )
@@ -171,9 +174,11 @@ pub fn special_contract_call(
                         // Retrieve the expected method signature
                         let constraining_trait = contract_context_defining_trait
                             .lookup_trait_definition(&trait_name)
-                            .ok_or(CheckErrorKind::TraitReferenceUnknown(trait_name.clone()))?;
+                            .ok_or(RuntimeCheckErrorKind::TraitReferenceUnknown(
+                                trait_name.clone(),
+                            ))?;
                         let expected_sig = constraining_trait.get(function_name).ok_or(
-                            CheckErrorKind::TraitMethodUnknown(
+                            RuntimeCheckErrorKind::TraitMethodUnknown(
                                 trait_name,
                                 function_name.to_string(),
                             ),
@@ -184,10 +189,10 @@ pub fn special_contract_call(
                         )
                     }
                 }
-                _ => return Err(CheckErrorKind::ContractCallExpectName.into()),
+                _ => return Err(RuntimeCheckErrorKind::ContractCallExpectName.into()),
             }
         }
-        _ => return Err(CheckErrorKind::ContractCallExpectName.into()),
+        _ => return Err(RuntimeCheckErrorKind::ContractCallExpectName.into()),
     };
 
     let contract_principal = env.contract_context.contract_identifier.clone().into();
@@ -208,14 +213,14 @@ pub fn special_contract_call(
     // sanitize contract-call outputs in epochs >= 2.4
     let result_type = TypeSignature::type_of(&result)?;
     let (result, _) = Value::sanitize_value(env.epoch(), &result_type, result)
-        .ok_or_else(|| CheckErrorKind::CouldNotDetermineType)?;
+        .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
     if let Some(returns_type_signature) = type_returns_constraint {
         let actual_returns = TypeSignature::type_of(&result)?;
         if !returns_type_signature.admits_type(env.epoch(), &actual_returns)? {
-            return Err(CheckErrorKind::ReturnTypesMustMatch(
+            return Err(RuntimeCheckErrorKind::ReturnTypesMustMatch(
                 Box::new(returns_type_signature),
                 Box::new(actual_returns),
             )
@@ -233,15 +238,15 @@ pub fn special_fetch_variable_v200(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let var_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
-    let data_types = env
-        .contract_context
-        .meta_data_var
-        .get(var_name)
-        .ok_or(CheckErrorKind::NoSuchDataVariable(var_name.to_string()))?;
+    let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
+        RuntimeCheckErrorKind::NoSuchDataVariable(var_name.to_string()),
+    )?;
 
     runtime_cost(
         ClarityCostFunction::FetchVar,
@@ -264,15 +269,15 @@ pub fn special_fetch_variable_v205(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let var_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
-    let data_types = env
-        .contract_context
-        .meta_data_var
-        .get(var_name)
-        .ok_or(CheckErrorKind::NoSuchDataVariable(var_name.to_string()))?;
+    let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
+        RuntimeCheckErrorKind::NoSuchDataVariable(var_name.to_string()),
+    )?;
 
     let epoch = *env.epoch();
     let result = env
@@ -282,7 +287,7 @@ pub fn special_fetch_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size()? as u64,
+        Err(_e) => data_types.value_type.size()?.into(),
     };
 
     runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
@@ -296,22 +301,22 @@ pub fn special_set_variable_v200(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
 
     let value = eval(&args[1], env, context)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let var_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
-    let data_types = env
-        .contract_context
-        .meta_data_var
-        .get(var_name)
-        .ok_or(CheckErrorKind::NoSuchDataVariable(var_name.to_string()))?;
+    let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
+        RuntimeCheckErrorKind::NoSuchDataVariable(var_name.to_string()),
+    )?;
 
     runtime_cost(
         ClarityCostFunction::SetVar,
@@ -336,22 +341,22 @@ pub fn special_set_variable_v205(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
 
     let value = eval(&args[1], env, context)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let var_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
-    let data_types = env
-        .contract_context
-        .meta_data_var
-        .get(var_name)
-        .ok_or(CheckErrorKind::NoSuchDataVariable(var_name.to_string()))?;
+    let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
+        RuntimeCheckErrorKind::NoSuchDataVariable(var_name.to_string()),
+    )?;
 
     let epoch = *env.epoch();
     let result = env
@@ -361,7 +366,7 @@ pub fn special_set_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size()? as u64,
+        Err(_e) => data_types.value_type.size()?.into(),
     };
 
     runtime_cost(ClarityCostFunction::SetVar, env, result_size)?;
@@ -378,7 +383,9 @@ pub fn special_fetch_entry_v200(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let map_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let key = eval(&args[1], env, context)?;
 
@@ -388,7 +395,7 @@ pub fn special_fetch_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::FetchEntry,
@@ -411,7 +418,9 @@ pub fn special_fetch_entry_v205(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let map_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let key = eval(&args[1], env, context)?;
 
@@ -421,7 +430,7 @@ pub fn special_fetch_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -431,7 +440,7 @@ pub fn special_fetch_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
     runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
@@ -457,11 +466,11 @@ pub fn special_at_block(
             }
         }
         x => {
-            return Err(CheckErrorKind::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(x),
             )
-            .into())
+            .into());
         }
     };
 
@@ -478,7 +487,7 @@ pub fn special_set_entry_v200(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -487,7 +496,9 @@ pub fn special_set_entry_v200(
 
     let value = eval(&args[2], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let map_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -495,7 +506,7 @@ pub fn special_set_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
@@ -521,7 +532,7 @@ pub fn special_set_entry_v205(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -530,7 +541,9 @@ pub fn special_set_entry_v205(
 
     let value = eval(&args[2], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let map_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -538,7 +551,7 @@ pub fn special_set_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -548,7 +561,7 @@ pub fn special_set_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -564,7 +577,7 @@ pub fn special_insert_entry_v200(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -573,7 +586,9 @@ pub fn special_insert_entry_v200(
 
     let value = eval(&args[2], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let map_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -581,7 +596,7 @@ pub fn special_insert_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
@@ -608,7 +623,7 @@ pub fn special_insert_entry_v205(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -617,7 +632,9 @@ pub fn special_insert_entry_v205(
 
     let value = eval(&args[2], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let map_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -625,7 +642,7 @@ pub fn special_insert_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -635,7 +652,7 @@ pub fn special_insert_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -651,14 +668,16 @@ pub fn special_delete_entry_v200(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
 
     let key = eval(&args[1], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let map_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -666,7 +685,7 @@ pub fn special_delete_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
@@ -691,14 +710,16 @@ pub fn special_delete_entry_v205(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
+        return Err(RuntimeCheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
 
     let key = eval(&args[1], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
+    let map_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -706,7 +727,7 @@ pub fn special_delete_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
+        .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -716,7 +737,7 @@ pub fn special_delete_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.key_type.size()? as u64,
+        Err(_e) => data_types.key_type.size()?.into(),
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -740,10 +761,12 @@ pub fn special_delete_entry_v205(
 /// - `block-reward` returns the block reward for the block at `block-height`
 ///
 /// # Errors:
-/// - CheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrorKind::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrorKind::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
-/// - CheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
+/// - [`RuntimeCheckErrorKind`] cost errors (e.g., `CostOverflow`, `CostBalanceExceeded`) from [`runtime_cost`].
+/// - [`RuntimeCheckErrorKind::IncorrectArgumentCount`] if there aren't 2 arguments.
+/// - [`RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName`] if `args[0]` isn't a ClarityName or isn't a valid [`BlockInfoProperty`].
+/// - [`RuntimeCheckErrorKind::TypeValueError`] if `args[1]` doesn't evaluate to a `uint`.
+/// - [`VmExecutionError`] propagated from [`eval`] when evaluating `args[1]`.
+/// - [`VmInternalError`] from database operations when retrieving block information.
 pub fn special_get_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -757,18 +780,18 @@ pub fn special_get_block_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(CheckErrorKind::GetBlockInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName)?;
 
     let version = env.contract_context.get_clarity_version();
 
     let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(property_name, version)
-        .ok_or(CheckErrorKind::GetBlockInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName)?;
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrorKind::TypeValueError(
+        x => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(x),
         )),
@@ -882,7 +905,7 @@ pub fn special_get_block_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
 /// Handles the `get-burn-block-info?` special function.
@@ -892,10 +915,13 @@ pub fn special_get_block_info(
 /// - `pox_addrs` returns the list of PoX addresses paid out at `burn_block_height`
 ///
 /// # Errors:
-/// - CheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrorKind::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrorKind::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
-/// - CheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
+/// - [`RuntimeCheckErrorKind::IncorrectArgumentCount`] if there aren't 2 arguments.
+/// - [`RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName`] if `args[0]` isn't a ClarityName.
+/// - [`RuntimeCheckErrorKind::NoSuchBurnBlockInfoProperty`] if `args[0]` isn't a [`BurnBlockInfoProperty`].
+/// - [`RuntimeCheckErrorKind::TypeValueError`] if `args[1]` doesn't evaluate to a `uint`.
+/// - [`RuntimeCheckErrorKind`] cost errors (e.g., `CostOverflow`, `CostBalanceExceeded`) from [`runtime_cost`].
+/// - [`VmExecutionError`] propagated from [`eval`] when evaluating `args[1]`.
+/// - [`VmInternalError`] from database operations or value construction failures.
 pub fn special_get_burn_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -908,10 +934,10 @@ pub fn special_get_burn_block_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(CheckErrorKind::GetBlockInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName)?;
 
     let block_info_prop = BurnBlockInfoProperty::lookup_by_name(property_name).ok_or(
-        CheckErrorKind::NoSuchBurnBlockInfoProperty(property_name.to_string()),
+        RuntimeCheckErrorKind::NoSuchBurnBlockInfoProperty(property_name.to_string()),
     )?;
 
     // Handle the block-height input arg clause.
@@ -919,7 +945,7 @@ pub fn special_get_burn_block_info(
     let height_value = match height_eval {
         Value::UInt(result) => result,
         x => {
-            return Err(CheckErrorKind::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
                 Box::new(x),
             )
@@ -941,11 +967,11 @@ pub fn special_get_burn_block_info(
                 .get_burnchain_block_header_hash_for_burnchain_height(height_value)?;
 
             match burnchain_header_hash_opt {
-                Some(burnchain_header_hash) => {
-                    Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
+                Some(burnchain_header_hash) => Ok(Value::some(Value::Sequence(
+                    SequenceData::Buffer(BuffData {
                         data: burnchain_header_hash.as_bytes().to_vec(),
-                    })))
-                }
+                    }),
+                ))?),
                 None => Ok(Value::none()),
             }
         }
@@ -993,10 +1019,13 @@ pub fn special_get_burn_block_info(
 /// - `time` returns the block time at `block-height`
 ///
 /// # Errors:
-/// - CheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrorKind::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrorKind::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
-/// - CheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
+/// - [`RuntimeCheckErrorKind::IncorrectArgumentCount`] if there aren't 2 arguments.
+/// - [`RuntimeCheckErrorKind::GetStacksBlockInfoExpectPropertyName`] if `args[0]` isn't a ClarityName.
+/// - [`RuntimeCheckErrorKind::NoSuchStacksBlockInfoProperty`] if `args[0]` isn't a [`StacksBlockInfoProperty`].
+/// - [`RuntimeCheckErrorKind::TypeValueError`] if `args[1]` doesn't evaluate to a `uint`.
+/// - [`RuntimeCheckErrorKind`] cost errors (e.g., `CostOverflow`, `CostBalanceExceeded`) from [`runtime_cost`].
+/// - [`VmExecutionError`] propagated from [`eval`] when evaluating `args[1]`.
+/// - [`VmInternalError`] from database operations when retrieving block information.
 pub fn special_get_stacks_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -1010,17 +1039,17 @@ pub fn special_get_stacks_block_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(CheckErrorKind::GetStacksBlockInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetStacksBlockInfoExpectPropertyName)?;
 
     let block_info_prop = StacksBlockInfoProperty::lookup_by_name(property_name).ok_or(
-        CheckErrorKind::NoSuchStacksBlockInfoProperty(property_name.to_string()),
+        RuntimeCheckErrorKind::NoSuchStacksBlockInfoProperty(property_name.to_string()),
     )?;
 
     // Handle the block-height input arg.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrorKind::TypeValueError(
+        x => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(x),
         )),
@@ -1060,10 +1089,10 @@ pub fn special_get_stacks_block_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
-/// Handles the function `get-tenure-info?` special function.
+/// Handles the `get-tenure-info?` special function.
 /// Interprets `args` as variables `[property-name, block-height]`, and returns
 /// a property value determined by `property-name`:
 /// - `time` returns the burn block time for the tenure of which `block-height` is a part
@@ -1075,10 +1104,12 @@ pub fn special_get_stacks_block_info(
 /// - `block-reward` returns the block reward for the tenure of which `block-height` is a part
 ///
 /// # Errors:
-/// - CheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrorKind::GetTenureInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrorKind::NoSuchTenureInfoProperty if `args[0]` isn't a TenureInfoProperty.
-/// - CheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
+/// - [`RuntimeCheckErrorKind::IncorrectArgumentCount`] if there aren't 2 arguments.
+/// - [`RuntimeCheckErrorKind::GetTenureInfoExpectPropertyName`] if `args[0]` isn't a ClarityName or isn't a valid [`TenureInfoProperty`].
+/// - [`RuntimeCheckErrorKind::TypeValueError`] if `args[1]` doesn't evaluate to a `uint`.
+/// - [`RuntimeCheckErrorKind`] cost errors (e.g., `CostOverflow`, `CostBalanceExceeded`) from [`runtime_cost`].
+/// - [`VmExecutionError`] propagated from [`eval`] when evaluating `args[1]`.
+/// - [`VmInternalError`] from database operations when retrieving tenure information.
 pub fn special_get_tenure_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -1092,16 +1123,16 @@ pub fn special_get_tenure_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(CheckErrorKind::GetTenureInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetTenureInfoExpectPropertyName)?;
 
     let block_info_prop = TenureInfoProperty::lookup_by_name(property_name)
-        .ok_or(CheckErrorKind::GetTenureInfoExpectPropertyName)?;
+        .ok_or(RuntimeCheckErrorKind::GetTenureInfoExpectPropertyName)?;
 
     // Handle the block-height input arg.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrorKind::TypeValueError(
+        x => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(x),
         )),
@@ -1173,7 +1204,7 @@ pub fn special_get_tenure_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
 /// Handles the function `contract-hash?`
@@ -1185,7 +1216,7 @@ pub fn special_contract_hash(
     check_argument_count(1, args)?;
     let contract_expr = args
         .first()
-        .ok_or(CheckErrorKind::IncorrectArgumentCount(1, 0))?;
+        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0))?;
     let contract_value = eval(contract_expr, env, context)?;
     let contract_identifier = match contract_value {
         Value::Principal(PrincipalData::Standard(_)) => {
@@ -1194,9 +1225,10 @@ pub fn special_contract_hash(
         }
         Value::Principal(PrincipalData::Contract(contract_identifier)) => contract_identifier,
         _ => {
-            // If the value is not a principal, we return a check error.
+            // If the value is not a principal, we return a RuntimeCheckErrorKind.
             return Err(
-                CheckErrorKind::ExpectedContractPrincipalValue(Box::new(contract_value)).into(),
+                RuntimeCheckErrorKind::ExpectedContractPrincipalValue(Box::new(contract_value))
+                    .into(),
             );
         }
     };
@@ -1212,5 +1244,7 @@ pub fn special_contract_hash(
         return Ok(Value::err_uint(2));
     };
 
-    Value::okay(Value::buff_from(contract_hash.as_bytes().to_vec())?)
+    Ok(Value::okay(Value::buff_from(
+        contract_hash.as_bytes().to_vec(),
+    )?)?)
 }

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -31,7 +31,7 @@ pub mod representations;
 pub mod token;
 pub mod types;
 
-pub use errors::VmExecutionError;
+pub use errors::{ClarityTypeError, IncomparableError};
 pub use representations::{ClarityName, ContractName};
 pub use types::Value;
 

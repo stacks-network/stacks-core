@@ -42,7 +42,9 @@ const BLOCK_PROPOSAL_VALIDATION_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_FIRST_PROPOSAL_BURN_BLOCK_TIMING_SECS: u64 = 60;
 const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_DRY_RUN: bool = false;
-const TENURE_IDLE_TIMEOUT_SECS: u64 = 120;
+/// Default number of idle seconds before the signer will accept a
+///  tenure extend from the miner
+const TENURE_IDLE_TIMEOUT_SECS: u64 = 60;
 const READ_COUNT_IDLE_TIMEOUT_SECS: u64 = 20;
 const DEFAULT_REORG_ATTEMPTS_ACTIVITY_TIMEOUT_MS: u64 = 200_000;
 /// Default number of seconds to add to the tenure extend time, after computing the idle timeout,

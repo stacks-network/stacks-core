@@ -58,6 +58,8 @@ use stacks_common::types::{PrivateKey, StacksEpochId};
 #[cfg(test)]
 use stacks_common::util::tests::TestFlag;
 use stacks_common::util::vrf::VRFProof;
+#[cfg(test)]
+use tempfile::tempdir;
 
 use super::miner_db::MinerDB;
 use super::relayer::{MinerStopHandle, RelayerThread};
@@ -2062,6 +2064,8 @@ fn should_read_count_extend_units() {
     let (relay_sender, _rcv_2) = std::sync::mpsc::sync_channel(1);
     let (_coord_rcv, coord_comms) =
         stacks::chainstate::coordinator::comm::CoordinatorCommunication::instantiate();
+    let working_dir = tempdir().unwrap();
+
     let mut miner = BlockMinerThread {
         config: Config::default(),
         globals: Globals::new(
@@ -2094,7 +2098,7 @@ fn should_read_count_extend_units() {
         burn_election_block: BlockSnapshot::empty(),
         burn_block: BlockSnapshot::empty(),
         parent_tenure_id: StacksBlockId([0; 32]),
-        event_dispatcher: EventDispatcher::new(None),
+        event_dispatcher: EventDispatcher::new(working_dir.path().to_path_buf()),
         reason: MinerReason::Extended {
             burn_view_consensus_hash: ConsensusHash([0; 20]),
         },

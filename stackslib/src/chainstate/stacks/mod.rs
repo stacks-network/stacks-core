@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -100,6 +100,7 @@ pub enum Error {
     MicroblockStreamTooLongError,
     IncompatibleSpendingConditionError,
     CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
+    /// Errors that occur during clarity contract processing and execution
     ClarityError(ClarityError),
     DBError(db_error),
     NetError(net_error),
@@ -122,6 +123,8 @@ pub enum Error {
     InvalidChildOfNakomotoBlock,
     NoRegisteredSigners(u64),
     TenureTooBigError,
+    /// This error indicates an internal state or condition that should never actually happen
+    Expects(String),
 }
 
 impl From<marf_error> for Error {
@@ -225,6 +228,7 @@ impl fmt::Display for Error {
                 write!(f, "The supplied block identifiers are not in the same fork")
             }
             Error::TenureTooBigError => write!(f, "Too much data in tenure"),
+            Error::Expects(ref msg) => write!(f, "Unexpected state: {msg}"),
         }
     }
 }
@@ -272,6 +276,7 @@ impl error::Error for Error {
             Error::NoRegisteredSigners(_) => None,
             Error::NotInSameFork => None,
             Error::TenureTooBigError => None,
+            Error::Expects(ref _msg) => None,
         }
     }
 }
@@ -319,6 +324,7 @@ impl Error {
             Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
             Error::NotInSameFork => "NotInSameFork",
             Error::TenureTooBigError => "TenureTooBigError",
+            Error::Expects(_) => "Expects",
         }
     }
 

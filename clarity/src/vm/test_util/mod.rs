@@ -1,20 +1,34 @@
+// Copyright (C) 2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     PEER_VERSION_EPOCH_2_0,
 };
+use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, PoxId, SortitionId, StacksAddress,
     StacksBlockId, VRFSeed,
 };
-use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::vm::costs::ExecutionCost;
 use crate::vm::database::{BurnStateDB, HeadersDB};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TupleData, Value};
-use crate::vm::{execute as vm_execute, execute_on_network as vm_execute_on_network, StacksEpoch};
+use crate::vm::{StacksEpoch, execute as vm_execute, execute_on_network as vm_execute_on_network};
 
 pub struct UnitTestBurnStateDB {
     pub epoch_id: StacksEpochId,
@@ -69,7 +83,7 @@ pub fn is_committed(v: &Value) -> bool {
     eprintln!("is_committed?: {v}");
 
     match v {
-        Value::Response(ref data) => data.committed,
+        Value::Response(data) => data.committed,
         _ => false,
     }
 }
@@ -77,7 +91,7 @@ pub fn is_committed(v: &Value) -> bool {
 pub fn is_err_code(v: &Value, e: u128) -> bool {
     eprintln!("is_err_code?: {v}");
     match v {
-        Value::Response(ref data) => !data.committed && *data.data == Value::UInt(e),
+        Value::Response(data) => !data.committed && *data.data == Value::UInt(e),
         _ => false,
     }
 }
@@ -85,7 +99,7 @@ pub fn is_err_code(v: &Value, e: u128) -> bool {
 pub fn is_err_code_i128(v: &Value, e: i128) -> bool {
     eprintln!("is_err_code?: {v}");
     match v {
-        Value::Response(ref data) => !data.committed && *data.data == Value::Int(e),
+        Value::Response(data) => !data.committed && *data.data == Value::Int(e),
         _ => false,
     }
 }
@@ -309,11 +323,13 @@ impl BurnStateDB for UnitTestBurnStateDB {
         _sortition_id: &SortitionId,
     ) -> Option<(Vec<TupleData>, u128)> {
         Some((
-            vec![TupleData::from_data(vec![
-                ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
-                ("hashbytes".into(), Value::buff_from(vec![0u8; 20]).unwrap()),
-            ])
-            .unwrap()],
+            vec![
+                TupleData::from_data(vec![
+                    ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
+                    ("hashbytes".into(), Value::buff_from(vec![0u8; 20]).unwrap()),
+                ])
+                .unwrap(),
+            ],
             123,
         ))
     }

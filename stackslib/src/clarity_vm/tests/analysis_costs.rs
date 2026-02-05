@@ -317,11 +317,11 @@ fn undefined_top_variable_error(#[case] use_mainnet: bool, #[case] epoch: Stacks
                 ClarityVersion::Clarity1,
                 &contract_self,
             );
-            let Err(ClarityError::StaticCheck(check_error)) = analysis_result else {
+            let Err(ClarityError::StaticCheck(static_check_error)) = analysis_result else {
                 panic!("Bad analysis result: {analysis_result:?}");
             };
-            let StaticCheckErrorKind::UndefinedVariable(var_name) = *check_error.err else {
-                panic!("Bad analysis error: {check_error:?}");
+            let StaticCheckErrorKind::UndefinedVariable(var_name) = *static_check_error.err else {
+                panic!("Bad analysis error: {static_check_error:?}");
             };
             assert_eq!(var_name, "foo".to_string());
         });

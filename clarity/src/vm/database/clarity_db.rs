@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@ use stacks_common::types::chainstate::{
     TrieHash, VRFSeed,
 };
 use stacks_common::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId};
-use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, to_hex};
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
@@ -36,12 +36,12 @@ use crate::vm::database::structures::{
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance, STXBalanceSnapshot,
 };
 use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
-use crate::vm::errors::{CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
+use crate::vm::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 use crate::vm::representations::ClarityName;
 use crate::vm::types::serialization::NONE_SERIALIZATION_LEN;
 use crate::vm::types::{
-    byte_len_of_serialization, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
-    TupleData, TypeSignature, Value,
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, TypeSignature,
+    Value, byte_len_of_serialization,
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
@@ -145,7 +145,7 @@ pub trait HeadersDB {
         epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId)
-        -> Option<BurnchainHeaderHash>;
+    -> Option<BurnchainHeaderHash>;
     fn get_consensus_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -553,14 +553,18 @@ impl<'a> ClarityDatabase<'a> {
 
             let (sanitized_value, did_sanitize) =
                 Value::sanitize_value(epoch, &TypeSignature::type_of(&value)?, value)
-                    .ok_or_else(|| CheckErrorKind::CouldNotDetermineType)?;
+                    .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
             // if data needed to be sanitized *charge* for the unsanitized cost
             if did_sanitize {
                 pre_sanitized_size = Some(value_size);
             }
-            sanitized_value.serialize_to_vec()?
+            sanitized_value
+                .serialize_to_vec()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?
         } else {
-            value.serialize_to_vec()?
+            value
+                .serialize_to_vec()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?
         };
 
         let size = serialized.len() as u64;
@@ -915,7 +919,11 @@ impl<'a> ClarityDatabase<'a> {
                     "FATAL: failed to load ustx_liquid_supply Clarity key".into(),
                 )
             })?
-            .map(|v| v.value.expect_u128())
+            .map(|v| {
+                v.value
+                    .expect_u128()
+                    .map_err(|_| VmInternalError::Expect("Expected u128".into()))
+            })
             .transpose()?
             .unwrap_or(0))
     }
@@ -1452,7 +1460,9 @@ impl ClarityDatabase<'_> {
                             "BUG: failed to decode serialized poison-microblock reporter".into(),
                         )
                     })?;
-                let tuple_data = reporter_value.expect_tuple()?;
+                let tuple_data = reporter_value
+                    .expect_tuple()
+                    .map_err(|_| VmInternalError::Expect("Expected tuple".into()))?;
                 let reporter_value = tuple_data
                     .get("reporter")
                     .map_err(|_| {
@@ -1470,8 +1480,12 @@ impl ClarityDatabase<'_> {
                     })?
                     .to_owned();
 
-                let reporter_principal = reporter_value.expect_principal()?;
-                let seq_u128 = seq_value.expect_u128()?;
+                let reporter_principal = reporter_value
+                    .expect_principal()
+                    .map_err(|_| VmInternalError::Expect("Expected principal".into()))?;
+                let seq_u128 = seq_value
+                    .expect_u128()
+                    .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
 
                 let seq: u16 = seq_u128
                     .try_into()
@@ -1496,7 +1510,7 @@ fn map_no_contract_as_none<T>(
     res: Result<Option<T>, VmExecutionError>,
 ) -> Result<Option<T>, VmExecutionError> {
     res.or_else(|e| match e {
-        VmExecutionError::Unchecked(CheckErrorKind::NoSuchContract(_)) => Ok(None),
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchContract(_)) => Ok(None),
         x => Err(x),
     })
 }
@@ -1524,7 +1538,7 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(CheckErrorKind::NoSuchDataVariable(variable_name.to_string()).into())
+            .ok_or(RuntimeCheckErrorKind::NoSuchDataVariable(variable_name.to_string()).into())
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -1558,7 +1572,7 @@ impl ClarityDatabase<'_> {
             .value_type
             .admits(&self.get_clarity_epoch_version()?, &value)?
         {
-            return Err(CheckErrorKind::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(variable_descriptor.value_type.clone()),
                 Box::new(value),
             )
@@ -1665,7 +1679,7 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()).into())
+            .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()).into())
     }
 
     pub fn make_key_for_data_map_entry(
@@ -1676,7 +1690,9 @@ impl ClarityDatabase<'_> {
         Ok(ClarityDatabase::make_key_for_data_map_entry_serialized(
             contract_identifier,
             map_name,
-            &key_value.serialize_to_hex()?,
+            &key_value
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         ))
     }
 
@@ -1717,7 +1733,7 @@ impl ClarityDatabase<'_> {
             .key_type
             .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
-            return Err(CheckErrorKind::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 Box::new(key_value.clone()),
             )
@@ -1748,14 +1764,16 @@ impl ClarityDatabase<'_> {
             .key_type
             .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
-            return Err(CheckErrorKind::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 Box::new(key_value.clone()),
             )
             .into());
         }
 
-        let key_serialized = key_value.serialize_to_hex()?;
+        let key_serialized = key_value
+            .serialize_to_hex()
+            .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?;
         let key = ClarityDatabase::make_key_for_data_map_entry_serialized(
             contract_identifier,
             map_name,
@@ -1891,7 +1909,7 @@ impl ClarityDatabase<'_> {
             .key_type
             .admits(&self.get_clarity_epoch_version()?, &key_value)?
         {
-            return Err(CheckErrorKind::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 Box::new(key_value),
             )
@@ -1901,14 +1919,16 @@ impl ClarityDatabase<'_> {
             .value_type
             .admits(&self.get_clarity_epoch_version()?, &value)?
         {
-            return Err(CheckErrorKind::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.value_type.clone()),
                 Box::new(value),
             )
             .into());
         }
 
-        let key_serialized = key_value.serialize_to_hex()?;
+        let key_serialized = key_value
+            .serialize_to_hex()
+            .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?;
         let key_serialized_byte_len = byte_len_of_serialization(&key_serialized);
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
@@ -1950,14 +1970,16 @@ impl ClarityDatabase<'_> {
             .key_type
             .admits(&self.get_clarity_epoch_version()?, key_value)?
         {
-            return Err(CheckErrorKind::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 Box::new(key_value.clone()),
             )
             .into());
         }
 
-        let key_serialized = key_value.serialize_to_hex()?;
+        let key_serialized = key_value
+            .serialize_to_hex()
+            .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?;
         let key_serialized_byte_len = byte_len_of_serialization(&key_serialized);
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
@@ -2021,7 +2043,7 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(CheckErrorKind::NoSuchFT(token_name.to_string()).into())
+            .ok_or(RuntimeCheckErrorKind::NoSuchFT(token_name.to_string()).into())
     }
 
     pub fn create_non_fungible_token(
@@ -2047,7 +2069,7 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(CheckErrorKind::NoSuchNFT(token_name.to_string()).into())
+            .ok_or(RuntimeCheckErrorKind::NoSuchNFT(token_name.to_string()).into())
     }
 
     pub fn checked_increase_token_supply(
@@ -2070,10 +2092,10 @@ impl ClarityDatabase<'_> {
             .checked_add(amount)
             .ok_or(RuntimeError::ArithmeticOverflow)?;
 
-        if let Some(total_supply) = descriptor.total_supply {
-            if new_supply > total_supply {
-                return Err(RuntimeError::SupplyOverflow(new_supply, total_supply).into());
-            }
+        if let Some(total_supply) = descriptor.total_supply
+            && new_supply > total_supply
+        {
+            return Err(RuntimeError::SupplyOverflow(new_supply, total_supply).into());
         }
 
         self.put_data(&key, &new_supply)
@@ -2172,7 +2194,7 @@ impl ClarityDatabase<'_> {
         key_type: &TypeSignature,
     ) -> Result<PrincipalData, VmExecutionError> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
-            return Err(CheckErrorKind::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),
             )
@@ -2183,7 +2205,9 @@ impl ClarityDatabase<'_> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize_to_hex()?,
+            &asset
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         );
 
         let epoch = self.get_clarity_epoch_version()?;
@@ -2194,12 +2218,17 @@ impl ClarityDatabase<'_> {
             &epoch,
         )?;
         let owner = match value {
-            Some(owner) => owner.value.expect_optional()?,
+            Some(owner) => owner
+                .value
+                .expect_optional()
+                .map_err(|_| VmInternalError::Expect("Expected an optional".into()))?,
             None => return Err(RuntimeError::NoSuchToken.into()),
         };
 
         let principal = match owner {
-            Some(value) => value.expect_principal()?,
+            Some(value) => value
+                .expect_principal()
+                .map_err(|_| VmInternalError::Expect("Expected principal.".into()))?,
             None => return Err(RuntimeError::NoSuchToken.into()),
         };
 
@@ -2225,7 +2254,7 @@ impl ClarityDatabase<'_> {
         epoch: &StacksEpochId,
     ) -> Result<(), VmExecutionError> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
-            return Err(CheckErrorKind::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),
             )
@@ -2236,7 +2265,9 @@ impl ClarityDatabase<'_> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize_to_hex()?,
+            &asset
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         );
 
         let value = Value::some(Value::Principal(principal.clone()))?;
@@ -2254,7 +2285,7 @@ impl ClarityDatabase<'_> {
         epoch: &StacksEpochId,
     ) -> Result<(), VmExecutionError> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
-            return Err(CheckErrorKind::TypeValueError(
+            return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 Box::new(asset.clone()),
             )
@@ -2265,7 +2296,9 @@ impl ClarityDatabase<'_> {
             contract_identifier,
             StoreType::NonFungibleToken,
             asset_name,
-            &asset.serialize_to_hex()?,
+            &asset
+                .serialize_to_hex()
+                .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         );
 
         self.put_value(&key, Value::none(), epoch)?;

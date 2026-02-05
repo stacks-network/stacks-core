@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,19 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::Write;
+use std::io::{Read as _, Write};
 use std::path::PathBuf;
 use std::{fs, io};
 
 use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use clarity::vm::ast::build_ast;
+use clarity::vm::ast::errors::ParseError;
 use clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
 };
-use clarity::vm::errors::{RuntimeError, StaticCheckError, VmExecutionError};
+use clarity::vm::errors::{ClarityEvalError, StaticCheckError, VmExecutionError};
+use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{
     ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
@@ -114,6 +116,46 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     })
 }
 
+/// Read text content from a file path or stdin if path is "-"
+pub fn read_file_or_stdin(path: &str) -> String {
+    if path == "-" {
+        let mut buffer = String::new();
+        io::stdin()
+            .read_to_string(&mut buffer)
+            .expect("Error reading from stdin");
+        buffer
+    } else {
+        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
+    }
+}
+
+/// Read binary content from a file path or stdin if path is "-"
+pub fn read_file_or_stdin_bytes(path: &str) -> Vec<u8> {
+    if path == "-" {
+        let mut buffer = vec![];
+        io::stdin()
+            .read_to_end(&mut buffer)
+            .expect("Error reading from stdin");
+        buffer
+    } else {
+        fs::read(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
+    }
+}
+
+/// Read content from an optional file path, defaulting to stdin if None or "-"
+pub fn read_optional_file_or_stdin(path: Option<&PathBuf>) -> String {
+    match path {
+        Some(p) => read_file_or_stdin(p.to_str().expect("Invalid UTF-8 in path")),
+        None => {
+            let mut buffer = String::new();
+            io::stdin()
+                .read_to_string(&mut buffer)
+                .expect("Error reading from stdin");
+            buffer
+        }
+    }
+}
+
 /// Represents an initial allocation entry from JSON
 #[derive(Deserialize)]
 pub struct InitialAllocation {
@@ -143,15 +185,14 @@ fn parse(
     source_code: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<Vec<SymbolicExpression>, VmExecutionError> {
+) -> Result<Vec<SymbolicExpression>, ParseError> {
     let ast = build_ast(
         contract_identifier,
         source_code,
         &mut (),
         clarity_version,
         epoch,
-    )
-    .map_err(|e| RuntimeError::ASTError(Box::new(e)))?;
+    )?;
     Ok(ast.expressions)
 }
 
@@ -434,7 +475,7 @@ pub fn vm_execute_in_epoch(
     program: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<Option<Value>, VmExecutionError> {
+) -> Result<Option<Value>, ClarityEvalError> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
@@ -446,11 +487,11 @@ pub fn vm_execute_in_epoch(
         LimitedCostTracker::new_free(),
         epoch,
     );
-    global_context.execute(|g| {
-        let parsed =
-            ast::build_ast(&contract_id, program, &mut (), clarity_version, epoch)?.expressions;
-        eval_all(&parsed, &mut contract_context, g, None)
-    })
+    let parsed =
+        ast::build_ast(&contract_id, program, &mut (), clarity_version, epoch)?.expressions;
+    global_context
+        .execute(|g| eval_all(&parsed, &mut contract_context, g, None))
+        .map_err(ClarityEvalError::from)
 }
 
 /// Execute program in a transient environment in the latest epoch.
@@ -459,7 +500,7 @@ pub fn vm_execute_in_epoch(
 pub fn vm_execute(
     program: &str,
     clarity_version: ClarityVersion,
-) -> Result<Option<Value>, VmExecutionError> {
+) -> Result<Option<Value>, ClarityEvalError> {
     vm_execute_in_epoch(program, clarity_version, StacksEpochId::latest())
 }
 
@@ -1429,7 +1470,9 @@ pub fn execute_launch(
             }
             let events_json: Vec<_> = events
                 .into_iter()
-                .map(|event| event.json_serialize(0, &Txid([0u8; 32]), true).unwrap())
+                .map(|event: StacksTransactionEvent| {
+                    event.json_serialize(0, &Txid([0u8; 32]), true).unwrap()
+                })
                 .collect();
 
             result["events"] = serde_json::Value::Array(events_json);

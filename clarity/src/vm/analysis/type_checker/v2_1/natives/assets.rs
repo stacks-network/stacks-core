@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 use stacks_common::consts::TOKEN_TRANSFER_MEMO_LENGTH;
 
 use super::{TypeChecker, TypingContext};
-use crate::vm::analysis::errors::{check_argument_count, StaticCheckError, StaticCheckErrorKind};
+use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, check_argument_count};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::representations::SymbolicExpression;
@@ -237,7 +237,7 @@ pub fn check_special_stx_transfer_memo(
     let to_type: TypeSignature = TypeSignature::PrincipalType;
     let memo_type: TypeSignature = TypeSignature::SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(TOKEN_TRANSFER_MEMO_LENGTH as u32)
-            .map_err(|_| StaticCheckErrorKind::Expects("Bad constructor".into()))?,
+            .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into()))?,
     ));
 
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 0)?;

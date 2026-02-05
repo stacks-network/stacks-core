@@ -1,17 +1,22 @@
 description: Describes representation of a Type-0 Stacks 2.0 transaction. https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md#type-0-transferring-an-asset
 type: object
+additionalProperties: false
 required:
   - sender
   - arguments
 properties:
   sender:
-    type: string
-    description: The simulated tx-sender
+    description: The simulated tx-sender.
+    allOf:
+      - $ref: './standard-principal.schema.yaml'
   sponsor:
-    type: string
-    description: The simulated sponsor address
+    description: The simulated sponsor address.
+    allOf:
+      - $ref: './principal.schema.yaml'
   arguments:
     type: array
     description: An array of hex serialized Clarity values
     items:
       type: string
+      pattern: "^(0x)?([0-9a-fA-F]{2})+$"
+      description: Hex-encoded Clarity value (optionally prefixed with 0x)

@@ -4636,6 +4636,15 @@ impl NakamotoChainState {
             ));
         }
 
+        if parent_chain_tip.stacks_block_height.saturating_add(1) != block.header.chain_length {
+            warn!("Error processing nakamoto block: Parent height does not agree with block chain length";
+                  "parent_chain_tip.block_height" => %parent_chain_tip.stacks_block_height,
+                  "block.header.chain_length" => &block.header.chain_length);
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Parent block height does not agree with child block".into(),
+            ));
+        }
+
         // look up this block's sortition's burnchain block hash and height.
         // It must exist in the same Bitcoin fork as our `burn_dbconn`.
         let tenure_block_snapshot =

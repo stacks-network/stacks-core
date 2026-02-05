@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,21 +20,21 @@ pub mod signatures;
 use std::str;
 
 pub use clarity_types::types::{
-    byte_len_of_serialization, ASCIIData, BuffData, CallableData, CharType, ContractIdentifier,
-    ListData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
+    ASCIIData, BOUND_VALUE_SERIALIZATION_BYTES, BOUND_VALUE_SERIALIZATION_HEX, BuffData,
+    CallableData, CharType, ContractIdentifier, ListData, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, NONE,
+    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
     SequencedValue, StacksAddressExtensions, TraitIdentifier, TupleData, UTF8Data, Value,
-    BOUND_VALUE_SERIALIZATION_BYTES, BOUND_VALUE_SERIALIZATION_HEX, MAX_TYPE_DEPTH, MAX_VALUE_SIZE,
-    NONE, WRAPPER_VALUE_SIZE,
+    WRAPPER_VALUE_SIZE, byte_len_of_serialization,
 };
 
 pub use self::std_principals::StandardPrincipalData;
-use crate::vm::errors::CheckErrorKind;
-pub use crate::vm::types::signatures::{
-    parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
-    FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
-    StringUTF8Length, TupleTypeSignature, TypeSignature, TypeSignatureExt,
-};
 use crate::vm::ClarityVersion;
+use crate::vm::errors::RuntimeCheckErrorKind;
+pub use crate::vm::types::signatures::{
+    AssetIdentifier, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
+    ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length, TupleTypeSignature,
+    TypeSignature, TypeSignatureExt, parse_name_type_pairs,
+};
 
 mod std_principals {
     pub use clarity_types::types::StandardPrincipalData;
@@ -89,7 +89,7 @@ impl BlockInfoProperty {
 }
 
 impl BurnBlockInfoProperty {
-    pub fn type_result(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
+    pub fn type_result(&self) -> std::result::Result<TypeSignature, RuntimeCheckErrorKind> {
         use self::BurnBlockInfoProperty::*;
         let result = match self {
             HeaderHash => TypeSignature::BUFFER_32,
@@ -103,7 +103,7 @@ impl BurnBlockInfoProperty {
                                 ("hashbytes".into(), TypeSignature::BUFFER_32),
                             ])
                             .map_err(|_| {
-                                CheckErrorKind::Expects(
+                                RuntimeCheckErrorKind::ExpectsRejectable(
                                     "FATAL: bad type signature for pox addr".into(),
                                 )
                             })?,
@@ -111,12 +111,18 @@ impl BurnBlockInfoProperty {
                         2,
                     )
                     .map_err(|_| {
-                        CheckErrorKind::Expects("FATAL: bad list type signature".into())
+                        RuntimeCheckErrorKind::ExpectsRejectable(
+                            "FATAL: bad list type signature".into(),
+                        )
                     })?,
                 ),
                 ("payout".into(), TypeSignature::UIntType),
             ])
-            .map_err(|_| CheckErrorKind::Expects("FATAL: bad type signature for pox addr".into()))?
+            .map_err(|_| {
+                RuntimeCheckErrorKind::ExpectsRejectable(
+                    "FATAL: bad type signature for pox addr".into(),
+                )
+            })?
             .into(),
         };
         Ok(result)
