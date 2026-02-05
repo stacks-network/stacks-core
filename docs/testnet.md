@@ -102,6 +102,12 @@ cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8
 
 `contract-call` generates and signs a contract-call transaction.
 
+If you need to evaluate `-e` arguments using a specific Clarity version, add `--clarity-version`:
+
+```bash
+cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 1 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store get-value -e \"foo\" --clarity-version 2 --testnet | xxd -r -p > tx2.bin
+```
+
 We can submit the transaction by moving it to the mempool path:
 
 ```bash

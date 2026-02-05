@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - New `/v3/tenures/tip_metadata` endpoint for returning some metadata along with the normal tenure tip information.
+- Added `--clarity-version` to `blockstack-cli contract-call` to control Clarity version for `-e` argument evaluation.
 
 
 ## [3.3.0.0.3]

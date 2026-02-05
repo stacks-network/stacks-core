@@ -111,6 +111,10 @@ prefacing each argument with a flag:
   -x                     indicates the argument that a serialized Clarity value is being passed (hex-serialized)
  --hex-file <file_path>  same as `-x`, but reads the serialized Clarity value from a file
 
+The Clarity version used to evaluate `-e` arguments can be controlled with the following option:
+
+  --clarity-version  indicates the Clarity version for evaluating `-e` arguments. Allowed values: `1`, `2`, `3`, `4`, or `clarity1`-`clarity4`.
+
 e.g.,
 
    blockstack-cli contract-call $secret_key 10 0 SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4 foo-contract \\
@@ -512,6 +516,52 @@ fn parse_postcondition_mode(
     }
 }
 
+/// Parses the `--clarity-version` flag from the CLI arguments.
+///
+/// This function looks for the `--clarity-version` flag in the provided `args` vector
+/// and extracts its associated value. The flag must be specified at most once, and the value
+/// must be one of: `1`, `2`, `3`, `4`, `clarity1`, `clarity2`, `clarity3`, or `clarity4`.
+/// If the flag is not present, `None` is returned to indicate the default behavior.
+///
+/// The flag and its value are removed from `args` if found.
+fn parse_clarity_version(
+    args: &mut Vec<String>,
+    usage: &str,
+) -> Result<Option<ClarityVersion>, CliError> {
+    const FLAG_CLARITY_VERSION: &str = "--clarity-version";
+
+    match count_flag(args, FLAG_CLARITY_VERSION) {
+        0 => return Ok(None),
+        1 => { /* continue below */ }
+        _ => {
+            return Err(CliError::Message(format!(
+                "Duplicated `{FLAG_CLARITY_VERSION}`.\n\nUSAGE:\n{usage}"
+            )));
+        }
+    }
+
+    match extract_flag_with_value(args, FLAG_CLARITY_VERSION) {
+        Some(value) => {
+            let normalized = value.to_ascii_lowercase();
+            let clarity_version = match normalized.as_str() {
+                "1" | "clarity1" => ClarityVersion::Clarity1,
+                "2" | "clarity2" => ClarityVersion::Clarity2,
+                "3" | "clarity3" => ClarityVersion::Clarity3,
+                "4" | "clarity4" => ClarityVersion::Clarity4,
+                _ => {
+                    return Err(CliError::Message(format!(
+                        "Invalid value for `{FLAG_CLARITY_VERSION}`.\n\nUSAGE:\n{usage}"
+                    )))
+                }
+            };
+            Ok(Some(clarity_version))
+        }
+        None => Err(CliError::Message(format!(
+            "Missing value for `{FLAG_CLARITY_VERSION}`.\n\nUSAGE:\n{usage}"
+        ))),
+    }
+}
+
 #[allow(clippy::indexing_slicing)]
 fn handle_contract_publish(
     args_slice: &[String],
@@ -589,6 +639,8 @@ fn handle_contract_call(
         )));
     }
     let anchor_mode = parse_anchor_mode(&mut args, CALL_USAGE)?;
+    let eval_clarity_version =
+        parse_clarity_version(&mut args, CALL_USAGE)?.unwrap_or(clarity_version);
     let sk_origin = &args[0];
     let tx_fee = args[1].parse()?;
     let nonce = args[2].parse()?;
@@ -615,7 +667,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
-                vm_execute(input, clarity_version)?
+                vm_execute(input, eval_clarity_version)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
             "--hex-file" => {
@@ -1657,6 +1709,107 @@ mod test {
         let expected_msg =
             "Failed to deserialize: Serialization error caused by IO: failed to fill whole buffer";
         assert_eq!(expected_msg, result.unwrap_err().to_string());
+    }
+
+    #[test]
+    fn test_contract_call_ok_with_clarity_version() {
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "-x",
+            "0000000000000000000000000000000001",
+            "-x",
+            "0000000000000000000000000000000002",
+        ];
+
+        let exec_base = main_handler(to_string_vec(&cc_args)).unwrap();
+
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--clarity-version",
+            "4",
+            "-x",
+            "0000000000000000000000000000000001",
+            "-x",
+            "0000000000000000000000000000000002",
+        ];
+
+        let exec_flag = main_handler(to_string_vec(&cc_args)).unwrap();
+        assert_eq!(exec_base, exec_flag);
+    }
+
+    #[test]
+    fn test_contract_call_fails_with_clarity_version() {
+        // Scenario FAIL with invalid clarity version
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--clarity-version",
+            "invalid",
+        ];
+
+        let result = main_handler(to_string_vec(&cc_args));
+        assert!(result.is_err());
+
+        let exp_err_msg =
+            format!("Invalid value for `--clarity-version`.\n\nUSAGE:\n{CALL_USAGE}");
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+
+        // Scenario FAIL with missing clarity version value
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--clarity-version",
+        ];
+
+        let result = main_handler(to_string_vec(&cc_args));
+        assert!(result.is_err());
+
+        let exp_err_msg =
+            format!("Missing value for `--clarity-version`.\n\nUSAGE:\n{CALL_USAGE}");
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
+
+        // Scenario FAIL with duplicated clarity version flag
+        let cc_args = [
+            "contract-call",
+            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3",
+            "1",
+            "0",
+            "SPJT598WY1RJN792HRKRHRQYFB7RJ5ZCG6J6GEZ4",
+            "foo-contract",
+            "transfer-fookens",
+            "--clarity-version",
+            "2",
+            "--clarity-version",
+            "3",
+        ];
+
+        let result = main_handler(to_string_vec(&cc_args));
+        assert!(result.is_err());
+
+        let exp_err_msg = format!("Duplicated `--clarity-version`.\n\nUSAGE:\n{CALL_USAGE}");
+        assert_eq!(exp_err_msg, result.unwrap_err().to_string());
     }
 
     #[test]
