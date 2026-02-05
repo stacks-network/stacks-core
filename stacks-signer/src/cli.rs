@@ -41,9 +41,15 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 
 extern crate alloc;
 
+fn cli_long_version() -> &'static str {
+    VERSION_STRING
+        .strip_prefix("stacks-signer ")
+        .unwrap_or_else(|| VERSION_STRING.as_str())
+}
+
 /// The CLI arguments for the stacks signer
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_version = VERSION_STRING.as_str())]
+#[command(author, version, about, long_version = cli_long_version())]
 pub struct Cli {
     /// Subcommand action to take
     #[command(subcommand)]
@@ -398,6 +404,7 @@ fn parse_data(data: &str) -> Result<Vec<u8>, String> {
 mod tests {
     use blockstack_lib::chainstate::stacks::address::{PoxAddressType20, PoxAddressType32};
     use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_message_hash;
+    use clap::{error::ErrorKind, CommandFactory};
     use clarity::consts::CHAIN_ID_TESTNET;
     use clarity::util::hash::Sha256Sum;
 
@@ -590,5 +597,17 @@ mod tests {
             StackingSignatureMethod::from_str("aggregation-commit", true).unwrap(),
             Pox4SignatureTopic::AggregationCommit.into()
         );
+    }
+
+    #[test]
+    fn test_version_output_does_not_duplicate_binary_name() {
+        let err = Cli::command()
+            .try_get_matches_from(["stacks-signer", "--version"])
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::DisplayVersion);
+
+        let version_output = err.to_string();
+        assert!(!version_output.starts_with("stacks-signer stacks-signer "));
+        assert!(version_output.starts_with("stacks-signer "));
     }
 }
