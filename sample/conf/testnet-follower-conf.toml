@@ -18,6 +18,13 @@ pox_reward_length = 900
 # events_keys = ["*"]
 # timeout_ms = 60_000
 
+# Used for indexing contract deployments from /new_block payloads
+# (look for transactions with non-null `contract_interface`).
+# [[events_observer]]
+# endpoint = "localhost:3701"
+# events_keys = ["*"]
+# timeout_ms = 60_000
+
 # Used if running a local stacks-signer service
 # [[events_observer]]
 # endpoint = "127.0.0.1:30000"

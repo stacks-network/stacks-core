@@ -81,6 +81,7 @@ Below is a comprehensive list of valid keys and their behaviors:
     *   **Example**: `"ST0000000000000000000000000000000000000000.my-contract::my-custom-event"`
     *   **Events delivered to**: `/new_block`, `/new_microblocks` (subject to epoch 2.5 limitation).
     *   **Payload details**: The "events" array in delivered payloads will be filtered for this specific event.
+    *   **Note**: This key is for emitted contract events. To track contract publish transactions, subscribe to `"*"` and inspect the `/new_block` `transactions` array for entries with `contract_interface != null`.
 
 *   **Asset Identifier for FT/NFT Events**: Subscribes to events for a specific Fungible Token (FT) or Non-Fungible Token (NFT).
     *   **Description**: Captures mint, burn, and transfer events for a specific token asset.
@@ -97,7 +98,7 @@ The following endpoints are used to deliver event payloads.
 
 Delivers data for a newly processed Stacks block, including transactions and associated events. If transactions originated from microblocks, relevant microblock details are included.
 *   **Triggered by keys**: `*`, `"stx"`, specific smart contract or asset identifiers.
-*   **Payload Summary**: Contains block details, an array of transactions, and an array of filtered events based on subscription.
+*   **Payload Summary**: Contains block details, an array of transactions, and an array of filtered events based on subscription. Successful contract publish transactions include a non-null `contract_interface` in their corresponding transaction entry.
 *   **Note**: If the `raw_tx` field for a transaction is `"0x00"`, it indicates a burnchain operation (see "Burnchain Operations" below).
 
 The section below has example json encodings for each of the burnchain operations.
@@ -128,7 +129,7 @@ The section below has example json encodings for each of the burnchain operation
   "parent_microblock": "0xedd15cf1e697c28df934e259f0f82970a7c9edc2d39bef04bdd0d422116235c6",
   "transactions": [
     {
-      "contract_abi": null,
+      "contract_interface": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x808000000004008bc5147525b8f477f0bc4522a88c8339b2494db50000000000000002000000000000000001015814daf929d8700af344987681f44e913890a12e38550abe8e40f149ef5269f40f4008083a0f2e0ddf65dcd05ecfc151c7ff8a5308ad04c77c0e87b5aeadad31010200000000040000000000000000000000000000000000000000000000000000000000000000",
@@ -140,7 +141,7 @@ The section below has example json encodings for each of the burnchain operation
       "microblock_parent_hash": "None"
     },
     {
-      "contract_abi": null,
+      "contract_interface": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x80800000000400f942874ce525e87f21bbe8c121b12fac831d02f4000000000000000000000000000003e800006ae29867aec4b0e4f776bebdcea7f6d9a24eeff370c8c739defadfcbb52659b30736ad4af021e8fb741520a6c65da419fdec01989fdf0032fc1838f427a9a36102010000000000051ac2d519faccba2e435f3272ff042b89435fd160ff00000000000003e800000000000000000000000000000000000000000000000000000000000000000000",
@@ -172,7 +173,7 @@ The section below has example json encodings for each of the burnchain operation
           "vtxindex": 10
         }
       },
-      "contract_abi": null,
+      "contract_interface": null,
       "execution_cost": {
         "read_count": 0,
         "read_length": 0,
@@ -215,6 +216,78 @@ The section below has example json encodings for each of the burnchain operation
     "write_length": 75
    }
 }
+```
+
+### Contract Deploy Tracking Example (`/new_block`)
+
+If you are indexing contract deployments, subscribe to `"*"` and filter `transactions` entries where `contract_interface` is present.
+
+```toml
+[[events_observer]]
+endpoint = "localhost:3700"
+events_keys = ["*"]
+timeout_ms = 60_000
+```
+
+When a contract publish is accepted in a block, the transaction entry contains a populated `contract_interface`:
+
+```json
+{
+  "txid": "0x2d716d3c61b4af4b4516f28830d53f4f4267081a5912e8e8c9396f5c340a67ef",
+  "tx_index": 0,
+  "status": "success",
+  "raw_result": "0x0703",
+  "raw_tx": "0x80800000000400...",
+  "contract_interface": {
+    "functions": [
+      {
+        "name": "increment",
+        "access": "public",
+        "args": [],
+        "outputs": {
+          "type": {
+            "response": {
+              "ok": "uint128",
+              "error": "uint128"
+            }
+          }
+        }
+      }
+    ],
+    "variables": [],
+    "maps": [],
+    "fungible_tokens": [],
+    "non_fungible_tokens": [],
+    "epoch": "Epoch31",
+    "clarity_version": "Clarity3"
+  },
+  "burnchain_op": null,
+  "execution_cost": {
+    "runtime": 7812,
+    "read_count": 25,
+    "read_length": 520,
+    "write_count": 3,
+    "write_length": 143
+  },
+  "microblock_sequence": null,
+  "microblock_hash": null,
+  "microblock_parent_hash": null,
+  "vm_error": null
+}
+```
+
+Example `jq` filter for deployment indexing:
+
+```bash
+jq '.transactions[]
+    | select(.contract_interface != null)
+    | {
+        txid,
+        status,
+        clarity_version: .contract_interface.clarity_version,
+        epoch: .contract_interface.epoch,
+        vm_error
+      }'
 ```
 
 ## Burnchain Operations
@@ -389,7 +462,7 @@ Delivers data for one or more microblocks, either self-emitted or received from 
   ],
   "transactions": [
     {
-      "contract_abi": null,
+      "contract_interface": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x808000000004008bc5147525b8f477f0bc4522a88c8339b2494db50000000000000002000000000000000001015814daf929d8700af344987681f44e913890a12e38550abe8e40f149ef5269f40f4008083a0f2e0ddf65dcd05ecfc151c7ff8a5308ad04c77c0e87b5aeadad31010200000000040000000000000000000000000000000000000000000000000000000000000000",
@@ -401,7 +474,7 @@ Delivers data for one or more microblocks, either self-emitted or received from 
       "microblock_parent_hash": "0x4893ab44636023efa08374033428e44eca490582bd39a6e61f3b6cf749b474bd"
     },
     {
-      "contract_abi": null,
+      "contract_interface": null,
       "burnchain_op": null,
       "raw_result": "0x03",
       "raw_tx": "0x80800000000400f942874ce525e87f21bbe8c121b12fac831d02f4000000000000000000000000000003e800006ae29867aec4b0e4f776bebdcea7f6d9a24eeff370c8c739defadfcbb52659b30736ad4af021e8fb741520a6c65da419fdec01989fdf0032fc1838f427a9a36102010000000000051ac2d519faccba2e435f3272ff042b89435fd160ff00000000000003e800000000000000000000000000000000000000000000000000000000000000000000",
