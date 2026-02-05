@@ -47,6 +47,25 @@ We will interact with the following simple contract `kv-store`. In our examples,
 
 We want to publish this contract on chain, then issue some transactions that interact with it by setting some keys and getting some values, so we can observe read and writes.
 
+## Full walkthrough (deploy + call + read)
+
+### Fee guidance (clearer)
+
+The `fee` parameter is the total fee in microSTX. Miners enforce a minimum **fee-rate** (microSTX per byte). As a rule of thumb, set the total fee to **at least the byte size of the transaction**.
+
+You can measure the transaction size with the hex output:
+
+```bash
+# publish: size in bytes (example)
+cargo run --bin blockstack-cli publish \
+  b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 \
+  515 0 kv-store ./kv-store.clar --testnet | xxd -r -p | wc -c
+```
+
+If your transaction is rejected for fees, increase the fee and retry.
+
+### 1) Deploy the contract
+
 Our first step is to generate and sign, using your private key, the transaction that will publish the contract `kv-store`.
 To do that, we will use the subcommand:
 
@@ -65,13 +84,19 @@ testnet requires one microSTX per byte minimum, and this transaction should be
 less than 515 bytes.
 The third argument `0` is a nonce, that must be increased monotonically with each new transaction.
 
+If your testnet epoch supports a newer Clarity version, you can pin it explicitly with `--clarity-version`. If you are unsure, omit the flag and use the default.
+
+```bash
+cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 515 0 kv-store ./kv-store.clar --clarity-version 4 --testnet
+```
+
 This command will output the **binary format** of the transaction. In our case, we want to pipe this output and dump it to a file that will be used later in this tutorial.
 
 ```bash
 cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 515 0 kv-store ./kv-store.clar --testnet | xxd -r -p > tx1.bin
 ```
 
-## Publish your contract
+### 2) Publish your contract
 
 Assuming that the testnet is running, we can publish our `kv-store` contract.
 
@@ -83,7 +108,7 @@ curl -X POST -H "Content-Type: application/octet-stream" --data-binary @./tx1.bi
 
 In the terminal window running the testnet, you can observe the state machine's reactions.
 
-## Reading from / Writing to the contract
+### 3) Reading from / Writing to the contract
 
 Now that our contract has been published on chain, let's try to submit some read / write transactions.
 We will start by trying to read the value associated with the key `foo`.
@@ -101,6 +126,12 @@ cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8
 ```
 
 `contract-call` generates and signs a contract-call transaction.
+
+If you need to evaluate `-e` arguments using a specific (newer) Clarity version, add `--clarity-version`:
+
+```bash
+cargo run --bin blockstack-cli contract-call b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 500 1 ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH kv-store get-value -e \"foo\" --clarity-version 4 --testnet | xxd -r -p > tx2.bin
+```
 
 We can submit the transaction by moving it to the mempool path:
 
