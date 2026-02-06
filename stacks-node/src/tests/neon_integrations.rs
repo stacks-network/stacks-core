@@ -280,9 +280,8 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
-    use libsigner::BurnBlockEvent;
     use stacks::chainstate::stacks::boot::RewardSet;
-    use stacks::chainstate::stacks::events::StackerDBChunksEvent;
+    use stacks::chainstate::stacks::events::{BurnBlockEvent, StackerDBChunksEvent};
     use stacks::chainstate::stacks::StacksTransaction;
     use stacks::codec::StacksMessageCodec;
     use stacks::config::{EventKeyType, EventObserverConfig};
@@ -5611,10 +5610,10 @@ fn pox_integration_test() {
 
     for block in burn_blocks.iter() {
         for holder in block.reward_slot_holders.iter() {
-            if let Some(current) = recipient_slots.get_mut(holder) {
+            if let Some(current) = recipient_slots.get_mut(&holder.clone().to_b58()) {
                 *current += 1;
             } else {
-                recipient_slots.insert(holder.clone(), 1);
+                recipient_slots.insert(holder.clone().to_b58(), 1);
             }
         }
     }
@@ -9608,7 +9607,10 @@ fn mock_miner_replay() {
     // Run `mock_miner_replay()`
     let blocks_dir = blocks_dir.into_os_string().into_string().unwrap();
     let db_path = format!("{}/neon", conf.node.working_dir);
-    let args: Vec<String> = vec!["replay-mock-mining".into(), db_path, blocks_dir];
+    let args = stacks_inspect::ReplayMockMiningArgs {
+        chainstate_path: db_path,
+        mock_mining_output_path: blocks_dir,
+    };
 
     info!("Replaying mock mined blocks...");
     stacks_inspect::command_replay_mock_mining(&args, Some(&conf));

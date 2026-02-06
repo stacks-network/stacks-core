@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{cmp, fs, io};
 
-pub use clarity::vm::analysis::errors::{CheckErrorKind, StaticCheckError};
+pub use clarity::vm::analysis::errors::{RuntimeCheckErrorKind, StaticCheckError};
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::BurnStateDB;
@@ -190,6 +190,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _burn_block_height: u64,
         _rewards: Vec<(PoxAddress, u64)>,
         _burns: u64,
+        _pox_transactions: Vec<crate::chainstate::coordinator::PoxTransactionReward>,
         _slot_holders: Vec<PoxAddress>,
         _consensus_hash: &ConsensusHash,
         _parent_burn_block_hash: &BurnchainHeaderHash,
@@ -2689,7 +2690,7 @@ impl StacksChainState {
     ) -> Result<bool, Error> {
         StacksChainState::has_any_i64(
             self.db(),
-            "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 LIMIT 1", 
+            "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 LIMIT 1",
             &[&parent_index_block_hash, &min_seq]
         )
     }
@@ -4022,7 +4023,11 @@ impl StacksChainState {
                         current_epoch = StacksEpochId::Epoch33;
                     }
                     StacksEpochId::Epoch33 => {
-                        panic!("No defined transition from Epoch33 forward")
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_3_4()?);
+                        current_epoch = StacksEpochId::Epoch34;
+                    }
+                    StacksEpochId::Epoch34 => {
+                        panic!("No defined transition from Epoch34 forward")
                     }
                 }
 
@@ -4868,7 +4873,8 @@ impl StacksChainState {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => {
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -4962,7 +4968,8 @@ impl StacksChainState {
                 | StacksEpochId::Epoch30
                 | StacksEpochId::Epoch31
                 | StacksEpochId::Epoch32
-                | StacksEpochId::Epoch33 => Self::handle_pox_cycle_start_pox_4(
+                | StacksEpochId::Epoch33
+                | StacksEpochId::Epoch34 => Self::handle_pox_cycle_start_pox_4(
                     clarity_tx,
                     pox_reward_cycle,
                     pox_start_cycle_info,

@@ -19,7 +19,7 @@
 
 use std::convert::TryFrom;
 
-use clarity_types::errors::CheckErrorKind;
+use clarity_types::errors::RuntimeCheckErrorKind;
 use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
@@ -30,7 +30,7 @@ use proptest::test_runner::{TestCaseError, TestCaseResult};
 use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
-use crate::vm::errors::{EarlyReturnError, VmExecutionError};
+use crate::vm::errors::{ClarityEvalError, EarlyReturnError, VmExecutionError};
 use crate::vm::tests::proptest_utils::{
     allowance_list_snippets, begin_block, body_with_allowances_snippets,
     clarity_values_no_response, execute, execute_and_check, execute_and_check_versioned,
@@ -724,8 +724,8 @@ fn test_as_contract_with_error_in_body() {
   )
 )"#;
     let expected_err = Value::error(Value::UInt(200)).unwrap();
-    let short_return =
-        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into()));
+    let short_return: ClarityEvalError =
+        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into())).into();
     assert_eq!(short_return, execute(snippet).unwrap_err());
 }
 
@@ -769,8 +769,8 @@ fn test_as_contract_good_transfer_with_short_return_in_body() {
 )"#;
     let sender = StandardPrincipalData::transient();
     let expected_err = Value::error(Value::UInt(200)).unwrap();
-    let short_return =
-        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into()));
+    let short_return: ClarityEvalError =
+        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into())).into();
     let res = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(short_return, res);
 }
@@ -813,8 +813,9 @@ fn test_as_contract_good_transfer_with_early_return_ok_in_body() {
   true
 )"#;
     let expected_err = Value::okay(Value::Bool(false)).unwrap();
-    let short_return =
-        VmExecutionError::EarlyReturn(EarlyReturnError::AssertionFailed(expected_err.into()));
+    let short_return: ClarityEvalError =
+        VmExecutionError::EarlyReturn(EarlyReturnError::AssertionFailed(expected_err.into()))
+            .into();
     let err = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(short_return, err);
 }
@@ -1473,8 +1474,8 @@ fn test_restrict_assets_with_error_in_body() {
   )
 )"#;
     let expected_err = Value::error(Value::UInt(200)).unwrap();
-    let short_return =
-        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into()));
+    let short_return: ClarityEvalError =
+        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into())).into();
     assert_eq!(short_return, execute(snippet).unwrap_err());
 }
 
@@ -1559,8 +1560,8 @@ fn test_nested_inner_restrict_assets_with_stx_exceeds() {
   ))
 )"#;
     let expected_err = Value::error(Value::UInt(0)).unwrap();
-    let short_return =
-        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into()));
+    let short_return: ClarityEvalError =
+        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into())).into();
     assert_eq!(short_return, execute(snippet).unwrap_err());
 }
 
@@ -1602,8 +1603,8 @@ fn test_restrict_assets_good_transfer_with_short_return_in_body() {
 )"#;
     let sender = StandardPrincipalData::transient();
     let expected_err = Value::error(Value::UInt(200)).unwrap();
-    let short_return =
-        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into()));
+    let short_return: ClarityEvalError =
+        VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(expected_err.into())).into();
     let res = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(short_return, res);
 }
@@ -1644,8 +1645,9 @@ fn test_restrict_assets_good_transfer_with_short_return_ok_in_body() {
   true
 )"#;
     let expected_err = Value::okay(Value::Bool(false)).unwrap();
-    let short_return =
-        VmExecutionError::EarlyReturn(EarlyReturnError::AssertionFailed(expected_err.into()));
+    let short_return: ClarityEvalError =
+        VmExecutionError::EarlyReturn(EarlyReturnError::AssertionFailed(expected_err.into()))
+            .into();
     let err = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(short_return, err);
 }
@@ -1661,10 +1663,10 @@ fn restrict_assets_too_many_allowances() {
             .collect::<Vec<_>>()
             .join(" ")
     );
-    let max_allowances_err = VmExecutionError::Unchecked(CheckErrorKind::TooManyAllowances(
-        MAX_ALLOWANCES,
-        MAX_ALLOWANCES + 1,
-    ));
+    let max_allowances_err: ClarityEvalError = VmExecutionError::RuntimeCheck(
+        RuntimeCheckErrorKind::TooManyAllowances(MAX_ALLOWANCES, MAX_ALLOWANCES + 1),
+    )
+    .into();
     let err = execute(&snippet).expect_err("execution passed unexpectedly");
     assert_eq!(err, max_allowances_err);
 }
@@ -1677,8 +1679,10 @@ fn expected_allowance_expr_error() {
     // Construct a "fake" allowance expression that is invalid
     let snippet = "(restrict-assets? tx-sender ((bad-fn u1)) true)";
 
-    let expected_error =
-        VmExecutionError::Unchecked(CheckErrorKind::ExpectedAllowanceExpr("bad-fn".to_string()));
+    let expected_error: ClarityEvalError = VmExecutionError::RuntimeCheck(
+        RuntimeCheckErrorKind::ExpectedAllowanceExpr("bad-fn".to_string()),
+    )
+    .into();
 
     // Execute and verify that the error is raised
     let err = execute(snippet).expect_err("execution passed unexpectedly");
@@ -1694,9 +1698,10 @@ fn expected_allowance_expr_error_unhandled_native() {
     // For example: `tx-sender` (or `caller`), which is a native function but not a handled allowance
     let snippet = "(restrict-assets? tx-sender ((tx-sender u1)) true)";
 
-    let expected_error = VmExecutionError::Unchecked(CheckErrorKind::ExpectedAllowanceExpr(
-        "tx-sender".to_string(),
-    ));
+    let expected_error: ClarityEvalError = VmExecutionError::RuntimeCheck(
+        RuntimeCheckErrorKind::ExpectedAllowanceExpr("tx-sender".to_string()),
+    )
+    .into();
 
     let err = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(err, expected_error);
@@ -1709,7 +1714,8 @@ fn expected_allowance_expr_error_unhandled_native() {
 fn allowance_expr_not_allowed() {
     let snippet = "(with-stx u1)";
 
-    let expected = VmExecutionError::Unchecked(CheckErrorKind::AllowanceExprNotAllowed);
+    let expected: ClarityEvalError =
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::AllowanceExprNotAllowed).into();
 
     let err = execute(snippet).expect_err("execution unexpectedly succeeded");
 
@@ -1727,11 +1733,10 @@ fn restrict_assets_expected_list_of_allowances() {
             (ok u1)
         )
     "#;
-
-    let expected_error = VmExecutionError::Unchecked(CheckErrorKind::ExpectedListOfAllowances(
-        "restrict-assets?".into(),
-        2,
-    ));
+    let expected_error: ClarityEvalError = VmExecutionError::RuntimeCheck(
+        RuntimeCheckErrorKind::ExpectedListOfAllowances("restrict-assets?".into(), 2),
+    )
+    .into();
 
     let err = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(err, expected_error);
@@ -1750,10 +1755,10 @@ fn as_contract_expected_list_of_allowances() {
     "#;
 
     // The argument is `u42` (not a list), so we expect this error
-    let expected_error = VmExecutionError::Unchecked(CheckErrorKind::ExpectedListOfAllowances(
-        "as-contract?".to_string(),
-        1,
-    ));
+    let expected_error: ClarityEvalError = VmExecutionError::RuntimeCheck(
+        RuntimeCheckErrorKind::ExpectedListOfAllowances("as-contract?".to_string(), 1),
+    )
+    .into();
 
     let err = execute(snippet).expect_err("execution passed unexpectedly");
     assert_eq!(err, expected_error);
@@ -1765,7 +1770,7 @@ fn execute_with_assets_for_version(
     program: &str,
     version: ClarityVersion,
     sender: StandardPrincipalData,
-) -> (Result<Option<Value>, VmExecutionError>, Option<AssetMap>) {
+) -> (Result<Option<Value>, ClarityEvalError>, Option<AssetMap>) {
     let mut assets: Option<AssetMap> = None;
 
     let result = execute_and_check_versioned(program, version, sender, |g| {
@@ -1912,8 +1917,8 @@ proptest! {
         let snippet = format!("(restrict-assets? tx-sender () {body})");
         let sender_principal = sender.clone().into();
         assert_results_match(
-            (body.as_str(), ClarityVersion::Clarity4),
-            (snippet.as_str(), ClarityVersion::Clarity4),
+            (body.as_str(), ClarityVersion::latest()),
+            (snippet.as_str(), ClarityVersion::latest()),
             sender,
             |unrestricted_assets, restricted_assets| {
                 let stx_moved = unrestricted_assets.get_stx(&sender_principal).unwrap_or(0);
@@ -1953,8 +1958,8 @@ proptest! {
         };
 
         assert_results_match(
-            (body_program.as_str(), ClarityVersion::Clarity4),
-            (wrapper_program.as_str(), ClarityVersion::Clarity4),
+            (body_program.as_str(), ClarityVersion::latest()),
+            (wrapper_program.as_str(), ClarityVersion::latest()),
             sender,
             move |unrestricted_assets, restricted_assets| {
                 let moved = unrestricted_assets
@@ -1996,8 +2001,8 @@ proptest! {
         };
 
         assert_results_match(
-            (body_program.as_str(), ClarityVersion::Clarity4),
-            (wrapper_program.as_str(), ClarityVersion::Clarity4),
+            (body_program.as_str(), ClarityVersion::latest()),
+            (wrapper_program.as_str(), ClarityVersion::latest()),
             sender,
             move |unrestricted_assets, restricted_assets| {
                 let moved = unrestricted_assets
@@ -2063,7 +2068,7 @@ proptest! {
         let contract = PrincipalData::Contract(contract_id);
         assert_results_match(
             (c3_snippet.as_str(), ClarityVersion::Clarity3),
-            (snippet.as_str(), ClarityVersion::Clarity4),
+            (snippet.as_str(), ClarityVersion::latest()),
             sender,
             |unrestricted_assets, restricted_assets| {
                 let stx_moved = unrestricted_assets.get_stx(&contract).unwrap_or(0);
@@ -2089,7 +2094,7 @@ proptest! {
         let c3_snippet = format!("(as-contract {body})");
         assert_results_match(
             (c3_snippet.as_str(), ClarityVersion::Clarity3),
-            (snippet.as_str(), ClarityVersion::Clarity4),
+            (snippet.as_str(), ClarityVersion::latest()),
             sender,
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
@@ -2114,7 +2119,7 @@ proptest! {
             format!("{TOKEN_DEFINITIONS}(as-contract (begin {ft_mint} {nft_mint} {body}))");
         assert_results_match(
             (c3_snippet.as_str(), ClarityVersion::Clarity3),
-            (snippet.as_str(), ClarityVersion::Clarity4),
+            (snippet.as_str(), ClarityVersion::latest()),
             sender,
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
@@ -2137,7 +2142,7 @@ proptest! {
        let simple_snippet = format!("{TOKEN_DEFINITIONS}(begin {ft_mint} {nft_mint} {body})");
        assert_results_match(
             (simple_snippet.as_str(), ClarityVersion::Clarity3),
-            (snippet.as_str(), ClarityVersion::Clarity4),
+            (snippet.as_str(), ClarityVersion::latest()),
             sender,
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);

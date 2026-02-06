@@ -12,7 +12,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use clarity_types::errors::CheckErrorKind;
 use proptest::prelude::*;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::{PrivateKey, StacksEpochId};
@@ -20,7 +19,7 @@ use stacks_common::util::hash::{Sha256Sum, to_hex};
 use stacks_common::util::secp256k1::MessageSignature as Secp256k1Signature;
 use stacks_common::util::secp256r1::{Secp256r1PrivateKey, Secp256r1PublicKey};
 
-use crate::vm::errors::VmExecutionError;
+use crate::vm::errors::{ClarityEvalError, RuntimeCheckErrorKind, VmExecutionError};
 use crate::vm::types::{ResponseData, TypeSignature, Value};
 use crate::vm::{ClarityVersion, execute_with_parameters};
 
@@ -78,8 +77,8 @@ fn test_secp256r1_verify_valid_signature_returns_true() {
         Value::Bool(true),
         execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false
         )
         .expect("execution should succeed")
@@ -99,8 +98,8 @@ fn test_secp256r1_verify_valid_high_s_signature_returns_true() {
         Value::Bool(true),
         execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false
         )
         .expect("execution should succeed")
@@ -124,8 +123,8 @@ fn test_secp256r1_verify_invalid_signature_returns_false() {
         Value::Bool(false),
         execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false
         )
         .expect("execution should succeed")
@@ -149,8 +148,8 @@ fn test_secp256r1_verify_signature_too_short_returns_false() {
         Value::Bool(false),
         execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false
         )
         .expect("execution should succeed")
@@ -172,13 +171,15 @@ fn test_secp256r1_verify_signature_too_long_errors() {
 
     let err = execute_with_parameters(
         program.as_str(),
-        ClarityVersion::Clarity4,
-        StacksEpochId::Epoch33,
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
         false,
     )
     .unwrap_err();
     match err {
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(expected, _)) => {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
             assert_eq!(*expected, TypeSignature::BUFFER_64);
         }
         _ => panic!("expected BUFFER_65 type error, found {err:?}"),
@@ -201,8 +202,8 @@ fn test_secp256k1_verify_valid_signature_returns_true() {
         Value::Bool(true),
         execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false
         )
         .expect("execution should succeed")
@@ -222,8 +223,8 @@ fn test_secp256k1_verify_valid_high_s_signature_returns_false() {
         Value::Bool(false),
         execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false
         )
         .expect("execution should succeed")
@@ -247,8 +248,8 @@ fn test_secp256k1_verify_invalid_signature_returns_false() {
         Value::Bool(false),
         execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false
         )
         .expect("execution should succeed")
@@ -272,8 +273,8 @@ fn test_secp256k1_verify_signature_too_short_returns_false() {
         Value::Bool(false),
         execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false
         )
         .expect("execution should succeed")
@@ -299,8 +300,8 @@ fn test_secp256k1_verify_recovery_id_out_of_range_returns_false() {
         Value::Bool(false),
         execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false
         )
         .expect("execution should succeed")
@@ -322,13 +323,15 @@ fn test_secp256k1_verify_signature_too_long_errors() {
 
     let err = execute_with_parameters(
         program.as_str(),
-        ClarityVersion::Clarity4,
-        StacksEpochId::Epoch33,
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
         false,
     )
     .unwrap_err();
     match err {
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(expected, _)) => {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
             assert_eq!(*expected, TypeSignature::BUFFER_65);
         }
         _ => panic!("expected BUFFER_65 type error, found {err:?}"),
@@ -351,8 +354,8 @@ fn test_secp256k1_recover_returns_expected_public_key() {
         Value::Bool(true),
         execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false
         )
         .expect("execution should succeed")
@@ -373,8 +376,8 @@ fn test_secp256k1_recover_invalid_signature_returns_err_code() {
 
     match execute_with_parameters(
         program.as_str(),
-        ClarityVersion::Clarity4,
-        StacksEpochId::Epoch33,
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
         false,
     )
     .expect("execution should succeed")
@@ -408,8 +411,8 @@ proptest! {
 
         let result = execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false,
         )
         .expect("execution should succeed")
@@ -438,8 +441,8 @@ proptest! {
 
         let result = execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false,
         )
         .expect("execution should succeed")
@@ -467,8 +470,8 @@ proptest! {
 
         let result = execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false,
         )
         .expect("execution should succeed")
@@ -500,7 +503,7 @@ proptest! {
             buff_literal(&pubkey_bytes)
         );
         let result = execute_with_parameters(
-            &program, ClarityVersion::Clarity4, StacksEpochId::Epoch33, false
+            &program, ClarityVersion::latest(), StacksEpochId::latest(), false
         ).unwrap().unwrap();
 
         prop_assert_eq!(Value::Bool(false), result);
@@ -530,8 +533,8 @@ proptest! {
 
         let result = execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false,
         )
         .expect("execution should succeed")
@@ -565,8 +568,8 @@ proptest! {
 
         let result = execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false,
         )
         .expect("execution should succeed")
@@ -597,7 +600,7 @@ proptest! {
             buff_literal(&pub_b_bytes)
         );
         let result = execute_with_parameters(
-            &program, ClarityVersion::Clarity4, StacksEpochId::Epoch33, false
+            &program, ClarityVersion::latest(), StacksEpochId::latest(), false
         ).unwrap().unwrap();
 
         prop_assert_eq!(Value::Bool(false), result);
@@ -626,8 +629,8 @@ proptest! {
 
         let result = execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false,
         )
         .expect("execution should succeed")
@@ -658,8 +661,8 @@ proptest! {
 
         let result = execute_with_parameters(
             program.as_str(),
-            ClarityVersion::Clarity4,
-            StacksEpochId::Epoch33,
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
             false,
         )
         .expect("execution should succeed")

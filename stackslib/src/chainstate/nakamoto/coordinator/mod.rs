@@ -1085,6 +1085,7 @@ impl<
                 PaidRewards {
                     pox: vec![],
                     burns: 0,
+                    pox_transactions: vec![],
                 }
             };
 

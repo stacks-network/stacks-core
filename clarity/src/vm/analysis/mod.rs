@@ -29,7 +29,7 @@ pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
 pub use self::errors::{
-    CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
+    CommonCheckErrorKind, RuntimeCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
 };
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
@@ -150,7 +150,8 @@ pub fn run_analysis(
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => {
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => {
                 TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db, build_type_map)
             }
             StacksEpochId::Epoch10 => {

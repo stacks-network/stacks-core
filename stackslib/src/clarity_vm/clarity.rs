@@ -1922,6 +1922,32 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         })
     }
 
+    pub fn initialize_epoch_3_4(&mut self) -> Result<Vec<StacksTransactionReceipt>, ClarityError> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+            self.epoch = StacksEpochId::Epoch34;
+            self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch34)?;
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 3.4 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch34;
+            });
+
+            debug!("Epoch 3.4 initialized");
+            (old_cost_tracker, Ok(vec![]))
+        })
+    }
+
     pub fn start_transaction_processing(&mut self) -> ClarityTransactionConnection<'_, '_> {
         ClarityTransactionConnection::new(
             &mut self.datastore,
@@ -2282,7 +2308,7 @@ mod tests {
     use std::path::PathBuf;
 
     use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
-    use clarity::vm::analysis::errors::CheckErrorKind;
+    use clarity::vm::analysis::errors::RuntimeCheckErrorKind;
     use clarity::vm::database::{ClarityBackingStore, STXBalance, SqliteConnection};
     use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
     use clarity::vm::types::{StandardPrincipalData, TupleData, Value};
@@ -2684,7 +2710,7 @@ mod tests {
         // should not be in the marf.
         assert_eq!(
             conn.get_contract_hash(&contract_identifier).unwrap_err(),
-            CheckErrorKind::NoSuchContract(contract_identifier.to_string()).into()
+            RuntimeCheckErrorKind::NoSuchContract(contract_identifier.to_string()).into()
         );
         let sql = conn.get_side_store();
         // sqlite only have entries
@@ -2830,7 +2856,7 @@ mod tests {
         // should not be in the marf.
         assert_eq!(
             conn.get_contract_hash(&contract_identifier).unwrap_err(),
-            CheckErrorKind::NoSuchContract(contract_identifier.to_string()).into()
+            RuntimeCheckErrorKind::NoSuchContract(contract_identifier.to_string()).into()
         );
 
         let sql = conn.get_side_store();

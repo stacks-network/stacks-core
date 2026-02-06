@@ -26,7 +26,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use crate::vm::{
     ContractContext,
     contexts::AssetMapEntry,
-    errors::{CheckErrorKind, RuntimeError},
+    errors::{ClarityEvalError, RuntimeCheckErrorKind, RuntimeError},
     tests::{
         TopLevelMemoryEnvironmentGenerator, execute, is_committed, is_err_code,
         symbols_from_values, tl_env_factory as env_factory,
@@ -39,7 +39,7 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))
             (ft-get-balance stackaroos account))
          (define-read-only (get-total-supply)
-            (ft-get-supply stackaroos)) 
+            (ft-get-supply stackaroos))
          (define-public (my-token-transfer (to principal) (amount uint))
             (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
@@ -104,7 +104,7 @@ const ASSET_NAMES: &str =
                     (unwrap! token-to-contract-result token-to-contract-result)
                     (unwrap! contract-to-burn-result contract-to-burn-result)
                     (ok 0))))
-         (define-public (register 
+         (define-public (register
                         (recipient-principal principal)
                         (name int)
                         (salt int))
@@ -606,7 +606,7 @@ fn test_simple_token_system(
 
     assert!(matches!(
         err,
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::TypeValueError(_, _))
     ));
 
     let (result, asset_map, _events) = execute_transaction(
@@ -835,7 +835,9 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(_, _)
+        ))
     ));
 
     let err = owned_env
@@ -843,7 +845,9 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(_, _)
+        ))
     ));
 
     owned_env

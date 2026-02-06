@@ -195,7 +195,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 )
                 .unwrap();
             }
-            StacksEpochId::Epoch33 => {
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => {
                 let (ast, _analysis) = tx
                     .analyze_smart_contract(
                         &boot_code_id("costs-4", false),
@@ -1190,7 +1190,7 @@ fn test_deep_tuples() {
 
         let _res = block.as_transaction(|tx| {
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
             let analysis_resp =
                 tx.analyze_smart_contract(&contract_identifier, *version, &meets_stack_depth_tuple);
             eprintln!(
@@ -1208,7 +1208,7 @@ fn test_deep_tuples() {
             }
 
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
             let analysis_resp = tx.analyze_smart_contract(
                 &contract_identifier,
                 *version,
@@ -1276,7 +1276,7 @@ fn test_deep_tuples_ast_precheck() {
                 assert_eq!(tx.get_epoch(), StacksEpochId::Epoch2_05);
             }
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
             let analysis_resp = tx.analyze_smart_contract(
                 &contract_identifier,
                 *version,
@@ -1350,7 +1350,7 @@ fn test_deep_type_nesting() {
                 assert_eq!(tx.get_epoch(), StacksEpochId::Epoch2_05);
             }
             //  basically, without the new stack depth checks in the lexer/parser,
-            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
             let analysis_resp =
                 tx.analyze_smart_contract(&contract_identifier, *version, &exceeds_type_depth);
             analysis_resp.unwrap_err()

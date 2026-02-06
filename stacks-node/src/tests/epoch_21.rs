@@ -1675,16 +1675,7 @@ fn transition_removes_pox_sunset() {
         let recipients: Vec<(String, u64)> = block
             .reward_recipients
             .iter()
-            .map(|value| {
-                let recipient: String = value
-                    .get("recipient")
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .to_string();
-                let amount = value.get("amt").unwrap().as_u64().unwrap();
-                (recipient, amount)
-            })
+            .map(|value| (value.recipient.clone().to_b58(), value.amt))
             .collect();
 
         if (i as u64) < (sunset_start_rc * reward_cycle_len) {

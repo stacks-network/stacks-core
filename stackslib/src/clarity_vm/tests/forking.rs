@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,10 +13,9 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use clarity::vm::analysis::errors::CheckErrorKind;
+use clarity::vm::analysis::errors::RuntimeCheckErrorKind;
 use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::errors::{RuntimeError, VmExecutionError};
+use clarity::vm::errors::{ClarityEvalError, RuntimeError, VmExecutionError};
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
@@ -219,7 +218,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
         owned_env.initialize_contract(c_a, contract, None).unwrap();
     }
 
-    fn initialize_2(owned_env: &mut OwnedEnvironment) -> VmExecutionError {
+    fn initialize_2(owned_env: &mut OwnedEnvironment) -> ClarityEvalError {
         let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
 
         let contract = "(define-private (problematic-cc)
@@ -245,7 +244,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
             let err = initialize_2(env);
             assert_eq!(
                 err,
-                CheckErrorKind::NoSuchContract(
+                RuntimeCheckErrorKind::NoSuchContract(
                     "S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()
                 )
                 .into()

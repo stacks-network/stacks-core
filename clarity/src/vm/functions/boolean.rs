@@ -17,15 +17,15 @@
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{CheckErrorKind, VmExecutionError, check_arguments_at_least};
+use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, check_arguments_at_least};
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TypeSignature, Value};
 
-fn type_force_bool(value: &Value) -> Result<bool, CheckErrorKind> {
+fn type_force_bool(value: &Value) -> Result<bool, RuntimeCheckErrorKind> {
     match *value {
         Value::Bool(boolean) => Ok(boolean),
-        _ => Err(CheckErrorKind::TypeValueError(
+        _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
             Box::new(value.clone()),
         )),

@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
-    CheckErrorKind, CommonCheckErrorKind, SyntaxBindingErrorType, VmExecutionError,
+    CommonCheckErrorKind, RuntimeCheckErrorKind, SyntaxBindingErrorType, VmExecutionError,
     check_argument_count, check_arguments_at_least,
 };
 use crate::vm::eval;
@@ -111,9 +111,9 @@ pub enum DefineResult {
 fn check_legal_define(
     name: &str,
     contract_context: &ContractContext,
-) -> Result<(), CheckErrorKind> {
+) -> Result<(), RuntimeCheckErrorKind> {
     if contract_context.is_name_used(name) {
-        Err(CheckErrorKind::NameAlreadyUsed(name.to_string()))
+        Err(RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()))
     } else {
         Ok(())
     }
@@ -139,15 +139,15 @@ fn handle_define_function(
 ) -> Result<DefineResult, VmExecutionError> {
     let (function_symbol, arg_symbols) = signature
         .split_first()
-        .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
+        .ok_or(RuntimeCheckErrorKind::DefineFunctionBadSignature)?;
 
     let function_name = function_symbol
         .match_atom()
-        .ok_or(CheckErrorKind::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
 
     check_legal_define(function_name, env.contract_context)?;
 
-    let arguments = parse_name_type_pairs::<_, CheckErrorKind>(
+    let arguments = parse_name_type_pairs::<_, RuntimeCheckErrorKind>(
         *env.epoch(),
         arg_symbols,
         SyntaxBindingErrorType::Eval,
@@ -220,7 +220,7 @@ fn handle_define_fungible_token(
                 Some(total_supply_int),
             ))
         } else {
-            Err(CheckErrorKind::TypeValueError(
+            Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
                 Box::new(total_supply_value),
             )
@@ -478,7 +478,7 @@ pub fn evaluate_define(
 #[cfg(test)]
 mod test {
     use clarity_types::Value;
-    use clarity_types::errors::CheckErrorKind;
+    use clarity_types::errors::RuntimeCheckErrorKind;
     use clarity_types::representations::SymbolicExpression;
     use clarity_types::types::QualifiedContractIdentifier;
     use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -536,8 +536,8 @@ mod test {
 
         assert!(matches!(
             result,
-            Err(VmExecutionError::Unchecked(
-                CheckErrorKind::BadSyntaxBinding(_)
+            Err(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::BadSyntaxBinding(_)
             ))
         ));
     }
@@ -595,8 +595,8 @@ mod test {
 
         assert!(matches!(
             result,
-            Err(VmExecutionError::Unchecked(
-                CheckErrorKind::TooManyFunctionParameters(found, max)
+            Err(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TooManyFunctionParameters(found, max)
             ))
         ));
     }
