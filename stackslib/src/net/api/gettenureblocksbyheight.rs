@@ -111,16 +111,19 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHeightRequestHandler {
                     "`burnchain_block_height` not set".into(),
                 ))?;
 
-        let reply = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
+        let reply = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
             let snapshot = get_block_snapshot_by_burnchain_block_height(
                 sortdb,
                 burnchain_block_height,
                 &preamble,
             )?;
-            // search backwards from the chain tip on the canonical fork to find the sortition
-            // that occurred BEFORE this burn block height hence the saturating_sub(1)
-            let last_sortition_ch =
-                get_prior_last_sortition_consensus_hash(sortdb, &snapshot, &preamble)?;
+            let last_sortition_ch = get_prior_last_sortition_consensus_hash(
+                chainstate,
+                sortdb,
+                &snapshot,
+                &preamble,
+                &network.stacks_tip.block_id(),
+            )?;
             build_tenure_from_header_else_snapshot(
                 chainstate,
                 &snapshot,

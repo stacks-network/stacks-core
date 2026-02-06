@@ -118,14 +118,19 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHashRequestHandler {
             .take()
             .ok_or(NetError::SendError("`burnchain_block_hash` not set".into()))?;
 
-        let reply = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
+        let reply = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
             let snapshot = get_block_snapshot_by_burnchain_block_hash(
                 sortdb,
                 &burnchain_block_hash,
                 &preamble,
             )?;
-            let last_sortition_ch =
-                get_prior_last_sortition_consensus_hash(sortdb, &snapshot, &preamble)?;
+            let last_sortition_ch = get_prior_last_sortition_consensus_hash(
+                chainstate,
+                sortdb,
+                &snapshot,
+                &preamble,
+                &network.stacks_tip.block_id(),
+            )?;
             build_tenure_from_header_else_snapshot(
                 chainstate,
                 &snapshot,

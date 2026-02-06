@@ -22,7 +22,7 @@ use stacks_common::types::net::PeerHost;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::db::DBConn;
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::nakamoto::{NakamotoChainState, StacksDBIndexed};
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::http::{
@@ -93,28 +93,56 @@ fn get_handle_from_ch<'a>(
 /// Performs a MARF lookup to find the last snapshot with a sortition prior to the given burn block height.
 /// Will return an empty consensus hash if no prior sorititon exists (i.e., if querying the Genesis tenure)
 pub fn get_prior_last_sortition_consensus_hash(
+    chainstate: &mut StacksChainState,
     sortdb: &SortitionDB,
     block_snapshot: &BlockSnapshot,
     preamble: &HttpRequestPreamble,
+    tip: &StacksBlockId,
 ) -> Result<ConsensusHash, StacksHttpResponse> {
-    let handle = get_handle_from_ch(sortdb, preamble, &block_snapshot.consensus_hash)?;
-    // Search backwards from the chain tip on the canonical fork to find the sortition
-    // that occurred BEFORE this burn block height (hence saturating_sub(1)).
-    let block_height = block_snapshot.block_height.saturating_sub(1);
-    let consensus_hash = handle
-        .get_last_snapshot_with_sortition(block_height.into())
+    let is_shadow = chainstate
+        .nakamoto_blocks_db()
+        .is_shadow_tenure(&block_snapshot.consensus_hash)
         .map_err(|e| {
-            handle_db_error(
-                e,
-                preamble,
-                format!(
+            let msg = format!("Failed to query shadow tenure status: {e:?}");
+            error!("{msg}");
+            StacksHttpResponse::new_error(preamble, &HttpServerError::new(msg))
+        })?;
+    let consensus_hash = if !is_shadow {
+        // Not a shadow tenure.
+        // Return the last sortition consensus hash PRIOR to this tenure's block height (hence the saturating_sub(1)).
+        let block_height = block_snapshot.block_height.saturating_sub(1);
+        let handle = get_handle_from_ch(sortdb, preamble, &block_snapshot.consensus_hash)?;
+        handle
+            .get_last_snapshot_with_sortition(block_height.into())
+            .map_err(|e| {
+                handle_db_error(
+                    e,
+                    preamble,
+                    format!(
                     "No prior sortition found for tenure '{}', burn block height '{block_height}'",
                     block_snapshot.consensus_hash
                 ),
-                format!("Failed to get last sortition at block '{block_height}'"),
-            )
-        })?
-        .consensus_hash;
+                    format!("Failed to get last sortition at block '{block_height}'"),
+                )
+            })?
+            .consensus_hash
+    } else {
+        // this is a shadow tenure. Just return the parent tenure consensus hash.
+        handle_optional_db_result(
+            chainstate
+                .index_conn()
+                .get_parent_tenure_consensus_hash(tip, &block_snapshot.consensus_hash),
+            preamble,
+            format!(
+                "No parent tenure consensus hash found for '{}'",
+                block_snapshot.consensus_hash
+            ),
+            format!(
+                "Failed to get parent tenure consensus hash for '{}'",
+                block_snapshot.consensus_hash
+            ),
+        )?
+    };
     Ok(consensus_hash)
 }
 
@@ -474,11 +502,16 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
             .take()
             .ok_or(NetError::SendError("`consensus_hash` not set".into()))?;
 
-        let reply = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
+        let reply = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
             let snapshot =
                 get_block_snapshot_by_consensus_hash(sortdb, &consensus_hash, &preamble)?;
-            let last_sortition_ch =
-                get_prior_last_sortition_consensus_hash(sortdb, &snapshot, &preamble)?;
+            let last_sortition_ch = get_prior_last_sortition_consensus_hash(
+                chainstate,
+                sortdb,
+                &snapshot,
+                &preamble,
+                &network.stacks_tip.block_id(),
+            )?;
             build_tenure_from_header_else_snapshot(
                 chainstate,
                 &snapshot,
