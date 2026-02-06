@@ -146,7 +146,7 @@ fn reorg_attempts_count_towards_miner_validity() {
     );
     submit_tx(&http_origin, &transfer_tx);
 
-    let block_proposal_n = wait_for_block_proposal(
+    let block_proposal_n = wait_for_block_proposal_block(
         30,
         chain_before.stacks_tip_height + 1,
         &miner_pk,
@@ -181,7 +181,7 @@ fn reorg_attempts_count_towards_miner_validity() {
     )
     .expect("Failed to update signer states to expected miner tenure id");
     TEST_MINE_SKIP.set(false);
-    let block_proposal_n_prime = wait_for_block_proposal(
+    let block_proposal_n_prime = wait_for_block_proposal_block(
         30,
         chain_before.stacks_tip_height + 1,
         &miner_pk,
@@ -349,7 +349,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
     );
     submit_tx(&http_origin, &transfer_tx);
 
-    let block_proposal_n = wait_for_block_proposal(
+    let block_proposal_n = wait_for_block_proposal_block(
         30,
         chain_start.stacks_tip_height + 1,
         &miner_pk,
@@ -400,7 +400,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
 
     // Allow incoming miner to propose block N'
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
-    let block_proposal_n_prime = wait_for_block_proposal(
+    let block_proposal_n_prime = wait_for_block_proposal_block(
         30,
         chain_start.stacks_tip_height + 1,
         &miner_pk,
@@ -456,7 +456,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
     // N+1 will still be rejected however as the signers will have already marked the miner as invalid since the reorg
     // block N' arrived AFTER the reorg_attempts_activity_timeout and the subsequent block N+1 arrived AFTER the
     // block_proposal_timeout.
-    let block_proposal_n_1 = wait_for_block_proposal(
+    let block_proposal_n_1 = wait_for_block_proposal_block(
         30,
         chain_before.stacks_tip_height + 1,
         &miner_pk,
@@ -822,7 +822,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     // assure we have a successful sortition that miner 1 won
     verify_sortition_winner(&sortdb, &miner_pkh_1);
     // wait for a block N+1' proposal from miner1
-    let proposed_block = wait_for_block_proposal(
+    let proposed_block = wait_for_block_proposal_block(
         30,
         block_n_height + 1,
         &miner_pk_1,
@@ -1035,7 +1035,7 @@ fn interrupt_miner_on_new_stacks_tip() {
 
     info!("------------------------- RL2 Proposes Block N' -------------------------");
 
-    let miner_2_block_n_prime = wait_for_block_proposal(
+    let miner_2_block_n_prime = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk_2,
@@ -1067,7 +1067,7 @@ fn interrupt_miner_on_new_stacks_tip() {
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(Vec::new());
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
-    let miner_2_block_n_1 = wait_for_block_proposal(
+    let miner_2_block_n_1 = wait_for_block_proposal_block(
         30,
         stacks_height_before + 2,
         &miner_pk_2,
@@ -1246,7 +1246,7 @@ fn global_acceptance_depends_on_block_announcement() {
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N+1");
 
-    let block_n_1 = wait_for_block_proposal(
+    let block_n_1 = wait_for_block_proposal_block(
         30,
         info_before.stacks_tip_height + 1,
         &miner_pk,
@@ -1457,7 +1457,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     // submit a tx so that the miner will mine an extra block
     miners.send_transfer_tx();
 
-    let block_n_1 = wait_for_block_proposal(
+    let block_n_1 = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk_1,
@@ -1483,7 +1483,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         .expect("Failed to Start Miner 2's Tenure");
     verify_sortition_winner(&sortdb, &miner_pkh_2);
     TEST_MINE_SKIP.set(false);
-    let block_n_1_prime = wait_for_block_proposal(
+    let block_n_1_prime = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk_2,
@@ -2803,7 +2803,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} to mine block N+1");
 
-    let proposed_block_n_1 = wait_for_block_proposal(
+    let proposed_block_n_1 = wait_for_block_proposal_block(
         30,
         info_before.stacks_tip_height + 1,
         &miner_pk,
@@ -3144,7 +3144,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to attempt to mine block N+1");
-    let block_n_1_proposal = wait_for_block_proposal(
+    let block_n_1_proposal = wait_for_block_proposal_block(
         30,
         info_before.stacks_tip_height + 1,
         &miner_pk,
@@ -3381,7 +3381,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     let tx = submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted tx {tx} in to attempt to mine block N+1");
-    let block_n_1 = wait_for_block_proposal(
+    let block_n_1 = wait_for_block_proposal_block(
         30,
         info_before.stacks_tip_height + 1,
         &miner_pk,
@@ -3411,7 +3411,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
         .running_nodes
         .btc_regtest_controller
         .build_next_block(1);
-    let proposal = wait_for_block_proposal(
+    let proposal = wait_for_block_proposal_block(
         30,
         info_before.stacks_tip_height + 1,
         &miner_pk,
@@ -3826,7 +3826,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     let stacks_height_before = miners.get_peer_stacks_tip_height();
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
-    let tenure_b_block_proposal = wait_for_block_proposal(
+    let tenure_b_block_proposal = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk_1,
@@ -3895,7 +3895,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     // Note tenure C block will attempt to reorg the prior miner so its expected height should be the same as prior to block B processing.
-    let tenure_c_block_proposal = wait_for_block_proposal(
+    let tenure_c_block_proposal = wait_for_block_proposal_block(
         30,
         tip_b.stacks_block_height,
         &miner_pk_2,
@@ -4113,7 +4113,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     miners.signer_test.running_nodes.test_observer.clear();
     miners.signer_test.mine_bitcoin_block();
 
-    let block_n_1_prime = wait_for_block_proposal(
+    let block_n_1_prime = wait_for_block_proposal_block(
         30,
         block_n_height + 1,
         &miner_pk_1,
@@ -4154,7 +4154,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     miners.signer_test.running_nodes.test_observer.clear();
     // Allow the miner to propose again
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
-    let block_n_1_prime = wait_for_block_proposal(
+    let block_n_1_prime = wait_for_block_proposal_block(
         30,
         block_n_height + 1,
         &miner_pk_1,

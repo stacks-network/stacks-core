@@ -409,7 +409,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         stacks_height_before + 2
     );
     // Next the miner will attempt to propose a block that does not contain the necessary replay tx and signers will reject it
-    let rejected_block = wait_for_block_proposal(
+    let rejected_block = wait_for_block_proposal_block(
         30,
         stacks_height_before + 2,
         &stacks_miner_pk,
@@ -2072,7 +2072,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
         tip.stacks_tip_height + 1,
         &signer_test.running_nodes.test_observer,
     );
-    _ = wait_for_block_proposal(
+    _ = wait_for_block_proposal_block(
         30,
         tip.stacks_tip_height + 2,
         &stacks_miner_pk,
@@ -2274,7 +2274,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
         tip.stacks_tip_height + 1,
         &signer_test.running_nodes.test_observer,
     );
-    _ = wait_for_block_proposal(
+    _ = wait_for_block_proposal_block(
         30,
         tip.stacks_tip_height + 2,
         &stacks_miner_pk,

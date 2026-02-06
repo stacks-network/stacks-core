@@ -118,6 +118,7 @@ use crate::tests::test_observer::TestObserver;
 use crate::tests::{self, gen_random_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
+pub mod late_block_proposal;
 pub mod reorg;
 pub mod tenure_extend;
 pub mod tx_replay;
@@ -468,27 +469,34 @@ impl SignerTest<SpawnedSigner> {
 
     /// Propose a block to the signers
     fn propose_block(&self, block: NakamotoBlock, timeout: Duration) {
+        let burn_height = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_headers_height();
+        let reward_cycle = self.get_current_reward_cycle();
+        let block_proposal = BlockProposal {
+            block,
+            burn_height,
+            reward_cycle,
+            block_proposal_data: BlockProposalData::empty(),
+        };
+        self.send_block_proposal(block_proposal, timeout);
+    }
+
+    /// Send a block proposal to the signers
+    fn send_block_proposal(&self, block_proposal: BlockProposal, timeout: Duration) {
         let miners_contract_id = boot_code_id(MINERS_NAME, false);
         let mut session = StackerDBSession::new(
             &self.running_nodes.conf.node.rpc_bind,
             miners_contract_id,
             self.running_nodes.conf.miner.stackerdb_timeout,
         );
-        let burn_height = self
-            .running_nodes
-            .btc_regtest_controller
-            .get_headers_height();
-        let reward_cycle = self.get_current_reward_cycle();
-        let signer_signature_hash = block.header.signer_signature_hash();
-        let signed_by = block.header.recover_miner_pk().expect(
+        let signer_signature_hash: Sha512Trunc256Sum =
+            block_proposal.block.header.signer_signature_hash();
+        let signed_by = block_proposal.block.header.recover_miner_pk().expect(
             "FATAL: signer tests should only propose blocks that have been signed by the signer test miner. Otherwise, signers won't even consider them via this channel."
         );
-        let message = SignerMessage::BlockProposal(BlockProposal {
-            block,
-            burn_height,
-            reward_cycle,
-            block_proposal_data: BlockProposalData::empty(),
-        });
+        let message = SignerMessage::BlockProposal(block_proposal);
         let miner_sk = self
             .running_nodes
             .conf
@@ -1240,13 +1248,25 @@ pub fn verify_sortition_winner(sortdb: &SortitionDB, miner_pkh: &Hash160) {
 }
 
 /// Waits for a block proposal to be observed in the test_observer stackerdb chunks at the expected height
-/// and signed by the expected miner
-pub fn wait_for_block_proposal(
+/// and signed by the expected miner. Returns the proposed NakamotoBlock.
+pub fn wait_for_block_proposal_block(
     timeout_secs: u64,
     expected_height: u64,
     expected_miner: &StacksPublicKey,
     test_observer: &TestObserver,
 ) -> Result<NakamotoBlock, String> {
+    wait_for_block_proposal(timeout_secs, expected_height, expected_miner, test_observer)
+        .and_then(|proposal| Ok(proposal.block))
+}
+
+/// Waits for a block proposal to be observed in the test_observer stackerdb chunks at the expected height
+/// and signed by the expected miner. Returns the BlockProposal.
+pub fn wait_for_block_proposal(
+    timeout_secs: u64,
+    expected_height: u64,
+    expected_miner: &StacksPublicKey,
+    test_observer: &TestObserver,
+) -> Result<BlockProposal, String> {
     let mut proposed_block = None;
     wait_for(timeout_secs, || {
         let chunks = test_observer.get_stackerdb_chunks();
@@ -1264,7 +1284,7 @@ pub fn wait_for_block_proposal(
                 continue;
             }
             if &miner_pk == expected_miner {
-                proposed_block = Some(proposal.block);
+                proposed_block = Some(proposal);
                 return Ok(true);
             }
         }
@@ -4178,7 +4198,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     let tx = submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted tx {tx} in to attempt to mine block N+1");
-    let block_n_1 = wait_for_block_proposal(
+    let block_n_1 = wait_for_block_proposal_block(
         30,
         info_before.stacks_tip_height + 1,
         &miner_pk,
@@ -4223,7 +4243,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         "------------------------- Attempt to Mine Nakamoto Block N+1' -------------------------"
     );
     // Wait for the miner to propose a new invalid block N+1'
-    let block_n_1_prime = wait_for_block_proposal(
+    let block_n_1_prime = wait_for_block_proposal_block(
         30,
         info_before.stacks_tip_height + 1,
         &miner_pk,
@@ -4894,7 +4914,7 @@ fn block_validation_check_rejection_timeout_heuristic() {
         )
         .unwrap();
 
-        let proposal = wait_for_block_proposal(
+        let proposal = wait_for_block_proposal_block(
             30,
             height_before + 1,
             &miner_pk,
@@ -6097,7 +6117,7 @@ fn block_proposal_timeout() {
     info!("------------------------- Attempt Mine Block N  -------------------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
-    let block_proposal_n = wait_for_block_proposal(
+    let block_proposal_n = wait_for_block_proposal_block(
         30,
         chain_before.stacks_tip_height + 1,
         &miner_pk,
@@ -6446,7 +6466,7 @@ fn signer_can_accept_rejected_block() {
     submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted transfer tx and waiting for block proposal");
-    let block = wait_for_block_proposal(
+    let block = wait_for_block_proposal_block(
         30,
         block_height_before + 1,
         &miner_pk,
@@ -7308,7 +7328,7 @@ fn verify_mempool_caches() {
     submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted transfer tx and waiting for block proposal");
-    let block = wait_for_block_proposal(
+    let block = wait_for_block_proposal_block(
         30,
         block_height_before + 1,
         &miner_pk,
@@ -8190,7 +8210,7 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
     )
     .unwrap();
 
-    let proposal = wait_for_block_proposal(
+    let proposal = wait_for_block_proposal_block(
         30,
         height_before + 1,
         &miner_pk,
@@ -8277,7 +8297,7 @@ fn signers_treat_signatures_as_precommits() {
     );
     signer_test.mine_bitcoin_block();
 
-    let block_proposal = wait_for_block_proposal(
+    let block_proposal = wait_for_block_proposal_block(
         30,
         peer_info.stacks_tip_height + 1,
         &miner_pk,

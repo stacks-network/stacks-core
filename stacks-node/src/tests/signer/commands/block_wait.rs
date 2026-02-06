@@ -25,7 +25,7 @@ use stacks::chainstate::stacks::{TenureChangeCause, TenureChangePayload, Transac
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::neon_integrations::get_chain_info;
 use crate::tests::signer::v0::{
-    wait_for_block_global_rejection_with_reject_reason, wait_for_block_proposal,
+    wait_for_block_global_rejection_with_reject_reason, wait_for_block_proposal_block,
     wait_for_block_pushed_by_miner_key,
 };
 
@@ -275,7 +275,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
 
         info!("Waiting for block proposal at height {expected_height}");
 
-        let proposed_block = wait_for_block_proposal(
+        let proposed_block = wait_for_block_proposal_block(
             30,
             expected_height,
             &miner_pk,

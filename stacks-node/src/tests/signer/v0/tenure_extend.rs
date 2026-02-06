@@ -512,7 +512,7 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
 
     info!("---- Waiting for a rejected tenure extend ----");
     // Now, wait for a block with a tenure extend proposal from the miner, but ensure it is rejected.
-    let proposed_block = wait_for_block_proposal(
+    let proposed_block = wait_for_block_proposal_block(
         30,
         stacks_tip_height + 2,
         &miner_pk,
@@ -1336,7 +1336,7 @@ fn tenure_extend_after_stale_commit_different_miner() {
     info!(
         "------------------------- Miner 1's proposal for C is rejected -------------------------"
     );
-    let proposed_block = wait_for_block_proposal(
+    let proposed_block = wait_for_block_proposal_block(
         60,
         tip_a_height + 1,
         &miner_pk_1,
@@ -1491,7 +1491,7 @@ fn tenure_extend_after_stale_commit_same_miner() {
         "stacks_height_before" => stacks_height_before,
     );
 
-    wait_for_block_proposal(
+    wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk,
@@ -1637,7 +1637,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         "stacks_height_before" => stacks_height_before,
     );
 
-    wait_for_block_proposal(
+    wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk,
@@ -1670,7 +1670,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         "stacks_height_before" => stacks_height_before,
     );
 
-    wait_for_block_proposal(
+    wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk,
@@ -2366,7 +2366,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
     )
     .expect("Timed out waiting for block proposal N+1 from miner 1");
 
-    let miner_2_block_n_1 = wait_for_block_proposal(
+    let miner_2_block_n_1 = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk_2,
@@ -2544,7 +2544,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
     info!("------------------------- Wait for Miner 1's Block N+1' to be Proposed ------------------------";
         "stacks_height_before" => %stacks_height_before);
 
-    let miner_1_block_n_1 = wait_for_block_proposal(
+    let miner_1_block_n_1 = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk_1,
@@ -2576,7 +2576,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
     // Get miner 2's N+1 block proposal
-    let miner_2_block_n_1 = wait_for_block_proposal(
+    let miner_2_block_n_1 = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk_2,
@@ -2749,7 +2749,7 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
 
     info!("------------------------- Get Miner 2's N+1 block -------------------------");
 
-    let miner_2_block_n_1 = wait_for_block_proposal(
+    let miner_2_block_n_1 = wait_for_block_proposal_block(
         60,
         stacks_height_before + 1,
         &miner_pk_2,
@@ -2776,7 +2776,7 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
     std::thread::sleep(tenure_extend_wait_timeout.add(Duration::from_secs(1)));
 
     assert!(
-        wait_for_block_proposal(
+        wait_for_block_proposal_block(
             30,
             stacks_height_before + 1,
             &miner_pk_1,
@@ -3222,7 +3222,7 @@ fn new_tenure_no_winner_while_proposing_block() {
     let stacks_height_before = info_before.stacks_tip_height;
 
     // Wait for the block proposal to be issued
-    let proposed_block = wait_for_block_proposal(
+    let proposed_block = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk,
@@ -3394,7 +3394,7 @@ fn new_tenure_no_winner_while_proposing_block_then_rejected() {
     let stacks_height_before = info_before.stacks_tip_height;
 
     // Wait for the block proposal to be issued
-    let proposed_block = wait_for_block_proposal(
+    let proposed_block = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk,
@@ -3578,7 +3578,7 @@ fn new_tenure_no_winner_while_proposing_block_then_ignored() {
     let stacks_height_before = info_before.stacks_tip_height;
 
     // Wait for the block proposal to be issued
-    let proposed_block = wait_for_block_proposal(
+    let proposed_block = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk,
@@ -3777,7 +3777,7 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
     info!("------------------------- Wait for Miner 2's Block N+1' to be Proposed ------------------------";
         "stacks_height_before" => %stacks_height_before);
 
-    let miner_2_block_n_1 = wait_for_block_proposal(
+    let miner_2_block_n_1 = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk_2,
@@ -4020,7 +4020,7 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     info!("------------------------- Wait for Miner 1's Block N+1' to be Proposed ------------------------";
         "stacks_height_before" => %stacks_height_before);
 
-    let miner_1_block_n_1_prime = wait_for_block_proposal(
+    let miner_1_block_n_1_prime = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk_1,
@@ -4554,7 +4554,7 @@ fn continue_after_fast_block_no_sortition() {
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     info!("----- Waiting for block rejections -----");
-    let miner_2_block = wait_for_block_proposal(
+    let miner_2_block = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk_2,
@@ -4614,7 +4614,7 @@ fn continue_after_fast_block_no_sortition() {
 
     // wait for the new block to be processed
     // Since we may be proposing a ton of the same height, cannot use wait_for_block_pushed_by_miner_key for block N+1.
-    let miner_2_block_n_1 = wait_for_block_proposal(
+    let miner_2_block_n_1 = wait_for_block_proposal_block(
         30,
         stacks_height_before + 1,
         &miner_pk_2,
@@ -5160,7 +5160,7 @@ fn read_count_extend_after_burn_view_change() {
     info!(
         "------------------------- Miner 1's proposal for C is rejected -------------------------"
     );
-    let proposed_block = wait_for_block_proposal(
+    let proposed_block = wait_for_block_proposal_block(
         60,
         tip_a_height + 1,
         &miner_pk_1,

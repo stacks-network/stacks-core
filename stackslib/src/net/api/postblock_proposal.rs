@@ -546,6 +546,21 @@ impl NakamotoBlockProposal {
             });
         }
 
+        if self.block.header.chain_length
+            != parent_stacks_header.stacks_block_height.saturating_add(1)
+        {
+            warn!(
+                "Rejected block proposal";
+                "reason" => "Block height is non-contiguous with parent",
+                "block_height" => self.block.header.chain_length,
+                "parent_block_height" => parent_stacks_header.stacks_block_height,
+            );
+            return Err(BlockValidateRejectReason {
+                reason_code: ValidateRejectCode::InvalidBlock,
+                reason: "Block height is non-contiguous with parent".into(),
+            });
+        }
+
         let tenure_change = self
             .block
             .txs

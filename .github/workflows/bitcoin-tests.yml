@@ -32,11 +32,6 @@ jobs:
         with:
           btc-version: "25.0"
 
-      - name: Build Test Archive
-        run: |
-          set -euo pipefail
-          cargo nextest archive --archive-file ~/test_archive.tar.zst --bin stacks-node
-
       - name: List ignored tests
         id: list
         run: |
