@@ -19,7 +19,7 @@ use serde_json;
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash};
 use stacks_common::types::net::PeerHost;
 
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::db::DBConn;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
@@ -34,6 +34,62 @@ use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, Stacks
 use crate::net::{Error as NetError, StacksNodeState};
 use crate::util_lib::db::Error as db_error;
 
+/// Helper to handle db query results with consistent error handling
+/// Converts NotFoundError and BlockHeightOutOfRange to 404, other errors to 500
+fn handle_db_error(
+    e: db_error,
+    preamble: &HttpRequestPreamble,
+    not_found_msg: String,
+    error_msg: String,
+) -> StacksHttpResponse {
+    match e {
+        db_error::NotFoundError | db_error::BlockHeightOutOfRange => {
+            debug!("{not_found_msg}");
+            StacksHttpResponse::new_error(preamble, &HttpNotFound::new(not_found_msg))
+        }
+        e => {
+            let msg = format!("{error_msg}: {e:?}");
+            error!("{msg}");
+            StacksHttpResponse::new_error(preamble, &HttpServerError::new(msg))
+        }
+    }
+}
+
+/// Helper to handle optional database query result patterns
+/// Converts Ok(None), Err(NotFoundError), and Err(BlockHeightOutOfRange) to 404, other errors to 500
+pub fn handle_optional_db_result<T>(
+    result: Result<Option<T>, db_error>,
+    preamble: &HttpRequestPreamble,
+    not_found_msg: String,
+    error_msg: String,
+) -> Result<T, StacksHttpResponse> {
+    let Some(res) =
+        result.map_err(|e| handle_db_error(e, preamble, not_found_msg.clone(), error_msg))?
+    else {
+        debug!("{not_found_msg}");
+        return Err(StacksHttpResponse::new_error(
+            preamble,
+            &HttpNotFound::new(not_found_msg.clone()),
+        ));
+    };
+    Ok(res)
+}
+
+/// Helper to get a DB handle for a given consensus hash, with consistent error handling
+fn get_handle_from_ch<'a>(
+    sortdb: &'a SortitionDB,
+    preamble: &HttpRequestPreamble,
+    consensus_hash: &ConsensusHash,
+) -> Result<SortitionHandleConn<'a>, StacksHttpResponse> {
+    sortdb.index_handle_at_ch(consensus_hash).map_err(|e| {
+        handle_db_error(
+            e,
+            preamble,
+            format!("No sortition found for tenure '{consensus_hash}'"),
+            format!("Failed to get sortition DB handle for tenure '{consensus_hash}'"),
+        )
+    })
+}
 /// Performs a MARF lookup to find the last snapshot with a sortition prior to the given burn block height.
 /// Will return an empty consensus hash if no prior sorititon exists (i.e., if querying the Genesis tenure)
 pub fn get_prior_last_sortition_consensus_hash(
@@ -41,57 +97,25 @@ pub fn get_prior_last_sortition_consensus_hash(
     block_snapshot: &BlockSnapshot,
     preamble: &HttpRequestPreamble,
 ) -> Result<ConsensusHash, StacksHttpResponse> {
-    let handle = match sortdb.index_handle_at_ch(&block_snapshot.consensus_hash) {
-        Ok(handle) => handle,
-        Err(db_error::NotFoundError) => {
-            let msg = format!(
-                "No sortition found for tenure '{}'",
-                block_snapshot.consensus_hash
-            );
-            debug!("{msg}");
-            return Err(StacksHttpResponse::new_error(
-                preamble,
-                &HttpNotFound::new(msg),
-            ));
-        }
-        Err(e) => {
-            let msg = format!(
-                "Failed to get sortition DB handle for tenure '{}': {e:?}",
-                block_snapshot.consensus_hash
-            );
-            error!("{msg}");
-            return Err(StacksHttpResponse::new_error(
-                preamble,
-                &HttpServerError::new(msg),
-            ));
-        }
-    };
-
+    let handle = get_handle_from_ch(sortdb, preamble, &block_snapshot.consensus_hash)?;
     // Search backwards from the chain tip on the canonical fork to find the sortition
     // that occurred BEFORE this burn block height (hence saturating_sub(1)).
     let block_height = block_snapshot.block_height.saturating_sub(1);
-    match handle.get_last_snapshot_with_sortition(block_height.into()) {
-        Ok(last_sortition) => Ok(last_sortition.consensus_hash),
-        Err(db_error::NotFoundError) => {
-            let msg = format!(
-                "No prior sortition found for tenure '{}', burn block height '{block_height}'",
-                block_snapshot.consensus_hash
-            );
-            error!("{msg}");
-            Err(StacksHttpResponse::new_error(
+    let consensus_hash = handle
+        .get_last_snapshot_with_sortition(block_height.into())
+        .map_err(|e| {
+            handle_db_error(
+                e,
                 preamble,
-                &HttpNotFound::new(msg),
-            ))
-        }
-        Err(e) => {
-            let msg = format!("Failed to get last sortition at block '{block_height}': {e:?}");
-            error!("{msg}");
-            Err(StacksHttpResponse::new_error(
-                preamble,
-                &HttpServerError::new(msg),
-            ))
-        }
-    }
+                format!(
+                    "No prior sortition found for tenure '{}', burn block height '{block_height}'",
+                    block_snapshot.consensus_hash
+                ),
+                format!("Failed to get last sortition at block '{block_height}'"),
+            )
+        })?
+        .consensus_hash;
+    Ok(consensus_hash)
 }
 
 /// Retrieve the block snapshot for a given tenure consensus hash
@@ -100,56 +124,13 @@ pub fn get_block_snapshot_by_consensus_hash(
     consensus_hash: &ConsensusHash,
     preamble: &HttpRequestPreamble,
 ) -> Result<BlockSnapshot, StacksHttpResponse> {
-    let handle = match sortdb.index_handle_at_ch(consensus_hash) {
-        Ok(handle) => handle,
-        Err(db_error::NotFoundError) => {
-            let msg = format!("No sortition found for tenure '{consensus_hash}'");
-            debug!("{msg}");
-            return Err(StacksHttpResponse::new_error(
-                preamble,
-                &HttpNotFound::new(msg),
-            ));
-        }
-        Err(e) => {
-            let msg =
-                format!("Failed to get sortition DB handle for tenure '{consensus_hash}': {e:?}");
-            error!("{msg}");
-            return Err(StacksHttpResponse::new_error(
-                preamble,
-                &HttpServerError::new(msg),
-            ));
-        }
-    };
-    match SortitionDB::get_block_snapshot_consensus(handle.conn(), consensus_hash) {
-        Ok(snap) => {
-            let Some(snap) = snap else {
-                let msg = format!("No sortition snapshot found for tenure '{consensus_hash}'");
-                debug!("{msg}");
-                return Err(StacksHttpResponse::new_error(
-                    preamble,
-                    &HttpNotFound::new(msg),
-                ));
-            };
-            Ok(snap)
-        }
-        Err(db_error::NotFoundError) => {
-            let msg = format!("No block snapshot found for tenure '{consensus_hash}'");
-            error!("{msg}");
-            Err(StacksHttpResponse::new_error(
-                preamble,
-                &HttpNotFound::new(msg),
-            ))
-        }
-        Err(e) => {
-            let msg =
-                format!("Failed to get sortition snapshot for tenure '{consensus_hash}': {e:?}");
-            error!("{msg}");
-            Err(StacksHttpResponse::new_error(
-                preamble,
-                &HttpServerError::new(msg),
-            ))
-        }
-    }
+    let handle = get_handle_from_ch(sortdb, preamble, consensus_hash)?;
+    handle_optional_db_result(
+        SortitionDB::get_block_snapshot_consensus(handle.conn(), consensus_hash),
+        preamble,
+        format!("No block snapshot found for tenure '{consensus_hash}'"),
+        format!("Failed to get block snapshot for tenure '{consensus_hash}'"),
+    )
 }
 
 /// Helper function to create RPCTenure from snapshot

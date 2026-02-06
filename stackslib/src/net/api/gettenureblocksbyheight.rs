@@ -20,15 +20,14 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::net::api::gettenureblocks::{
     build_tenure_from_header_else_snapshot, encode_tenure_reply,
-    get_prior_last_sortition_consensus_hash, RPCTenure,
+    get_prior_last_sortition_consensus_hash, handle_optional_db_result, RPCTenure,
 };
 use crate::net::http::{
-    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
-    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
+    HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
-use crate::util_lib::db::Error as db_error;
 
 /// Retrieve the block snapshot for a given burnchain block height
 pub fn get_block_snapshot_by_burnchain_block_height(
@@ -37,27 +36,12 @@ pub fn get_block_snapshot_by_burnchain_block_height(
     preamble: &HttpRequestPreamble,
 ) -> Result<BlockSnapshot, StacksHttpResponse> {
     let handle = sortdb.index_handle_at_tip();
-    match handle.get_block_snapshot_by_height(burn_block_height) {
-        Ok(Some(sort_id)) => Ok(sort_id),
-        Ok(None) | Err(db_error::NotFoundError | db_error::BlockHeightOutOfRange) => {
-            let msg = format!("No sortition found for burn block height '{burn_block_height}'");
-            error!("{msg}");
-            Err(StacksHttpResponse::new_error(
-                preamble,
-                &HttpNotFound::new(msg),
-            ))
-        }
-        Err(e) => {
-            let msg = format!(
-                "Failed to get sortition snapshot for burn block height '{burn_block_height}': {e:?}"
-            );
-            error!("{msg}");
-            Err(StacksHttpResponse::new_error(
-                preamble,
-                &HttpServerError::new(msg),
-            ))
-        }
-    }
+    handle_optional_db_result(
+        handle.get_block_snapshot_by_height(burn_block_height),
+        preamble,
+        format!("No block snapshot found for burn block height '{burn_block_height}'"),
+        format!("Failed to get block snapshot for burn block height '{burn_block_height}'"),
+    )
 }
 
 #[derive(Clone)]
