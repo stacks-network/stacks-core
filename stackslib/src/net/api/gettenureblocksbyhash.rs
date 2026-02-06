@@ -29,6 +29,7 @@ use crate::net::http::{
 };
 use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
+use crate::util_lib::db::Error as db_error;
 
 /// Retrieve the block snapshot for a given burnchain block hash
 pub fn get_block_snapshot_by_burnchain_block_hash(
@@ -38,21 +39,18 @@ pub fn get_block_snapshot_by_burnchain_block_hash(
 ) -> Result<BlockSnapshot, StacksHttpResponse> {
     let handle = sortdb.index_handle_at_tip();
     let sort_id = match handle.get_sortition_id_for_bhh(burn_header_hash) {
-        Ok(sort_id) => {
-            let Some(sort_id) = sort_id else {
-                let msg = format!("No sortition found for burn block hash '{burn_header_hash}'");
-                debug!("{msg}");
-                return Err(StacksHttpResponse::new_error(
-                    preamble,
-                    &HttpNotFound::new(msg),
-                ))?;
-            };
-            sort_id
+        Ok(Some(sort_id)) => sort_id,
+        Ok(None) | Err(db_error::NotFoundError) => {
+            let msg = format!("No sortition found for burn block hash '{burn_header_hash}'");
+            error!("{msg}");
+            Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpNotFound::new(msg),
+            ))?
         }
         Err(e) => {
-            let msg = format!(
-                "Failed to get sortition snapshot for burn block hash '{burn_header_hash}': {e:?}"
-            );
+            let msg =
+                format!("Failed to get sortition for burn block hash '{burn_header_hash}': {e:?}");
             error!("{msg}");
             Err(StacksHttpResponse::new_error(
                 preamble,
@@ -63,17 +61,15 @@ pub fn get_block_snapshot_by_burnchain_block_hash(
 
     // load snapshot
     match SortitionDB::get_block_snapshot(handle.conn(), &sort_id) {
-        Ok(snap) => {
-            let Some(snap) = snap else {
-                let msg =
-                    format!("No sortition snapshot found for burn block hash '{burn_header_hash}'");
-                debug!("{msg}");
-                return Err(StacksHttpResponse::new_error(
-                    preamble,
-                    &HttpNotFound::new(msg),
-                ));
-            };
-            Ok(snap)
+        Ok(Some(snap)) => Ok(snap),
+        Ok(None) | Err(db_error::NotFoundError) => {
+            let msg =
+                format!("No sortition snapshot found for burn block hash '{burn_header_hash}'");
+            debug!("{msg}");
+            Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpNotFound::new(msg),
+            ))
         }
         Err(e) => {
             let msg = format!(
@@ -162,7 +158,6 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHashRequestHandler {
             )?;
             let last_sortition_ch =
                 get_prior_last_sortition_consensus_hash(sortdb, &snapshot, &preamble)?;
-
             build_tenure_from_header_else_snapshot(
                 chainstate,
                 &snapshot,

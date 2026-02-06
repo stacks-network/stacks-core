@@ -32,6 +32,7 @@ use crate::net::http::{
 };
 use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
+use crate::util_lib::db::Error as db_error;
 
 /// Performs a MARF lookup to find the last snapshot with a sortition prior to the given burn block height.
 /// Will return an empty consensus hash if no prior sorititon exists (i.e., if querying the Genesis tenure)
@@ -42,6 +43,17 @@ pub fn get_prior_last_sortition_consensus_hash(
 ) -> Result<ConsensusHash, StacksHttpResponse> {
     let handle = match sortdb.index_handle_at_ch(&block_snapshot.consensus_hash) {
         Ok(handle) => handle,
+        Err(db_error::NotFoundError) => {
+            let msg = format!(
+                "No sortition found for tenure '{}'",
+                block_snapshot.consensus_hash
+            );
+            debug!("{msg}");
+            return Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpNotFound::new(msg),
+            ));
+        }
         Err(e) => {
             let msg = format!(
                 "Failed to get sortition DB handle for tenure '{}': {e:?}",
@@ -60,6 +72,17 @@ pub fn get_prior_last_sortition_consensus_hash(
     let block_height = block_snapshot.block_height.saturating_sub(1);
     match handle.get_last_snapshot_with_sortition(block_height.into()) {
         Ok(last_sortition) => Ok(last_sortition.consensus_hash),
+        Err(db_error::NotFoundError) => {
+            let msg = format!(
+                "No prior sortition found for tenure '{}', burn block height '{block_height}'",
+                block_snapshot.consensus_hash
+            );
+            error!("{msg}");
+            Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpNotFound::new(msg),
+            ))
+        }
         Err(e) => {
             let msg = format!("Failed to get last sortition at block '{block_height}': {e:?}");
             error!("{msg}");
@@ -77,11 +100,26 @@ pub fn get_block_snapshot_by_consensus_hash(
     consensus_hash: &ConsensusHash,
     preamble: &HttpRequestPreamble,
 ) -> Result<BlockSnapshot, StacksHttpResponse> {
-    let handle = sortdb.index_handle_at_ch(consensus_hash).map_err(|e| {
-        let msg = format!("Failed to get sortition DB handle for tenure '{consensus_hash}': {e:?}");
-        error!("{msg}");
-        StacksHttpResponse::new_error(preamble, &HttpServerError::new(msg))
-    })?;
+    let handle = match sortdb.index_handle_at_ch(consensus_hash) {
+        Ok(handle) => handle,
+        Err(db_error::NotFoundError) => {
+            let msg = format!("No sortition found for tenure '{consensus_hash}'");
+            debug!("{msg}");
+            return Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpNotFound::new(msg),
+            ));
+        }
+        Err(e) => {
+            let msg =
+                format!("Failed to get sortition DB handle for tenure '{consensus_hash}': {e:?}");
+            error!("{msg}");
+            return Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpServerError::new(msg),
+            ));
+        }
+    };
     match SortitionDB::get_block_snapshot_consensus(handle.conn(), consensus_hash) {
         Ok(snap) => {
             let Some(snap) = snap else {
@@ -93,6 +131,14 @@ pub fn get_block_snapshot_by_consensus_hash(
                 ));
             };
             Ok(snap)
+        }
+        Err(db_error::NotFoundError) => {
+            let msg = format!("No block snapshot found for tenure '{consensus_hash}'");
+            error!("{msg}");
+            Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpNotFound::new(msg),
+            ))
         }
         Err(e) => {
             let msg =
@@ -198,10 +244,9 @@ where
             let stream = create_tenure_stream_response(chainstate, header, tenure, preamble)?;
             Ok(TenureReply::Stream(stream))
         }
-        Ok(None) => Ok(TenureReply::Json(create_rpc_tenure_from_snapshot(
-            snapshot,
-            last_sortition_ch,
-        ))),
+        Ok(None) | Err(ChainError::NoSuchBlockError) => Ok(TenureReply::Json(
+            create_rpc_tenure_from_snapshot(snapshot, last_sortition_ch),
+        )),
         Err(e) => {
             let msg = format!("Failed to query tenure blocks: {e:?}");
             error!("{msg}");

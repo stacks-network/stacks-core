@@ -28,6 +28,7 @@ use crate::net::http::{
 };
 use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
+use crate::util_lib::db::Error as db_error;
 
 /// Retrieve the block snapshot for a given burnchain block height
 pub fn get_block_snapshot_by_burnchain_block_height(
@@ -37,16 +38,14 @@ pub fn get_block_snapshot_by_burnchain_block_height(
 ) -> Result<BlockSnapshot, StacksHttpResponse> {
     let handle = sortdb.index_handle_at_tip();
     match handle.get_block_snapshot_by_height(burn_block_height) {
-        Ok(sort_id) => {
-            let Some(sort_id) = sort_id else {
-                let msg = format!("No sortition found for burn block height '{burn_block_height}'");
-                debug!("{msg}");
-                return Err(StacksHttpResponse::new_error(
-                    preamble,
-                    &HttpNotFound::new(msg),
-                ))?;
-            };
-            Ok(sort_id)
+        Ok(Some(sort_id)) => Ok(sort_id),
+        Ok(None) | Err(db_error::NotFoundError | db_error::BlockHeightOutOfRange) => {
+            let msg = format!("No sortition found for burn block height '{burn_block_height}'");
+            error!("{msg}");
+            Err(StacksHttpResponse::new_error(
+                preamble,
+                &HttpNotFound::new(msg),
+            ))
         }
         Err(e) => {
             let msg = format!(
