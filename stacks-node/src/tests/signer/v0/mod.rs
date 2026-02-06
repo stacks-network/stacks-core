@@ -119,6 +119,7 @@ use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config
 
 pub mod late_block_proposal;
 pub mod reorg;
+pub mod signers_wait_for_validation;
 pub mod tenure_extend;
 pub mod tx_replay;
 
@@ -2297,7 +2298,12 @@ fn end_of_tenure() {
     );
 
     info!("------------------------- Test Block Validation Stalled -------------------------");
-    TEST_VALIDATE_STALL.set(true);
+    TEST_VALIDATE_STALL.set(vec![signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
 
     let proposals_before = proposed_blocks.load(Ordering::SeqCst);
     let info = signer_test.get_peer_info();
@@ -2357,7 +2363,7 @@ fn end_of_tenure() {
 
     info!("Unpausing block validation and waiting for block to be processed");
     // Disable the stall and wait for the block to be processed
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
     wait_for(short_timeout.as_secs(), || {
         let processed_now = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
         Ok(processed_now > blocks_before)
@@ -4578,7 +4584,12 @@ fn block_validation_response_timeout() {
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
     info!("------------------------- Test Block Validation Stalled -------------------------");
-    TEST_VALIDATE_STALL.set(true);
+    TEST_VALIDATE_STALL.set(vec![signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
     let validation_stall_start = Instant::now();
 
     let proposals_before = block_proposals.load(Ordering::SeqCst);
@@ -4682,7 +4693,7 @@ fn block_validation_response_timeout() {
     let info_before = info_after;
     info!("Unpausing block validation");
     // Disable the stall and wait for the block to be processed successfully
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
     wait_for(30, || {
         let info = get_chain_info(&signer_test.running_nodes.conf);
         Ok(info.stacks_tip_height > info_before.stacks_tip_height)
@@ -6279,7 +6290,12 @@ fn signer_can_accept_rejected_block() {
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![ignoring_signer]);
 
     // Stall block validation so we can ensure the timing we want to test
-    TEST_VALIDATE_STALL.set(true);
+    TEST_VALIDATE_STALL.set(vec![signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
 
     // submit a tx so that the miner will mine a block
     let transfer_tx = make_stacks_transfer_serialized(
@@ -6306,7 +6322,7 @@ fn signer_can_accept_rejected_block() {
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);
 
     // Unstall the other signers
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
 
     info!(
         "Block proposed, submitting another transaction that should not get included in the block"

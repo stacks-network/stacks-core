@@ -133,7 +133,12 @@ fn reorg_attempts_count_towards_miner_validity() {
     info!("------------------------- Test Mine Block N -------------------------");
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
     // Stall validation so signers will be unable to process the tenure change block for Tenure B.
-    TEST_VALIDATE_STALL.set(true);
+    TEST_VALIDATE_STALL.set(vec![signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
     test_observer::clear();
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
@@ -185,7 +190,7 @@ fn reorg_attempts_count_towards_miner_validity() {
     assert_ne!(block_proposal_n, block_proposal_n_prime);
     let chain_before = get_chain_info(&signer_test.running_nodes.conf);
     TEST_MINE_SKIP.set(true);
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
 
     info!("------------------------- Advance Tip to Block N -------------------------");
     wait_for(30, || {
@@ -321,7 +326,12 @@ fn reorg_attempts_activity_timeout_exceeded() {
     let chain_start = get_chain_info(&signer_test.running_nodes.conf);
     // Stall validation so signers will be unable to process the tenure change block for Tenure B.
     // And so the incoming miner proposes a block N' (the reorging block).
-    TEST_VALIDATE_STALL.set(true);
+    TEST_VALIDATE_STALL.set(vec![signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
     test_observer::clear();
     // submit a tx so that the miner will mine an extra block
     let sender_nonce = 0;
@@ -361,7 +371,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
         block_proposal_n.header.signer_signature_hash()
     );
     // Allow block N validation to finish, but don't broadcast it yet
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
     TEST_PAUSE_BLOCK_BROADCAST.set(true);
     let reward_cycle = signer_test.get_current_reward_cycle();
     wait_for_block_global_acceptance_from_signers(
@@ -1327,7 +1337,14 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     debug!("Miner 1 mined block N: {block_n_signature_hash}");
 
     info!("------------------------- Pause Block Validation Response of N+1 -------------------------");
-    TEST_VALIDATE_STALL.set(true);
+    // Both miners have the same auth token
+    TEST_VALIDATE_STALL.set(vec![miners
+        .signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
     let rejections_before_2 = rl2_rejections.load(Ordering::SeqCst);
     let blocks_before = test_observer::get_blocks().len();
     let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
@@ -1383,7 +1400,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
 
     info!("------------------------- Unpause Block Validation Response of N+1 -------------------------");
 
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
 
     // Verify that the node accepted the proposed N+1, sending back a validate ok response
     wait_for(30, || {

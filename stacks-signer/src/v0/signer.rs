@@ -1034,14 +1034,6 @@ impl Signer {
             debug!("{self}: Received pre-commit for a block we have not seen before. Ignoring...");
             return;
         };
-        if block_info.has_reached_consensus() {
-            debug!(
-                "{self}: Received pre-commit for a block that is already marked as {}. Ignoring...",
-                block_info.state
-            );
-            return;
-        };
-
         if block_info.state == BlockState::LocallyAccepted
             || block_info.state == BlockState::LocallyRejected
         {
@@ -1082,8 +1074,15 @@ impl Signer {
             return;
         }
 
+        let Some(valid) = block_info.valid else {
+            // We cannot determine validity of the block yet. Do nothing further.
+            debug!(
+                "{self}: Enough pre-committed to block {block_hash}, but we do not know if the block is valid yet. Doing nothing."
+            );
+            return;
+        };
         // have enough commits, so maybe we should actually broadcast our signature...
-        if block_info.valid == Some(false) {
+        if !valid {
             // We already marked this block as invalid. We should not do anything further as we do not change our votes on rejected blocks.
             debug!(
                 "{self}: Enough pre-committed to block {block_hash}, but we do not view the block as valid. Doing nothing."
