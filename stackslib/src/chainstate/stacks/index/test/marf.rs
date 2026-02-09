@@ -17,10 +17,12 @@
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
 
+use std::collections::HashMap;
 use std::fs;
 
 use clarity::types::chainstate::{BlockHeaderHash, TrieHash};
 use stacks_common::types::chainstate::StacksBlockId;
+use tempfile::tempdir;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::to_hex;
 
@@ -2225,4 +2227,258 @@ fn test_marf_unconfirmed() {
     )
     .unwrap_err();
     assert!(matches!(e, Error::NotFoundError));
+}
+
+// ---------------------------------------------------------------------------
+// for_each_leaf tests
+// ---------------------------------------------------------------------------
+
+/// Create a small MARF with 2 blocks for `for_each_leaf` tests.
+///
+/// Block 0 (b1): inserts k1 = "v1".
+/// Block 1 (b2): overwrites k1 = "v2", inserts k2 = "v3".
+fn setup_for_each_leaf_marf(
+    path: &str,
+) -> (MARF<StacksBlockId>, StacksBlockId, StacksBlockId) {
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true);
+    let mut marf = MARF::<StacksBlockId>::from_path(path, open_opts).unwrap();
+
+    let b1 = StacksBlockId::from_bytes(&[1u8; 32]).unwrap();
+    let b2 = StacksBlockId::from_bytes(&[2u8; 32]).unwrap();
+
+    marf.begin(&StacksBlockId::sentinel(), &b1).unwrap();
+    marf.insert("k1", MARFValue::from_value("v1")).unwrap();
+    marf.commit().unwrap();
+
+    marf.begin(&b1, &b2).unwrap();
+    marf.insert("k1", MARFValue::from_value("v2")).unwrap();
+    marf.insert("k2", MARFValue::from_value("v3")).unwrap();
+    marf.commit().unwrap();
+
+    (marf, b1, b2)
+}
+
+/// Create a 10-block MARF (heights 0-9) for `for_each_leaf` tests.
+///
+/// k1 is updated at every block (exercises backpointers at every depth).
+/// k2..k10 are each inserted at their respective blocks.
+fn setup_for_each_leaf_large_marf(
+    path: &str,
+) -> (MARF<StacksBlockId>, Vec<StacksBlockId>) {
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true);
+    let mut marf = MARF::<StacksBlockId>::from_path(path, open_opts).unwrap();
+
+    let blocks: Vec<StacksBlockId> = (1..=10u8)
+        .map(|i| StacksBlockId::from_bytes(&[i; 32]).unwrap())
+        .collect();
+
+    // Block at height 0
+    marf.begin(&StacksBlockId::sentinel(), &blocks[0])
+        .unwrap();
+    marf.insert("k1", MARFValue::from_value("v1_at_0"))
+        .unwrap();
+    marf.commit().unwrap();
+
+    // Heights 1-9
+    for i in 1..blocks.len() {
+        marf.begin(&blocks[i - 1], &blocks[i]).unwrap();
+        let key = format!("k{}", i + 1);
+        let val = format!("v{}_at_{}", i + 1, i);
+        marf.insert(&key, MARFValue::from_value(&val)).unwrap();
+        marf.insert("k1", MARFValue::from_value(&format!("v1_at_{i}")))
+            .unwrap();
+        marf.commit().unwrap();
+    }
+
+    (marf, blocks)
+}
+
+#[test]
+fn test_for_each_leaf_yields_all_keys() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("index.sqlite");
+    let (mut marf, _b1, b2) = setup_for_each_leaf_marf(db_path.to_str().unwrap());
+
+    // b2 is the tip (last committed block = height 1).
+    let mut seen: HashMap<TrieHash, MARFValue> = HashMap::new();
+    let leaf_count = marf
+        .with_conn(|conn| {
+            MARF::for_each_leaf(conn, &b2, |path, value| {
+                seen.insert(path, value);
+                Ok(())
+            })
+        })
+        .unwrap();
+
+    // 2 user keys + MARF metadata keys (height mappings, etc.)
+    assert!(
+        leaf_count >= 2,
+        "expected at least 2 leaves, got {leaf_count}"
+    );
+    assert_eq!(
+        seen.get(&TrieHash::from_key("k1")).cloned().unwrap(),
+        MARFValue::from_value("v2")
+    );
+    assert_eq!(
+        seen.get(&TrieHash::from_key("k2")).cloned().unwrap(),
+        MARFValue::from_value("v3")
+    );
+    // Exact leaf count should match user keys + metadata keys.
+    assert_eq!(leaf_count, seen.len() as u64);
+}
+
+#[test]
+fn test_for_each_leaf_resolves_backpointers() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("index.sqlite");
+    let (mut marf, blocks) = setup_for_each_leaf_large_marf(db_path.to_str().unwrap());
+
+    // blocks[9] is the tip (height 9). k2..k10 are reachable via backpointers.
+    let block_at_tip = &blocks[9];
+
+    let mut seen: HashMap<TrieHash, MARFValue> = HashMap::new();
+    let leaf_count = marf
+        .with_conn(|conn| {
+            MARF::for_each_leaf(conn, block_at_tip, |path, value| {
+                seen.insert(path, value);
+                Ok(())
+            })
+        })
+        .unwrap();
+
+    // k1..k10 plus MARF metadata keys.
+    assert!(leaf_count >= 10, "expected >= 10 leaves, got {leaf_count}");
+    assert_eq!(
+        seen.get(&TrieHash::from_key("k1")).cloned().unwrap(),
+        MARFValue::from_value("v1_at_9"),
+        "k1 should have latest value"
+    );
+    for i in 2..=10 {
+        let key = format!("k{i}");
+        assert!(
+            seen.contains_key(&TrieHash::from_key(&key)),
+            "missing key {key} from walk"
+        );
+    }
+    assert_eq!(leaf_count, seen.len() as u64);
+}
+
+#[test]
+fn test_for_each_leaf_single_block() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("index.sqlite");
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true);
+    let mut marf = MARF::<StacksBlockId>::from_path(db_path.to_str().unwrap(), open_opts).unwrap();
+
+    let b1 = StacksBlockId::from_bytes(&[1u8; 32]).unwrap();
+    marf.begin(&StacksBlockId::sentinel(), &b1).unwrap();
+    marf.insert("alpha", MARFValue::from_value("a1")).unwrap();
+    marf.insert("beta", MARFValue::from_value("b1")).unwrap();
+    marf.insert("gamma", MARFValue::from_value("g1")).unwrap();
+    marf.commit().unwrap();
+
+    let mut seen: HashMap<TrieHash, MARFValue> = HashMap::new();
+    let leaf_count = marf
+        .with_conn(|conn| {
+            MARF::for_each_leaf(conn, &b1, |path, value| {
+                seen.insert(path, value);
+                Ok(())
+            })
+        })
+        .unwrap();
+
+    // 3 user keys + metadata keys, zero backpointers in this MARF.
+    assert!(
+        leaf_count >= 3,
+        "expected at least 3 leaves, got {leaf_count}"
+    );
+    assert_eq!(
+        seen.get(&TrieHash::from_key("alpha")).cloned().unwrap(),
+        MARFValue::from_value("a1")
+    );
+    assert_eq!(
+        seen.get(&TrieHash::from_key("beta")).cloned().unwrap(),
+        MARFValue::from_value("b1")
+    );
+    assert_eq!(
+        seen.get(&TrieHash::from_key("gamma")).cloned().unwrap(),
+        MARFValue::from_value("g1")
+    );
+    assert_eq!(leaf_count, seen.len() as u64);
+}
+
+#[test]
+fn test_for_each_leaf_at_intermediate_height() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("index.sqlite");
+    let (mut marf, blocks) = setup_for_each_leaf_large_marf(db_path.to_str().unwrap());
+
+    // Walk at height 4 (blocks[4]), NOT the tip.
+    let block_at_4 = &blocks[4];
+
+    let mut seen: HashMap<TrieHash, MARFValue> = HashMap::new();
+    let leaf_count = marf
+        .with_conn(|conn| {
+            MARF::for_each_leaf(conn, block_at_4, |path, value| {
+                seen.insert(path, value);
+                Ok(())
+            })
+        })
+        .unwrap();
+
+    // k1 should have its height-4 value.
+    assert_eq!(
+        seen.get(&TrieHash::from_key("k1")).cloned().unwrap(),
+        MARFValue::from_value("v1_at_4"),
+        "k1 should have value from height 4"
+    );
+
+    // k2..k5 should be present (inserted at heights 1-4).
+    for i in 2..=5 {
+        let key = format!("k{i}");
+        assert!(
+            seen.contains_key(&TrieHash::from_key(&key)),
+            "expected key {key} at height 4"
+        );
+    }
+
+    // k6..k10 should be absent (inserted at heights 5-9).
+    for i in 6..=10 {
+        let key = format!("k{i}");
+        assert!(
+            !seen.contains_key(&TrieHash::from_key(&key)),
+            "key {key} should NOT be visible at height 4"
+        );
+    }
+
+    assert_eq!(leaf_count, seen.len() as u64);
+}
+
+#[test]
+fn test_for_each_leaf_callback_error_propagates() {
+    let dir = tempdir().unwrap();
+    let db_path = dir.path().join("index.sqlite");
+    let (mut marf, _b1, b2) = setup_for_each_leaf_marf(db_path.to_str().unwrap());
+
+    let mut call_count = 0u64;
+    let result = marf.with_conn(|conn| {
+        MARF::for_each_leaf(conn, &b2, |_path, _value| {
+            call_count += 1;
+            if call_count >= 1 {
+                return Err(Error::CorruptionError(
+                    "test error from callback".to_string(),
+                ));
+            }
+            Ok(())
+        })
+    });
+
+    assert!(result.is_err(), "expected error from callback");
+    match result.unwrap_err() {
+        Error::CorruptionError(msg) => {
+            assert_eq!(msg, "test error from callback");
+        }
+        other => panic!("unexpected error type: {other:?}"),
+    }
+    assert_eq!(call_count, 1, "callback should have been called exactly once");
 }

@@ -14,9 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::ops::DerefMut;
+use std::time::Instant;
 
 use rusqlite::{Connection, Transaction};
-use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::storage::ReopenedTrieStorageConnection;
@@ -1663,5 +1664,133 @@ impl<T: MarfTrieId> MARF<T> {
     /// Get the underlying storage DB path
     pub fn get_db_path(&self) -> &str {
         &self.storage.db_path
+    }
+}
+
+// --- Leaf traversal -----------------------------------------------------------
+
+impl<T: MarfTrieId> MARF<T> {
+    /// Walk all leaves in the trie at `block_hash`, yielding full paths and values.
+    ///
+    /// Follows backpointers to resolve nodes living in earlier blocks, so the
+    /// returned set represents the complete state visible at `block_hash`.
+    pub(crate) fn for_each_leaf<F>(
+        storage: &mut TrieStorageConnection<T>,
+        block_hash: &T,
+        mut handle_leaf: F,
+    ) -> Result<u64, Error>
+    where
+        F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
+    {
+        storage.open_block(block_hash)?;
+        let (root_node, _root_hash) = Trie::read_root(storage)?;
+
+        let mut leaf_count = 0u64;
+        let mut stack: Vec<(TriePtr, Vec<u8>, T, Option<u32>)> = Vec::new();
+        let root_prefix = root_node.path_bytes().clone();
+
+        match root_node {
+            TrieNodeType::Leaf(leaf) => {
+                if root_prefix.len() != TRIEHASH_ENCODED_SIZE {
+                    return Err(Error::CorruptionError(
+                        "Root leaf path length invalid".to_string(),
+                    ));
+                }
+                let full_path = TrieHash::from_bytes(&root_prefix).ok_or_else(|| {
+                    Error::CorruptionError("Failed to decode root leaf path".to_string())
+                })?;
+                handle_leaf(full_path, leaf.data)?;
+                leaf_count += 1;
+            }
+            _ => {
+                let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
+                for ptr in root_node.ptrs().iter() {
+                    if ptr.id() == TrieNodeID::Empty as u8 {
+                        continue;
+                    }
+                    let mut prefix = root_prefix.clone();
+                    prefix.push(ptr.chr());
+                    stack.push((*ptr, prefix, cur_block_hash.clone(), cur_block_id));
+                }
+            }
+        }
+
+        let walk_start = Instant::now();
+        let mut last_walk_log = Instant::now();
+        let mut nodes_visited: u64 = 0;
+
+        while let Some((ptr, prefix, return_block, return_block_id)) = stack.pop() {
+            nodes_visited += 1;
+            if last_walk_log.elapsed().as_secs() >= 30 {
+                info!(
+                    "for_each_leaf: {nodes_visited} nodes visited, {leaf_count} leaves found, stack {}, {:?} elapsed",
+                    stack.len(),
+                    walk_start.elapsed()
+                );
+                last_walk_log = Instant::now();
+            }
+
+            let (cur_block_hash, _) = storage.get_cur_block_and_id();
+            if cur_block_hash != return_block {
+                storage.open_block_maybe_id(&return_block, return_block_id)?;
+            }
+
+            let (node, node_block_hash, node_block_id) =
+                Self::read_node_for_ptr(storage, &ptr)?;
+
+            let mut node_prefix = prefix;
+            node_prefix.extend_from_slice(node.path_bytes());
+
+            match node {
+                TrieNodeType::Leaf(leaf) => {
+                    if node_prefix.len() != TRIEHASH_ENCODED_SIZE as usize {
+                        return Err(Error::CorruptionError(
+                            "Leaf path length invalid".to_string(),
+                        ));
+                    }
+                    let full_path = TrieHash::from_bytes(&node_prefix).ok_or_else(|| {
+                        Error::CorruptionError("Failed to decode leaf path".to_string())
+                    })?;
+                    handle_leaf(full_path, leaf.data)?;
+                    leaf_count += 1;
+                }
+                _ => {
+                    for child_ptr in node.ptrs().iter() {
+                        if child_ptr.id() == TrieNodeID::Empty as u8 {
+                            continue;
+                        }
+                        let mut child_prefix = node_prefix.clone();
+                        child_prefix.push(child_ptr.chr());
+                        stack.push((
+                            *child_ptr,
+                            child_prefix,
+                            node_block_hash.clone(),
+                            node_block_id,
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(leaf_count)
+    }
+
+    /// Read a node referenced by `ptr`, following backpointers when necessary.
+    fn read_node_for_ptr(
+        storage: &mut TrieStorageConnection<T>,
+        ptr: &TriePtr,
+    ) -> Result<(TrieNodeType, T, Option<u32>), Error> {
+        if is_backptr(ptr.id()) {
+            let back_block_id = ptr.back_block();
+            let back_block_hash = storage.get_block_from_local_id(back_block_id)?.clone();
+            storage.open_block_known_id(&back_block_hash, back_block_id)?;
+            let backptr = ptr.from_backptr();
+            let (node, _node_hash) = storage.read_nodetype(&backptr)?;
+            Ok((node, back_block_hash, Some(back_block_id)))
+        } else {
+            let (node, _node_hash) = storage.read_nodetype(ptr)?;
+            let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
+            Ok((node, cur_block_hash, cur_block_id))
+        }
     }
 }
