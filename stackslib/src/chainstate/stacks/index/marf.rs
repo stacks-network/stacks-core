@@ -1687,32 +1687,47 @@ impl<T: MarfTrieId> MARF<T> {
 
         let mut leaf_count = 0u64;
         let mut stack: Vec<(TriePtr, Vec<u8>, T, Option<u32>)> = Vec::new();
-        let root_prefix = root_node.path_bytes().clone();
 
-        match root_node {
-            TrieNodeType::Leaf(leaf) => {
-                if root_prefix.len() != TRIEHASH_ENCODED_SIZE {
-                    return Err(Error::CorruptionError(
-                        "Root leaf path length invalid".to_string(),
-                    ));
-                }
-                let full_path = TrieHash::from_bytes(&root_prefix).ok_or_else(|| {
-                    Error::CorruptionError("Failed to decode root leaf path".to_string())
-                })?;
-                handle_leaf(full_path, leaf.data)?;
-                leaf_count += 1;
-            }
-            _ => {
-                let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
-                for ptr in root_node.ptrs().iter() {
-                    if ptr.id() == TrieNodeID::Empty as u8 {
-                        continue;
+        // Process a node: emit leaf or push children onto the stack.
+        let mut process_node = |node: TrieNodeType,
+                                prefix: Vec<u8>,
+                                block_hash: T,
+                                block_id: Option<u32>,
+                                stack: &mut Vec<(TriePtr, Vec<u8>, T, Option<u32>)>|
+         -> Result<bool, Error> {
+            let mut full_prefix = prefix;
+            full_prefix.extend_from_slice(node.path_bytes());
+
+            match node {
+                TrieNodeType::Leaf(leaf) => {
+                    if full_prefix.len() != TRIEHASH_ENCODED_SIZE {
+                        return Err(Error::CorruptionError(
+                            "Leaf path length invalid".to_string(),
+                        ));
                     }
-                    let mut prefix = root_prefix.clone();
-                    prefix.push(ptr.chr());
-                    stack.push((*ptr, prefix, cur_block_hash.clone(), cur_block_id));
+                    let path = TrieHash::from_bytes(&full_prefix).ok_or_else(|| {
+                        Error::CorruptionError("Failed to decode leaf path".to_string())
+                    })?;
+                    handle_leaf(path, leaf.data)?;
+                    Ok(true)
+                }
+                _ => {
+                    for ptr in node.ptrs().iter() {
+                        if ptr.id() != TrieNodeID::Empty as u8 {
+                            let mut child_prefix = full_prefix.clone();
+                            child_prefix.push(ptr.chr());
+                            stack.push((*ptr, child_prefix, block_hash.clone(), block_id));
+                        }
+                    }
+                    Ok(false)
                 }
             }
+        };
+
+        // Seed with root.
+        let (cur_block, cur_id) = storage.get_cur_block_and_id();
+        if process_node(root_node, vec![], cur_block, cur_id, &mut stack)? {
+            leaf_count += 1;
         }
 
         let walk_start = Instant::now();
@@ -1735,46 +1750,14 @@ impl<T: MarfTrieId> MARF<T> {
                 storage.open_block_maybe_id(&return_block, return_block_id)?;
             }
 
-            let (node, node_block_hash, node_block_id) =
-                Self::read_node_for_ptr(storage, &ptr)?;
-
-            let mut node_prefix = prefix;
-            node_prefix.extend_from_slice(node.path_bytes());
-
-            match node {
-                TrieNodeType::Leaf(leaf) => {
-                    if node_prefix.len() != TRIEHASH_ENCODED_SIZE as usize {
-                        return Err(Error::CorruptionError(
-                            "Leaf path length invalid".to_string(),
-                        ));
-                    }
-                    let full_path = TrieHash::from_bytes(&node_prefix).ok_or_else(|| {
-                        Error::CorruptionError("Failed to decode leaf path".to_string())
-                    })?;
-                    handle_leaf(full_path, leaf.data)?;
-                    leaf_count += 1;
-                }
-                _ => {
-                    for child_ptr in node.ptrs().iter() {
-                        if child_ptr.id() == TrieNodeID::Empty as u8 {
-                            continue;
-                        }
-                        let mut child_prefix = node_prefix.clone();
-                        child_prefix.push(child_ptr.chr());
-                        stack.push((
-                            *child_ptr,
-                            child_prefix,
-                            node_block_hash.clone(),
-                            node_block_id,
-                        ));
-                    }
-                }
+            let (node, node_block_hash, node_block_id) = Self::read_node_for_ptr(storage, &ptr)?;
+            if process_node(node, prefix, node_block_hash, node_block_id, &mut stack)? {
+                leaf_count += 1;
             }
         }
 
         Ok(leaf_count)
     }
-
     /// Read a node referenced by `ptr`, following backpointers when necessary.
     fn read_node_for_ptr(
         storage: &mut TrieStorageConnection<T>,

@@ -22,11 +22,14 @@ use std::fs;
 
 use clarity::types::chainstate::{BlockHeaderHash, TrieHash};
 use stacks_common::types::chainstate::StacksBlockId;
-use tempfile::tempdir;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::to_hex;
+use tempfile::tempdir;
 
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
+use crate::chainstate::stacks::index::marf::{
+    MARFOpenOpts, MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
+    BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF, OWN_BLOCK_HEIGHT_KEY,
+};
 use crate::chainstate::stacks::index::node::{TrieNodeID, TrieNodeType, TriePtr};
 use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
@@ -2233,13 +2236,55 @@ fn test_marf_unconfirmed() {
 // for_each_leaf tests
 // ---------------------------------------------------------------------------
 
+/// Verify that the expected MARF metadata keys are present in the leaf set
+/// for a MARF with blocks at heights 0..=`height`.
+///
+/// Expected metadata keys at height H with (H+1) blocks:
+/// - `OWN_BLOCK_HEIGHT_KEY` (1 key)
+/// - `BLOCK_HEIGHT_TO_HASH_MAPPING_KEY::<h>` for h in 0..=H (H+1 keys)
+/// - `BLOCK_HASH_TO_HEIGHT_MAPPING_KEY::<block_hash>` for each block (H+1 keys)
+///
+/// Total metadata keys = 1 + (H+1) + (H+1) = 2H + 3
+fn assert_metadata_keys_present(
+    seen: &HashMap<TrieHash, MARFValue>,
+    height: u32,
+    blocks: &[StacksBlockId],
+) {
+    // OWN_BLOCK_HEIGHT_KEY
+    let own_height_hash = TrieHash::from_key(OWN_BLOCK_HEIGHT_KEY);
+    assert!(
+        seen.contains_key(&own_height_hash),
+        "missing metadata key: {OWN_BLOCK_HEIGHT_KEY}"
+    );
+    assert_eq!(
+        seen[&own_height_hash],
+        MARFValue::from(height),
+        "OWN_BLOCK_HEIGHT_KEY should equal {height}"
+    );
+
+    // BLOCK_HEIGHT_TO_HASH_MAPPING_KEY::<h> for each height 0..=H
+    for h in 0..=height {
+        let key = format!("{BLOCK_HEIGHT_TO_HASH_MAPPING_KEY}::{h}");
+        let hash = TrieHash::from_key(&key);
+        assert!(seen.contains_key(&hash), "missing metadata key: {key}");
+    }
+
+    // BLOCK_HASH_TO_HEIGHT_MAPPING_KEY::<block_hash> for each block 0..=H
+    for (i, bh) in blocks.iter().enumerate().take((height + 1) as usize) {
+        let key = format!("{BLOCK_HASH_TO_HEIGHT_MAPPING_KEY}::{bh}");
+        let hash = TrieHash::from_key(&key);
+        assert!(
+            seen.contains_key(&hash),
+            "missing metadata key for block {i}: {key}"
+        );
+    }
+}
+
 /// Create a small MARF with 2 blocks for `for_each_leaf` tests.
 ///
 /// Block 0 (b1): inserts k1 = "v1".
 /// Block 1 (b2): overwrites k1 = "v2", inserts k2 = "v3".
-fn setup_for_each_leaf_marf(
-    path: &str,
-) -> (MARF<StacksBlockId>, StacksBlockId, StacksBlockId) {
+fn setup_for_each_leaf_marf(path: &str) -> (MARF<StacksBlockId>, StacksBlockId, StacksBlockId) {
     let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true);
     let mut marf = MARF::<StacksBlockId>::from_path(path, open_opts).unwrap();
 
@@ -2262,9 +2307,7 @@ fn setup_for_each_leaf_marf(
 ///
 /// k1 is updated at every block (exercises backpointers at every depth).
 /// k2..k10 are each inserted at their respective blocks.
-fn setup_for_each_leaf_large_marf(
-    path: &str,
-) -> (MARF<StacksBlockId>, Vec<StacksBlockId>) {
+fn setup_for_each_leaf_large_marf(path: &str) -> (MARF<StacksBlockId>, Vec<StacksBlockId>) {
     let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true);
     let mut marf = MARF::<StacksBlockId>::from_path(path, open_opts).unwrap();
 
@@ -2273,10 +2316,8 @@ fn setup_for_each_leaf_large_marf(
         .collect();
 
     // Block at height 0
-    marf.begin(&StacksBlockId::sentinel(), &blocks[0])
-        .unwrap();
-    marf.insert("k1", MARFValue::from_value("v1_at_0"))
-        .unwrap();
+    marf.begin(&StacksBlockId::sentinel(), &blocks[0]).unwrap();
+    marf.insert("k1", MARFValue::from_value("v1_at_0")).unwrap();
     marf.commit().unwrap();
 
     // Heights 1-9
@@ -2297,7 +2338,7 @@ fn setup_for_each_leaf_large_marf(
 fn test_for_each_leaf_yields_all_keys() {
     let dir = tempdir().unwrap();
     let db_path = dir.path().join("index.sqlite");
-    let (mut marf, _b1, b2) = setup_for_each_leaf_marf(db_path.to_str().unwrap());
+    let (mut marf, b1, b2) = setup_for_each_leaf_marf(db_path.to_str().unwrap());
 
     // b2 is the tip (last committed block = height 1).
     let mut seen: HashMap<TrieHash, MARFValue> = HashMap::new();
@@ -2310,11 +2351,9 @@ fn test_for_each_leaf_yields_all_keys() {
         })
         .unwrap();
 
-    // 2 user keys + MARF metadata keys (height mappings, etc.)
-    assert!(
-        leaf_count >= 2,
-        "expected at least 2 leaves, got {leaf_count}"
-    );
+    assert_eq!(leaf_count, seen.len() as u64);
+
+    // User keys: k1 (overwritten) and k2.
     assert_eq!(
         seen.get(&TrieHash::from_key("k1")).cloned().unwrap(),
         MARFValue::from_value("v2")
@@ -2323,8 +2362,13 @@ fn test_for_each_leaf_yields_all_keys() {
         seen.get(&TrieHash::from_key("k2")).cloned().unwrap(),
         MARFValue::from_value("v3")
     );
-    // Exact leaf count should match user keys + metadata keys.
-    assert_eq!(leaf_count, seen.len() as u64);
+
+    // Metadata keys: height 1 MARF with 2 blocks (b1, b2).
+    // Expected: OWN_BLOCK_HEIGHT_KEY + 2 height-to-hash + 2 hash-to-height = 5 metadata.
+    assert_metadata_keys_present(&seen, 1, &[b1, b2]);
+
+    // Total: 2 user + 5 metadata = 7.
+    assert_eq!(leaf_count, 7, "expected 7 leaves (2 user + 5 metadata)");
 }
 
 #[test]
@@ -2346,8 +2390,9 @@ fn test_for_each_leaf_resolves_backpointers() {
         })
         .unwrap();
 
-    // k1..k10 plus MARF metadata keys.
-    assert!(leaf_count >= 10, "expected >= 10 leaves, got {leaf_count}");
+    assert_eq!(leaf_count, seen.len() as u64);
+
+    // User keys: k1..k10.
     assert_eq!(
         seen.get(&TrieHash::from_key("k1")).cloned().unwrap(),
         MARFValue::from_value("v1_at_9"),
@@ -2360,7 +2405,13 @@ fn test_for_each_leaf_resolves_backpointers() {
             "missing key {key} from walk"
         );
     }
-    assert_eq!(leaf_count, seen.len() as u64);
+
+    // Metadata keys: height 9 MARF with 10 blocks.
+    // Expected: OWN_BLOCK_HEIGHT_KEY + 10 height-to-hash + 10 hash-to-height = 21 metadata.
+    assert_metadata_keys_present(&seen, 9, &blocks);
+
+    // Total: 10 user + 21 metadata = 31.
+    assert_eq!(leaf_count, 31, "expected 31 leaves (10 user + 21 metadata)");
 }
 
 #[test]
@@ -2387,11 +2438,9 @@ fn test_for_each_leaf_single_block() {
         })
         .unwrap();
 
-    // 3 user keys + metadata keys, zero backpointers in this MARF.
-    assert!(
-        leaf_count >= 3,
-        "expected at least 3 leaves, got {leaf_count}"
-    );
+    assert_eq!(leaf_count, seen.len() as u64);
+
+    // User keys.
     assert_eq!(
         seen.get(&TrieHash::from_key("alpha")).cloned().unwrap(),
         MARFValue::from_value("a1")
@@ -2404,7 +2453,13 @@ fn test_for_each_leaf_single_block() {
         seen.get(&TrieHash::from_key("gamma")).cloned().unwrap(),
         MARFValue::from_value("g1")
     );
-    assert_eq!(leaf_count, seen.len() as u64);
+
+    // Metadata keys: height 0, 1 block.
+    // Expected: OWN_BLOCK_HEIGHT_KEY + 1 height-to-hash + 1 hash-to-height = 3 metadata.
+    assert_metadata_keys_present(&seen, 0, &[b1]);
+
+    // Total: 3 user + 3 metadata = 6.
+    assert_eq!(leaf_count, 6, "expected 6 leaves (3 user + 3 metadata)");
 }
 
 #[test]
@@ -2451,7 +2506,13 @@ fn test_for_each_leaf_at_intermediate_height() {
         );
     }
 
+    // Metadata keys: height 4, 5 blocks (blocks[0..=4]).
+    // Expected: OWN_BLOCK_HEIGHT_KEY + 5 height-to-hash + 5 hash-to-height = 11 metadata.
+    assert_metadata_keys_present(&seen, 4, &blocks[..5]);
+
+    // Total: 5 user (k1..k5) + 11 metadata = 16.
     assert_eq!(leaf_count, seen.len() as u64);
+    assert_eq!(leaf_count, 16, "expected 16 leaves (5 user + 11 metadata)");
 }
 
 #[test]
@@ -2480,5 +2541,8 @@ fn test_for_each_leaf_callback_error_propagates() {
         }
         other => panic!("unexpected error type: {other:?}"),
     }
-    assert_eq!(call_count, 1, "callback should have been called exactly once");
+    assert_eq!(
+        call_count, 1,
+        "callback should have been called exactly once"
+    );
 }
