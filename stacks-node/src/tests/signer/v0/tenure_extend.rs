@@ -4083,7 +4083,7 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
         "stacks_height_before" => %stacks_height_before);
 
     let miner_1_block_n_1_prime =
-        wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_1)
+        wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk_1)
             .expect("Miner 1 failed to propose block N+1'");
     assert!(miner_1_block_n_1_prime
         .try_get_tenure_change_payload()
