@@ -678,9 +678,7 @@ impl StacksEpochId {
         }
     }
 
-    /// FIXME: fill in the SIP number below once it is assigned a number:
-    ///        https://github.com/stacksgov/sips/pull/257
-    /// Does this epoch support the post-condition enhancements from SIP-post-conditions?
+    /// Does this epoch support the post-condition enhancements from SIP-040?
     /// This includes support for `Originator` mode and the `MaySend` NFT condition.
     pub fn supports_post_condition_enhancements(&self) -> bool {
         self >= &StacksEpochId::Epoch34
