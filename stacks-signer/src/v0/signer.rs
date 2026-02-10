@@ -1171,17 +1171,14 @@ impl Signer {
                 self.send_block_response(&block_info.block, block_response);
                 return false;
             } else {
-                let pending_block_validations = self
+                let is_pending = self
                     .signer_db
-                    .get_all_pending_block_validations()
+                    .has_pending_block_validation(&signer_signature_hash)
                     .unwrap_or_else(|e| {
                         warn!("{self}: Failed to load pending block validations: {e:?}");
-                        vec![]
+                        false
                     });
-                if pending_block_validations.iter().any(|validation| {
-                    validation.signer_signature_hash
-                        == block_info.block.header.signer_signature_hash()
-                }) {
+                if is_pending {
                     debug!(
                         "{self}: received a block proposal for a block for which we is already pending validation. Do nothing.";
                         "signer_signature_hash" => %block_info.block.header.signer_signature_hash(),

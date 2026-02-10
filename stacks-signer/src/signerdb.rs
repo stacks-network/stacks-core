@@ -1801,6 +1801,17 @@ impl SignerDb {
         Ok(())
     }
 
+    /// Check if a pending block validation exists for the given sighash
+    pub fn has_pending_block_validation(
+        &self,
+        sighash: &Sha512Trunc256Sum,
+    ) -> Result<bool, DBError> {
+        let qry = "SELECT signer_signature_hash FROM block_validations_pending WHERE signer_signature_hash = ?1";
+        let args = params![sighash.to_string()];
+        let sighash_opt: Option<String> = query_row(&self.db, qry, args)?;
+        Ok(sighash_opt.is_some())
+    }
+
     /// Returns:
     /// * the time (epoch time in seconds) of the last tenure change during the tenure identified by `tenure`
     ///   where the change cause matches `cause_match`
@@ -2390,17 +2401,6 @@ impl SignerDb {
     ) -> Result<Vec<PendingBlockValidation>, DBError> {
         let qry = "SELECT signer_signature_hash, added_time FROM block_validations_pending ORDER BY added_time ASC";
         query_rows(&self.db, qry, params![])
-    }
-
-    /// For tests, check if a pending block validation exists
-    pub fn has_pending_block_validation(
-        &self,
-        sighash: &Sha512Trunc256Sum,
-    ) -> Result<bool, DBError> {
-        let qry = "SELECT signer_signature_hash FROM block_validations_pending WHERE signer_signature_hash = ?1";
-        let args = params![sighash.to_string()];
-        let sighash_opt: Option<String> = query_row(&self.db, qry, args)?;
-        Ok(sighash_opt.is_some())
     }
 }
 
