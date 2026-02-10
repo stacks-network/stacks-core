@@ -649,6 +649,9 @@ impl StacksTransaction {
             x if x == TransactionPostConditionMode::Deny as u8 => {
                 TransactionPostConditionMode::Deny
             }
+            x if x == TransactionPostConditionMode::Originator as u8 => {
+                TransactionPostConditionMode::Originator
+            }
             _ => {
                 warn!("Invalid tx: invalid post condition mode");
                 return Err(codec_error::DeserializeError(format!(
@@ -1838,14 +1841,12 @@ mod test {
             ));
 
         let mut corrupt_tx_post_condition_mode = signed_tx.clone();
-        corrupt_tx_post_condition_mode.post_condition_mode = if corrupt_tx_post_condition_mode
-            .post_condition_mode
-            == TransactionPostConditionMode::Allow
-        {
-            TransactionPostConditionMode::Deny
-        } else {
-            TransactionPostConditionMode::Allow
-        };
+        corrupt_tx_post_condition_mode.post_condition_mode =
+            match corrupt_tx_post_condition_mode.post_condition_mode {
+                TransactionPostConditionMode::Allow => TransactionPostConditionMode::Deny,
+                TransactionPostConditionMode::Deny => TransactionPostConditionMode::Originator,
+                TransactionPostConditionMode::Originator => TransactionPostConditionMode::Allow,
+            };
 
         // mess with payload
         let mut corrupt_tx_payload = signed_tx.clone();
@@ -3606,6 +3607,84 @@ mod test {
                 check_codec_and_corruption::<TransactionPostCondition>(&pcs[i], &pc_bytes[i]);
             }
         }
+    }
+
+    #[test]
+    fn tx_stacks_postcondition_nft_maybe_sent_codec() {
+        let postcondition = TransactionPostCondition::Nonfungible(
+            PostConditionPrincipal::Origin,
+            AssetInfo {
+                contract_address: StacksAddress::new(1, Hash160([0x11; 20])).unwrap(),
+                contract_name: ContractName::try_from("contract-name").unwrap(),
+                asset_name: ClarityName::try_from("hello-asset").unwrap(),
+            },
+            Value::buff_from(vec![0, 1, 2, 3]).unwrap(),
+            NonfungibleConditionCode::MaybeSent,
+        );
+
+        let mut postcondition_bytes = vec![];
+        postcondition
+            .consensus_serialize(&mut postcondition_bytes)
+            .unwrap();
+
+        assert_eq!(
+            postcondition_bytes.last().copied(),
+            Some(NonfungibleConditionCode::MaybeSent as u8)
+        );
+
+        check_codec_and_corruption::<TransactionPostCondition>(
+            &postcondition,
+            &postcondition_bytes,
+        );
+    }
+
+    #[test]
+    fn tx_stacks_transaction_codec_originator_mode_and_nft_maybe_sent() {
+        let auth = TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap();
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::new_contract_call(
+                StacksAddress::new(1, Hash160([0x22; 20])).unwrap(),
+                "hello",
+                "world",
+                vec![Value::Int(1)],
+            )
+            .unwrap(),
+        );
+
+        tx.post_condition_mode = TransactionPostConditionMode::Originator;
+        tx.post_conditions
+            .push(TransactionPostCondition::Nonfungible(
+                PostConditionPrincipal::Origin,
+                AssetInfo {
+                    contract_address: StacksAddress::new(1, Hash160([0x33; 20])).unwrap(),
+                    contract_name: ContractName::try_from("contract-name").unwrap(),
+                    asset_name: ClarityName::try_from("hello-asset").unwrap(),
+                },
+                Value::buff_from(vec![4, 5, 6, 7]).unwrap(),
+                NonfungibleConditionCode::MaybeSent,
+            ));
+
+        let mut tx_bytes = vec![];
+        tx.consensus_serialize(&mut tx_bytes).unwrap();
+
+        let decoded = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        assert_eq!(
+            decoded.post_condition_mode,
+            TransactionPostConditionMode::Originator
+        );
+        assert!(matches!(
+            decoded.post_conditions.first(),
+            Some(TransactionPostCondition::Nonfungible(
+                _,
+                _,
+                _,
+                NonfungibleConditionCode::MaybeSent
+            ))
+        ));
+
+        check_codec_and_corruption::<StacksTransaction>(&tx, &tx_bytes);
     }
 
     #[test]

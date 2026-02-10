@@ -568,6 +568,24 @@ impl StacksBlock {
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
     ) -> bool {
+        if tx.post_condition_mode == TransactionPostConditionMode::Originator
+            && !epoch_id.supports_post_condition_enhancements()
+        {
+            error!("Originator post-condition mode is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
+            return false;
+        }
+        if !epoch_id.supports_post_condition_enhancements() {
+            for post_condition in tx.post_conditions.iter() {
+                if let TransactionPostCondition::Nonfungible(_, _, _, condition_code) =
+                    post_condition
+                {
+                    if *condition_code == NonfungibleConditionCode::MaybeSent {
+                        error!("NFT MaybeSent post-condition is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
+                        return false;
+                    }
+                }
+            }
+        }
         if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
             if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
                 // not supported
@@ -2110,6 +2128,79 @@ mod test {
         ));
         assert!(StacksBlock::validate_transaction_static_epoch(
             &tx_future_clarity,
+            StacksEpochId::Epoch34
+        ));
+    }
+
+    #[test]
+    fn test_validate_transaction_static_epoch_originator_mode_gated_to_epoch34() {
+        let privk = StacksPrivateKey::random();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth,
+            TransactionPayload::TokenTransfer(
+                PrincipalData::from(StacksAddress::new(1, Hash160([0x11; 20])).unwrap()),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        tx.post_condition_mode = TransactionPostConditionMode::Originator;
+
+        assert!(!StacksBlock::validate_transaction_static_epoch(
+            &tx,
+            StacksEpochId::Epoch33
+        ));
+        assert!(StacksBlock::validate_transaction_static_epoch(
+            &tx,
+            StacksEpochId::Epoch34
+        ));
+    }
+
+    #[test]
+    fn test_validate_transaction_static_epoch_nft_maybesent_gated_to_epoch34() {
+        let privk = StacksPrivateKey::random();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth,
+            TransactionPayload::TokenTransfer(
+                PrincipalData::from(StacksAddress::new(1, Hash160([0x11; 20])).unwrap()),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+
+        tx.post_conditions
+            .push(TransactionPostCondition::Nonfungible(
+                PostConditionPrincipal::Origin,
+                AssetInfo {
+                    contract_address: StacksAddress::new(1, Hash160([0x22; 20])).unwrap(),
+                    contract_name: ContractName::try_from("hello-world").unwrap(),
+                    asset_name: ClarityName::try_from("asset").unwrap(),
+                },
+                Value::Int(1),
+                NonfungibleConditionCode::MaybeSent,
+            ));
+
+        assert!(!StacksBlock::validate_transaction_static_epoch(
+            &tx,
+            StacksEpochId::Epoch33
+        ));
+        assert!(StacksBlock::validate_transaction_static_epoch(
+            &tx,
             StacksEpochId::Epoch34
         ));
     }
