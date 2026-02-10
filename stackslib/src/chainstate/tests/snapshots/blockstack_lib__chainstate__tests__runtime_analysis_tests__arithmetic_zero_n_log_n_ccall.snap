@@ -1,5 +1,5 @@
 ---
-source: stackslib/src/chainstate/tests/runtime_tests.rs
+source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
 expression: result
 ---
 [
@@ -1443,19 +1443,16 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: zero-n-log-n-Epoch3_4-Clarity5, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Optional(OptionalData(
+          data: None,
         )),
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
           read_length: 63,
           read_count: 3,
-          runtime: 167,
+          runtime: 352,
         ),
       ),
     ],
@@ -1464,7 +1461,7 @@ expression: result
       write_count: 0,
       read_length: 63,
       read_count: 3,
-      runtime: 167,
+      runtime: 352,
     ),
   )),
 ]

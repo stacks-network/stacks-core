@@ -1667,7 +1667,7 @@ pub mod test {
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
-    use clarity::vm::types::*;
+    use clarity::vm::types::ResponseData;
     use rand::Rng;
     use stacks_common::types::chainstate::SortitionId;
     use stacks_common::util::hash::*;

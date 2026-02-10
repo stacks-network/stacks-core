@@ -20,6 +20,8 @@ use std::collections::HashMap;
 use clarity::types::StacksEpochId;
 #[allow(unused_imports)]
 use clarity::vm::analysis::RuntimeCheckErrorKind;
+#[allow(unused_imports)]
+use clarity::vm::errors::RuntimeError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DEPTH};
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
 
@@ -66,7 +68,10 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             runtime_check_error_memory_balance_exceeded_cdeploy,
             runtime_check_error_memory_balance_exceeded_ccall
         ]),
-        CostComputationFailed(_) => Unreachable_ExpectLike,
+        CostComputationFailed(_) => Tested(vec![
+            arithmetic_zero_n_log_n_cdeploy,
+            arithmetic_zero_n_log_n_ccall,
+        ]),
         ExecutionTimeExpired => Unreachable_Functionally(
             "All consensus-critical code paths (block validation and transaction processing)
              pass `None` for max_execution_time to StacksChainState::process_transaction,
@@ -1290,7 +1295,7 @@ fn bad_trait_implementation_mismatched_args() {
 }
 
 /// Error: [`RuntimeCheckErrorKind::InvalidCharactersDetected`]
-/// Caused by: deserializing an invalid ascii string using `from-consensus-buf` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
+/// Caused by: deserializing an invalid ascii string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
 /// Outcome: Block accepted
 /// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
@@ -1304,12 +1309,12 @@ fn invalid_characters_detected_invalid_ascii() {
                 ;; (0x0d = string-ascii type, 0x00000003 = length 3, then invalid bytes)
                 (from-consensus-buff? (string-ascii 3) 0x0d00000003000102))
         ",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buf?
+        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buff?
     );
 }
 
 /// Error: [`RuntimeCheckErrorKind::InvalidCharactersDetected`]
-/// Caused by: deserializing an invalid utf8 string using `from-consensus-buf` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
+/// Caused by: deserializing an invalid utf8 string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
 /// Outcome: Block accepted
 /// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
@@ -1323,6 +1328,43 @@ fn invalid_characters_detected_invalid_utf8() {
                 ;; (0x0e = string-utf8 type, 0x00000002 = length 2, then invalid UTF-8)
                 (from-consensus-buff? (string-utf8 2) 0x0e00000002fffe))
         ",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buf?
+        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buff?
+    );
+}
+
+/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (before epoch 3.4)
+/// Caused by: calling nlogn with n = 0
+/// Outcome: block accepted at deploy time.
+/// Note: Before epoch 3.4, this returns a `CostComputationFailed` error which wraps the underlying
+///       [`RuntimeError::Arithmetic`] error. After 3.4, this executes successfully (`none` is
+///       stored in the constant).
+#[test]
+fn arithmetic_zero_n_log_n_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "zero-n-log-n-deploy",
+        contract_code: "(define-constant overflow (from-consensus-buff? int 0x))",
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
+        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+    );
+}
+
+/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (before epoch 3.4)
+/// Caused by: calling nlogn with n = 0
+/// Outcome: block accepted at call time.
+/// Note: Before epoch 3.4, this returns a `CostComputationFailed` error which wraps the underlying
+///       [`RuntimeError::Arithmetic`] error. After 3.4, this executes successfully and returns
+///       `none`.
+#[test]
+fn arithmetic_zero_n_log_n_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "zero-n-log-n",
+        contract_code: "
+(define-read-only (trigger)
+  (from-consensus-buff? int 0x)
+)",
+        function_name: "trigger",
+        function_args: &[],
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
+        exclude_clarity_versions: &[ClarityVersion::Clarity1],
     );
 }

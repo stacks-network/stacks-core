@@ -29,7 +29,7 @@ use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use super::{SignerTest, *};
-use crate::nakamoto_node::stackerdb_listener::TEST_STALL_BLOCK_NOTIFICATION;
+use crate::nakamoto_node::miner::TEST_BLOCK_ANNOUNCE_STALL;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
 
@@ -60,7 +60,7 @@ use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
 /// - 50% of signers pre-commit to block N+1, while the other 50% reject it.
 /// - After the timeout period, all signers see the parent tenure last block as block N.
 /// - All signers accept block N+1' as valid.
-fn split_view_50_50_capitulate_to_nodes_tip() {
+fn deadlock_50_50_split_capitulates_to_node_tip() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -78,7 +78,7 @@ fn split_view_50_50_capitulate_to_nodes_tip() {
     let send_fee = 180;
     let nmb_txs = 4;
 
-    let capitulate_miner_view_timeout = Duration::from_secs(15);
+    let capitulate_miner_view_timeout = Duration::from_secs(20);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -86,6 +86,7 @@ fn split_view_50_50_capitulate_to_nodes_tip() {
         |config| {
             config.capitulate_miner_view_timeout = capitulate_miner_view_timeout;
             config.tenure_last_block_proposal_timeout = capitulate_miner_view_timeout;
+            config.block_proposal_timeout = Duration::from_secs(u64::MAX); // Don't time out the miner
         },
         |config| {
             config.miner.block_commit_delay = Duration::from_secs(0);
@@ -147,9 +148,6 @@ fn split_view_50_50_capitulate_to_nodes_tip() {
     info!("------------------------- Mine Nakamoto Block N+1 -------------------------");
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers.clone());
     TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(approving_signers.clone());
-    TEST_SKIP_BLOCK_ANNOUNCEMENT.set(true);
-    TEST_IGNORE_SIGNERS.set(true);
-    TEST_SKIP_BLOCK_BROADCAST.set(true);
     test_observer::clear();
 
     // submit a tx so that the miner will mine a stacks block N+1
@@ -165,7 +163,7 @@ fn split_view_50_50_capitulate_to_nodes_tip() {
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N+1");
 
-    let block_n_1 = wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
+    let block_n_1 = wait_for_block_proposal_block(30, info_before.stacks_tip_height + 1, &miner_pk)
         .expect("Timed out waiting for block N+1 to be proposed");
 
     wait_for_block_rejections_from_signers(
@@ -176,9 +174,6 @@ fn split_view_50_50_capitulate_to_nodes_tip() {
     .expect("Rejecting signers did not reject block N+1");
 
     info!("------------------------- Start Next Tenure -------------------------");
-    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
-    TEST_IGNORE_SIGNERS.set(false);
-    TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
     test_observer::clear();
     signer_test.mine_bitcoin_block();
     let now = std::time::Instant::now();
@@ -190,8 +185,6 @@ fn split_view_50_50_capitulate_to_nodes_tip() {
         "parent_tenure_last_block_height_n" => info_before.stacks_tip_height,
         "parent_tenure_last_block_height_n_1" => info_before.stacks_tip_height + 1,
     );
-    TEST_SKIP_BLOCK_ANNOUNCEMENT.set(false);
-    TEST_SKIP_BLOCK_BROADCAST.set(false);
 
     let block_id_n = StacksBlockId::new(
         &info_before.stacks_tip_consensus_hash,
@@ -300,16 +293,14 @@ fn split_view_50_50_capitulate_to_nodes_tip() {
                 continue;
             }
 
-            let Some((address, _)) = signer_addresses
+            let Some(address) = approving_signer_addrs
                 .iter()
-                .find(|(addr, _)| chunk.verify(addr).unwrap_or(false))
+                .find(|addr| chunk.verify(addr).unwrap_or(false))
             else {
                 continue;
             };
             if parent_tenure_last_block == &block_id_n {
-                approving_signer_addrs.iter().find(|a| *a == address).map(|a| {
-                    found_updates_n.insert(a.clone());
-                });
+                found_updates_n.insert(address.clone());
             }
         }
         Ok(found_updates_n.len() == approving_signer_addrs.len())
@@ -317,6 +308,8 @@ fn split_view_50_50_capitulate_to_nodes_tip() {
     .expect("Originally approving signers did not update state machine to capitulated parent tenure last block N");
 
     info!("------------------------- Waiting for block N+1' approval from capitulated signer -------------------------");
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
+    TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
     let block_n_1_prime =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Failed to mine block N+1' after signers capitulated");
@@ -351,7 +344,7 @@ fn split_view_50_50_capitulate_to_nodes_tip() {
 /// - 80% of signers pre-commit/sign block N+1, while the other 20% reject it.
 /// - After the timeout period, all signers see the parent tenure last block as block N+1.
 /// - All signers accept block N+2 as valid.
-fn minority_20_percent_capitulates_to_supermajority_view() {
+fn minority_signers_capitulate_to_supermajority_consensus() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -441,7 +434,7 @@ fn minority_20_percent_capitulates_to_supermajority_view() {
     TEST_SIGNERS_IGNORE_PRE_COMMITS.set(rejecting_signers.clone());
     TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT.set(rejecting_signers.clone());
     TEST_SKIP_BLOCK_BROADCAST.set(true);
-    TEST_STALL_BLOCK_NOTIFICATION.set(true);
+    TEST_BLOCK_ANNOUNCE_STALL.set(true);
     test_observer::clear();
 
     // submit a tx so that the miner will mine a stacks block N+1
@@ -456,7 +449,7 @@ fn minority_20_percent_capitulates_to_supermajority_view() {
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N+1");
-    let block_n_1 = wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
+    let block_n_1 = wait_for_block_proposal_block(30, info_before.stacks_tip_height + 1, &miner_pk)
         .expect("Timed out waiting for block N+1 to be proposed");
 
     wait_for_block_rejections_from_signers(
@@ -553,9 +546,10 @@ fn minority_20_percent_capitulates_to_supermajority_view() {
         Ok(found_updates_n.len() + found_updates_n_1.len() == signer_addresses.len())
     })
     .expect("Signers did not update state machine with split view of parent tenure last block");
+
     TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT.set(vec![]);
     TEST_SKIP_BLOCK_BROADCAST.set(false);
-    TEST_STALL_BLOCK_NOTIFICATION.set(false);
+    TEST_BLOCK_ANNOUNCE_STALL.set(false);
 
     // capitulate_viewpoint has TWO guards that must both be satisfied:
     // 1. last_capitulate_miner_view must be older than capitulate_miner_view_timeout
@@ -609,7 +603,6 @@ fn minority_20_percent_capitulates_to_supermajority_view() {
     .expect("Originally approving signers did not update state machine to capitulated parent tenure last block N+1");
 
     info!("------------------------- Waiting for block N+2 approval from capitulated signer -------------------------");
-
     let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,

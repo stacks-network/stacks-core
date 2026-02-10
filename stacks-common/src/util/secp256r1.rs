@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use p256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
 use p256::ecdsa::signature::{Signer, Verifier};
 use p256::ecdsa::{
     Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
@@ -179,6 +180,24 @@ impl Secp256r1PublicKey {
 
         // Verify the signature
         self.key
+            .verify_prehash(msg_hash, &p256_sig)
+            .map_err(|_| Secp256r1Error::InvalidSignature)
+    }
+
+    /// Verify a signature against a message hash. The hash is SHA256 hashed
+    /// again before verification (i.e. double SHA256).
+    /// Returns Ok(()) if the signature is valid, or an error otherwise.
+    pub fn verify(&self, msg_hash: &[u8], sig: &MessageSignature) -> Result<(), Secp256r1Error> {
+        if msg_hash.len() != 32 {
+            return Err(Secp256r1Error::InvalidMessage);
+        }
+
+        let p256_sig = sig
+            .to_p256_signature()
+            .map_err(|_| Secp256r1Error::InvalidSignature)?;
+
+        // Verify the signature
+        self.key
             .verify(msg_hash, &p256_sig)
             .map_err(|_| Secp256r1Error::InvalidSignature)
     }
@@ -288,7 +307,13 @@ impl Secp256r1PrivateKey {
         bits
     }
 
-    /// Sign a message hash, returning the signature.
+    /// Sign a message hash, SHA256 hashing it (i.e. double-hashing) before
+    /// returning the signature.
+    ///
+    /// NOTE: This was needed for the original behavior of `secp256r1-verify` in Clarity 4
+    /// but in Clarity 5, the preferred method is to use `sign_digest` and `verify_digest`
+    /// to avoid double hashing.
+    ///
     /// The message must be a 32-byte hash.
     pub fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
         if data_hash.len() != 32 {
@@ -298,9 +323,49 @@ impl Secp256r1PrivateKey {
         let signature: P256Signature = self.key.sign(data_hash);
         Ok(MessageSignature::from_p256_signature(&signature))
     }
+
+    /// Sign a pre-hashed message, returning the signature without hashing again.
+    /// The digest must be a 32-byte hash.
+    pub fn sign_digest(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
+        if data_hash.len() != 32 {
+            return Err("Invalid message: must be a 32-byte hash");
+        }
+
+        let signature = self
+            .key
+            .sign_prehash(data_hash)
+            .map_err(|_| "Signing failed")?;
+        Ok(MessageSignature::from_p256_signature(&signature))
+    }
 }
 
 /// Verify a secp256r1 signature.
+/// The message must be a 32-byte hash.
+/// The signature must be a 64-byte compact signature
+pub fn secp256r1_verify_digest(
+    message_arr: &[u8],
+    signature_arr: &[u8],
+    pubkey_arr: &[u8],
+) -> Result<(), Secp256r1Error> {
+    let msg: &[u8; 32] = message_arr
+        .try_into()
+        .map_err(|_| Secp256r1Error::InvalidMessage)?;
+    let sig_bytes: &[u8; 64] = signature_arr
+        .try_into()
+        .map_err(|_| Secp256r1Error::InvalidSignature)?;
+
+    let pk = Secp256r1PublicKey::from_slice(pubkey_arr).map_err(|_| Secp256r1Error::InvalidKey)?;
+    let sig = MessageSignature::from_bytes(sig_bytes).ok_or(Secp256r1Error::InvalidSignature)?;
+    pk.verify_digest(msg, &sig)
+}
+
+/// Verify a secp256r1 signature against the SHA256 hash of the message hash
+/// (i.e., double-hashed).
+///
+/// NOTE: This was needed for the original behavior of `secp256r1-verify` in Clarity 4
+/// but in Clarity 5, the preferred method is to use `sign_digest` and `verify_digest`
+/// to avoid double hashing.
+///
 /// The message must be a 32-byte hash.
 /// The signature must be a 64-byte compact signature
 pub fn secp256r1_verify(
@@ -317,7 +382,7 @@ pub fn secp256r1_verify(
 
     let pk = Secp256r1PublicKey::from_slice(pubkey_arr).map_err(|_| Secp256r1Error::InvalidKey)?;
     let sig = MessageSignature::from_bytes(sig_bytes).ok_or(Secp256r1Error::InvalidSignature)?;
-    pk.verify_digest(msg, &sig)
+    pk.verify(msg, &sig)
 }
 
 #[cfg(test)]
@@ -423,7 +488,7 @@ mod tests {
         let msg = b"hello world";
         let msg_hash = Sha256Sum::from_data(msg).as_bytes().to_vec();
 
-        let sig = privk.sign(&msg_hash).unwrap();
+        let sig = privk.sign_digest(&msg_hash).unwrap();
         pubk.verify_digest(&msg_hash, &sig)
             .expect("invalid signature");
     }
@@ -437,11 +502,59 @@ mod tests {
         let msg = b"hello world";
         let msg_hash = Sha256Sum::from_data(msg).as_bytes().to_vec();
 
-        let sig = privk1.sign(&msg_hash).unwrap();
+        let sig = privk1.sign_digest(&msg_hash).unwrap();
         let e = pubk2
             .verify_digest(&msg_hash, &sig)
             .expect_err("expected an error");
         assert_eq!(e, Secp256r1Error::InvalidSignature);
+    }
+
+    #[test]
+    fn test_verify_digest_rejects_double_hashed_signature() {
+        let privk = Secp256r1PrivateKey::random();
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let msg_hash = Sha256Sum::from_data(b"double hash test")
+            .as_bytes()
+            .to_vec();
+
+        let sig = privk.sign(&msg_hash).unwrap();
+        let err = pubk
+            .verify_digest(&msg_hash, &sig)
+            .expect_err("double-hashed signature should fail digest verify");
+        assert_eq!(err, Secp256r1Error::InvalidSignature);
+    }
+
+    #[test]
+    fn test_verify_rejects_single_hash_signature() {
+        let privk = Secp256r1PrivateKey::random();
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let msg_hash = Sha256Sum::from_data(b"single hash test")
+            .as_bytes()
+            .to_vec();
+
+        let sig = privk.sign_digest(&msg_hash).unwrap();
+        let err = pubk
+            .verify(&msg_hash, &sig)
+            .expect_err("single-hash signature should fail double-hash verify");
+        assert_eq!(err, Secp256r1Error::InvalidSignature);
+    }
+
+    #[test]
+    fn test_secp256r1_verify_digest_function() {
+        let privk = Secp256r1PrivateKey::random();
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let msg_hash = Sha256Sum::from_data(b"function verify digest")
+            .as_bytes()
+            .to_vec();
+
+        let sig = privk.sign_digest(&msg_hash).unwrap();
+        let signature_bytes = sig.0;
+        let pubkey_bytes = pubk.to_bytes();
+
+        assert!(
+            secp256r1_verify_digest(&msg_hash, &signature_bytes, &pubkey_bytes).is_ok(),
+            "secp256r1_verify_digest should accept valid pre-hashed signatures"
+        );
     }
 
     #[test]
