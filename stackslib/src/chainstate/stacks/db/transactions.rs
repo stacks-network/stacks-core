@@ -869,7 +869,7 @@ impl StacksChainState {
     /// * contains the block height of the block with the slashed microblock public key hash
     /// * contains the microblock public key hash
     /// * contains the sender that reported the poison-microblock
-    /// * contains the sequence number at which the fork occured
+    /// * contains the sequence number at which the fork occurred
     pub fn handle_poison_microblock(
         env: &mut Environment,
         mblock_header_1: &StacksMicroblockHeader,

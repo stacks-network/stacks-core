@@ -55,7 +55,7 @@ pub struct ConversationHttp {
     total_request_count: u64,
     /// number of messages sent
     total_reply_count: u64,
-    /// absolute timestamp of the last time we recieved at least 1 byte
+    /// absolute timestamp of the last time we received at least 1 byte
     last_request_timestamp: u64,
     /// absolute timestamp of the last time we sent at least 1 byte
     last_response_timestamp: u64,

@@ -908,7 +908,7 @@ impl RunLoop {
                 let peer_network = node.join();
 
                 // Data that will be passed to Nakamoto run loop
-                // Only gets transfered on clean shutdown of neon run loop
+                // Only gets transferred on clean shutdown of neon run loop
                 let data_to_naka = Neon2NakaData::new(globals, peer_network);
 
                 info!("Exiting stacks-node");
@@ -1031,7 +1031,7 @@ impl RunLoop {
                                 let peer_network = node.join();
 
                                 // Data that will be passed to Nakamoto run loop
-                                // Only gets transfered on clean shutdown of neon run loop
+                                // Only gets transferred on clean shutdown of neon run loop
                                 let data_to_naka = Neon2NakaData::new(globals, peer_network);
 
                                 info!("Exiting stacks-node");
@@ -1103,7 +1103,7 @@ impl RunLoop {
                             let peer_network = node.join();
 
                             // Data that will be passed to Nakamoto run loop
-                            // Only gets transfered on clean shutdown of neon run loop
+                            // Only gets transferred on clean shutdown of neon run loop
                             let data_to_naka = Neon2NakaData::new(globals, peer_network);
 
                             info!("Exiting stacks-node");
