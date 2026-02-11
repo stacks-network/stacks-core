@@ -79,10 +79,19 @@ pub trait SignerMessage<T: MessageSlotID>: StacksMessageCodec {
 }
 
 lazy_static! {
-    /// The version string for the signer
+    /// The version string for the signer (includes binary name prefix)
     pub static ref VERSION_STRING: String = {
         let pkg_version = option_env!("STACKS_NODE_VERSION").or(Some(STACKS_SIGNER_VERSION));
         version_string("stacks-signer", pkg_version)
+    };
+
+    /// Version info without the binary name prefix, for use with clap's
+    /// `long_version` which already prepends the binary name.
+    pub static ref VERSION_INFO: String = {
+        VERSION_STRING
+            .strip_prefix("stacks-signer ")
+            .unwrap_or(&VERSION_STRING)
+            .to_string()
     };
 }
 
