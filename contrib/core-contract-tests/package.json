@@ -14,6 +14,7 @@
     "@clarigen/cli": "4.0.1",
     "@clarigen/core": "4.0.1",
     "@clarigen/test": "4.0.1",
+    "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "@stacks/clarinet-sdk": "^3.10.0",
     "@stacks/clarunit": "0.1.0",

@@ -1267,7 +1267,75 @@ export const contracts = {
         access: 'variable',
       } as TypedAbiVariable<bigint>,
     },
-    constants: {},
+    constants: {
+      ERR_INSUFFICIENT_FUNDS: 4_001n,
+      ERR_NAMESPACE_ALREADY_EXISTS: 1_006n,
+      ERR_NAMESPACE_ALREADY_LAUNCHED: 1_014n,
+      ERR_NAMESPACE_BLANK: 1_013n,
+      ERR_NAMESPACE_CHARSET_INVALID: 1_016n,
+      ERR_NAMESPACE_HASH_MALFORMED: 1_015n,
+      ERR_NAMESPACE_NOT_FOUND: 1_005n,
+      ERR_NAMESPACE_NOT_LAUNCHED: 1_007n,
+      ERR_NAMESPACE_OPERATION_UNAUTHORIZED: 1_011n,
+      ERR_NAMESPACE_PREORDER_ALREADY_EXISTS: 1_003n,
+      ERR_NAMESPACE_PREORDER_CLAIMABILITY_EXPIRED: 1_009n,
+      ERR_NAMESPACE_PREORDER_EXPIRED: 1_002n,
+      ERR_NAMESPACE_PREORDER_LAUNCHABILITY_EXPIRED: 1_010n,
+      ERR_NAMESPACE_PREORDER_NOT_FOUND: 1_001n,
+      ERR_NAMESPACE_PRICE_FUNCTION_INVALID: 1_008n,
+      ERR_NAMESPACE_STX_BURNT_INSUFFICIENT: 1_012n,
+      ERR_NAMESPACE_UNAVAILABLE: 1_004n,
+      ERR_NAME_ALREADY_CLAIMED: 2_011n,
+      ERR_NAME_BLANK: 2_010n,
+      ERR_NAME_CHARSET_INVALID: 2_022n,
+      ERR_NAME_CLAIMABILITY_EXPIRED: 2_012n,
+      ERR_NAME_COULD_NOT_BE_MINTED: 2_020n,
+      ERR_NAME_COULD_NOT_BE_TRANSFERED: 2_021n,
+      ERR_NAME_EXPIRED: 2_008n,
+      ERR_NAME_GRACE_PERIOD: 2_009n,
+      ERR_NAME_HASH_MALFORMED: 2_017n,
+      ERR_NAME_NOT_FOUND: 2_013n,
+      ERR_NAME_NOT_RESOLVABLE: 2_019n,
+      ERR_NAME_OPERATION_UNAUTHORIZED: 2_006n,
+      ERR_NAME_PREORDERED_BEFORE_NAMESPACE_LAUNCH: 2_018n,
+      ERR_NAME_PREORDER_ALREADY_EXISTS: 2_016n,
+      ERR_NAME_PREORDER_EXPIRED: 2_002n,
+      ERR_NAME_PREORDER_FUNDS_INSUFFICIENT: 2_003n,
+      ERR_NAME_PREORDER_NOT_FOUND: 2_001n,
+      ERR_NAME_REVOKED: 2_014n,
+      ERR_NAME_STX_BURNT_INSUFFICIENT: 2_007n,
+      ERR_NAME_TRANSFER_FAILED: 2_015n,
+      ERR_NAME_UNAVAILABLE: 2_004n,
+      ERR_PANIC: 0n,
+      ERR_PRINCIPAL_ALREADY_ASSOCIATED: 3_001n,
+      NAMESPACE_LAUNCHABILITY_TTL: 52_595n,
+      NAMESPACE_PREORDER_CLAIMABILITY_TTL: 144n,
+      NAMESPACE_PRICE_TIERS: [
+        640_000_000_000n,
+        64_000_000_000n,
+        64_000_000_000n,
+        6_400_000_000n,
+        6_400_000_000n,
+        6_400_000_000n,
+        6_400_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+        640_000_000n,
+      ],
+      NAME_GRACE_PERIOD_DURATION: 5_000n,
+      NAME_PREORDER_CLAIMABILITY_TTL: 144n,
+      attachmentIndex: 0n,
+    },
     non_fungible_tokens: [
       {
         name: 'names',
@@ -3531,6 +3599,451 @@ export const contracts = {
     clarity_version: 'Clarity2',
     contractName: 'pox-4',
   },
+  pox5: {
+    functions: {
+      addStackerToSet: {
+        name: 'add-stacker-to-set',
+        access: 'public',
+        args: [{ name: 'stacker', type: 'principal' }],
+        outputs: {
+          type: {
+            response: {
+              ok: 'bool',
+              error: { response: { ok: 'none', error: 'uint128' } },
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [stacker: TypedAbiArg<string, 'stacker'>],
+        Response<boolean, Response<null, bigint>>
+      >,
+      removeStackerFromSet: {
+        name: 'remove-stacker-from-set',
+        access: 'public',
+        args: [{ name: 'stacker', type: 'principal' }],
+        outputs: {
+          type: {
+            response: {
+              ok: 'bool',
+              error: { response: { ok: 'none', error: 'uint128' } },
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [stacker: TypedAbiArg<string, 'stacker'>],
+        Response<boolean, Response<null, bigint>>
+      >,
+      stackStx: {
+        name: 'stack-stx',
+        access: 'public',
+        args: [
+          { name: 'amount-ustx', type: 'uint128' },
+          {
+            name: 'pox-addr',
+            type: {
+              tuple: [
+                { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                { name: 'version', type: { buffer: { length: 1 } } },
+              ],
+            },
+          },
+          { name: 'start-burn-ht', type: 'uint128' },
+          { name: 'lock-period', type: 'uint128' },
+          {
+            name: 'signer-sig',
+            type: { optional: { buffer: { length: 65 } } },
+          },
+          { name: 'signer-key', type: { buffer: { length: 33 } } },
+          { name: 'max-amount', type: 'uint128' },
+          { name: 'auth-id', type: 'uint128' },
+          { name: 'l1-script-hash', type: { buffer: { length: 32 } } },
+          { name: 'amount-sbtc', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-sbtc', type: 'uint128' },
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'l1-script-hash', type: { buffer: { length: 32 } } },
+                  { name: 'stacker', type: 'principal' },
+                ],
+              },
+              error: 'none',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
+          poxAddr: TypedAbiArg<
+            {
+              hashbytes: Uint8Array;
+              version: Uint8Array;
+            },
+            'poxAddr'
+          >,
+          startBurnHt: TypedAbiArg<number | bigint, 'startBurnHt'>,
+          lockPeriod: TypedAbiArg<number | bigint, 'lockPeriod'>,
+          signerSig: TypedAbiArg<Uint8Array | null, 'signerSig'>,
+          signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
+          maxAmount: TypedAbiArg<number | bigint, 'maxAmount'>,
+          authId: TypedAbiArg<number | bigint, 'authId'>,
+          l1ScriptHash: TypedAbiArg<Uint8Array, 'l1ScriptHash'>,
+          amountSbtc: TypedAbiArg<number | bigint, 'amountSbtc'>,
+        ],
+        Response<
+          {
+            amountSbtc: bigint;
+            amountUstx: bigint;
+            l1ScriptHash: Uint8Array;
+            stacker: string;
+          },
+          null
+        >
+      >,
+      burnHeightToRewardCycle: {
+        name: 'burn-height-to-reward-cycle',
+        access: 'read_only',
+        args: [{ name: 'height', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [height: TypedAbiArg<number | bigint, 'height'>],
+        bigint
+      >,
+      currentPoxRewardCycle: {
+        name: 'current-pox-reward-cycle',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getStackerSetFirstItem: {
+        name: 'get-stacker-set-first-item',
+        access: 'read_only',
+        args: [],
+        outputs: { type: { optional: 'principal' } },
+      } as TypedAbiFunction<[], string | null>,
+      getStackerSetItem: {
+        name: 'get-stacker-set-item',
+        access: 'read_only',
+        args: [{ name: 'stacker', type: 'principal' }],
+        outputs: {
+          type: {
+            optional: {
+              tuple: [
+                { name: 'next', type: { optional: 'principal' } },
+                { name: 'prev', type: { optional: 'principal' } },
+              ],
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [stacker: TypedAbiArg<string, 'stacker'>],
+        {
+          next: string | null;
+          prev: string | null;
+        } | null
+      >,
+      getStackerSetLastItem: {
+        name: 'get-stacker-set-last-item',
+        access: 'read_only',
+        args: [],
+        outputs: { type: { optional: 'principal' } },
+      } as TypedAbiFunction<[], string | null>,
+      getStackerSetNextItem: {
+        name: 'get-stacker-set-next-item',
+        access: 'read_only',
+        args: [{ name: 'stacker', type: 'principal' }],
+        outputs: { type: { optional: 'principal' } },
+      } as TypedAbiFunction<
+        [stacker: TypedAbiArg<string, 'stacker'>],
+        string | null
+      >,
+      getStackerSetPrevItem: {
+        name: 'get-stacker-set-prev-item',
+        access: 'read_only',
+        args: [{ name: 'stacker', type: 'principal' }],
+        outputs: { type: { optional: 'principal' } },
+      } as TypedAbiFunction<
+        [stacker: TypedAbiArg<string, 'stacker'>],
+        string | null
+      >,
+      rewardCycleToBurnHeight: {
+        name: 'reward-cycle-to-burn-height',
+        access: 'read_only',
+        args: [{ name: 'cycle', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [cycle: TypedAbiArg<number | bigint, 'cycle'>],
+        bigint
+      >,
+      stackerSetContains: {
+        name: 'stacker-set-contains',
+        access: 'read_only',
+        args: [{ name: 'stacker', type: 'principal' }],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<[stacker: TypedAbiArg<string, 'stacker'>], boolean>,
+    },
+    maps: {
+      stackerSetLl: {
+        name: 'stacker-set-ll',
+        key: 'principal',
+        value: {
+          tuple: [
+            { name: 'next', type: { optional: 'principal' } },
+            { name: 'prev', type: { optional: 'principal' } },
+          ],
+        },
+      } as TypedAbiMap<
+        string,
+        {
+          next: string | null;
+          prev: string | null;
+        }
+      >,
+      stackingState: {
+        name: 'stacking-state',
+        key: 'principal',
+        value: {
+          tuple: [
+            { name: 'amount-sbtc', type: 'uint128' },
+            { name: 'amount-ustx', type: 'uint128' },
+            {
+              name: 'l1-script-hash',
+              type: { optional: { buffer: { length: 32 } } },
+            },
+          ],
+        },
+      } as TypedAbiMap<
+        string,
+        {
+          amountSbtc: bigint;
+          amountUstx: bigint;
+          l1ScriptHash: Uint8Array | null;
+        }
+      >,
+    },
+    variables: {
+      aDDRESS_VERSION_NATIVE_P2TR: {
+        name: 'ADDRESS_VERSION_NATIVE_P2TR',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      aDDRESS_VERSION_NATIVE_P2WPKH: {
+        name: 'ADDRESS_VERSION_NATIVE_P2WPKH',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      aDDRESS_VERSION_NATIVE_P2WSH: {
+        name: 'ADDRESS_VERSION_NATIVE_P2WSH',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      aDDRESS_VERSION_P2PKH: {
+        name: 'ADDRESS_VERSION_P2PKH',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      aDDRESS_VERSION_P2SH: {
+        name: 'ADDRESS_VERSION_P2SH',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      aDDRESS_VERSION_P2WPKH: {
+        name: 'ADDRESS_VERSION_P2WPKH',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      aDDRESS_VERSION_P2WSH: {
+        name: 'ADDRESS_VERSION_P2WSH',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      ERR_NOT_STACKED: {
+        name: 'ERR_NOT_STACKED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_STACKING_ALREADY_STACKED: {
+        name: 'ERR_STACKING_ALREADY_STACKED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      MAX_ADDRESS_VERSION: {
+        name: 'MAX_ADDRESS_VERSION',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      mAX_ADDRESS_VERSION_BUFF_20: {
+        name: 'MAX_ADDRESS_VERSION_BUFF_20',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      mAX_ADDRESS_VERSION_BUFF_32: {
+        name: 'MAX_ADDRESS_VERSION_BUFF_32',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      PREPARE_CYCLE_LENGTH: {
+        name: 'PREPARE_CYCLE_LENGTH',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      REWARD_CYCLE_LENGTH: {
+        name: 'REWARD_CYCLE_LENGTH',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      sIP018_MSG_PREFIX: {
+        name: 'SIP018_MSG_PREFIX',
+        type: {
+          buffer: {
+            length: 6,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      sTACKING_THRESHOLD_25: {
+        name: 'STACKING_THRESHOLD_25',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      STACKS_ADDR_VERSION_MAINNET: {
+        name: 'STACKS_ADDR_VERSION_MAINNET',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      STACKS_ADDR_VERSION_TESTNET: {
+        name: 'STACKS_ADDR_VERSION_TESTNET',
+        type: {
+          buffer: {
+            length: 1,
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Uint8Array>,
+      configured: {
+        name: 'configured',
+        type: 'bool',
+        access: 'variable',
+      } as TypedAbiVariable<boolean>,
+      firstBurnchainBlockHeight: {
+        name: 'first-burnchain-block-height',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      firstPox4RewardCycle: {
+        name: 'first-pox-4-reward-cycle',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      poxPrepareCycleLength: {
+        name: 'pox-prepare-cycle-length',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      poxRewardCycleLength: {
+        name: 'pox-reward-cycle-length',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      stackerSetLlFirst: {
+        name: 'stacker-set-ll-first',
+        type: {
+          optional: 'principal',
+        },
+        access: 'variable',
+      } as TypedAbiVariable<string | null>,
+      stackerSetLlLast: {
+        name: 'stacker-set-ll-last',
+        type: {
+          optional: 'principal',
+        },
+        access: 'variable',
+      } as TypedAbiVariable<string | null>,
+    },
+    constants: {
+      aDDRESS_VERSION_NATIVE_P2TR: Uint8Array.from([6]),
+      aDDRESS_VERSION_NATIVE_P2WPKH: Uint8Array.from([4]),
+      aDDRESS_VERSION_NATIVE_P2WSH: Uint8Array.from([5]),
+      aDDRESS_VERSION_P2PKH: Uint8Array.from([0]),
+      aDDRESS_VERSION_P2SH: Uint8Array.from([1]),
+      aDDRESS_VERSION_P2WPKH: Uint8Array.from([2]),
+      aDDRESS_VERSION_P2WSH: Uint8Array.from([3]),
+      ERR_NOT_STACKED: {
+        isOk: false,
+        value: 2n,
+      },
+      ERR_STACKING_ALREADY_STACKED: {
+        isOk: false,
+        value: 1n,
+      },
+      MAX_ADDRESS_VERSION: 6n,
+      mAX_ADDRESS_VERSION_BUFF_20: 4n,
+      mAX_ADDRESS_VERSION_BUFF_32: 6n,
+      PREPARE_CYCLE_LENGTH: 50n,
+      REWARD_CYCLE_LENGTH: 1_050n,
+      sIP018_MSG_PREFIX: Uint8Array.from([83, 73, 80, 48, 49, 56]),
+      sTACKING_THRESHOLD_25: 8_000n,
+      STACKS_ADDR_VERSION_MAINNET: Uint8Array.from([22]),
+      STACKS_ADDR_VERSION_TESTNET: Uint8Array.from([26]),
+      configured: false,
+      firstBurnchainBlockHeight: 0n,
+      firstPox4RewardCycle: 0n,
+      poxPrepareCycleLength: 50n,
+      poxRewardCycleLength: 1_050n,
+      stackerSetLlFirst: null,
+      stackerSetLlLast: null,
+    },
+    non_fungible_tokens: [],
+    fungible_tokens: [],
+    epoch: 'Epoch33',
+    clarity_version: 'Clarity4',
+    contractName: 'pox-5',
+  },
   pox_4_test: {
     functions: {
       checkPoxAddrHashbytesIter: {
@@ -4540,11 +5053,11 @@ export const contracts = {
       ERR_SIGNER_INDEX_MISMATCH: 10n,
       poxInfo: {
         firstBurnchainBlockHeight: 0n,
-        minAmountUstx: 125_000_000_000n,
+        minAmountUstx: 150_000_000_000n,
         prepareCycleLength: 50n,
         rewardCycleId: 0n,
         rewardCycleLength: 1_050n,
-        totalLiquidSupplyUstx: 1_000_000_000_000_000n,
+        totalLiquidSupplyUstx: 1_200_000_000_000_000n,
       },
       thresholdConsensus: 70n,
     },
@@ -4667,7 +5180,7 @@ export const contracts = {
       } as TypedAbiVariable<string>,
     },
     constants: {
-      DEPLOY_BLOCK_HEIGHT: 3n,
+      DEPLOY_BLOCK_HEIGHT: 4n,
       ERR_INVALID_RECIPIENT: 103n,
       ERR_NOTHING_TO_CLAIM: 102n,
       ERR_NOT_ALLOWED: 101n,
@@ -4753,6 +5266,10 @@ export const accounts = {
     address: 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5',
     balance: '100000000000000',
   },
+  wallet_10: {
+    address: 'ST3FFKYTTB975A3JC3F99MM7TXZJ406R3GKE6JV56',
+    balance: '200000000000000',
+  },
   wallet_2: {
     address: 'ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG',
     balance: '100000000000000',
@@ -4791,6 +5308,7 @@ export const identifiers = {
   bns: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.bns',
   bns_test: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.bns_test',
   pox4: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-4',
+  pox5: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
   pox_4_test: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox_4_test',
   signers: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signers',
   signersVoting: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signers-voting',
@@ -4820,6 +5338,12 @@ export const deployments = {
   pox4: {
     devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-4',
     simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-4',
+    testnet: null,
+    mainnet: null,
+  },
+  pox5: {
+    devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
+    simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
     testnet: null,
     mainnet: null,
   },

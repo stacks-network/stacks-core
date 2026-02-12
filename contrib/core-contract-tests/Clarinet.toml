@@ -53,3 +53,12 @@ epoch = 2.4
 path = "./tests/pox_4_test.clar"
 clarity_version = 2
 epoch = 2.4
+
+[contracts.pox-5]
+path = "./contracts/pox-5.clar"
+clarity_version = 4
+epoch = 3.3
+
+# [repl.analysis.lints]
+# noop = "warn"
+# unused_const = "warn"
