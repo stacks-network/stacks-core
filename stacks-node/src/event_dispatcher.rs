@@ -969,6 +969,25 @@ impl EventDispatcher {
     }
 
     fn register_observer_private(&mut self, conf: &EventObserverConfig) -> EventObserver {
+        // Deduplicate: if an observer with the same endpoint already exists,
+        // merge the new event keys into the existing observer's lookups.
+        let existing_index = self
+            .registered_observers
+            .iter()
+            .position(|o| o.endpoint == conf.endpoint);
+
+        if let Some(idx) = existing_index {
+            info!(
+                "Registering additional event keys for existing observer at: {}",
+                conf.endpoint
+            );
+            let observer_index = idx as u16;
+            for event_key_type in conf.events_keys.iter() {
+                self.insert_observer_lookup(event_key_type, observer_index);
+            }
+            return self.registered_observers[idx].clone();
+        }
+
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver::new(
             conf.endpoint.clone(),
@@ -986,68 +1005,73 @@ impl EventDispatcher {
         let observer_index = self.registered_observers.len() as u16;
 
         for event_key_type in conf.events_keys.iter() {
-            match event_key_type {
-                EventKeyType::SmartContractEvent(event_key) => {
-                    match self
-                        .contract_events_observers_lookup
-                        .entry(event_key.clone())
-                    {
-                        Entry::Occupied(observer_indexes) => {
-                            observer_indexes.into_mut().insert(observer_index);
-                        }
-                        Entry::Vacant(v) => {
-                            let mut observer_indexes = HashSet::new();
-                            observer_indexes.insert(observer_index);
-                            v.insert(observer_indexes);
-                        }
-                    };
-                }
-                EventKeyType::BurnchainBlocks => {
-                    self.burn_block_observers_lookup.insert(observer_index);
-                }
-                EventKeyType::MemPoolTransactions => {
-                    self.mempool_observers_lookup.insert(observer_index);
-                }
-                EventKeyType::Microblocks => {
-                    self.microblock_observers_lookup.insert(observer_index);
-                }
-                EventKeyType::STXEvent => {
-                    self.stx_observers_lookup.insert(observer_index);
-                }
-                EventKeyType::AssetEvent(event_key) => {
-                    match self.assets_observers_lookup.entry(event_key.clone()) {
-                        Entry::Occupied(observer_indexes) => {
-                            observer_indexes.into_mut().insert(observer_index);
-                        }
-                        Entry::Vacant(v) => {
-                            let mut observer_indexes = HashSet::new();
-                            observer_indexes.insert(observer_index);
-                            v.insert(observer_indexes);
-                        }
-                    };
-                }
-                EventKeyType::AnyEvent => {
-                    self.any_event_observers_lookup.insert(observer_index);
-                }
-                EventKeyType::MinedBlocks => {
-                    self.miner_observers_lookup.insert(observer_index);
-                }
-                EventKeyType::MinedMicroblocks => {
-                    self.mined_microblocks_observers_lookup
-                        .insert(observer_index);
-                }
-                EventKeyType::StackerDBChunks => {
-                    self.stackerdb_observers_lookup.insert(observer_index);
-                }
-                EventKeyType::BlockProposal => {
-                    self.block_proposal_observers_lookup.insert(observer_index);
-                }
-            }
+            self.insert_observer_lookup(event_key_type, observer_index);
         }
 
         self.registered_observers.push(event_observer.clone());
 
         event_observer
+    }
+
+    /// Insert an observer index into the appropriate lookup set for the given event key type.
+    fn insert_observer_lookup(&mut self, event_key_type: &EventKeyType, observer_index: u16) {
+        match event_key_type {
+            EventKeyType::SmartContractEvent(event_key) => {
+                match self
+                    .contract_events_observers_lookup
+                    .entry(event_key.clone())
+                {
+                    Entry::Occupied(observer_indexes) => {
+                        observer_indexes.into_mut().insert(observer_index);
+                    }
+                    Entry::Vacant(v) => {
+                        let mut observer_indexes = HashSet::new();
+                        observer_indexes.insert(observer_index);
+                        v.insert(observer_indexes);
+                    }
+                };
+            }
+            EventKeyType::BurnchainBlocks => {
+                self.burn_block_observers_lookup.insert(observer_index);
+            }
+            EventKeyType::MemPoolTransactions => {
+                self.mempool_observers_lookup.insert(observer_index);
+            }
+            EventKeyType::Microblocks => {
+                self.microblock_observers_lookup.insert(observer_index);
+            }
+            EventKeyType::STXEvent => {
+                self.stx_observers_lookup.insert(observer_index);
+            }
+            EventKeyType::AssetEvent(event_key) => {
+                match self.assets_observers_lookup.entry(event_key.clone()) {
+                    Entry::Occupied(observer_indexes) => {
+                        observer_indexes.into_mut().insert(observer_index);
+                    }
+                    Entry::Vacant(v) => {
+                        let mut observer_indexes = HashSet::new();
+                        observer_indexes.insert(observer_index);
+                        v.insert(observer_indexes);
+                    }
+                };
+            }
+            EventKeyType::AnyEvent => {
+                self.any_event_observers_lookup.insert(observer_index);
+            }
+            EventKeyType::MinedBlocks => {
+                self.miner_observers_lookup.insert(observer_index);
+            }
+            EventKeyType::MinedMicroblocks => {
+                self.mined_microblocks_observers_lookup
+                    .insert(observer_index);
+            }
+            EventKeyType::StackerDBChunks => {
+                self.stackerdb_observers_lookup.insert(observer_index);
+            }
+            EventKeyType::BlockProposal => {
+                self.block_proposal_observers_lookup.insert(observer_index);
+            }
+        }
     }
 
     /// Process any pending payloads in the database.
