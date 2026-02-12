@@ -1,10 +1,10 @@
 use std::io::{Cursor, Write as _};
-
+use clarity_types::errors::InterpreterError;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
-use wasmtime::{AsContextMut, Caller, Linker, Memory, Module, Store, Val, ValType};
+use wasmtime::{AsContextMut, Caller, ExternRef, Linker, Memory, Module, Store, Val, ValType};
 
 use super::analysis::CheckErrors;
 use super::callables::{DefineType, DefinedFunction};
@@ -2215,7 +2215,6 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_get_burn_block_info_header_hash_property_fn(linker)?;
     link_get_burn_block_info_pox_addrs_property_fn(linker)?;
     link_contract_call_fn(linker)?;
-    link_contract_hash_fn(linker)?;
     link_begin_public_call_fn(linker)?;
     link_begin_read_only_call_fn(linker)?;
     link_commit_call_fn(linker)?;
@@ -4872,38 +4871,37 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     epoch,
                 )?;
 
-                let result = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .fetch_entry_with_size(&contract, &map_name, &key, &data_types, &epoch);
+                let result = caller.data_mut().global_context.database.fetch_entry(
+                    &contract,
+                    &map_name,
+                    &key,
+                    &data_types,
+                    &epoch,
+                );
 
-                let _result_size = match &result {
-                    Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
-                };
+                match result {
+                    Err(error) => Ok(handle_vm_execution_errors(&mut caller, error)),
 
-                // runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
+                    Ok(data) => {
+                        let memory = caller
+                            .get_export("memory")
+                            .and_then(|export| export.into_memory())
+                            .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let value = result.map(|data| data.value)?;
+                        let ty = TypeSignature::OptionalType(Box::new(data_types.value_type));
+                        write_to_wasm(
+                            &mut caller,
+                            memory,
+                            &ty,
+                            return_offset,
+                            return_offset + get_type_size(&ty),
+                            &data,
+                            true,
+                        )?;
 
-                let memory = caller
-                    .get_export("memory")
-                    .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
-
-                let ty = TypeSignature::OptionalType(Box::new(data_types.value_type));
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &ty,
-                    return_offset,
-                    return_offset + get_type_size(&ty),
-                    &value,
-                    true,
-                )?;
-
-                Ok(())
+                        Ok(1i32)
+                    }
+                }
             },
         )
         .map(|_| ())
@@ -4995,24 +4993,27 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     &epoch,
                 );
 
-                let result_size = match &result {
-                    Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
-                };
+                match result {
+                    Err(error) => Ok(handle_vm_execution_errors(&mut caller, error)),
 
-                // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
+                    Ok(data) => {
+                        caller
+                            .data_mut()
+                            .global_context
+                            .add_memory(data.serialized_byte_len)
+                            .map_err(Error::from)?;
 
-                caller
-                    .data_mut()
-                    .global_context
-                    .add_memory(result_size)
-                    .map_err(|e| Error::from(e))?;
-
-                let value = result.map(|data| data.value)?;
-                if let Value::Bool(true) = value {
-                    Ok(1i32)
-                } else {
-                    Ok(0i32)
+                        if let Value::Bool(true) = data.value {
+                            Ok(1i32)
+                        } else {
+                            // we want to return an error here. It's not supposed to happen
+                            Err(Error::Interpreter(InterpreterError::InterpreterError(
+                                "Unexpected case, set should always be valid if ran to completion"
+                                    .to_owned(),
+                            ))
+                            .into())
+                        }
+                    }
                 }
             },
         )
@@ -5105,24 +5106,21 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     &epoch,
                 );
 
-                let result_size = match &result {
-                    Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
-                };
+                match result {
+                    Err(error) => Ok(handle_vm_execution_errors(&mut caller, error)),
+                    Ok(data) => {
+                        caller
+                            .data_mut()
+                            .global_context
+                            .add_memory(data.serialized_byte_len)
+                            .map_err(Error::from)?;
 
-                // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
-
-                caller
-                    .data_mut()
-                    .global_context
-                    .add_memory(result_size)
-                    .map_err(|e| Error::from(e))?;
-
-                let value = result.map(|data| data.value)?;
-                if let Value::Bool(true) = value {
-                    Ok(1i32)
-                } else {
-                    Ok(0i32)
+                        if let Value::Bool(true) = data.value {
+                            Ok(1i32)
+                        } else {
+                            Ok(0i32)
+                        }
+                    }
                 }
             },
         )
@@ -5197,24 +5195,21 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     &epoch,
                 );
 
-                let result_size = match &result {
-                    Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
-                };
+                match result {
+                    Err(error) => Ok(handle_vm_execution_errors(&mut caller, error)),
+                    Ok(data) => {
+                        caller
+                            .data_mut()
+                            .global_context
+                            .add_memory(data.serialized_byte_len)
+                            .map_err(Error::from)?;
 
-                // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
-
-                caller
-                    .data_mut()
-                    .global_context
-                    .add_memory(result_size)
-                    .map_err(|e| Error::from(e))?;
-
-                let value = result.map(|data| data.value)?;
-                if let Value::Bool(true) = value {
-                    Ok(1i32)
-                } else {
-                    Ok(0i32)
+                        if let Value::Bool(true) = data.value {
+                            Ok(1i32)
+                        } else {
+                            Ok(0i32)
+                        }
+                    }
                 }
             },
         )
@@ -5225,6 +5220,19 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                 e,
             ))
         })
+}
+
+/// Returns -1 and set the linked error with the error returned
+fn handle_vm_execution_errors(caller: &mut Caller<'_, ClarityWasmContext>, error: Error) -> i32 {
+    let linked_error = caller.get_export("linked-error").unwrap();
+    let linked_error = linked_error.into_global().unwrap();
+    linked_error
+        .set(
+            caller.as_context_mut(),
+            Val::ExternRef(Some(ExternRef::new(error))),
+        )
+        .unwrap();
+    -1i32
 }
 
 fn check_height_valid(
@@ -6696,109 +6704,6 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "contract_call".to_string(),
-                e,
-            ))
-        })
-}
-
-fn link_contract_hash_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
-    linker
-        .func_wrap(
-            "clarity",
-            "contract_hash",
-            |mut caller: Caller<'_, ClarityWasmContext>,
-             contract_offset: i32,
-             contract_length: i32,
-             return_offset: i32,
-             _return_length: i32| {
-                let memory = caller
-                    .get_export("memory")
-                    .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
-
-                let epoch = caller.data_mut().global_context.epoch_id;
-
-                // Read the contract identifier from the Wasm memory
-                let contract_val = read_from_wasm(
-                    memory,
-                    &mut caller,
-                    &TypeSignature::PrincipalType,
-                    contract_offset,
-                    contract_length,
-                    epoch,
-                )?;
-
-                // (response (buff 32) uint)
-                let return_ty = TypeSignature::ResponseType(Box::new((
-                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                        BufferLength::try_from(32u32)?,
-                    )),
-                    TypeSignature::UIntType,
-                )));
-
-                let contract_id = match &contract_val {
-                    Value::Principal(PrincipalData::Contract(contract_id)) => contract_id,
-                    _ => {
-                        let err_val = Value::Response(ResponseData {
-                            committed: false,
-                            data: Box::new(Value::UInt(1)), // err u1
-                        });
-
-                        write_to_wasm(
-                            &mut caller,
-                            memory,
-                            &return_ty,
-                            return_offset,
-                            return_offset + get_type_size(&return_ty),
-                            &err_val,
-                            true,
-                        )?;
-                        return Ok(());
-                    }
-                };
-                let contract_hash = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .get_contract_hash(contract_id)?;
-
-                let resp_val = match contract_hash {
-                    Some(contract_hash) => {
-                        // success: (ok <buff-32>)
-                        let ok_val = Value::Sequence(SequenceData::Buffer(BuffData {
-                            data: contract_hash.0.to_vec(),
-                        }));
-                        Value::Response(ResponseData {
-                            committed: true,
-                            data: Box::new(ok_val),
-                        })
-                    }
-                    None => {
-                        // contract missing => (err u2)
-                        Value::Response(ResponseData {
-                            committed: false,
-                            data: Box::new(Value::UInt(2)), // err u2
-                        })
-                    }
-                };
-
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &return_ty, // (response (buff 32) uint)
-                    return_offset,
-                    return_offset + get_type_size(&return_ty),
-                    &resp_val,
-                    true,
-                )?;
-
-                Ok(())
-            },
-        )
-        .map(|_| ())
-        .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
-                "contract_hash".to_string(),
                 e,
             ))
         })
