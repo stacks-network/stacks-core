@@ -22,7 +22,6 @@ serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
 regex = "1"
-lazy_static = { workspace = true }
 integer-sqrt = "0.1.3"
 slog = { workspace = true }
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }

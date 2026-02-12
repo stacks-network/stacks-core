@@ -18,7 +18,7 @@ use std::cmp;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
@@ -26,7 +26,6 @@ use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
-use lazy_static::lazy_static;
 use rusqlite::Connection;
 use stacks_common::address;
 use stacks_common::address::AddressHashMode;
@@ -66,12 +65,13 @@ use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::strings::StacksString;
 use crate::{chainstate, core};
 
-lazy_static! {
-    pub static ref BURN_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
-    pub static ref TXIDS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
-    pub static ref MBLOCK_PUBKHS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
-    pub static ref STACKS_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
-}
+pub static BURN_BLOCK_HEADERS: LazyLock<Arc<AtomicU64>> =
+    LazyLock::new(|| Arc::new(AtomicU64::new(1)));
+pub static TXIDS: LazyLock<Arc<AtomicU64>> = LazyLock::new(|| Arc::new(AtomicU64::new(1)));
+pub static MBLOCK_PUBKHS: LazyLock<Arc<AtomicU64>> =
+    LazyLock::new(|| Arc::new(AtomicU64::new(1)));
+pub static STACKS_BLOCK_HEADERS: LazyLock<Arc<AtomicU64>> =
+    LazyLock::new(|| Arc::new(AtomicU64::new(1)));
 
 fn test_path(name: &str) -> String {
     format!(

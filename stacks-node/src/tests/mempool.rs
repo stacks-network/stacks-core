@@ -5,7 +5,7 @@ use clarity::vm::database::NULL_BURN_STATE_DB;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::Value;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use stacks::chainstate::stacks::db::blocks::MemPoolRejection;
 use stacks::chainstate::stacks::{
     Error as ChainstateError, StacksBlockHeader, StacksMicroblockHeader, StacksPrivateKey,
@@ -73,9 +73,7 @@ pub fn make_bad_stacks_transfer(
     buf
 }
 
-lazy_static! {
-    static ref CHAINSTATE_PATH: Mutex<Option<String>> = Mutex::new(None);
-}
+static CHAINSTATE_PATH: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 #[test]
 fn mempool_setup_chainstate() {

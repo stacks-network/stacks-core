@@ -23,7 +23,8 @@ use clarity::vm::errors::ClarityTypeError;
 use clarity::vm::representations::{
     ClarityName, ContractName, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
 };
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
+
 use regex::Regex;
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
@@ -31,10 +32,8 @@ use stacks_common::codec::{
 use stacks_common::util::retry::BoundReader;
 use url;
 
-lazy_static! {
-    static ref URL_STRING_REGEX: Regex =
-        Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#).unwrap();
-}
+static URL_STRING_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"^[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;%=-]*$"#).unwrap());
 
 guarded_string!(
     UrlString,

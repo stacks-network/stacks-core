@@ -21,7 +21,7 @@ use clarity::vm::representations::{
 };
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
@@ -36,16 +36,18 @@ use crate::net::httpcore::{
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
-lazy_static! {
-    static ref CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING: String = format!(
+static CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING: LazyLock<String> = LazyLock::new(|| {
+    format!(
         "([a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*|[-+=/*]|[<>]=?){{1,{}}}",
         MAX_STRING_LEN
-    );
-    static ref METADATA_KEY_REGEX_STRING: String = format!(
+    )
+});
+static METADATA_KEY_REGEX_STRING: LazyLock<String> = LazyLock::new(|| {
+    format!(
         r"vm-metadata::(?P<data_type>(\d{{1,2}}))::(?P<var_name>(contract|contract-size|contract-src|contract-data-size|{}))",
         *CLARITY_NAME_NO_BOUNDARIES_REGEX_STRING,
-    );
-}
+    )
+});
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClarityMetadataResponse {
