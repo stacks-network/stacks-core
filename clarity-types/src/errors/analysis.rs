@@ -594,27 +594,12 @@ pub enum RuntimeCheckErrorKind {
     ValueOutOfBounds,
     /// Type signature nesting depth exceeds the allowed limit during analysis.
     TypeSignatureTooDeep,
-    /// Expected a name (e.g., variable, function) but found an invalid or missing token.
-    ExpectedName,
-    /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
-    SupertypeTooLarge,
 
     // Unexpected interpreter behavior
     /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
     ExpectsRejectable(String),
     /// Unexpected condition or failure in the type-checker, indicating a noncatastrophic bug or invalid state.
     ExpectsAcceptable(String),
-
-    // Match expression errors
-    /// Invalid syntax in an `option` match expression.
-    /// The `Box<RuntimeCheckErrorKind>` wraps the underlying error causing the syntax issue.
-    BadMatchOptionSyntax(Box<RuntimeCheckErrorKind>),
-    /// Invalid syntax in a `response` match expression.
-    /// The `Box<RuntimeCheckErrorKind>` wraps the underlying error causing the syntax issue.
-    BadMatchResponseSyntax(Box<RuntimeCheckErrorKind>),
-    /// Input to a `match` expression does not conform to the expected type (e.g., `Option` or `Response`).
-    /// The `Box<TypeSignature>` wraps the actual type of the provided input.
-    BadMatchInput(Box<TypeSignature>),
 
     // List typing errors
     /// List elements have mismatched types, violating type consistency.
@@ -628,29 +613,11 @@ pub enum RuntimeCheckErrorKind {
     /// The `Box<TypeSignature>` wraps the expected type, and the `Box<Value>` wraps the invalid value.
     TypeValueError(Box<TypeSignature>, Box<Value>),
 
-    /// Type description is invalid or malformed, preventing proper type-checking.
-    InvalidTypeDescription,
-    /// Referenced type name does not exist or is undefined.
-    /// The `String` wraps the non-existent type name.
-    UnknownTypeName(String),
-
     // Union type mismatch
-    /// Type does not belong to the expected union of types during analysis.
-    /// The `Vec<TypeSignature>` represents the expected types, and the `Box<TypeSignature>` wraps the actual type.
-    UnionTypeError(Vec<TypeSignature>, Box<TypeSignature>),
     /// Value does not belong to the expected union of types during type-checking.
     /// The `Vec<TypeSignature>` represents the expected types, and the `Box<Value>` wraps the invalid value.
     UnionTypeValueError(Vec<TypeSignature>, Box<Value>),
 
-    /// Expected an optional value but found a different value.
-    /// The `Box<Value>` wraps the actual value provided.
-    ExpectedOptionalValue(Box<Value>),
-    /// Expected a response value but found a different value.
-    /// The `Box<Value>` wraps the actual value provided.
-    ExpectedResponseValue(Box<Value>),
-    /// Expected an optional or response value but found a different value.
-    /// The `Box<Value>` wraps the actual value provided.
-    ExpectedOptionalOrResponseValue(Box<Value>),
     /// Expected a contract principal value but found a different value.
     /// The `Box<Value>` wraps the actual value provided.
     ExpectedContractPrincipalValue(Box<Value>),
@@ -659,56 +626,7 @@ pub enum RuntimeCheckErrorKind {
     /// Could not determine the type of an expression during analysis.
     CouldNotDetermineType,
 
-    // Assets
-    /// Expected a token name as an argument but found an invalid token.
-    BadTokenName,
-    /// Referenced non-fungible token (NFT) does not exist.
-    /// The `String` wraps the non-existent token name.
-    NoSuchNFT(String),
-    /// Referenced fungible token (FT) does not exist.
-    /// The `String` wraps the non-existent token name.
-    NoSuchFT(String),
-
-    // Transfer and asset operation errors
-    /// Invalid arguments provided to a `stx-transfer?` function.
-    BadTransferSTXArguments,
-    /// Invalid arguments provided to a fungible token transfer function.
-    BadTransferFTArguments,
-    /// Invalid arguments provided to a non-fungible token transfer function.
-    BadTransferNFTArguments,
-    /// Invalid arguments provided to a fungible token mint function.
-    BadMintFTArguments,
-    /// Invalid arguments provided to a fungible token burn function.
-    BadBurnFTArguments,
-
-    // Tuples
-    /// Expected a tuple type but found a different type.
-    /// The `Box<TypeSignature>` wraps the actual type provided.
-    ExpectedTuple(Box<TypeSignature>),
-    /// Referenced tuple field does not exist in the tuple type.
-    /// The `String` wraps the requested field name, and the `TupleTypeSignature` wraps the tuple’s type.
-    NoSuchTupleField(String, TupleTypeSignature),
-    /// Empty tuple is not allowed in Clarity.
-    EmptyTuplesNotAllowed,
-
-    // Variables
-    /// Referenced data variable does not exist in scope.
-    /// The `String` wraps the non-existent variable name.
-    NoSuchDataVariable(String),
-
-    // Data map
-    /// Referenced data map does not exist in scope.
-    /// The `String` wraps the non-existent map name.
-    NoSuchMap(String),
-
     // Defines
-    /// Invalid or malformed signature in a function definition.
-    DefineFunctionBadSignature,
-    /// Function name is invalid or violates naming rules.
-    BadFunctionName,
-    /// Public function must return a response type, but found a different type.
-    /// The `Box<TypeSignature>` wraps the actual return type.
-    PublicFunctionMustReturnResponse(Box<TypeSignature>),
     /// Return types of function branches do not match the expected type.
     /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
@@ -724,121 +642,32 @@ pub enum RuntimeCheckErrorKind {
     /// Referenced public function does not exist in the specified contract.
     /// The first `String` wraps the contract name, and the second wraps the function name.
     NoSuchPublicFunction(String, String),
-    /// Public function is not read-only when expected to be.
-    /// The first `String` wraps the contract name, and the second wraps the function name.
-    PublicFunctionNotReadOnly(String, String),
-    /// Attempt to define a contract with a name that already exists.
-    /// The `String` wraps the conflicting contract name.
-    ContractAlreadyExists(String),
     /// Expected a contract name in a `contract-call?` expression but found an invalid token.
     ContractCallExpectName,
-
-    // get-block-info? errors
-    /// Referenced burn block info property does not exist.
-    /// The `String` wraps the non-existent property name.
-    NoSuchBurnBlockInfoProperty(String),
-    /// Referenced Stacks block info property does not exist.
-    /// The `String` wraps the non-existent property name.
-    NoSuchStacksBlockInfoProperty(String),
-    /// Expected a block info property name but found an invalid token.
-    GetBlockInfoExpectPropertyName,
-    /// Expected a Stacks block info property name but found an invalid token.
-    GetStacksBlockInfoExpectPropertyName,
-    /// Expected a tenure info property name but found an invalid token.
-    GetTenureInfoExpectPropertyName,
 
     /// Name (e.g., variable, function) is already in use within the same scope.
     /// The `String` wraps the conflicting name.
     NameAlreadyUsed(String),
 
-    // Expect a function, or applying a function to a list
-    /// Attempt to apply a non-function value as a function.
-    NonFunctionApplication,
-    /// Expected a list application but found a different expression.
-    ExpectedListApplication,
-    /// Expected a sequence type (e.g., list, buffer) but encountered a non-sequence value.
-    ///
-    /// The boxed [`TypeSignature`] represents the **actual type provided**, if known.
-    /// If the type could not be determined, this will be [`TypeSignature::NoType`].
-    ExpectedSequence(Box<TypeSignature>),
-
-    // Let syntax
-    /// Invalid syntax in a `let` expression, violating binding or structure rules.
-    BadLetSyntax,
-
-    // Generic binding syntax
-    /// Invalid binding syntax in a generic construct (e.g., `let`, `match`).
-    /// The `SyntaxBindingError` wraps the specific binding error.
-    BadSyntaxBinding(SyntaxBindingError),
-
     /// Referenced function is not defined in the current scope.
     /// The `String` wraps the non-existent function name.
     UndefinedFunction(String),
-    /// Referenced variable is not defined in the current scope.
-    /// The `String` wraps the non-existent variable name.
-    UndefinedVariable(String),
 
     // Argument counts
-    /// Function requires at least the specified number of arguments, but fewer were provided.
-    /// The first `usize` represents the minimum required, and the second represents the actual count.
-    RequiresAtLeastArguments(usize, usize),
-    /// Function requires at most the specified number of arguments, but more were provided.
-    /// The first `usize` represents the maximum allowed, and the second represents the actual count.
-    RequiresAtMostArguments(usize, usize),
     /// Incorrect number of arguments provided to a function.
     /// The first `usize` represents the expected count, and the second represents the actual count.
     IncorrectArgumentCount(usize, usize),
-    /// Too many function parameters specified.
-    /// The first `usize` represents the number of parameters found, the second represents the maximum allowed.
-    TooManyFunctionParameters(usize, usize),
 
     // Traits
-    /// Referenced trait is not defined or cannot be found.
-    /// The `String` wraps the non-existent trait name.
-    TraitReferenceUnknown(String),
-    /// Referenced method does not exist in the specified trait.
-    /// The first `String` wraps the trait name, and the second wraps the method name.
-    TraitMethodUnknown(String, String),
-    /// Expected a trait identifier (e.g., `.trait-name`) but found an invalid token.
-    ExpectedTraitIdentifier,
     /// Invalid implementation of a trait method.
     /// The first `String` wraps the trait name, and the second wraps the method name.
     BadTraitImplementation(String, String),
-    /// Invalid or malformed signature in a `(define-trait ...)` expression.
-    DefineTraitBadSignature,
-    /// Trait definition contains duplicate method names.
-    /// The `String` wraps the duplicate method name.
-    DefineTraitDuplicateMethod(String),
-
-    /// Trait-based contract call used in a read-only context, which is prohibited.
-    TraitBasedContractCallInReadOnly,
-    /// `contract-of` expects a trait type but found a different type.
-    ContractOfExpectsTrait,
-    /// Too many trait methods specified.
-    /// The first `usize` represents the number of methods found, the second the maximum allowed.
-    TraitTooManyMethods(usize, usize),
 
     // Strings
     /// String contains invalid or disallowed characters (e.g., non-ASCII in ASCII strings).
     InvalidCharactersDetected,
     /// String contains invalid UTF-8 encoding.
     InvalidUTF8Encoding,
-
-    /// Attempt to write to contract state in a read-only function.
-    WriteAttemptedInReadOnly,
-
-    // contract post-conditions
-    /// Post-condition expects a list of asset allowances but received invalid input.
-    /// The first `String` wraps the function name, and the second `i32` wraps the argument number.
-    ExpectedListOfAllowances(String, i32),
-    /// Allowance expressions are only allowed in specific contexts (`restrict-assets?` or `as-contract?`).
-    AllowanceExprNotAllowed,
-    /// Expected an allowance expression but found invalid input.
-    /// The `String` wraps the unexpected input.
-    ExpectedAllowanceExpr(String),
-    /// Too many allowances specified in post-condition.
-    /// The first `usize` represents the maximum allowed, and the second represents the actual count.
-    TooManyAllowances(usize, usize),
 }
 
 #[derive(Debug, PartialEq)]
@@ -860,10 +689,7 @@ pub struct StaticCheckError {
 impl RuntimeCheckErrorKind {
     /// This check indicates that the transaction should be rejected.
     pub fn rejectable(&self) -> bool {
-        matches!(
-            self,
-            RuntimeCheckErrorKind::SupertypeTooLarge | RuntimeCheckErrorKind::ExpectsRejectable(_)
-        )
+        matches!(self, RuntimeCheckErrorKind::ExpectsRejectable(_))
     }
 }
 
@@ -993,14 +819,8 @@ impl From<ClarityTypeError> for RuntimeCheckErrorKind {
             ClarityTypeError::TypeSignatureTooDeep => Self::TypeSignatureTooDeep,
             ClarityTypeError::ValueOutOfBounds => Self::ValueOutOfBounds,
             ClarityTypeError::DuplicateTupleField(name) => Self::NameAlreadyUsed(name),
-            ClarityTypeError::NoSuchTupleField(field, tuple_sig) => {
-                Self::NoSuchTupleField(field, tuple_sig)
-            }
             ClarityTypeError::TypeMismatchValue(ty, value) => Self::TypeValueError(ty, value),
             ClarityTypeError::TypeMismatch(expected, found) => Self::TypeError(expected, found),
-            ClarityTypeError::EmptyTuplesNotAllowed => Self::EmptyTuplesNotAllowed,
-            ClarityTypeError::SupertypeTooLarge => Self::SupertypeTooLarge,
-            ClarityTypeError::InvalidTypeDescription => Self::InvalidTypeDescription,
             ClarityTypeError::ListTypeMismatch => Self::ListTypesMustMatch,
             ClarityTypeError::InvalidAsciiCharacter(_) => Self::InvalidCharactersDetected,
             ClarityTypeError::InvalidUtf8Encoding => Self::InvalidUTF8Encoding,
@@ -1014,11 +834,15 @@ impl From<ClarityTypeError> for RuntimeCheckErrorKind {
             | ClarityTypeError::QualifiedContractMissingDot
             | ClarityTypeError::InvalidPrincipalEncoding(_)
             | ClarityTypeError::InvalidPrincipalLength(_)
+            | ClarityTypeError::InvalidTypeDescription
+            | ClarityTypeError::NoSuchTupleField(_, _)
+            | ClarityTypeError::EmptyTuplesNotAllowed
             | ClarityTypeError::ResponseTypeMismatch { .. } => Self::ExpectsAcceptable(format!(
                 "Unexpected error type during runtime analysis: {err}"
             )),
             ClarityTypeError::InvariantViolation(_)
-            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::ExpectsRejectable(format!(
+            | ClarityTypeError::InvalidPrincipalVersion(_)
+            | ClarityTypeError::SupertypeTooLarge => Self::ExpectsRejectable(format!(
                 "Unexpected error type during runtime analysis: {err}"
             )),
             ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
@@ -1231,20 +1055,30 @@ impl From<CommonCheckErrorKind> for RuntimeCheckErrorKind {
                 RuntimeCheckErrorKind::IncorrectArgumentCount(expected, args)
             }
             CommonCheckErrorKind::RequiresAtLeastArguments(expected, args) => {
-                RuntimeCheckErrorKind::RequiresAtLeastArguments(expected, args)
+                RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                    "Requires at least args: {expected} got {args}"
+                ))
             }
             CommonCheckErrorKind::RequiresAtMostArguments(expected, args) => {
-                RuntimeCheckErrorKind::RequiresAtMostArguments(expected, args)
+                RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                    "Requires at most args: {expected} got {args}"
+                ))
             }
             CommonCheckErrorKind::TooManyFunctionParameters(found, allowed) => {
-                RuntimeCheckErrorKind::TooManyFunctionParameters(found, allowed)
+                RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                    "Too many function params: found {found}, allowed {allowed}"
+                ))
             }
-            CommonCheckErrorKind::ExpectedName => RuntimeCheckErrorKind::ExpectedName,
+            CommonCheckErrorKind::ExpectedName => {
+                RuntimeCheckErrorKind::ExpectsAcceptable("Expected name".to_string())
+            }
             CommonCheckErrorKind::DefineFunctionBadSignature => {
-                RuntimeCheckErrorKind::DefineFunctionBadSignature
+                RuntimeCheckErrorKind::ExpectsAcceptable(
+                    "Define function bad signature".to_string(),
+                )
             }
             CommonCheckErrorKind::ExpectedTraitIdentifier => {
-                RuntimeCheckErrorKind::ExpectedTraitIdentifier
+                RuntimeCheckErrorKind::ExpectsAcceptable("Expected trait identifier".to_string())
             }
             CommonCheckErrorKind::CouldNotDetermineType => {
                 RuntimeCheckErrorKind::CouldNotDetermineType
@@ -1260,27 +1094,33 @@ impl From<CommonCheckErrorKind> for RuntimeCheckErrorKind {
                 RuntimeCheckErrorKind::ExpectsAcceptable(s)
             }
             CommonCheckErrorKind::DefineTraitDuplicateMethod(s) => {
-                RuntimeCheckErrorKind::DefineTraitDuplicateMethod(s)
+                RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                    "Define trait duplicate method: {s}"
+                ))
             }
             CommonCheckErrorKind::TraitTooManyMethods(found, allowed) => {
-                RuntimeCheckErrorKind::TraitTooManyMethods(found, allowed)
+                RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                    "Trait too many methods: found {found}, allowed {allowed}"
+                ))
             }
             CommonCheckErrorKind::DefineTraitBadSignature => {
-                RuntimeCheckErrorKind::DefineTraitBadSignature
+                RuntimeCheckErrorKind::ExpectsAcceptable("Define trait bad signature".to_string())
             }
             CommonCheckErrorKind::InvalidTypeDescription => {
-                RuntimeCheckErrorKind::InvalidTypeDescription
+                RuntimeCheckErrorKind::ExpectsAcceptable("Invalid type description".to_string())
             }
-            CommonCheckErrorKind::BadSyntaxBinding(e) => RuntimeCheckErrorKind::BadSyntaxBinding(e),
+            CommonCheckErrorKind::BadSyntaxBinding(e) => {
+                RuntimeCheckErrorKind::ExpectsAcceptable(format!("Bad syntax binding: {e}"))
+            }
             CommonCheckErrorKind::ValueOutOfBounds => RuntimeCheckErrorKind::ValueOutOfBounds,
             CommonCheckErrorKind::EmptyTuplesNotAllowed => {
-                RuntimeCheckErrorKind::EmptyTuplesNotAllowed
+                RuntimeCheckErrorKind::ExpectsAcceptable("Empty tuples not allowed".to_string())
             }
             CommonCheckErrorKind::NameAlreadyUsed(name) => {
                 RuntimeCheckErrorKind::NameAlreadyUsed(name)
             }
             CommonCheckErrorKind::UnknownTypeName(name) => {
-                RuntimeCheckErrorKind::UnknownTypeName(name)
+                RuntimeCheckErrorKind::ExpectsAcceptable(format!("Unknown type name: {name}"))
             }
         }
     }

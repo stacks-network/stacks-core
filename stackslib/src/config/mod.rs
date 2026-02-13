@@ -720,6 +720,8 @@ impl Config {
                 Ok(StacksEpochId::Epoch32)
             } else if epoch_name == EPOCH_CONFIG_3_3_0 {
                 Ok(StacksEpochId::Epoch33)
+            } else if epoch_name == EPOCH_CONFIG_3_4_0 {
+                Ok(StacksEpochId::Epoch34)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -749,6 +751,7 @@ impl Config {
             StacksEpochId::Epoch31,
             StacksEpochId::Epoch32,
             StacksEpochId::Epoch33,
+            StacksEpochId::Epoch34,
         ];
         for (expected_epoch, configured_epoch) in expected_list
             .iter()
@@ -1712,6 +1715,7 @@ pub const EPOCH_CONFIG_3_0_0: &str = "3.0";
 pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 pub const EPOCH_CONFIG_3_3_0: &str = "3.3";
+pub const EPOCH_CONFIG_3_4_0: &str = "3.4";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -4387,7 +4391,7 @@ pub struct EventObserverConfigFile {
     ///   - Events delivered to: `/proposal_response`.
     ///
     /// - Smart Contract Event: Subscribes to a specific smart contract event.
-    ///   - Format: `"{contract_address}.{contract_name}::{event_name}"`
+    ///   - Format: `"{deployer_address}.{contract_name}::{event_name}"`
     ///     (e.g., `ST0000000000000000000000000000000000000000.my-contract::my-custom-event`)
     ///   - Events delivered to: `/new_block`, `/new_microblocks`.
     ///   - Payload details: The "events" array in the delivered payloads will be
@@ -4395,7 +4399,7 @@ pub struct EventObserverConfigFile {
     ///
     /// - Asset Identifier for FT/NFT Events: Subscribes to events (mint, burn,
     ///   transfer) for a specific Fungible Token (FT) or Non-Fungible Token (NFT).
-    ///   - Format: `"{contract_address}.{contract_name}.{asset_name}"`
+    ///   - Format: `"{deployer_address}.{contract_name}.{asset_name}"`
     ///     (e.g., for an FT: `ST0000000000000000000000000000000000000000.contract.token`)
     ///   - Events delivered to: `/new_block`, `/new_microblocks`.
     ///   - Payload details: The "events" array in the delivered payloads will be

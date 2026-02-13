@@ -95,6 +95,7 @@ pub enum DefineFunctionsParsed<'a> {
     },
 }
 
+#[derive(Debug)]
 pub enum DefineResult {
     Variable(ClarityName, Value),
     Function(ClarityName, DefinedFunction),
@@ -137,13 +138,19 @@ fn handle_define_function(
     env: &mut Environment,
     define_type: DefineType,
 ) -> Result<DefineResult, VmExecutionError> {
-    let (function_symbol, arg_symbols) = signature
-        .split_first()
-        .ok_or(RuntimeCheckErrorKind::DefineFunctionBadSignature)?;
+    let (function_symbol, arg_symbols) =
+        signature
+            .split_first()
+            .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Define function bad signature".to_string(),
+            ))?;
 
-    let function_name = function_symbol
-        .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectedName)?;
+    let function_name =
+        function_symbol
+            .match_atom()
+            .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Expected name".to_string(),
+            ))?;
 
     check_legal_define(function_name, env.contract_context)?;
 
@@ -532,14 +539,15 @@ mod test {
             None,
         );
 
-        let result = handle_define_function(&bad_signature, &body, &mut env, DefineType::Public);
+        let err = handle_define_function(&bad_signature, &body, &mut env, DefineType::Public)
+            .unwrap_err();
 
-        assert!(matches!(
-            result,
-            Err(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::BadSyntaxBinding(_)
-            ))
-        ));
+        assert_eq!(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Bad syntax binding: NotList(Eval, 0)".to_string()
+            )),
+            err,
+        );
     }
 
     #[apply(test_clarity_versions)]
@@ -591,13 +599,13 @@ mod test {
             None,
         );
 
-        let result = handle_define_trait(&"bad-trait".into(), &trait_body, &mut env);
+        let err = handle_define_trait(&"bad-trait".into(), &trait_body, &mut env).unwrap_err();
 
-        assert!(matches!(
-            result,
-            Err(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::TooManyFunctionParameters(found, max)
-            ))
-        ));
+        assert_eq!(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Too many function params: found 257, allowed 256".to_string()
+            )),
+            err
+        );
     }
 }

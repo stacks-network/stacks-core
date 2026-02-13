@@ -61,6 +61,8 @@ macro_rules! switch_on_global_epoch {
                 StacksEpochId::Epoch32 => $Epoch205Version(args, env, context),
                 // Note: We reuse 2.05 for 3.3.
                 StacksEpochId::Epoch33 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 3.4.
+                StacksEpochId::Epoch34 => $Epoch205Version(args, env, context),
             }
         }
     };
@@ -627,7 +629,10 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value, VmExecuti
 fn native_begin(mut args: Vec<Value>) -> Result<Value, VmExecutionError> {
     match args.pop() {
         Some(v) => Ok(v),
-        None => Err(RuntimeCheckErrorKind::RequiresAtLeastArguments(1, 0).into()),
+        None => Err(RuntimeCheckErrorKind::ExpectsAcceptable(
+            "Requires at least args: 1 got 0".to_string(),
+        )
+        .into()),
     }
 }
 
@@ -768,7 +773,9 @@ fn special_let(
     // parse and eval the bindings.
     let bindings = args[0]
         .match_list()
-        .ok_or(RuntimeCheckErrorKind::BadLetSyntax)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+            "Bad let syntax".to_string(),
+        ))?;
 
     runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
 
@@ -848,7 +855,12 @@ fn special_contract_of(
 
     let contract_ref = match &args[0].expr {
         SymbolicExpressionType::Atom(contract_ref) => contract_ref,
-        _ => return Err(RuntimeCheckErrorKind::ContractOfExpectsTrait.into()),
+        _ => {
+            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Contract of expects trait".to_string(),
+            )
+            .into());
+        }
     };
 
     let contract_identifier = match context.lookup_callable_contract(contract_ref) {
@@ -864,7 +876,12 @@ fn special_contract_of(
 
             &trait_data.contract_identifier
         }
-        _ => return Err(RuntimeCheckErrorKind::ContractOfExpectsTrait.into()),
+        _ => {
+            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Contract of expects trait".to_string(),
+            )
+            .into());
+        }
     };
 
     let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
@@ -929,7 +946,9 @@ mod test {
         let err = special_contract_of(&[non_atom], &mut env, &context).unwrap_err();
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ContractOfExpectsTrait)
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Contract of expects trait".to_string()
+            ))
         );
     }
 
@@ -972,7 +991,9 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ContractOfExpectsTrait)
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Contract of expects trait".to_string()
+            ))
         );
     }
 
@@ -1012,10 +1033,12 @@ mod test {
 
         let err = special_let(&args, &mut env, &context).unwrap_err();
 
-        assert!(matches!(
-            err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::BadLetSyntax)
-        ));
+        assert_eq!(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Bad let syntax".to_string()
+            )),
+            err
+        );
     }
 
     #[apply(test_clarity_versions)]
@@ -1059,12 +1082,14 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::GetTenureInfoExpectPropertyName)
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Get tenure info expect property name".to_string()
+            ))
         );
     }
 
     /// If we bypass static analysis and pass a non-atom as the property name to `get-burn-block-info?`,
-    /// the runtime returns `GetBlockInfoExpectPropertyName`.
+    /// the runtime returns `ExpectsAcceptable`.
     #[apply(test_clarity_versions)]
     fn special_get_burn_block_info_expected_property_name(
         #[case] version: ClarityVersion,
@@ -1106,12 +1131,14 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::GetBlockInfoExpectPropertyName)
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Get block info expect property name".to_string()
+            ))
         );
     }
 
     /// If we bypass static analysis and pass a non-atom to `get-stacks-block-info?`,
-    /// the runtime returns `GetStacksBlockInfoExpectPropertyName`.
+    /// the runtime returns `ExpectsAcceptable`.
     #[apply(test_clarity_versions)]
     fn special_get_stacks_block_info_expect_property_name_non_atom(
         #[case] version: ClarityVersion,
@@ -1151,14 +1178,14 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::GetStacksBlockInfoExpectPropertyName
-            )
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Get stacks block info expect property name".to_string()
+            ))
         );
     }
 
     /// If we bypass static analysis and pass an atom for a non existing property to `get-stacks-block-info?`,
-    /// the runtime returns `NoSuchStacksBlockInfoProperty`.
+    /// the runtime returns `ExpectsAcceptable`.
     #[apply(test_clarity_versions)]
     fn special_get_stacks_block_info_no_such_property(
         #[case] version: ClarityVersion,
@@ -1199,14 +1226,14 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchStacksBlockInfoProperty(
-                "not-a-valid-stacks-prop".to_string()
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "No such stacks block info property: not-a-valid-stacks-prop".to_string()
             ))
         );
     }
 
     /// If we bypass static analysis and pass an atom for a non existing property to `get-burn-block-info?`,
-    /// the runtime returns `NoSuchBurnBlockInfoProperty`.
+    /// the runtime returns `ExpectsAcceptable`.
     #[apply(test_clarity_versions)]
     fn special_get_burn_block_info_no_such_property(
         #[case] version: ClarityVersion,
@@ -1248,8 +1275,8 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchBurnBlockInfoProperty(
-                "not-a-valid-burn-prop".to_string()
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "No such burn block info property: not-a-valid-burn-prop".to_string()
             ))
         );
     }

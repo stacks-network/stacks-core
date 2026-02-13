@@ -36,9 +36,10 @@ fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>, VmExecutionError> {
             }
         }
         _ => {
-            return Err(
-                RuntimeCheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(to_unwrap)).into(),
-            );
+            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                "Expected optional or response value: {to_unwrap}"
+            ))
+            .into());
         }
     };
 
@@ -54,7 +55,12 @@ fn inner_unwrap_err(to_unwrap: Value) -> Result<Option<Value>, VmExecutionError>
                 None
             }
         }
-        _ => return Err(RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(to_unwrap)).into()),
+        _ => {
+            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                "Expected response value: {to_unwrap}"
+            ))
+            .into());
+        }
     };
 
     Ok(result)
@@ -106,7 +112,10 @@ pub fn native_try_ret(input: Value) -> Result<Value, VmExecutionError> {
                 Err(EarlyReturnError::UnwrapFailed(Box::new(short_return_val)).into())
             }
         }
-        _ => Err(RuntimeCheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(input)).into()),
+        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected optional or response value: {input}"
+        ))
+        .into()),
     }
 }
 
@@ -154,17 +163,18 @@ fn special_match_opt(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if args.len() != 3 {
-        Err(RuntimeCheckErrorKind::BadMatchOptionSyntax(Box::new(
-            RuntimeCheckErrorKind::IncorrectArgumentCount(4, args.len() + 1),
+        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Bad match option syntax: args {} != 3",
+            args.len()
         )))?;
     }
 
     let bind_name = args[0]
         .match_atom()
         .ok_or_else(|| {
-            RuntimeCheckErrorKind::BadMatchOptionSyntax(Box::new(
-                RuntimeCheckErrorKind::ExpectedName,
-            ))
+            RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Bad match option syntax: expected name".to_string(),
+            )
         })?
         .clone();
     let some_branch = &args[1];
@@ -183,26 +193,27 @@ fn special_match_resp(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if args.len() != 4 {
-        Err(RuntimeCheckErrorKind::BadMatchResponseSyntax(Box::new(
-            RuntimeCheckErrorKind::IncorrectArgumentCount(5, args.len() + 1),
+        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Bad match response syntax: args {} != 4",
+            args.len()
         )))?;
     }
 
     let ok_bind_name = args[0]
         .match_atom()
         .ok_or_else(|| {
-            RuntimeCheckErrorKind::BadMatchResponseSyntax(Box::new(
-                RuntimeCheckErrorKind::ExpectedName,
-            ))
+            RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Bad match response syntax: expected name".to_string(),
+            )
         })?
         .clone();
     let ok_branch = &args[1];
     let err_bind_name = args[2]
         .match_atom()
         .ok_or_else(|| {
-            RuntimeCheckErrorKind::BadMatchResponseSyntax(Box::new(
-                RuntimeCheckErrorKind::ExpectedName,
-            ))
+            RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Bad match response syntax: expected name".to_string(),
+            )
         })?
         .clone();
     let err_branch = &args[3];
@@ -228,9 +239,11 @@ pub fn special_match(
     match input {
         Value::Response(data) => special_match_resp(data, &args[1..], env, context),
         Value::Optional(data) => special_match_opt(data, &args[1..], env, context),
-        _ => Err(
-            RuntimeCheckErrorKind::BadMatchInput(Box::new(TypeSignature::type_of(&input)?)).into(),
-        ),
+        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Bad match input: {}",
+            TypeSignature::type_of(&input)?
+        ))
+        .into()),
     }
 }
 
@@ -241,8 +254,8 @@ pub fn native_some(input: Value) -> Result<Value, VmExecutionError> {
 fn is_some(input: Value) -> Result<bool, RuntimeCheckErrorKind> {
     match input {
         Value::Optional(ref data) => Ok(data.data.is_some()),
-        _ => Err(RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(
-            input,
+        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected option value: {input}"
         ))),
     }
 }
@@ -250,8 +263,8 @@ fn is_some(input: Value) -> Result<bool, RuntimeCheckErrorKind> {
 fn is_okay(input: Value) -> Result<bool, RuntimeCheckErrorKind> {
     match input {
         Value::Response(data) => Ok(data.committed),
-        _ => Err(RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(
-            input,
+        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected response value: {input}"
         ))),
     }
 }
@@ -286,6 +299,9 @@ pub fn native_default_to(default: Value, input: Value) -> Result<Value, VmExecut
             Some(data) => Ok(*data),
             None => Ok(default),
         },
-        _ => Err(RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(input)).into()),
+        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected option value: {input}"
+        ))
+        .into()),
     }
 }

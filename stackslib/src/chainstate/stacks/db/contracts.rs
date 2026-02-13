@@ -50,7 +50,7 @@ impl StacksChainState {
                 match db.lookup_variable_unknown_descriptor(contract_id, data_var, &epoch) {
                     Ok(c) => Ok(Some(c)),
                     Err(VmExecutionError::RuntimeCheck(
-                        RuntimeCheckErrorKind::NoSuchDataVariable(_),
+                        RuntimeCheckErrorKind::ExpectsAcceptable(_),
                     )) => Ok(None),
                     Err(e) => Err(ClarityError::Interpreter(e)),
                 }

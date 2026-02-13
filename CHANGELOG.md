@@ -9,17 +9,46 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
-- In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
+- Setup for epoch 3.4 and Clarity version 5. Epoch 3.4 is currently set to activate at Bitcoin height 3,400,000 (very far in the future) until an activation height is selected. Clarity will activate with epoch 3.4.
+- Implemented the updated behavior for `secp256r1-verify`, effective in Clarity 5, in which the `message-hash` is no longer hashed again. See SIP-035 for details.
+- Increased allowed stack depth from 64 to 128, effective in epoch 3.4
+
+### Fixed
+
+- Improved the cost-tracking for `from-consensus-buff?`, effective in epoch 3.4, so that when an empty buffer is passed, users will see a `none` result, rather than a confusing runtime error.
+
+### Fixed
+
+- Resolved several cases where a mock-miner would stop mining
+
+## [3.3.0.0.5]
+
+### Added
+
+- New endpoint `/v3/blocks/simulate/{block_id}` allows to simulate the execution of a specific block with a brand new set of transactions
 - Improved block validation in `stacks-inspect`.
 
 ### Changed
 
 - Removed `validate-naka-block` option in `stacks-inspect`, merging it with `validate-block` so that users do not need to differentiate between the two.
 
+## [3.3.0.0.4]
+
+### Added
+
+- New `/v3/tenures/tip_metadata` endpoint for returning some metadata along with the normal tenure tip information.
+
+## [3.3.0.0.3]
+
+### Added
+
+- In the `/v3/transaction/{txid}` RPC endpoint, added `block_height` and `is_canonical` to the response.
+
 ### Fixed
 
 - When mining, do not try to extend (or initiate) a tenure that did not commit to the ongoing chain tip (see #6744)
 - When mock-mining, retry when hitting the `ParentNotFound` error. This can happen at the beginning of a new tenure, but should resolve with retries.
+- Updated the documentation for `secp256r1-verify` to match the implementation. The message hash passed to `secp256r1-verify` is SHA256 hashed again before verifying the signature.
 
 ## [3.3.0.0.2]
 

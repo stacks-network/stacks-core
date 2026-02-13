@@ -18,9 +18,7 @@ use clarity_types::errors::ClarityTypeError;
 use crate::vm::errors::{
     ClarityEvalError, EarlyReturnError, RuntimeCheckErrorKind, SyntaxBindingError, VmExecutionError,
 };
-use crate::vm::types::{
-    ListData, SequenceData, TupleData, TupleTypeSignature, TypeSignature, Value,
-};
+use crate::vm::types::{ListData, SequenceData, TupleData, Value};
 use crate::vm::{ClarityName, execute};
 
 fn assert_executes(expected: Result<Value, ClarityTypeError>, input: &str) {
@@ -478,7 +476,8 @@ fn datamap_errors() {
     for program in tests.iter() {
         assert_eq!(
             execute(program).unwrap_err(),
-            RuntimeCheckErrorKind::NoSuchMap("non-existent".to_string()).into()
+            RuntimeCheckErrorKind::ExpectsAcceptable("No such map: non-existent".to_string())
+                .into()
         );
     }
 }
@@ -654,12 +653,15 @@ fn bad_define_maps() {
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
     let expected: Vec<ClarityEvalError> = vec![
-        RuntimeCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0))
-            .into(),
-        RuntimeCheckErrorKind::UnknownTypeName("contents".to_string()).into(),
-        RuntimeCheckErrorKind::ExpectedName.into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Bad syntax binding: {}",
+            SyntaxBindingError::tuple_cons_invalid_length(0)
+        ))
+        .into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Unknown type name: contents".to_string()).into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Expected name".to_string()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(3, 4).into(),
-        RuntimeCheckErrorKind::InvalidTypeDescription.into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Invalid type description".to_string()).into(),
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
@@ -680,14 +682,11 @@ fn bad_tuples() {
     ];
     let expected = vec![
         RuntimeCheckErrorKind::NameAlreadyUsed("name".into()),
-        RuntimeCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(0)),
-        RuntimeCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(1)),
-        RuntimeCheckErrorKind::NoSuchTupleField(
-            "value".into(),
-            TupleTypeSignature::try_from(vec![("name".into(), TypeSignature::IntType)]).unwrap(),
-        ),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_not_list(0))),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_invalid_length(1))),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Unexpected error type during runtime analysis: NoSuchTupleField(\"value\", TupleTypeSignature { \"name\": int,})".to_string()),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3),
-        RuntimeCheckErrorKind::ExpectedName,
+        RuntimeCheckErrorKind::ExpectsAcceptable("Expected name".to_string()),
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.into_iter()) {

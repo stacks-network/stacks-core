@@ -401,8 +401,9 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         stacks_height_before + 2
     );
     // Next the miner will attempt to propose a block that does not contain the necessary replay tx and signers will reject it
-    let rejected_block = wait_for_block_proposal(30, stacks_height_before + 2, &stacks_miner_pk)
-        .expect("Timed out waiting for block proposal after fork");
+    let rejected_block =
+        wait_for_block_proposal_block(30, stacks_height_before + 2, &stacks_miner_pk)
+            .expect("Timed out waiting for block proposal after fork");
     assert!(rejected_block
         .txs
         .iter()
@@ -2038,7 +2039,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     fault_injection_unstall_miner();
     let tip = get_chain_info(&conf);
     _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
-    _ = wait_for_block_proposal(30, tip.stacks_tip_height + 2, &stacks_miner_pk);
+    _ = wait_for_block_proposal_block(30, tip.stacks_tip_height + 2, &stacks_miner_pk);
     fault_injection_stall_miner();
 
     // Signers still waiting for the Tx Replay set to be completed
@@ -2225,7 +2226,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     fault_injection_unstall_miner();
     let tip = get_chain_info(&conf);
     _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
-    _ = wait_for_block_proposal(30, tip.stacks_tip_height + 2, &stacks_miner_pk);
+    _ = wait_for_block_proposal_block(30, tip.stacks_tip_height + 2, &stacks_miner_pk);
     fault_injection_stall_miner();
 
     // Signers still waiting for the Tx Replay set to be completed

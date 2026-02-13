@@ -1801,8 +1801,8 @@ impl Relayer {
             match ast_res {
                 Ok(_) => {}
                 Err(parse_error) => match *parse_error.err {
-                    ParseErrorKind::ExpressionStackDepthTooDeep
-                    | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
+                    ParseErrorKind::ExpressionStackDepthTooDeep { .. }
+                    | ParseErrorKind::VaryExpressionStackDepthTooDeep { .. } => {
                         // don't include this block
                         info!("Transaction {} is problematic and will not be included, relayed, or built upon", &tx.txid());
                         return Err(Error::ClarityError(parse_error.into()));

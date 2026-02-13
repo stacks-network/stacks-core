@@ -7,6 +7,20 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+## [3.3.0.0.5.0]
+
+### Changed
+
+- Reduced default tenure-extend idle timer from 120 seconds to 60 seconds
+
+## [3.3.0.0.4.0]
+
+### Fixed
+
+- Correct calculation of burn-view change status using the new tip with metadata endpoint.
+
+## [3.3.0.0.3.0]
+
 ### Changed
 
 - Avoid sending duplicate block acceptance messages when additional pre-commits arrive

@@ -531,19 +531,32 @@ impl Signer {
                         return;
                     }
                     match message {
-                        SignerMessage::BlockResponse(block_response) => self.handle_block_response(
-                            stacks_client,
-                            block_response,
-                            sortition_state,
-                        ),
+                        SignerMessage::BlockResponse(block_response) => {
+                            #[cfg(any(test, feature = "testing"))]
+                            if self.test_ignore_all_block_responses(block_response) {
+                                continue;
+                            }
+                            self.handle_block_response(
+                                stacks_client,
+                                block_response,
+                                sortition_state,
+                            )
+                        }
                         SignerMessage::StateMachineUpdate(update) => self
                             .handle_state_machine_update(signer_public_key, update, received_time),
-                        SignerMessage::BlockPreCommit(signer_signature_hash) => self
-                            .handle_block_pre_commit(
+                        SignerMessage::BlockPreCommit(signer_signature_hash) => {
+                            #[cfg(any(test, feature = "testing"))]
+                            if self
+                                .test_ignore_all_pre_commits(&signer_address, signer_signature_hash)
+                            {
+                                continue;
+                            }
+                            self.handle_block_pre_commit(
                                 stacks_client,
                                 &signer_address,
                                 signer_signature_hash,
-                            ),
+                            )
+                        }
                         _ => {}
                     }
                 }
@@ -574,10 +587,6 @@ impl Signer {
                                 "block_height" => b.header.chain_length,
                                 "signer_signature_hash" => %b.header.signer_signature_hash(),
                             );
-                            #[cfg(any(test, feature = "testing"))]
-                            if self.test_skip_block_broadcast(b) {
-                                continue;
-                            }
                             self.handle_post_block(stacks_client, b);
                         }
                         SignerMessage::MockProposal(mock_proposal) => {
@@ -650,12 +659,23 @@ impl Signer {
                 signer_sighash,
                 transactions,
             } => {
+                #[cfg(any(test, feature = "testing"))]
+                if self.test_ignore_all_block_announcements(
+                    *block_height,
+                    block_id,
+                    consensus_hash,
+                    signer_sighash,
+                    transactions,
+                ) {
+                    return;
+                }
+
                 let Some(signer_sighash) = signer_sighash else {
                     debug!("{self}: received a new block event for a pre-nakamoto block, no processing necessary");
                     return;
                 };
                 self.recently_processed.add_block(block_id.clone());
-                debug!(
+                info!(
                     "{self}: Received a new block event.";
                     "block_id" => %block_id,
                     "signer_signature_hash" => %signer_sighash,
@@ -1034,14 +1054,6 @@ impl Signer {
             debug!("{self}: Received pre-commit for a block we have not seen before. Ignoring...");
             return;
         };
-        if block_info.has_reached_consensus() {
-            debug!(
-                "{self}: Received pre-commit for a block that is already marked as {}. Ignoring...",
-                block_info.state
-            );
-            return;
-        };
-
         if block_info.state == BlockState::LocallyAccepted
             || block_info.state == BlockState::LocallyRejected
         {
@@ -1082,8 +1094,15 @@ impl Signer {
             return;
         }
 
+        let Some(valid) = block_info.valid else {
+            // We cannot determine validity of the block yet. Do nothing further.
+            debug!(
+                "{self}: Enough pre-committed to block {block_hash}, but we do not know if the block is valid yet. Doing nothing."
+            );
+            return;
+        };
         // have enough commits, so maybe we should actually broadcast our signature...
-        if block_info.valid == Some(false) {
+        if !valid {
             // We already marked this block as invalid. We should not do anything further as we do not change our votes on rejected blocks.
             debug!(
                 "{self}: Enough pre-committed to block {block_hash}, but we do not view the block as valid. Doing nothing."
@@ -1723,6 +1742,7 @@ impl Signer {
                 return;
             }
         };
+        let signature_weight = self.signer_weights.get(&signer_address).unwrap_or(&0);
         let total_reject_weight =
             self.compute_signature_signing_weight(rejection_addrs.iter().map(|(addr, _)| addr));
         let total_weight = self.compute_signature_total_weight();
@@ -1736,6 +1756,7 @@ impl Signer {
             info!("{self}: Received block rejection";
                 "signer_pubkey" => public_key.to_hex(),
                 "signer_signature_hash" => %block_hash,
+                "signature_weight" => signature_weight,
                 "consensus_hash" => %block_info.block.header.consensus_hash,
                 "block_height" => block_info.block.header.chain_length,
                 "reject_reason" => ?rejection.response_data.reject_reason,
@@ -1748,6 +1769,7 @@ impl Signer {
         info!("{self}: Received block rejection and have reached the rejection threshold";
             "signer_pubkey" => public_key.to_hex(),
             "signer_signature_hash" => %block_hash,
+            "signature_weight" => signature_weight,
             "consensus_hash" => %block_info.block.header.consensus_hash,
             "block_height" => block_info.block.header.chain_length,
             "reject_reason" => ?rejection.response_data.reject_reason,
@@ -1872,7 +1894,8 @@ impl Signer {
             })
             .collect();
 
-        let signature_weight = self.compute_signature_signing_weight(addrs_to_sigs.keys());
+        let signature_weight = self.signer_weights.get(&signer_address).unwrap_or(&0);
+        let total_signature_weight = self.compute_signature_signing_weight(addrs_to_sigs.keys());
         let total_weight = self.compute_signature_total_weight();
 
         let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
@@ -1880,26 +1903,28 @@ impl Signer {
                 panic!("{self}: Failed to compute threshold weight for {total_weight}")
             });
 
-        if min_weight > signature_weight {
+        if min_weight > total_signature_weight {
             info!("{self}: Received block acceptance";
                 "signer_pubkey" => public_key.to_hex(),
                 "signer_signature_hash" => %block_hash,
+                "signature_weight" => signature_weight,
                 "consensus_hash" => %block_info.block.header.consensus_hash,
                 "block_height" => block_info.block.header.chain_length,
-                "total_weight_approved" => signature_weight,
+                "total_weight_approved" => total_signature_weight,
                 "total_weight" => total_weight,
-                "percent_approved" => (signature_weight as f64 / total_weight as f64 * 100.0),
+                "percent_approved" => (total_signature_weight as f64 / total_weight as f64 * 100.0),
             );
             return;
         }
         info!("{self}: Received block acceptance and have reached the threshold";
             "signer_pubkey" => public_key.to_hex(),
             "signer_signature_hash" => %block_hash,
+            "signature_weight" => signature_weight,
             "consensus_hash" => %block_info.block.header.consensus_hash,
             "block_height" => block_info.block.header.chain_length,
-            "total_weight_approved" => signature_weight,
+            "total_weight_approved" => total_signature_weight,
             "total_weight" => total_weight,
-            "percent_approved" => (signature_weight as f64 / total_weight as f64 * 100.0),
+            "percent_approved" => (total_signature_weight as f64 / total_weight as f64 * 100.0),
         );
 
         // have enough signatures to broadcast!
@@ -1946,16 +1971,15 @@ impl Signer {
 
         block.header.signer_signature_hash();
         block.header.signer_signature = signatures;
-
-        #[cfg(any(test, feature = "testing"))]
-        if self.test_skip_block_broadcast(&block) {
-            return;
-        }
         self.handle_post_block(stacks_client, &block);
     }
 
     /// Attempt to post a block to the stacks-node and handle the result
     pub fn handle_post_block(&mut self, stacks_client: &StacksClient, block: &NakamotoBlock) {
+        #[cfg(any(test, feature = "testing"))]
+        if self.test_skip_block_broadcast(block) {
+            return;
+        }
         let block_hash = block.header.signer_signature_hash();
         match stacks_client.post_block(block) {
             Ok(accepted) => {

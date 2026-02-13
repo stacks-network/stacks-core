@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 
+use clarity_types::ClarityName;
 use clarity_types::types::{AssetIdentifier, PrincipalData, StandardPrincipalData};
 
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
@@ -22,31 +23,37 @@ use crate::vm::contexts::AssetMap;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
 use crate::vm::errors::{
-    RuntimeCheckErrorKind, VmExecutionError, VmInternalError, check_arguments_at_least,
+    RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError,
+    check_arguments_at_least,
 };
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::Value;
 use crate::vm::{Environment, LocalContext, eval};
 
+#[derive(Debug)]
 pub struct StxAllowance {
     amount: u128,
 }
 
+#[derive(Debug)]
 pub struct FtAllowance {
     asset: AssetIdentifier,
     amount: u128,
 }
 
+#[derive(Debug)]
 pub struct NftAllowance {
     asset: AssetIdentifier,
     asset_ids: Vec<Value>,
 }
 
+#[derive(Debug)]
 pub struct StackingAllowance {
     amount: u128,
 }
 
+#[derive(Debug)]
 pub enum Allowance {
     Stx(StxAllowance),
     Ft(FtAllowance),
@@ -94,18 +101,27 @@ fn eval_allowance(
 ) -> Result<Allowance, VmExecutionError> {
     let list = allowance_expr
         .match_list()
-        .ok_or(RuntimeCheckErrorKind::NonFunctionApplication)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+            "Non functional application".to_string(),
+        ))?;
     let (name_expr, rest) = list
         .split_first()
-        .ok_or(RuntimeCheckErrorKind::NonFunctionApplication)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+            "Non functional application".to_string(),
+        ))?;
     let name = name_expr
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::BadFunctionName)?;
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+            "Bad function name".to_string(),
+        ))?;
     let Some(ref native_function) = NativeFunctions::lookup_by_name_at_version(
         name,
         env.contract_context.get_clarity_version(),
     ) else {
-        return Err(RuntimeCheckErrorKind::ExpectedAllowanceExpr(name.to_string()).into());
+        return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected allowance expr: {name}"
+        ))
+        .into());
     };
 
     match native_function {
@@ -142,9 +158,13 @@ fn eval_allowance(
             let asset_name = eval(&rest[1], env, context)?;
             let asset_name = asset_name
                 .expect_string_ascii()
-                .map_err(|_| VmInternalError::Expect("Expected ASCII String.".into()))?
-                .as_str()
-                .into();
+                .map_err(|_| VmInternalError::Expect("Expected ASCII String.".into()))?;
+            let asset_name = match ClarityName::try_from(asset_name) {
+                Ok(name) => name,
+                Err(_) => {
+                    return Err(RuntimeError::BadTokenName(rest[1].to_string()).into());
+                }
+            };
 
             let asset = AssetIdentifier {
                 contract_identifier,
@@ -181,9 +201,13 @@ fn eval_allowance(
             let asset_name = eval(&rest[1], env, context)?;
             let asset_name = asset_name
                 .expect_string_ascii()
-                .map_err(|_| VmInternalError::Expect("Expected ASCII String.".into()))?
-                .as_str()
-                .into();
+                .map_err(|_| VmInternalError::Expect("Expected ASCII String.".into()))?;
+            let asset_name = match ClarityName::try_from(asset_name) {
+                Ok(name) => name,
+                Err(_) => {
+                    return Err(RuntimeError::BadTokenName(rest[1].to_string()).into());
+                }
+            };
 
             let asset = AssetIdentifier {
                 contract_identifier,
@@ -213,7 +237,10 @@ fn eval_allowance(
             }
             Ok(Allowance::All)
         }
-        _ => Err(RuntimeCheckErrorKind::ExpectedAllowanceExpr(name.to_string()).into()),
+        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected allowance expr: {name}"
+        ))
+        .into()),
     }
 }
 
@@ -230,13 +257,11 @@ pub fn special_restrict_assets(
     check_arguments_at_least(3, args)?;
 
     let asset_owner_expr = &args[0];
-    let allowance_list =
-        args[1]
-            .match_list()
-            .ok_or(RuntimeCheckErrorKind::ExpectedListOfAllowances(
-                "restrict-assets?".into(),
-                2,
-            ))?;
+    let allowance_list = args[1]
+        .match_list()
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+            "Expected list of allowances: for restrict-assets? as argument 2".to_string(),
+        ))?;
     let body_exprs = &args[2..];
 
     let asset_owner = eval(asset_owner_expr, env, context)?;
@@ -244,19 +269,17 @@ pub fn special_restrict_assets(
         .expect_principal()
         .map_err(|_| VmInternalError::Expect("Expected principal".into()))?;
 
-    runtime_cost(
-        ClarityCostFunction::RestrictAssets,
-        env,
-        allowance_list.len(),
-    )?;
+    let allowance_len = allowance_list.len();
+    runtime_cost(ClarityCostFunction::RestrictAssets, env, allowance_len)?;
 
-    if allowance_list.len() > MAX_ALLOWANCES {
-        return Err(
-            RuntimeCheckErrorKind::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into(),
-        );
+    if allowance_len > MAX_ALLOWANCES {
+        return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Too many allowances: got {allowance_len}, allowed {MAX_ALLOWANCES}"
+        ))
+        .into());
     }
 
-    let mut allowances = Vec::with_capacity(allowance_list.len());
+    let mut allowances = Vec::with_capacity(allowance_len);
     for allowance in allowance_list {
         allowances.push(eval_allowance(allowance, env, context)?);
     }
@@ -323,13 +346,11 @@ pub fn special_as_contract(
     // arg2..n => body
     check_arguments_at_least(2, args)?;
 
-    let allowance_list =
-        args[0]
-            .match_list()
-            .ok_or(RuntimeCheckErrorKind::ExpectedListOfAllowances(
-                "as-contract?".into(),
-                1,
-            ))?;
+    let allowance_list = args[0]
+        .match_list()
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+            "Expected list of allowances: for as-contract? as argument 1".to_string(),
+        ))?;
     let body_exprs = &args[1..];
 
     runtime_cost(
@@ -467,7 +488,8 @@ fn check_allowances(
     }
 
     // Check STX movements
-    if let Some(stx_moved) = assets.get_stx(owner) {
+    let amount_moved = assets.get_stx(owner);
+    if let Some(stx_moved) = amount_moved {
         if stx_allowances.is_empty() {
             // If there are no allowances for STX, any movement is a violation
             record_violation(MAX_ALLOWANCES as u128);
@@ -482,7 +504,8 @@ fn check_allowances(
     }
 
     // Check STX burns
-    if let Some(stx_burned) = assets.get_stx_burned(owner) {
+    let amount_burned = assets.get_stx_burned(owner);
+    if let Some(stx_burned) = amount_burned {
         if stx_allowances.is_empty() {
             // If there are no allowances for STX, any burn is a violation
             record_violation(MAX_ALLOWANCES as u128);
@@ -571,6 +594,26 @@ fn check_allowances(
         }
     }
 
+    if earliest_violation.is_none() {
+        // Check combined STX burns and movements. If the total exceeds any allowance,
+        // emit an error that makes this transaction invalid.
+        let total_stx_change = amount_moved
+            .unwrap_or(0)
+            .checked_add(amount_burned.unwrap_or(0))
+            .ok_or(VmInternalError::Expect(
+                "STX movement and burn overflowed u128".into(),
+            ))?;
+        if total_stx_change > 0 {
+            for (_, allowance) in &stx_allowances {
+                if total_stx_change > *allowance {
+                    return Err(VmExecutionError::Internal(VmInternalError::Expect(
+                        "Total STX movement and burn exceeds allowance".into(),
+                    )));
+                }
+            }
+        }
+    }
+
     Ok(earliest_violation)
 }
 
@@ -583,7 +626,7 @@ pub fn special_allowance(
     _env: &mut Environment,
     _context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    Err(RuntimeCheckErrorKind::AllowanceExprNotAllowed.into())
+    Err(RuntimeCheckErrorKind::ExpectsAcceptable("Allowance expr not allowed".to_string()).into())
 }
 
 #[cfg(test)]
@@ -631,13 +674,13 @@ mod test {
             None,
         );
 
-        let result = eval_allowance(&allowance_expr, &mut env, &context);
+        let err = eval_allowance(&allowance_expr, &mut env, &context).unwrap_err();
 
-        assert!(matches!(
-            result,
-            Err(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::NonFunctionApplication
-            ))
-        ));
+        assert_eq!(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Non functional application".to_string()
+            )),
+            err
+        );
     }
 }

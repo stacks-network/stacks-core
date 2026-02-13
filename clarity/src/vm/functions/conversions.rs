@@ -332,11 +332,16 @@ pub fn from_consensus_buff(
         ))
     }?;
 
-    runtime_cost(
-        ClarityCostFunction::FromConsensusBuff,
-        env,
-        input_bytes.len(),
-    )?;
+    let input = if env
+        .contract_context
+        .get_clarity_version()
+        .protects_logn_cost_fn()
+    {
+        input_bytes.len().max(1)
+    } else {
+        input_bytes.len()
+    };
+    runtime_cost(ClarityCostFunction::FromConsensusBuff, env, input)?;
 
     // Perform the deserialization and check that it deserialized to the expected
     // type. A type mismatch at this point is an error that should be surfaced in
