@@ -4863,3 +4863,242 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
     info!("------------------------- Shutdown -------------------------");
     miners.shutdown();
 }
+
+#[test]
+#[ignore]
+fn btc_fork_on_midtenure_accept() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), (send_amt + send_fee) * 100)],
+        |_| {},
+        |node_config| {
+            node_config.miner.block_commit_delay = Duration::from_secs(1);
+            let epochs = node_config.burnchain.epochs.as_mut().unwrap();
+            epochs[StacksEpochId::Epoch30].end_height = 3_015;
+            epochs[StacksEpochId::Epoch31].start_height = 3_015;
+            epochs[StacksEpochId::Epoch31].end_height = 3_055;
+            epochs[StacksEpochId::Epoch32].start_height = 3_055;
+            epochs[StacksEpochId::Epoch32].end_height = 3_065;
+            epochs[StacksEpochId::Epoch33].start_height = 3_065;
+            epochs[StacksEpochId::Epoch33].end_height = 3_075;
+            epochs[StacksEpochId::Epoch34].start_height = 3_075;
+        },
+        None,
+        None,
+    );
+
+    // signers shouldn't broadcast blocks, because we want to trigger a
+    //  scenario where the miner doesn't process a block until after processing
+    //  a new bitcoin block.
+    TEST_SKIP_BLOCK_BROADCAST.set(true);
+
+    let conf = signer_test.running_nodes.conf.clone();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let miner_address = Keychain::default(conf.node.seed.clone())
+        .origin_address(conf.is_mainnet())
+        .unwrap();
+    let miner_pk = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_mining_pubkey()
+        .as_deref()
+        .map(Secp256k1PublicKey::from_hex)
+        .unwrap()
+        .unwrap();
+
+    let sortdb = SortitionDB::open(
+        &conf.get_burn_db_file_path(),
+        false,
+        conf.get_burnchain().pox_constants,
+    )
+    .unwrap();
+
+    let get_unconfirmed_commit_data = |btc_controller: &BitcoinRegtestController| {
+        let unconfirmed_utxo = btc_controller
+            .get_all_utxos(&miner_pk)
+            .into_iter()
+            .find(|utxo| utxo.confirmations == 0)?;
+        let unconfirmed_txid = Txid::from_bitcoin_tx_hash(&unconfirmed_utxo.txid);
+        let unconfirmed_tx = btc_controller.get_raw_transaction(&unconfirmed_txid);
+        let unconfirmed_tx_opreturn_bytes = unconfirmed_tx.output[0].script_pubkey.as_bytes();
+        info!(
+            "Unconfirmed tx bytes: {}",
+            stacks::util::hash::to_hex(unconfirmed_tx_opreturn_bytes)
+        );
+        let data = LeaderBlockCommitOp::parse_data(
+            &unconfirmed_tx_opreturn_bytes[unconfirmed_tx_opreturn_bytes.len() - 77..],
+        )
+        .unwrap();
+        Some(data)
+    };
+
+    signer_test.boot_to_epoch_3();
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+    let pre_epoch_3_nonce = get_account(&http_origin, &miner_address).nonce;
+    let pre_fork_tenures = 9;
+
+    for i in 0..pre_fork_tenures {
+        info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+        signer_test.check_signer_states_normal();
+    }
+
+    // stall block broadcast, so that we can force a bitcoin block to be processed
+    //  by the stacks node _before_ the block is accepted by the chainstate
+    TEST_P2P_BROADCAST_STALL.set(true);
+    info!("Stalling miner block broadcast and submitting a transfer tx");
+    let (_, sender_nonce) = signer_test
+        .submit_transfer_tx(&sender_sk, send_fee, send_amt)
+        .unwrap();
+
+    let (_, stalled_stacks_tip_hash, stalled_stacks_tip_height) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn()).unwrap();
+
+    info!("Mining an intermediate bitcoin block");
+    signer_test.mine_bitcoin_block();
+    wait_for(60, || {
+        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .unwrap()
+            .block_height;
+        let info_tip = signer_test.get_peer_info().burn_block_height;
+        Ok(sort_tip == info_tip)
+    })
+    .unwrap();
+    TEST_P2P_BROADCAST_STALL.set(false);
+
+    info!("Unstalling block broadcast and waiting for block to process");
+    let pre_fork_0_nonce = get_account(&http_origin, &miner_address).nonce;
+
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &sender_addr).nonce > sender_nonce)
+    })
+    .unwrap();
+
+    info!("Wait for next block to be mined by stacks miner");
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &miner_address).nonce > pre_fork_0_nonce)
+    })
+    .unwrap();
+
+    let pre_fork_1_nonce = get_account(&http_origin, &miner_address).nonce;
+
+    assert_eq!(
+        pre_fork_1_nonce,
+        pre_epoch_3_nonce + 2 * (pre_fork_tenures + 1)
+    );
+
+    let (_, _, pre_fork_stacks_tip_height) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn()).unwrap();
+
+    assert_eq!(pre_fork_stacks_tip_height - 2, stalled_stacks_tip_height);
+
+    info!("------------------------- Triggering Bitcoin Fork -------------------------");
+
+    let burn_block_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
+    let burn_header_hash_to_fork = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_block_hash(burn_block_height);
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .invalidate_block(&burn_header_hash_to_fork);
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(1);
+
+    // note, we should still have normal signer states!
+    signer_test.check_signer_states_normal();
+
+    info!("Wait for block off of shallow fork");
+
+    fault_injection_stall_miner();
+
+    let submitted_commits = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
+
+    // we need to mine some blocks to get back to being considered a frequent miner
+    for i in 0..3 {
+        let current_burn_height = get_chain_info(&signer_test.running_nodes.conf).burn_block_height;
+        info!(
+            "Mining block #{i} to be considered a frequent miner";
+            "current_burn_height" => current_burn_height,
+        );
+        let commits_count = submitted_commits.load(Ordering::SeqCst);
+        next_block_and_controller(
+            &signer_test.running_nodes.btc_regtest_controller,
+            60,
+            |btc_controller| {
+                let commits_submitted = submitted_commits
+                    .load(Ordering::SeqCst);
+                if commits_submitted <= commits_count {
+                    // wait until a commit was submitted
+                    return Ok(false)
+                }
+                let Some(payload) = get_unconfirmed_commit_data(btc_controller) else {
+                    warn!("Commit submitted, but bitcoin doesn't see it in the unconfirmed UTXO set, will try to wait.");
+                    return Ok(false)
+                };
+                let burn_parent_modulus = payload.burn_parent_modulus;
+                let current_modulus = u8::try_from((current_burn_height + 1) % 5).unwrap();
+                info!(
+                    "Ongoing Commit Operation check";
+                    "burn_parent_modulus" => burn_parent_modulus,
+                    "current_modulus" => current_modulus,
+                    "payload" => ?payload,
+                );
+                Ok(burn_parent_modulus == current_modulus)
+            },
+        )
+        .unwrap();
+        signer_test.check_signer_states_normal_missed_sortition();
+    }
+
+    let post_fork_1_nonce = get_account(&http_origin, &miner_address).nonce;
+
+    // We should have forked 1 block (-2 nonces)
+    assert_eq!(post_fork_1_nonce, pre_fork_1_nonce - 2);
+
+    // we should have borked the SortitionDB's memoized stacks tip
+    //  it now reverts to the first block mined in the last
+    //  common ancestor's tenure (which wasn't the last block of that tenure)
+    let (_, post_fork_stacks_tip_hash, post_fork_stacks_tip_height) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn()).unwrap();
+
+    assert_eq!(post_fork_stacks_tip_height, stalled_stacks_tip_height);
+    assert_eq!(post_fork_stacks_tip_hash, stalled_stacks_tip_hash);
+
+    fault_injection_unstall_miner();
+    for i in 0..5 {
+        info!("Mining post-fork tenure {} of 5", i + 1);
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+        if i == 0 {
+            signer_test.check_signer_states_reorg(&signer_test.signer_test_pks(), &[]);
+        } else {
+            signer_test.check_signer_states_normal();
+        }
+    }
+
+    let pre_fork_2_nonce = get_account(&http_origin, &miner_address).nonce;
+    assert_eq!(pre_fork_2_nonce, post_fork_1_nonce + 2 * 5);
+
+    info!(
+        "New chain info: {:?}",
+        get_chain_info(&signer_test.running_nodes.conf)
+    );
+
+    signer_test.shutdown();
+}

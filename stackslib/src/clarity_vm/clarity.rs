@@ -2585,7 +2585,7 @@ mod tests {
                     )
                     .unwrap_err()
                 )
-                .contains("ContractAlreadyExists"));
+                .contains("Contract already exists"));
 
                 tx.commit().unwrap();
             }

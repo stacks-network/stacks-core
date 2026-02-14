@@ -1769,46 +1769,48 @@ impl Relayer {
         tx: &StacksTransaction,
     ) -> Result<(), Error> {
         debug!("Check {} to see if it is problematic", &tx.txid(),);
-        if let TransactionPayload::SmartContract(ref smart_contract, ref clarity_version_opt) =
-            tx.payload
-        {
-            let clarity_version =
-                clarity_version_opt.unwrap_or(ClarityVersion::default_for_epoch(epoch_id));
+        if epoch_id.rejects_parse_depth_errors() {
+            if let TransactionPayload::SmartContract(ref smart_contract, ref clarity_version_opt) =
+                tx.payload
+            {
+                let clarity_version =
+                    clarity_version_opt.unwrap_or(ClarityVersion::default_for_epoch(epoch_id));
 
-            let origin = tx.get_origin();
-            let issuer_principal = {
-                let addr = if mainnet {
-                    origin.address_mainnet()
-                } else {
-                    origin.address_testnet()
+                let origin = tx.get_origin();
+                let issuer_principal = {
+                    let addr = if mainnet {
+                        origin.address_mainnet()
+                    } else {
+                        origin.address_testnet()
+                    };
+                    addr.to_account_principal()
                 };
-                addr.to_account_principal()
-            };
-            let issuer_principal = if let PrincipalData::Standard(data) = issuer_principal {
-                data
-            } else {
-                // not possible
-                panic!("Transaction had a contract principal origin");
-            };
+                let issuer_principal = if let PrincipalData::Standard(data) = issuer_principal {
+                    data
+                } else {
+                    // not possible
+                    panic!("Transaction had a contract principal origin");
+                };
 
-            let contract_id =
-                QualifiedContractIdentifier::new(issuer_principal, smart_contract.name.clone());
-            let contract_code_str = smart_contract.code_body.to_string();
+                let contract_id =
+                    QualifiedContractIdentifier::new(issuer_principal, smart_contract.name.clone());
+                let contract_code_str = smart_contract.code_body.to_string();
 
-            // make sure that the AST isn't unreasonably big
-            let ast_res =
-                ast_check_size(&contract_id, &contract_code_str, clarity_version, epoch_id);
-            match ast_res {
-                Ok(_) => {}
-                Err(parse_error) => match *parse_error.err {
-                    ParseErrorKind::ExpressionStackDepthTooDeep
-                    | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
-                        // don't include this block
-                        info!("Transaction {} is problematic and will not be included, relayed, or built upon", &tx.txid());
-                        return Err(Error::ClarityError(parse_error.into()));
-                    }
-                    _ => {}
-                },
+                // make sure that the AST isn't unreasonably big
+                let ast_res =
+                    ast_check_size(&contract_id, &contract_code_str, clarity_version, epoch_id);
+                match ast_res {
+                    Ok(_) => {}
+                    Err(parse_error) => match *parse_error.err {
+                        ParseErrorKind::ExpressionStackDepthTooDeep { .. }
+                        | ParseErrorKind::VaryExpressionStackDepthTooDeep { .. } => {
+                            // don't include this block
+                            info!("Transaction {} is problematic and will not be included, relayed, or built upon", &tx.txid());
+                            return Err(Error::ClarityError(parse_error.into()));
+                        }
+                        _ => {}
+                    },
+                }
             }
         }
         Ok(())

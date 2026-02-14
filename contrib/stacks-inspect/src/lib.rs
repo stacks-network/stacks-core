@@ -678,9 +678,7 @@ fn replay_staging_block(
     let sort_tx = sortdb.tx_begin_at_tip();
 
     let blocks_path = chainstate.blocks_path.clone();
-    let (chainstate_tx, clarity_instance) = chainstate
-        .chainstate_tx_begin()
-        .map_err(|e| format!("{e:?}"))?;
+    let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
     let mut next_staging_block =
         StacksChainState::load_staging_block_info(&chainstate_tx.tx, block_id)
             .map_err(|e| format!("Failed to load staging block info: {e:?}"))?
@@ -750,9 +748,7 @@ fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Opt
     .unwrap();
     let sort_tx = sortdb.tx_begin_at_tip();
 
-    let (chainstate_tx, clarity_instance) = chainstate
-        .chainstate_tx_begin()
-        .expect("Failed to start chainstate tx");
+    let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
 
     let block_consensus_hash = &block.consensus_hash;
     let block_hash = block.anchored_block.block_hash();
@@ -1075,7 +1071,7 @@ fn replay_block_nakamoto(
             );
             ChainstateError::NoSuchBlockError
         })?;
-    let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
+    let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin();
 
     // find parent header
     let Some(parent_header_info) =

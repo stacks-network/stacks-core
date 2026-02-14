@@ -311,7 +311,7 @@ fn test_from_consensus_buff_type_checks() {
         ),
         (
             "(from-consensus-buff? 2 0x10)",
-            "RuntimeCheck(InvalidTypeDescription)",
+            "RuntimeCheck(ExpectsAcceptable(\"Invalid type description\"))",
         ),
     ];
 
@@ -1248,20 +1248,48 @@ fn test_options_errors() {
 
     let expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected response value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected response value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3).into(),
-        RuntimeCheckErrorKind::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
-        RuntimeCheckErrorKind::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
-        RuntimeCheckErrorKind::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected option value: {}",
+            Value::Bool(true)
+        ))
+        .into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected tuple: {}",
+            TypeSignature::IntType
+        ))
+        .into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected tuple: {}",
+            TypeSignature::IntType
+        ))
+        .into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1286,15 +1314,15 @@ fn test_stx_ops_errors() {
 
     let expectations: &[ClarityEvalError] = &[
         RuntimeCheckErrorKind::IncorrectArgumentCount(3, 2).into(),
-        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
-        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
-        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(4, 3).into(),
-        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
-        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
-        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into(),
-        RuntimeCheckErrorKind::BadTransferSTXArguments.into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1465,8 +1493,9 @@ fn test_option_destructs() {
     let expectations: &[Result<Value, ClarityEvalError>] = &[
         Ok(Value::Int(1)),
         Ok(Value::Int(1)),
-        Err(RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(
-            Value::some(Value::Int(2)).unwrap(),
+        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected response value: {}",
+            Value::some(Value::Int(2)).unwrap()
         ))
         .into()),
         Ok(Value::Int(3)),
@@ -1484,8 +1513,16 @@ fn test_option_destructs() {
         Ok(Value::Int(9)),
         Ok(Value::Int(2)),
         Ok(Value::Int(8)),
-        Err(RuntimeCheckErrorKind::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
-        Err(RuntimeCheckErrorKind::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
+        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Bad match input: {}",
+            TypeSignature::IntType
+        ))
+        .into()),
+        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Bad match input: {}",
+            TypeSignature::IntType
+        ))
+        .into()),
         Err(
             VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(
                 Value::error(Value::UInt(1)).unwrap(),
@@ -1499,7 +1536,11 @@ fn test_option_destructs() {
         ),
         Ok(Value::Bool(true)),
         Err(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 2).into()),
-        Err(RuntimeCheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(Value::Int(1))).into()),
+        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected optional or response value: {}",
+            Value::Int(1)
+        ))
+        .into()),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1627,7 +1668,8 @@ fn test_bad_lets() {
         RuntimeCheckErrorKind::NameAlreadyUsed("tx-sender".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("*".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("a".to_string()).into(),
-        RuntimeCheckErrorKind::NoSuchDataVariable("cursor".to_string()).into(),
+        RuntimeCheckErrorKind::ExpectsAcceptable("No such data variable: cursor".to_string())
+            .into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("true".to_string()).into(),
         RuntimeCheckErrorKind::NameAlreadyUsed("false".to_string()).into(),
     ];

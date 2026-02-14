@@ -1967,9 +1967,7 @@ impl StacksChainState {
 
     /// Simultaneously begin a transaction against both the headers and blocks.
     /// Used when considering a new block to append the chain state.
-    pub fn chainstate_tx_begin(
-        &mut self,
-    ) -> Result<(ChainstateTx<'_>, &mut ClarityInstance), Error> {
+    pub fn chainstate_tx_begin(&mut self) -> (ChainstateTx<'_>, &mut ClarityInstance) {
         let config = self.config();
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;
@@ -1978,7 +1976,7 @@ impl StacksChainState {
         let chainstate_tx =
             ChainstateTx::new(inner_tx, blocks_path, self.root_path.clone(), config);
 
-        Ok((chainstate_tx, clarity_instance))
+        (chainstate_tx, clarity_instance)
     }
 
     // NOTE: used for testing in the stacks testnet code.

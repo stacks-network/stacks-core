@@ -16,10 +16,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
+use clarity::vm::ClarityVersion;
 use rand::{thread_rng, Rng};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
@@ -2616,12 +2616,12 @@ struct DeepTransactions {
     pub tx_exceeds: StacksTransaction,
 }
 
-fn setup_deep_txs() -> DeepTransactions {
+fn setup_deep_txs(epoch_id: StacksEpochId) -> DeepTransactions {
     let spender_sk_1 = StacksPrivateKey::random();
     let spender_sk_2 = StacksPrivateKey::random();
     let spender_sk_3 = StacksPrivateKey::random();
 
-    let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
+    let edge_repeat_factor = StackDepthLimits::for_epoch(epoch_id).max_nesting_depth() - 1;
     let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
     let tx_edge_body_end = "} ".repeat(edge_repeat_factor as usize);
     let tx_edge_body = format!("{tx_edge_body_start}u1 {tx_edge_body_end}");
@@ -2676,7 +2676,7 @@ fn static_problematic_txs_pre_epoch21(#[case] epoch_id: StacksEpochId) {
         tx_high,
         tx_edge,
         tx_exceeds,
-    } = setup_deep_txs();
+    } = setup_deep_txs(epoch_id);
     assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_edge).is_ok());
     assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_exceeds).is_err());
     assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_high).is_err());
@@ -2698,10 +2698,21 @@ fn static_problematic_txs_post_epoch21(#[case] epoch_id: StacksEpochId) {
         tx_high,
         tx_edge,
         tx_exceeds,
-    } = setup_deep_txs();
-    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_edge).is_err());
-    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_exceeds).is_err());
-    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_high).is_err());
+    } = setup_deep_txs(epoch_id);
+    let should_reject = epoch_id.rejects_parse_depth_errors();
+
+    for (tx_name, tx) in [
+        ("tx_edge", &tx_edge),
+        ("tx_exceeds", &tx_exceeds),
+        ("tx_high", &tx_high),
+    ] {
+        let is_rejected =
+            Relayer::static_check_problematic_relayed_tx(false, epoch_id, tx).is_err();
+        assert_eq!(
+            is_rejected, should_reject,
+            "unexpected static check result for {tx_name} in epoch {epoch_id:?}"
+        );
+    }
 }
 
 #[test]
@@ -2755,7 +2766,7 @@ fn process_new_blocks_rejects_problematic_asts() {
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-    let DeepTransactions { tx_high, .. } = setup_deep_txs();
+    let DeepTransactions { tx_high, .. } = setup_deep_txs(StacksEpochId::Epoch2_05);
     let tx_high_txid = tx_high.txid();
     let tx_high_len = {
         let mut bytes = vec![];

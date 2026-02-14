@@ -831,7 +831,7 @@ impl ConsensusChain<'_> {
             .unwrap()
             .unwrap();
 
-        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
         let burndb_conn = sortdb.index_handle_at_tip();
 
         let mut clarity_tx = StacksChainState::chainstate_block_begin(

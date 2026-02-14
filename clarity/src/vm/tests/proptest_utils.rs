@@ -105,6 +105,23 @@ pub fn execute_versioned(
     )
 }
 
+pub fn execute_with_epoch(
+    snippet: &str,
+    epoch: StacksEpochId,
+) -> Result<Option<Value>, ClarityEvalError> {
+    let sender = StandardPrincipalData::transient();
+    let sender_for_init = sender.clone();
+    execute_with_parameters_and_call_in_global_context(
+        snippet,
+        ClarityVersion::latest(),
+        epoch,
+        false,
+        sender,
+        move |g| initialize_balances(g, &sender_for_init),
+        |_| Ok(()),
+    )
+}
+
 /// Execute a Clarity code snippet in a fresh global context with default
 /// parameters, setting up initial balances, returning the resulting value
 /// along with the final asset map.

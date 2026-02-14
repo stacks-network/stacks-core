@@ -47,7 +47,7 @@ pub struct TypingContext<'a> {
     pub variable_types: HashMap<ClarityName, TypeSignature>,
     pub traits_references: HashMap<ClarityName, TraitIdentifier>,
     pub parent: Option<&'a TypingContext<'a>>,
-    pub depth: u16,
+    pub depth: u64,
 }
 
 impl TypeMap {
