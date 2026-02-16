@@ -673,6 +673,10 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch30
     }
 
+    pub fn clarity_always_uses_tip_burn_block_even_in_at_block(&self) -> bool {
+        self >= &StacksEpochId::Epoch30 && self < &StacksEpochId::Epoch34
+    }
+
     /// Does this epoch use the nakamoto reward set, or the epoch2 reward set?
     /// We use the epoch2 reward set in all pre-3.0 epochs.
     /// We also use the epoch2 reward set in the first 3.0 reward cycle.

@@ -228,6 +228,10 @@ impl HeadersDB for HeadersDBConn<'_> {
         })
     }
 
+    fn get_burn_view_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        get_burn_view_for_block_given_connection(self.0.conn(), id_bhh)
+    }
+
     fn get_stacks_height_for_tenure_height(
         &self,
         tip: &StacksBlockId,
@@ -397,6 +401,10 @@ impl HeadersDB for ChainstateTx<'_> {
                 .try_into()
                 .expect("FATAL: blockchain too long")
         })
+    }
+
+    fn get_burn_view_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        get_burn_view_for_block_given_connection(self.deref(), id_bhh)
     }
 
     fn get_vrf_seed_for_block(
@@ -573,6 +581,10 @@ impl HeadersDB for MARF<StacksBlockId> {
         })
     }
 
+    fn get_burn_view_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        get_burn_view_for_block_given_connection(self.sqlite_conn(), id_bhh)
+    }
+
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -665,6 +677,21 @@ impl HeadersDB for MARF<StacksBlockId> {
     }
 }
 
+fn get_burn_view_for_block_given_connection(
+    conn: &DBConn,
+    id_bhh: &StacksBlockId,
+) -> Option<ConsensusHash> {
+    // pre-nakamoto there is no burn_view column, as the block's burn view was always the burn chain tip
+    let burn_view = get_stacks_header_column_with_conditional_name(
+        conn,
+        id_bhh,
+        "burn_view",
+        "consensus_hash",
+        |r| String::from_row(r).expect("FATAL: incorrect burn_view type"),
+    )?;
+    Some(ConsensusHash::from_hex(&burn_view).expect("FATAL: malformed burn_view"))
+}
+
 /// Select a specific column from the headers table, specifying whether to use
 /// the original block headers table or the Nakamoto block headers table.
 pub fn get_stacks_header_column_from_table<F, R>(
@@ -707,9 +734,32 @@ fn get_stacks_header_column<F, R>(
 where
     F: Fn(&Row) -> R,
 {
-    match get_stacks_header_column_from_table(conn, id_bhh, column_name, &loader, false) {
+    get_stacks_header_column_with_conditional_name(conn, id_bhh, column_name, column_name, loader)
+}
+
+/// Select a value from one of the headers tables, using a different column name for
+/// the original block headers table or the Nakamoto block headers table.
+fn get_stacks_header_column_with_conditional_name<F, R>(
+    conn: &DBConn,
+    id_bhh: &StacksBlockId,
+    nakamoto_column_name: &str,
+    pre_nakamoto_column_name: &str,
+    loader: F,
+) -> Option<R>
+where
+    F: Fn(&Row) -> R,
+{
+    match get_stacks_header_column_from_table(
+        conn,
+        id_bhh,
+        pre_nakamoto_column_name,
+        &loader,
+        false,
+    ) {
         Some(x) => Some(x),
-        None => get_stacks_header_column_from_table(conn, id_bhh, column_name, &loader, true),
+        None => {
+            get_stacks_header_column_from_table(conn, id_bhh, nakamoto_column_name, &loader, true)
+        }
     }
 }
 

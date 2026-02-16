@@ -242,6 +242,23 @@ lazy_static! {
     ];
 }
 
+/// Modifies the configuration so that each 3.0+ epoch before the latest
+/// only lasts for a single bitcoin block.
+fn speed_run_nakamoto_epochs_to_latest(config: &mut Config) {
+    let mut prev_end: u64 = 0;
+    for e in config.burnchain.epochs.as_mut().unwrap().iter_mut() {
+        if e.epoch_id < StacksEpochId::Epoch30 {
+            prev_end = e.end_height;
+            continue;
+        }
+        e.start_height = prev_end;
+        if e.end_height < STACKS_EPOCH_MAX {
+            e.end_height = prev_end + 1;
+        }
+        prev_end = prev_end + 1;
+    }
+}
+
 pub static TEST_SIGNING: Mutex<Option<TestSigningChannel>> = Mutex::new(None);
 
 pub struct TestSigningChannel {
@@ -6370,6 +6387,8 @@ fn nakamoto_attempt_time() {
 /// - `burn-block-height` in epoch 3.x is the burn block of the Stacks block
 /// - `get-burn-block-info` is able to access info of the current burn block
 ///   in epoch 3.x
+///
+/// TODO: Update description
 fn clarity_burn_state() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -6377,12 +6396,18 @@ fn clarity_burn_state() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    speed_run_nakamoto_epochs_to_latest(&mut naka_conf);
+
+    naka_conf.miner.block_commit_delay = Duration::from_secs(0);
+
+    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
+
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let tenure_count = 5;
-    let min_inter_blocks_per_tenure = 9;
+    let tenure_count = 9;
+    let min_inter_blocks_per_tenure = 6;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
@@ -6390,7 +6415,9 @@ fn clarity_burn_state() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        deploy_fee + tx_fee * tenure_count + tx_fee * tenure_count * min_inter_blocks_per_tenure,
+        deploy_fee * 2
+            + tx_fee * tenure_count
+            + tx_fee * tenure_count * min_inter_blocks_per_tenure,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -6446,17 +6473,40 @@ fn clarity_burn_state() {
     // This version uses the Clarity 1 / 2 keywords
     let contract_name = "test-contract";
     let contract = r#"
-         (define-read-only (foo (expected-height uint))
+         (define-read-only (assert-height-readonly (expected-height uint))
              (begin
                  (asserts! (is-eq expected-height burn-block-height) (err burn-block-height))
                  (asserts! (is-some (get-burn-block-info? header-hash burn-block-height)) (err u0))
                  (ok true)
              )
          )
-         (define-public (bar (expected-height uint))
-             (foo expected-height)
+         (define-public (assert-height (expected-height uint))
+             (assert-height-readonly expected-height)
          )
      "#;
+
+    let contract_34_name = "test-contract-34";
+    let contract_34 = r#"
+         (define-read-only (assert-height-at-block (block-id (buff 32)) (expected-height uint))
+            (at-block block-id
+                (begin
+                    (asserts! (is-eq expected-height burn-block-height) (err (list burn-block-height expected-height)))
+                    (asserts! (is-some (get-burn-block-info? header-hash burn-block-height)) (err (list u0 u0)))
+                    (ok true)
+                )
+            )
+         )        
+     "#;
+
+    let mut contract_34_deployed = false;
+    let mut skip_sortition_after_height = None::<u128>;
+
+    let wait_for_sender_nonce = |min_expected: u64| {
+        wait_for(30, || {
+            let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+            Ok(cur_sender_nonce >= min_expected)
+        })
+    };
 
     let contract_tx = make_contract_publish(
         &sender_sk,
@@ -6470,6 +6520,8 @@ fn clarity_burn_state() {
     submit_tx(&http_origin, &contract_tx);
 
     let mut burn_block_height = 0;
+    let mut current_epoch: StacksEpochId;
+    let mut expected_burn_heights: Vec<(StacksBlockId, u128)> = Vec::new();
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
@@ -6482,7 +6534,7 @@ fn clarity_burn_state() {
                 &naka_conf,
                 &sender_addr,
                 contract_name,
-                "foo",
+                "assert-height-readonly",
                 vec![&Value::UInt(burn_block_height)],
             )
             .result()
@@ -6499,11 +6551,20 @@ fn clarity_burn_state() {
                 naka_conf.burnchain.chain_id,
                 &sender_addr,
                 contract_name,
-                "bar",
+                "assert-height",
                 &[Value::UInt(burn_block_height + 1)],
             );
             sender_nonce += 1;
             submit_tx(&http_origin, &call_tx);
+        }
+
+        let skip_sortition = skip_sortition_after_height.unwrap_or(10000000) <= burn_block_height;
+
+        if skip_sortition {
+            info!("Stopping block commits to prevent sortition");
+            counters.naka_skip_commit_op.set(true);
+        } else {
+            //counters.naka_skip_commit_op.set(false);
         }
 
         let commits_before = commits_submitted.load(Ordering::SeqCst);
@@ -6511,11 +6572,17 @@ fn clarity_burn_state() {
             .lock()
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
+        info!("waiting for next burn block");
         next_block_and(&mut btc_regtest_controller, 60, || {
-            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+            Ok(skip_sortition || commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
         .unwrap();
+        //if skip_sortition {
+        thread::sleep(Duration::from_secs(5));
+        //}
+        info!("unstalling miner");
         fault_injection_unstall_miner();
+        info!("waiting for stacks blocks");
         wait_for(20, || {
             Ok(coord_channel
                 .lock()
@@ -6524,41 +6591,69 @@ fn clarity_burn_state() {
                 > blocks_processed_before)
         })
         .unwrap();
+        info!("done waiting for stacks blocks");
 
         // in the first tenure, make sure that the contracts are published
         if tenure_ix == 0 {
-            wait_for(30, || {
-                let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
-                Ok(cur_sender_nonce >= sender_nonce)
-            })
-            .expect("Timed out waiting for contracts to publish");
+            wait_for_sender_nonce(sender_nonce)
+                .expect("Timed out waiting for contracts to publish");
         }
 
         let info = get_chain_info(&naka_conf);
         burn_block_height = info.burn_block_height as u128;
         info!("Expecting burn block height to be {burn_block_height}");
+        current_epoch = epochs
+            .iter()
+            .find(|e| {
+                e.start_height as u128 <= burn_block_height
+                    && e.end_height as u128 > burn_block_height
+            })
+            .expect("current epoch should exist")
+            .epoch_id;
+
+        if current_epoch == StacksEpochId::Epoch34 && !contract_34_deployed {
+            info!("deploying 3.4 contract");
+            let contract_tx = make_contract_publish(
+                &sender_sk,
+                sender_nonce,
+                deploy_fee,
+                naka_conf.burnchain.chain_id,
+                contract_34_name,
+                contract_34,
+            );
+            sender_nonce += 1;
+            submit_tx(&http_origin, &contract_tx);
+            wait_for_sender_nonce(sender_nonce)
+                .expect("timed out waiting for the 3.4 contract to deploy");
+            contract_34_deployed = true;
+            skip_sortition_after_height = Some(burn_block_height + 2);
+        }
+        let blocks = test_observer::get_mined_nakamoto_blocks();
+        let last_block = blocks.last().unwrap();
+        //assert_eq!(last_block.target_burn_height as u128, burn_block_height);
+        if current_epoch >= StacksEpochId::Epoch34 {
+            expected_burn_heights.push((
+                StacksBlockId::from_hex(&last_block.block_id).unwrap(),
+                last_block.target_burn_height as u128,
+            ));
+        }
 
         // Assert that the contract call was successful
-        test_observer::get_mined_nakamoto_blocks()
-            .last()
-            .unwrap()
-            .tx_events
-            .iter()
-            .for_each(|event| match event {
-                TransactionEvent::Success(TransactionSuccessEvent { result, fee, .. }) => {
-                    // Ignore coinbase and tenure transactions
-                    if *fee == 0 {
-                        return;
-                    }
+        last_block.tx_events.iter().for_each(|event| match event {
+            TransactionEvent::Success(TransactionSuccessEvent { result, fee, .. }) => {
+                // Ignore coinbase and tenure transactions
+                if *fee == 0 {
+                    return;
+                }
 
-                    info!("Contract call result: {result}");
-                    result.clone().expect_result_ok().expect("Ok result");
-                }
-                _ => {
-                    info!("Unsuccessful event: {event:?}");
-                    panic!("Expected a successful transaction");
-                }
-            });
+                info!("Contract call result: {result}");
+                result.clone().expect_result_ok().expect("Ok result");
+            }
+            _ => {
+                info!("Unsuccessful event: {event:?}");
+                panic!("Expected a successful transaction");
+            }
+        });
 
         // mine the interim blocks (we may end up mining more than
         // one block per run, thus the `min_...` naming)
@@ -6575,13 +6670,37 @@ fn clarity_burn_state() {
                 &naka_conf,
                 &sender_addr,
                 contract_name,
-                "foo",
+                "assert-height-readonly",
                 vec![&expected_height],
             )
             .result()
             .unwrap();
             info!("Read-only result: {result:?}");
             result.expect_result_ok().expect("Read-only call failed");
+
+            if contract_34_deployed {
+                for (block_id, expected_height) in expected_burn_heights.iter() {
+                    if *expected_height >= last_block.target_burn_height as u128 {
+                        continue;
+                    }
+                    let result_34 = call_read_only(
+                        &naka_conf,
+                        &sender_addr,
+                        contract_34_name,
+                        "assert-height-at-block",
+                        vec![
+                            &Value::buff_from(block_id.as_bytes().to_vec()).unwrap(),
+                            &Value::UInt(*expected_height),
+                        ],
+                    )
+                    .result();
+                    info!("at-block result: {result_34:?}");
+                    result_34
+                        .unwrap()
+                        .expect_result_ok()
+                        .expect("Read-only call failed");
+                }
+            }
 
             // Submit a tx to trigger the next block
             let call_tx = make_contract_call(
@@ -6591,7 +6710,7 @@ fn clarity_burn_state() {
                 naka_conf.burnchain.chain_id,
                 &sender_addr,
                 contract_name,
-                "bar",
+                "assert-height",
                 &[expected_height],
             );
             sender_nonce += 1;
@@ -6620,32 +6739,42 @@ fn clarity_burn_state() {
                 thread::sleep(Duration::from_millis(100));
             }
 
+            let blocks = test_observer::get_mined_nakamoto_blocks();
+            let last_block = blocks.last().unwrap();
+            if current_epoch >= StacksEpochId::Epoch34 {
+                expected_burn_heights.push((
+                    StacksBlockId::from_hex(&last_block.block_id).unwrap(),
+                    last_block.target_burn_height as u128,
+                ));
+            }
+
             // Assert that the contract call was successful
-            test_observer::get_mined_nakamoto_blocks()
-                .last()
-                .unwrap()
-                .tx_events
-                .iter()
-                .for_each(|event| match event {
-                    TransactionEvent::Success(TransactionSuccessEvent { result, .. }) => {
-                        info!("Contract call result: {result}");
-                        result.clone().expect_result_ok().expect("Ok result");
-                    }
-                    _ => {
-                        info!("Unsuccessful event: {event:?}");
-                        panic!("Expected a successful transaction");
-                    }
-                });
+
+            last_block.tx_events.iter().for_each(|event| match event {
+                TransactionEvent::Success(TransactionSuccessEvent { result, .. }) => {
+                    info!("Contract call result: {result}");
+                    //result.clone().expect_result_ok().expect("Ok result");
+                }
+                _ => {
+                    info!("Unsuccessful event: {event:?}");
+                    panic!("Expected a successful transaction");
+                }
+            });
         }
 
         let start_time = Instant::now();
-        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
+        while !skip_sortition && commits_submitted.load(Ordering::SeqCst) <= commits_before {
             if start_time.elapsed() >= Duration::from_secs(20) {
                 panic!("Timed out waiting for block-commit");
             }
             thread::sleep(Duration::from_millis(100));
         }
     }
+    assert!(contract_34_deployed);
+    assert_eq!(
+        expected_burn_heights.len() as u64,
+        (min_inter_blocks_per_tenure + 1) * (tenure_count - 4)
+    );
 
     coord_channel
         .lock()

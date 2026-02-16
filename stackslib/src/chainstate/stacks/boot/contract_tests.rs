@@ -597,6 +597,10 @@ impl HeadersDB for TestSimHeadersDB {
         }
     }
 
+    fn get_burn_view_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        None //FIXME
+    }
+
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,

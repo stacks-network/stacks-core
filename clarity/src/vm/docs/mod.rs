@@ -3093,6 +3093,9 @@ mod test {
         fn get_burn_block_height_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u32> {
             Some(567890)
         }
+        fn get_burn_view_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+            Some(ConsensusHash::from_hex("2cd83cba6930e50fe81d265c6f14d248c93f3de3").unwrap())
+        }
         fn get_miner_address(
             &self,
             _id_bhh: &StacksBlockId,

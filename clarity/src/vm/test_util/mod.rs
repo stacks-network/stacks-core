@@ -169,6 +169,14 @@ impl HeadersDB for UnitTestHeaderDB {
             Some(1 + id_bhh.as_bytes()[0] as u32)
         }
     }
+    fn get_burn_view_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+        {
+            Some(FIRST_BURNCHAIN_CONSENSUS_HASH)
+        } else {
+            Some(ConsensusHash::from_hex("af9239cb145c9dfaf7e8990584c9d35b68dfa5fe").unwrap())
+        }
+    }
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,

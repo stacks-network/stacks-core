@@ -714,7 +714,9 @@ impl HeadersDB for CLIHeadersDB {
         let conn = self.conn();
         get_cli_block_height(conn, id_bhh).map(|height| height as u32)
     }
-
+    fn get_burn_view_for_block(&self, _id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        None // FIXME
+    }
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,

@@ -162,7 +162,12 @@ pub trait HeadersDB {
         id_bhh: &StacksBlockId,
         epoch: Option<&StacksEpochId>,
     ) -> Option<u64>;
+    /// Returns the height of the burn chain block that created this block's tenure,
+    /// which may be different from the burn chain tip.
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
+    /// Returns the burn view of the block, which is the tip of the burn chain and
+    /// not necessarily the block that created the tenure
+    fn get_burn_view_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash>;
     fn get_miner_address(
         &self,
         id_bhh: &StacksBlockId,
@@ -314,6 +319,14 @@ impl HeadersDB for NullHeadersDB {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32)
         } else {
             Some(1)
+        }
+    }
+    fn get_burn_view_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+        {
+            Some(FIRST_BURNCHAIN_CONSENSUS_HASH)
+        } else {
+            Some(ConsensusHash::from_hex("1a50307463b1f37babe5f52c8e5b8c6725b31000").unwrap())
         }
     }
     fn get_miner_address(
@@ -1102,18 +1115,31 @@ impl ClarityDatabase<'_> {
     }
 
     /// Get the last-known burnchain block height.
-    /// Note that this is _not_ the burnchain height in which this block was mined!
-    /// This is the burnchain block height of the parent of the Stacks block at the current Stacks
-    /// block height (i.e. that returned by `get_index_block_header_hash` for
-    /// `get_current_block_height`).
+    ///
+    /// For Epoch 2.x:
+    ///   Note that this is _not_ the burnchain height in which this block was mined!
+    ///   This is the burnchain block height of the parent of the Stacks block at the current Stacks
+    ///   block height (i.e. that returned by `get_index_block_header_hash` for
+    ///   `get_current_block_height`).
+    ///
+    /// For Epochs 3.0-3.3:
+    ///   This was meant to be the same as 3.4+ below, but due to a bug, `at-block` wasn't handled
+    ///   correctly. Thus this always returns the burn view of the block in which the transaction is
+    ///   being executed.
+    ///
+    /// For Epoch 3.4+:
+    ///   This is the height of the burn view in which this block (or the `at-block` time travel target)
+    ///   is being mined. If there was no sortition in this burn block, this will be different from the
+    ///   block that started the tenure.
     pub fn get_current_burnchain_block_height(&mut self) -> Result<u32, VmExecutionError> {
+        // The height of the Stacks block that's currently being constructed. In particular,
+        // a block of this height does *not* yet exist (at least not in this context, which
+        // may be a time-travel `at-block` execution).
         let cur_stacks_height = self.store.get_current_block_height();
 
+        let epoch = self.get_clarity_epoch_version()?;
         // Before epoch 3.0, we can only access the burn block associated with the last block
-        if !self
-            .get_clarity_epoch_version()?
-            .clarity_uses_tip_burn_block()
-        {
+        if !epoch.clarity_uses_tip_burn_block() {
             if cur_stacks_height == 0 {
                 return Ok(self.burn_state_db.get_burn_start_height());
             };
@@ -1128,12 +1154,47 @@ impl ClarityDatabase<'_> {
                     ))
                     .into()
                 })
-        } else {
-            // In epoch 3+, we can access the current burnchain block
+        } else if epoch.clarity_always_uses_tip_burn_block_even_in_at_block() {
+            // In epoch 3.0-3.3, this always returned the tip, even in an `at-block` context
             self.burn_state_db
                 .get_tip_burn_block_height()
                 .ok_or_else(|| {
                     VmInternalError::Expect("Failed to get burnchain tip height.".into()).into()
+                })
+        } else {
+            if cur_stacks_height == 0 {
+                return Ok(self.burn_state_db.get_burn_start_height());
+            };
+
+            // First, see if we can look up the burn view for the current stacks height.
+            // This will fail if this block is currently being constructed, but if we're
+            // time-travelling (via `at-block`), it'll succeed.
+            let burn_view = self
+                .get_index_block_header_hash(cur_stacks_height)
+                .map(|bhh| self.headers_db.get_burn_view_for_block(&bhh));
+
+            let Ok(Some(burn_view)) = burn_view else {
+                // If it failed, the block is currently being built, and thus its burn view
+                // is the current tip of the burn chain.
+                return self
+                    .burn_state_db
+                    .get_tip_burn_block_height()
+                    .ok_or_else(|| {
+                        VmInternalError::Expect("Failed to get burnchain tip height.".into()).into()
+                    });
+            };
+
+            let sortition_id = self
+                .burn_state_db
+                .get_sortition_id_from_consensus_hash(&burn_view)
+                .ok_or_else(|| {
+                    VmInternalError::Expect("Failed to find sortition ID for the burn view.".into())
+                })?;
+
+            self.burn_state_db
+                .get_burn_block_height(&sortition_id)
+                .ok_or_else(|| {
+                    VmInternalError::Expect("Failed to find height of the burn view.".into()).into()
                 })
         }
     }

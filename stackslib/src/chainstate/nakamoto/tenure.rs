@@ -690,7 +690,7 @@ impl NakamotoChainState {
 
         // tenure_sn must be no more recent than sortition_sn
         if tenure_sn.block_height > sortition_sn.block_height {
-            warn!("Invalid tenure-change: tenure snapshot comes before sortition snapshot"; "tenure_consensus_hash" => %tenure_payload.tenure_consensus_hash, "burn_view_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash);
+            warn!("Invalid tenure-change: tenure snapshot comes after sortition snapshot"; "tenure_consensus_hash" => %tenure_payload.tenure_consensus_hash, "burn_view_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash);
             return Ok(None);
         }
 
