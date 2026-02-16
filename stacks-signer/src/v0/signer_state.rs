@@ -724,32 +724,88 @@ impl LocalStateMachine {
         Ok(())
     }
 
-    /// Updates the local state machine's viewpoint as necessary based on the global state
-    #[allow(clippy::too_many_arguments)]
-    pub fn capitulate_viewpoint(
+    /// Check if our parent tenure last block does not match the node and has timed out.
+    /// If so, update our local view to match the stacks-node's view
+    fn update_parent_tenure_last_block(
         &mut self,
         stacks_client: &StacksClient,
         signerdb: &mut SignerDb,
+        local_supported_signer_protocol_version: u64,
+        tenure_last_block_proposal_timeout: Duration,
+    ) -> bool {
+        let Ok(local_update) =
+            self.try_into_update_message_with_version(local_supported_signer_protocol_version)
+        else {
+            // No local state machine to update
+            return false;
+        };
+
+        let StateMachineUpdateMinerState::ActiveMiner {
+            current_miner_pkh,
+            tenure_id,
+            parent_tenure_id,
+            parent_tenure_last_block,
+            ..
+        } = local_update.content.current_miner()
+        else {
+            // No active miner; nothing to update
+            return false;
+        };
+        let Ok((new_parent_tenure_last_block_height, new_parent_tenure_last_block)) =
+            Self::get_parent_tenure_last_block(
+                stacks_client,
+                signerdb,
+                tenure_last_block_proposal_timeout,
+                parent_tenure_id,
+            )
+        else {
+            // Could not get parent tenure last block; do nothing.
+            return false;
+        };
+
+        if &new_parent_tenure_last_block == parent_tenure_last_block {
+            // No change
+            return false;
+        }
+        // We have either timed out our local view of the parent tenure last block, or the node has a new block we didn't know about
+        let (burn_block, burn_block_height) = local_update.content.burn_block_view();
+        let tx_replay_set = local_update.content.tx_replay_set();
+        *self = Self::Initialized(SignerStateMachine {
+            burn_block: burn_block.clone(),
+            burn_block_height,
+            current_miner: StateMachineUpdateMinerState::ActiveMiner {
+                current_miner_pkh: current_miner_pkh.clone(),
+                tenure_id: tenure_id.clone(),
+                parent_tenure_id: parent_tenure_id.clone(),
+                parent_tenure_last_block: new_parent_tenure_last_block,
+                parent_tenure_last_block_height: new_parent_tenure_last_block_height,
+            }
+            .into(),
+            active_signer_protocol_version: local_update.active_signer_protocol_version,
+            tx_replay_set,
+        });
+        true
+    }
+
+    fn update_protocol_version(
+        &mut self,
+        stacks_client: &StacksClient,
         eval: &mut GlobalStateEvaluator,
         local_supported_signer_protocol_version: u64,
-        sortition_state: &mut Option<SortitionsView>,
-        capitulate_miner_view_timeout: Duration,
-        tenure_last_block_proposal_timeout: Duration,
-        last_capitulate_miner_view: &mut SystemTime,
     ) {
         // Before we ever access eval...we should make sure to include our own local state machine update message in the evaluation
-        let Ok(mut local_update) =
+        let Ok(local_update) =
             self.try_into_update_message_with_version(local_supported_signer_protocol_version)
         else {
             return;
         };
 
         let old_protocol_version = local_update.active_signer_protocol_version;
-        // First check if we should update our active protocol version
         eval.insert_update(
             stacks_client.get_signer_address().clone(),
             local_update.clone(),
         );
+        // Check if we should update our active protocol version
         let active_signer_protocol_version = eval
             .determine_latest_supported_signer_protocol_version()
             .unwrap_or(old_protocol_version);
@@ -770,24 +826,32 @@ impl LocalStateMachine {
                 active_signer_protocol_version,
                 tx_replay_set,
             });
-            // Because we updated our active signer protocol version, update local_update so its included in the subsequent evaluations
-            let Ok(update) =
-                self.try_into_update_message_with_version(local_supported_signer_protocol_version)
-            else {
-                return;
-            };
-            local_update = update;
         }
-        // Avoid spamming the node with capitulate checks:
-        // Only proceed if we haven't checked capitulation recently or signed a globally accepted block recently
+    }
+
+    // To avoid spamming the node with capitulate checks:
+    // check if we have recently checked capitulation or signed a globally accepted block
+    fn is_capitulation_check_ready(
+        &mut self,
+        signerdb: &mut SignerDb,
+        local_supported_signer_protocol_version: u64,
+        capitulate_miner_view_timeout: Duration,
+        last_capitulate_miner_view: &mut SystemTime,
+    ) -> bool {
         if last_capitulate_miner_view
             .elapsed()
             .map(|elapsed| elapsed < capitulate_miner_view_timeout)
             .unwrap_or_default()
         {
             // We already recently checked if we should capitulate. Don't bother checking globally accepted blocks
-            return;
+            return false;
         }
+
+        let Ok(local_update) =
+            self.try_into_update_message_with_version(local_supported_signer_protocol_version)
+        else {
+            return false;
+        };
 
         let now = SystemTime::now();
         let current_miner = local_update.content.current_miner();
@@ -810,12 +874,48 @@ impl LocalStateMachine {
             .duration_since(last_approved_block_time)
             .unwrap_or_default();
 
-        if time_since_last_approved < capitulate_miner_view_timeout {
-            // Recently participated in a globally accepted block; skip capitulation
+        time_since_last_approved >= capitulate_miner_view_timeout
+    }
+
+    /// Updates the local state machine's viewpoint as necessary based on the global state
+    #[allow(clippy::too_many_arguments)]
+    pub fn capitulate_viewpoint(
+        &mut self,
+        stacks_client: &StacksClient,
+        signerdb: &mut SignerDb,
+        eval: &mut GlobalStateEvaluator,
+        local_supported_signer_protocol_version: u64,
+        sortition_state: &mut Option<SortitionsView>,
+        capitulate_miner_view_timeout: Duration,
+        tenure_last_block_proposal_timeout: Duration,
+        last_capitulate_miner_view: &mut SystemTime,
+    ) {
+        // We should do this without waiting for capitulation checks, as protocol version updates are orthogonal to capitulation
+        self.update_protocol_version(stacks_client, eval, local_supported_signer_protocol_version);
+
+        if !self.is_capitulation_check_ready(
+            signerdb,
+            local_supported_signer_protocol_version,
+            capitulate_miner_view_timeout,
+            last_capitulate_miner_view,
+        ) {
             return;
         }
-
-        *last_capitulate_miner_view = now;
+        *last_capitulate_miner_view = SystemTime::now();
+        // First, update our parent tenure last block if needed. We may have timed out our view of it.
+        // This is a bit of an expensive call (due to call for node tip) so we don't want to do it if
+        // the node is advancing with our participation.
+        self.update_parent_tenure_last_block(
+            stacks_client,
+            signerdb,
+            local_supported_signer_protocol_version,
+            tenure_last_block_proposal_timeout,
+        );
+        let Ok(local_update) =
+            self.try_into_update_message_with_version(local_supported_signer_protocol_version)
+        else {
+            return;
+        };
 
         // Is there a miner view to which we should capitulate?
         let Some(new_miner) = self.capitulate_miner_view(
@@ -849,7 +949,7 @@ impl LocalStateMachine {
                 burn_block: burn_block.clone(),
                 burn_block_height,
                 current_miner: new_miner.clone().into(),
-                active_signer_protocol_version,
+                active_signer_protocol_version: local_update.active_signer_protocol_version,
                 tx_replay_set,
             });
 
@@ -1003,7 +1103,6 @@ impl LocalStateMachine {
                 crate::monitoring::SignerAgreementStateConflict::MinerView,
             );
         }
-
         new_miner
     }
 

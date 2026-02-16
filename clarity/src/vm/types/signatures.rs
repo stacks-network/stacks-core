@@ -714,22 +714,58 @@ mod test {
     #[apply(test_clarity_versions)]
     fn test_construction(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         let bad_type_descriptions = [
-            ("(tuple)", EmptyTuplesNotAllowed),
-            ("(list int int)", InvalidTypeDescription),
+            (
+                "(tuple)",
+                ExpectsAcceptable("Empty tuples not allowed".to_string()),
+            ),
+            (
+                "(list int int)",
+                ExpectsAcceptable("Invalid type description".into()),
+            ),
             ("(list 4294967296 int)", ValueTooLarge),
-            ("(list 50 bazel)", UnknownTypeName("bazel".into())),
-            ("(buff)", InvalidTypeDescription),
+            (
+                "(list 50 bazel)",
+                ExpectsAcceptable("Unknown type name: bazel".into()),
+            ),
+            (
+                "(buff)",
+                ExpectsAcceptable("Invalid type description".into()),
+            ),
             ("(buff 4294967296)", ValueTooLarge),
-            ("(buff int)", InvalidTypeDescription),
-            ("(response int)", InvalidTypeDescription),
-            ("(optional bazel)", UnknownTypeName("bazel".into())),
-            ("(response bazel int)", UnknownTypeName("bazel".into())),
-            ("(response int bazel)", UnknownTypeName("bazel".into())),
-            ("bazel", UnknownTypeName("bazel".into())),
-            ("()", InvalidTypeDescription),
-            ("(1234)", InvalidTypeDescription),
-            ("(int 3 int)", InvalidTypeDescription),
-            ("1234", InvalidTypeDescription),
+            (
+                "(buff int)",
+                ExpectsAcceptable("Invalid type description".into()),
+            ),
+            (
+                "(response int)",
+                ExpectsAcceptable("Invalid type description".into()),
+            ),
+            (
+                "(optional bazel)",
+                ExpectsAcceptable("Unknown type name: bazel".into()),
+            ),
+            (
+                "(response bazel int)",
+                ExpectsAcceptable("Unknown type name: bazel".into()),
+            ),
+            (
+                "(response int bazel)",
+                ExpectsAcceptable("Unknown type name: bazel".into()),
+            ),
+            (
+                "bazel",
+                ExpectsAcceptable("Unknown type name: bazel".into()),
+            ),
+            ("()", ExpectsAcceptable("Invalid type description".into())),
+            (
+                "(1234)",
+                ExpectsAcceptable("Invalid type description".into()),
+            ),
+            (
+                "(int 3 int)",
+                ExpectsAcceptable("Invalid type description".into()),
+            ),
+            ("1234", ExpectsAcceptable("Invalid type description".into())),
             ("(list 1 (buff 1048576))", ValueTooLarge),
             ("(list 4294967295 (buff 2))", ValueTooLarge),
             ("(list 2147483647 (buff 2))", ValueTooLarge),

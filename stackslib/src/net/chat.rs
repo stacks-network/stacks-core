@@ -33,7 +33,10 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::core::{EpochList, StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3};
+use crate::core::{
+    EpochList, StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_3_2,
+    PEER_VERSION_EPOCH_3_3,
+};
 use crate::monitoring;
 use crate::net::connection::{ConnectionOptions, ConnectionP2P, ReplyHandleP2P};
 use crate::net::db::{PeerDB, *};
@@ -776,6 +779,17 @@ impl ConversationP2P {
         if cur_epoch == PEER_VERSION_EPOCH_2_3 && remote_epoch == PEER_VERSION_EPOCH_2_2 {
             debug!(
                 "Remote peer has epoch {} and current epoch is {}, but we're permissive about 2.2/2.3 boundary",
+                remote_epoch,
+                cur_epoch
+            );
+            return true;
+        }
+
+        // be permissive with epochs 3.3 and 3.2. a prior 3.3 release accidentally reported
+        //  PEER_VERSION_EPOCH_3_2.
+        if cur_epoch == PEER_VERSION_EPOCH_3_3 && remote_epoch == PEER_VERSION_EPOCH_3_2 {
+            debug!(
+                "Remote peer has epoch {} and current epoch is {}, but we're permissive about 3.2/3.3 boundary",
                 remote_epoch,
                 cur_epoch
             );
@@ -6249,6 +6263,58 @@ mod test {
             assert_eq!(
                 convo_bad.is_preamble_valid(&ping_old, &old_chain_view),
                 Ok(true)
+            );
+        }
+
+        // 3.3/3.2 compatibility: allow peers that still report 3.2 in epoch 3.3.
+        {
+            let epochs = StacksEpoch::unit_test_3_3(chain_view.burn_block_height - 40);
+            let cur_epoch = epochs
+                .epoch_at_height(chain_view.burn_block_height)
+                .unwrap();
+            assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch33);
+
+            let local_version = 0x18000000 | PEER_VERSION_EPOCH_3_3 as u32;
+            let mut convo_compat = ConversationP2P::new(
+                123,
+                local_version,
+                &burnchain,
+                &socketaddr_2,
+                &conn_opts,
+                true,
+                0,
+                epochs,
+            );
+            let ping_data = PingData::new();
+
+            // Remote peer reports 3.2 in epoch 3.3: allowed.
+            convo_compat.version = 0x18000000 | PEER_VERSION_EPOCH_3_2 as u32;
+            let ping_32 = convo_compat
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Ping(ping_data.clone()),
+                )
+                .unwrap();
+            convo_compat.version = local_version;
+            assert_eq!(
+                convo_compat.is_preamble_valid(&ping_32, &chain_view),
+                Ok(true)
+            );
+
+            // Remote peer reports 3.1 in epoch 3.3: still too old.
+            convo_compat.version = 0x18000000 | PEER_VERSION_EPOCH_3_1 as u32;
+            let ping_31 = convo_compat
+                .sign_message(
+                    &chain_view,
+                    &local_peer_1.private_key,
+                    StacksMessageType::Ping(ping_data),
+                )
+                .unwrap();
+            convo_compat.version = local_version;
+            assert_eq!(
+                convo_compat.is_preamble_valid(&ping_31, &chain_view),
+                Err(net_error::InvalidMessage)
             );
         }
     }

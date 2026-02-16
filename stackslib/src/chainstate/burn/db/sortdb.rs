@@ -1688,7 +1688,7 @@ impl SortitionHandleTx<'_> {
                                 .get(ix as usize)
                                 .expect("Chosen reward set index not found in reward set")
                                 .clone();
-                            info!("PoX recipient chosen";
+                            debug!("PoX recipient chosen";
                                "recipient" => recipient.to_burnchain_repr(),
                                "block_height" => block_height,
                                "anchor_stacks_block_hash" => &anchor_block,
@@ -1723,7 +1723,7 @@ impl SortitionHandleTx<'_> {
                     for ix in chosen_recipients.into_iter() {
                         let ix = u16::try_from(ix).unwrap();
                         let recipient = self.get_reward_set_entry(ix)?;
-                        info!("PoX recipient chosen";
+                        debug!("PoX recipient chosen";
                            "recipient" => recipient.to_burnchain_repr(),
                            "block_height" => block_height,
                            "stacks_block_hash" => %anchor_block
@@ -5503,7 +5503,8 @@ impl SortitionHandleTx<'_> {
                     op.block_height, &op.txid, op.block_height, op.vtxindex;
                     "apparent_sender" => %op.apparent_sender,
                     "stacks_block_hash" => %op.block_header_hash,
-                    "parent_burn_block" => %op.parent_block_ptr
+                    "parent_burn_block" => %op.parent_block_ptr,
+                    "burn_fee" => %op.burn_fee,
                 );
                 self.insert_block_commit(op, sort_id)
             }

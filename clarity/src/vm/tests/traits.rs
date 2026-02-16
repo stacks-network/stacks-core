@@ -724,12 +724,13 @@ fn test_readwrite_dynamic_dispatch(
                 false,
             )
             .unwrap_err();
-        match err_result {
-            VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::TraitBasedContractCallInReadOnly,
-            ) => {}
-            _ => panic!("{err_result:?}"),
-        }
+
+        assert_eq!(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Trait based contract call in read-only".to_string()
+            ),),
+            err_result
+        )
     }
 }
 
@@ -781,12 +782,12 @@ fn test_readwrite_violation_dynamic_dispatch(
                 false,
             )
             .unwrap_err();
-        match err_result {
-            VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::TraitBasedContractCallInReadOnly,
-            ) => {}
-            _ => panic!("{err_result:?}"),
-        }
+        assert_eq!(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+                "Trait based contract call in read-only".to_string()
+            ),),
+            err_result
+        )
     }
 }
 

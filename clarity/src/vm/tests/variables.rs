@@ -80,7 +80,9 @@ fn test_block_height(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::UndefinedVariable("block-height".to_string(),)
+                RuntimeCheckErrorKind::ExpectsAcceptable(
+                    "Undefined variable: block-height".to_string()
+                )
             )),
             err
         );
@@ -139,7 +141,9 @@ fn test_stacks_block_height(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::UndefinedVariable("stacks-block-height".to_string(),)
+                RuntimeCheckErrorKind::ExpectsAcceptable(
+                    "Undefined variable: stacks-block-height".to_string()
+                )
             )),
             err
         );
@@ -198,7 +202,9 @@ fn test_tenure_height(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::UndefinedVariable("tenure-height".to_string(),)
+                RuntimeCheckErrorKind::ExpectsAcceptable(
+                    "Undefined variable: tenure-height".to_string()
+                )
             )),
             err
         );
@@ -1213,7 +1219,9 @@ fn test_block_time(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::UndefinedVariable("stacks-block-time".to_string(),)
+                RuntimeCheckErrorKind::ExpectsAcceptable(
+                    "Undefined variable: stacks-block-time".to_string()
+                )
             )),
             err
         );
@@ -1339,7 +1347,9 @@ fn test_current_contract(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::UndefinedVariable("current-contract".to_string(),)
+                RuntimeCheckErrorKind::ExpectsAcceptable(
+                    "Undefined variable: current-contract".to_string()
+                )
             )),
             err
         );

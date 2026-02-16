@@ -271,6 +271,745 @@ fn check_capitulate_miner_view() {
     h.join().unwrap();
 }
 
+// This test demonstrates the scenario where:
+// 1. Local signer has timed out a parent tenure block (dropped from height 36 to 35)
+// 2. 80% of other signers still see the higher parent tenure block (still at height 36)
+// 3. The local signer queries whether to capitulate and receives the node's view of the parent tenure tip
+// 4. The local signer capitulates to the higher parent tenure block even though it has locally determined that block is invalid/timed out
+#[test]
+fn check_capitulate_with_local_timeout() {
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+
+    let mut address_weights = HashMap::new();
+    address_weights.insert(client.get_signer_address().clone(), 10);
+
+    // Create 9 other signers (10 total)
+    let mut other_addresses = Vec::new();
+    for _ in 1..10 {
+        let stacks_address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        address_weights.insert(stacks_address.clone(), 10);
+        other_addresses.push(stacks_address);
+    }
+
+    let active_signer_protocol_version = 0;
+    let local_supported_signer_protocol_version = 0;
+    let burn_block = ConsensusHash([0x55; 20]);
+    let burn_block_height = 100;
+
+    // Setup parent tenure that will have the timeout issue
+    let parent_tenure_id = ConsensusHash([0x22; 20]);
+    let timed_out_block_id = StacksBlockId([0x99; 32]);
+    let timed_out_block_height = 36;
+    let local_view_block_id = StacksBlockId([0x88; 32]);
+    let local_view_height = 35; // After timeout, local signer sees height 35
+
+    // Setup two different current miner tenure views
+    let local_miner_tenure_id = ConsensusHash([0xaa; 20]);
+    let other_signers_tenure_id = ConsensusHash([0xbb; 20]);
+
+    // Local signer's view: parent tenure is at height 35 (after timing out block at 36)
+    let local_miner = StateMachineUpdateMinerState::ActiveMiner {
+        current_miner_pkh: Hash160([0x11; 20]),
+        tenure_id: local_miner_tenure_id.clone(),
+        parent_tenure_id: parent_tenure_id.clone(),
+        parent_tenure_last_block: local_view_block_id.clone(),
+        parent_tenure_last_block_height: local_view_height,
+    };
+
+    let local_update = StateMachineUpdateMessage::new(
+        active_signer_protocol_version,
+        local_supported_signer_protocol_version,
+        StateMachineUpdateContent::V0 {
+            burn_block: burn_block.clone(),
+            burn_block_height,
+            current_miner: local_miner.clone(),
+        },
+    )
+    .unwrap();
+
+    // Other signers' view: parent tenure is at height 36 (not timed out for them)
+    let other_signers_miner = StateMachineUpdateMinerState::ActiveMiner {
+        current_miner_pkh: Hash160([0x22; 20]),
+        tenure_id: other_signers_tenure_id.clone(),
+        parent_tenure_id: parent_tenure_id.clone(),
+        parent_tenure_last_block: timed_out_block_id.clone(),
+        parent_tenure_last_block_height: timed_out_block_height,
+    };
+
+    let other_signers_update = StateMachineUpdateMessage::new(
+        active_signer_protocol_version,
+        local_supported_signer_protocol_version,
+        StateMachineUpdateContent::V0 {
+            burn_block: burn_block.clone(),
+            burn_block_height,
+            current_miner: other_signers_miner.clone(),
+        },
+    )
+    .unwrap();
+
+    // Setup database
+    let db_path = tmp_db_path();
+    let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+    // Insert parent tenure burn block
+    db.insert_burn_block(
+        &BurnchainHeaderHash([0x10; 32]),
+        &parent_tenure_id,
+        burn_block_height.saturating_sub(2),
+        &SystemTime::now(),
+        &BurnchainHeaderHash([0x11; 32]),
+    )
+    .unwrap();
+
+    // Insert local miner tenure burn block
+    db.insert_burn_block(
+        &BurnchainHeaderHash([0x20; 32]),
+        &local_miner_tenure_id,
+        burn_block_height,
+        &SystemTime::now(),
+        &BurnchainHeaderHash([0x21; 32]),
+    )
+    .unwrap();
+
+    // Insert other signers' miner tenure burn block
+    db.insert_burn_block(
+        &BurnchainHeaderHash([0x30; 32]),
+        &other_signers_tenure_id,
+        burn_block_height,
+        &SystemTime::now(),
+        &BurnchainHeaderHash([0x31; 32]),
+    )
+    .unwrap();
+
+    // Create the block at height 36 that will be timed out locally
+    let (mut timed_out_block_info, _) = create_block_override(|b| {
+        b.block.header.consensus_hash = parent_tenure_id.clone();
+        b.block.header.miner_signature = MessageSignature([0x99; 65]);
+        b.block.header.chain_length = timed_out_block_height;
+        b.burn_height = burn_block_height.saturating_sub(2);
+    });
+
+    // Mark this block as signed very long ago so it times out
+    timed_out_block_info.signed_self = Some(0); // Epoch 0 = very old
+    db.insert_block(&timed_out_block_info).unwrap();
+
+    // Create a block for the local miner's tenure
+    let (local_tenure_block, _) = create_block_override(|b| {
+        b.block.header.consensus_hash = local_miner_tenure_id.clone();
+        b.block.header.miner_signature = MessageSignature([0xaa; 65]);
+        b.block.header.chain_length = 50;
+        b.burn_height = burn_block_height;
+    });
+    db.insert_block(&local_tenure_block).unwrap();
+
+    // Create a block for the other signers' tenure and mark it globally accepted
+    let (mut other_tenure_block, _) = create_block_override(|b| {
+        b.block.header.consensus_hash = other_signers_tenure_id.clone();
+        b.block.header.miner_signature = MessageSignature([0xbb; 65]);
+        b.block.header.chain_length = 50;
+        b.burn_height = burn_block_height;
+    });
+    db.mark_block_globally_accepted(&mut other_tenure_block)
+        .unwrap();
+    db.insert_block(&other_tenure_block).unwrap();
+
+    // Setup global evaluator with 8 out of 10 signers (80%) on the non-timed-out view
+    let mut address_updates = HashMap::new();
+    address_updates.insert(client.get_signer_address().clone(), local_update.clone());
+
+    // 8 other signers see the higher parent tenure block
+    for address in other_addresses.iter().take(8) {
+        address_updates.insert(address.clone(), other_signers_update.clone());
+    }
+
+    // 1 other signer has same view as local signer
+    if let Some(address) = other_addresses.get(8) {
+        address_updates.insert(address.clone(), local_update.clone());
+    }
+
+    let mut global_eval = GlobalStateEvaluator::new(address_updates, address_weights);
+
+    let signer_state_machine = SignerStateMachine {
+        burn_block: burn_block.clone(),
+        burn_block_height,
+        current_miner: local_miner.clone().into(),
+        tx_replay_set: ReplayTransactionSet::none(),
+        active_signer_protocol_version,
+    };
+
+    let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
+
+    let h = std::thread::spawn(move || {
+        // Call capitulate_miner_view with a short timeout (10 seconds)
+        // This means the block signed at epoch 0 is definitely timed out
+        let result = local_state_machine.capitulate_miner_view(
+            &client,
+            &mut global_eval,
+            &mut db,
+            &local_update,
+            Duration::from_secs(10), // Short timeout
+        );
+
+        // The function will return Some(other_signers_miner) because:
+        // 1. get_parent_tenure_last_block queries signerdb, which returns None (timed out)
+        // 2. Falls back to node's view, which returns height 36
+        // 3. Check: if 36 < 36 -> false, so doesn't skip
+        // 4. Capitulates to the view with height 36
+        println!("Capitulation result: {result:?}");
+        assert_eq!(
+            result,
+            Some(other_signers_miner),
+            "Local signer should have capitulated to other signers' miner view"
+        );
+    });
+
+    // Mock the node's response for get_tenure_tip
+    // The node still sees the block at height 36 (it hasn't timed out from the node's perspective)
+    let node_parent_header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+        version: 1,
+        chain_length: timed_out_block_height, // Node still sees height 36
+        burn_spent: 0,
+        consensus_hash: parent_tenure_id.clone(),
+        parent_block_id: StacksBlockId([0x77; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
+        state_index_root: TrieHash([0u8; 32]),
+        timestamp: 0,
+        miner_signature: MessageSignature([0u8; 65]),
+        signer_signature: vec![],
+        pox_treatment: BitVec::ones(1).unwrap(),
+    });
+
+    let node_response = BlockHeaderWithMetadata {
+        anchored_header: node_parent_header,
+        burn_view: Some(parent_tenure_id),
+    };
+
+    let to_send = build_get_tenure_tip_response(&node_response);
+    crate::client::tests::write_response(server, to_send.as_bytes());
+
+    h.join().unwrap();
+}
+
+// This test demonstrates the scenario where:
+// 1. 3 signers see parent_tenure_last_block at height N
+// 2. 3 other signers see parent_tenure_last_block at height N+1 (including local signer)
+// 3. The stacks node's view is at height N+1 (matching the local signer's view)
+// 4. Neither view reaches 70% supermajority (50/50 split)
+// 5. The local signer queries whether to capitulate
+// 6. Since the node agrees with the local signer's view at N+1, and both miner views have
+//    globally accepted blocks, no capitulation is needed (local view matches node)
+#[test]
+fn check_capitulate_split_view_node_at_lower_height() {
+    let MockServerClient {
+        mut server,
+        client,
+        config,
+    } = MockServerClient::new();
+
+    let active_signer_protocol_version = 0;
+    let local_supported_signer_protocol_version = 0;
+    let burn_block = ConsensusHash([0x55; 20]);
+    let burn_block_height = 100;
+
+    let parent_tenure_id = ConsensusHash([0x22; 20]);
+    let parent_tenure_block_n = StacksBlockId([0x33; 32]);
+    let parent_tenure_block_n_plus_one = StacksBlockId([0x34; 32]);
+    let parent_tenure_height_n = 10;
+    let parent_tenure_height_n_plus_one = 11;
+
+    let local_miner_tenure_id = ConsensusHash([0xaa; 20]);
+    let other_miner_tenure_id = ConsensusHash([0xbb; 20]);
+
+    // Local signer sees N+1
+    let local_miner = StateMachineUpdateMinerState::ActiveMiner {
+        current_miner_pkh: Hash160([0x11; 20]),
+        tenure_id: local_miner_tenure_id.clone(),
+        parent_tenure_id: parent_tenure_id.clone(),
+        parent_tenure_last_block: parent_tenure_block_n_plus_one.clone(),
+        parent_tenure_last_block_height: parent_tenure_height_n_plus_one,
+    };
+
+    // Other signers see N
+    let other_miner = StateMachineUpdateMinerState::ActiveMiner {
+        current_miner_pkh: Hash160([0x22; 20]),
+        tenure_id: other_miner_tenure_id.clone(),
+        parent_tenure_id: parent_tenure_id.clone(),
+        parent_tenure_last_block: parent_tenure_block_n.clone(),
+        parent_tenure_last_block_height: parent_tenure_height_n,
+    };
+
+    let local_update = StateMachineUpdateMessage::new(
+        active_signer_protocol_version,
+        local_supported_signer_protocol_version,
+        StateMachineUpdateContent::V0 {
+            burn_block: burn_block.clone(),
+            burn_block_height,
+            current_miner: local_miner.clone(),
+        },
+    )
+    .unwrap();
+
+    let other_update = StateMachineUpdateMessage::new(
+        active_signer_protocol_version,
+        local_supported_signer_protocol_version,
+        StateMachineUpdateContent::V0 {
+            burn_block: burn_block.clone(),
+            burn_block_height,
+            current_miner: other_miner.clone(),
+        },
+    )
+    .unwrap();
+
+    let mut address_weights = HashMap::new();
+    let local_address = client.get_signer_address().clone();
+    address_weights.insert(local_address.clone(), 10);
+    let mut other_addresses = Vec::new();
+    for _ in 0..5 {
+        let stacks_address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        address_weights.insert(stacks_address.clone(), 10);
+        other_addresses.push(stacks_address);
+    }
+
+    let mut address_updates = HashMap::new();
+    address_updates.insert(local_address.clone(), local_update.clone());
+    for address in other_addresses.iter().take(2) {
+        address_updates.insert(address.clone(), local_update.clone());
+    }
+    for address in other_addresses.iter().skip(2) {
+        address_updates.insert(address.clone(), other_update.clone());
+    }
+
+    let mut global_eval = GlobalStateEvaluator::new(address_updates, address_weights);
+
+    let db_path = tmp_db_path();
+    let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+    db.insert_burn_block(
+        &BurnchainHeaderHash([0u8; 32]),
+        &local_miner_tenure_id,
+        burn_block_height,
+        &SystemTime::now(),
+        &BurnchainHeaderHash([1u8; 32]),
+    )
+    .unwrap();
+    db.insert_burn_block(
+        &BurnchainHeaderHash([0u8; 32]),
+        &other_miner_tenure_id,
+        burn_block_height.saturating_add(1),
+        &SystemTime::now(),
+        &BurnchainHeaderHash([1u8; 32]),
+    )
+    .unwrap();
+
+    let (mut local_block_info, _) = create_block_override(|b| {
+        b.block.header.consensus_hash = local_miner_tenure_id.clone();
+        b.block.header.miner_signature = MessageSignature([0x01; 65]);
+        b.block.header.chain_length = 1;
+        b.burn_height = burn_block_height;
+    });
+    db.mark_block_globally_accepted(&mut local_block_info)
+        .unwrap();
+    db.insert_block(&local_block_info).unwrap();
+
+    let (mut other_block_info, _) = create_block_override(|b| {
+        b.block.header.consensus_hash = other_miner_tenure_id.clone();
+        b.block.header.miner_signature = MessageSignature([0x02; 65]);
+        b.block.header.chain_length = 1;
+        b.burn_height = burn_block_height.saturating_add(1);
+    });
+    db.mark_block_globally_accepted(&mut other_block_info)
+        .unwrap();
+    db.insert_block(&other_block_info).unwrap();
+
+    let signer_state_machine = SignerStateMachine {
+        burn_block: burn_block.clone(),
+        burn_block_height,
+        current_miner: local_miner.clone().into(),
+        tx_replay_set: ReplayTransactionSet::none(),
+        active_signer_protocol_version,
+    };
+    let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
+
+    let h = std::thread::spawn(move || {
+        let result = local_state_machine.capitulate_miner_view(
+            &client,
+            &mut global_eval,
+            &mut db,
+            &local_update,
+            Duration::from_secs(10),
+        );
+        // Since the local signer's view matches the node's view, no capitulation is needed
+        assert_eq!(
+            result,
+            Some(other_miner),
+            "Should not capitulate when current view matches the majority consensus"
+        );
+    });
+
+    let anchored_header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+        version: 1,
+        chain_length: parent_tenure_height_n_plus_one,
+        burn_spent: 0,
+        consensus_hash: parent_tenure_id.clone(),
+        parent_block_id: parent_tenure_block_n_plus_one,
+        tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
+        state_index_root: TrieHash([0u8; 32]),
+        timestamp: 0,
+        miner_signature: MessageSignature([0u8; 65]),
+        signer_signature: vec![],
+        pox_treatment: BitVec::ones(1).unwrap(),
+    });
+
+    let expected_result = BlockHeaderWithMetadata {
+        anchored_header,
+        burn_view: Some(parent_tenure_id),
+    };
+
+    // First response to get the tenure tip
+    let to_send = build_get_tenure_tip_response(&expected_result);
+    crate::client::tests::write_response(server, to_send.as_bytes());
+
+    server = crate::client::tests::mock_server_from_config(&config);
+    // Second response to get the tenure tip
+    crate::client::tests::write_response(server, to_send.as_bytes());
+
+    h.join().unwrap();
+}
+
+// This test demonstrates the scenario where:
+// 1. 3 signers see parent_tenure_last_block at height N (including local signer)
+// 2. 3 other signers see parent_tenure_last_block at height N+1
+// 3. The stacks node's view is at height N+1 (matching the other signers' view)
+// 4. Neither view reaches 70% supermajority (50/50 split)
+// 5. The local signer queries whether to capitulate
+// 6. The node returns height N+1 for the parent tenure tip, which is higher than the
+//    local signer's view (height N)
+// 7. Since local_parent_tenure_last_block_height (N+1 from node) is NOT less than
+//    parent_tenure_last_block_height (N+1 from other signers' state), the other signers'
+//    view is considered a valid capitulation target
+// 8. The local signer capitulates to the other signers' miner view at height N+1
+#[test]
+fn check_capitulate_split_view_node_at_higher_height() {
+    let MockServerClient {
+        mut server,
+        client,
+        config,
+    } = MockServerClient::new();
+
+    let active_signer_protocol_version = 0;
+    let local_supported_signer_protocol_version = 0;
+    let burn_block = ConsensusHash([0x55; 20]);
+    let burn_block_height = 100;
+
+    let parent_tenure_id = ConsensusHash([0x22; 20]);
+    let parent_tenure_block_n = StacksBlockId([0x33; 32]);
+    let parent_tenure_block_n_plus_one = StacksBlockId([0x34; 32]);
+    let parent_tenure_height_n = 10;
+    let parent_tenure_height_n_plus_one = 11;
+
+    let local_miner_tenure_id = ConsensusHash([0xaa; 20]);
+    let other_miner_tenure_id = ConsensusHash([0xbb; 20]);
+
+    let local_miner = StateMachineUpdateMinerState::ActiveMiner {
+        current_miner_pkh: Hash160([0x11; 20]),
+        tenure_id: local_miner_tenure_id.clone(),
+        parent_tenure_id: parent_tenure_id.clone(),
+        parent_tenure_last_block: parent_tenure_block_n.clone(),
+        parent_tenure_last_block_height: parent_tenure_height_n,
+    };
+
+    let other_miner = StateMachineUpdateMinerState::ActiveMiner {
+        current_miner_pkh: Hash160([0x22; 20]),
+        tenure_id: other_miner_tenure_id.clone(),
+        parent_tenure_id: parent_tenure_id.clone(),
+        parent_tenure_last_block: parent_tenure_block_n_plus_one.clone(),
+        parent_tenure_last_block_height: parent_tenure_height_n_plus_one,
+    };
+
+    let local_update = StateMachineUpdateMessage::new(
+        active_signer_protocol_version,
+        local_supported_signer_protocol_version,
+        StateMachineUpdateContent::V0 {
+            burn_block: burn_block.clone(),
+            burn_block_height,
+            current_miner: local_miner.clone(),
+        },
+    )
+    .unwrap();
+
+    let other_update = StateMachineUpdateMessage::new(
+        active_signer_protocol_version,
+        local_supported_signer_protocol_version,
+        StateMachineUpdateContent::V0 {
+            burn_block: burn_block.clone(),
+            burn_block_height,
+            current_miner: other_miner.clone(),
+        },
+    )
+    .unwrap();
+
+    let mut address_weights = HashMap::new();
+    let local_address = client.get_signer_address().clone();
+    address_weights.insert(local_address.clone(), 10);
+    let mut other_addresses = Vec::new();
+    for _ in 0..5 {
+        let stacks_address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+        address_weights.insert(stacks_address.clone(), 10);
+        other_addresses.push(stacks_address);
+    }
+
+    let mut address_updates = HashMap::new();
+    address_updates.insert(local_address.clone(), local_update.clone());
+    for address in other_addresses.iter().take(2) {
+        address_updates.insert(address.clone(), local_update.clone());
+    }
+    for address in other_addresses.iter().skip(2) {
+        address_updates.insert(address.clone(), other_update.clone());
+    }
+
+    let mut global_eval = GlobalStateEvaluator::new(address_updates, address_weights);
+
+    let db_path = tmp_db_path();
+    let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+    db.insert_burn_block(
+        &BurnchainHeaderHash([0u8; 32]),
+        &local_miner_tenure_id,
+        burn_block_height,
+        &SystemTime::now(),
+        &BurnchainHeaderHash([1u8; 32]),
+    )
+    .unwrap();
+    db.insert_burn_block(
+        &BurnchainHeaderHash([0u8; 32]),
+        &other_miner_tenure_id,
+        burn_block_height.saturating_add(1),
+        &SystemTime::now(),
+        &BurnchainHeaderHash([1u8; 32]),
+    )
+    .unwrap();
+
+    let (mut local_block_info, _) = create_block_override(|b| {
+        b.block.header.consensus_hash = local_miner_tenure_id.clone();
+        b.block.header.miner_signature = MessageSignature([0x01; 65]);
+        b.block.header.chain_length = 1;
+        b.burn_height = burn_block_height;
+    });
+    db.mark_block_globally_accepted(&mut local_block_info)
+        .unwrap();
+    db.insert_block(&local_block_info).unwrap();
+
+    let (mut other_block_info, _) = create_block_override(|b| {
+        b.block.header.consensus_hash = other_miner_tenure_id.clone();
+        b.block.header.miner_signature = MessageSignature([0x02; 65]);
+        b.block.header.chain_length = 1;
+        b.burn_height = burn_block_height.saturating_add(1);
+    });
+    db.mark_block_globally_accepted(&mut other_block_info)
+        .unwrap();
+    db.insert_block(&other_block_info).unwrap();
+
+    let signer_state_machine = SignerStateMachine {
+        burn_block: burn_block.clone(),
+        burn_block_height,
+        current_miner: local_miner.clone().into(),
+        tx_replay_set: ReplayTransactionSet::none(),
+        active_signer_protocol_version,
+    };
+    let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
+
+    let h = std::thread::spawn(move || {
+        let result = local_state_machine.capitulate_miner_view(
+            &client,
+            &mut global_eval,
+            &mut db,
+            &local_update,
+            Duration::from_secs(10),
+        );
+        // we should capitulate to our local miner view at n+1
+        assert_eq!(result, Some(other_miner));
+    });
+
+    let anchored_header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
+        version: 1,
+        chain_length: parent_tenure_height_n_plus_one,
+        burn_spent: 0,
+        consensus_hash: parent_tenure_id.clone(),
+        parent_block_id: parent_tenure_block_n_plus_one,
+        tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
+        state_index_root: TrieHash([0u8; 32]),
+        timestamp: 0,
+        miner_signature: MessageSignature([0u8; 65]),
+        signer_signature: vec![],
+        pox_treatment: BitVec::ones(1).unwrap(),
+    });
+
+    let expected_result = BlockHeaderWithMetadata {
+        anchored_header,
+        burn_view: Some(parent_tenure_id),
+    };
+
+    // First response to get the tenure tip
+    let to_send = build_get_tenure_tip_response(&expected_result);
+    crate::client::tests::write_response(server, to_send.as_bytes());
+
+    server = crate::client::tests::mock_server_from_config(&config);
+    // Second response to get the tenure tip
+    crate::client::tests::write_response(server, to_send.as_bytes());
+
+    h.join().unwrap();
+}
+
+#[test]
+fn check_capitulate_viewpoint_time_guards() {
+    let MockServerClient { client, .. } = MockServerClient::new();
+
+    let active_signer_protocol_version = 0;
+    let local_supported_signer_protocol_version = 0;
+    let burn_block = ConsensusHash([0x55; 20]);
+    let burn_block_height = 100;
+
+    let parent_tenure_id = ConsensusHash([0x22; 20]);
+    let parent_tenure_last_block = StacksBlockId([0x33; 32]);
+    let parent_tenure_last_block_height = 1;
+
+    let local_miner_tenure_id = ConsensusHash([0xaa; 20]);
+    let other_miner_tenure_id = ConsensusHash([0xbb; 20]);
+
+    let local_miner = StateMachineUpdateMinerState::ActiveMiner {
+        current_miner_pkh: Hash160([0x11; 20]),
+        tenure_id: local_miner_tenure_id.clone(),
+        parent_tenure_id: parent_tenure_id.clone(),
+        parent_tenure_last_block: parent_tenure_last_block.clone(),
+        parent_tenure_last_block_height,
+    };
+
+    let other_miner = StateMachineUpdateMinerState::ActiveMiner {
+        current_miner_pkh: Hash160([0x22; 20]),
+        tenure_id: other_miner_tenure_id.clone(),
+        parent_tenure_id: parent_tenure_id.clone(),
+        parent_tenure_last_block: parent_tenure_last_block.clone(),
+        parent_tenure_last_block_height,
+    };
+
+    let local_update = StateMachineUpdateMessage::new(
+        active_signer_protocol_version,
+        local_supported_signer_protocol_version,
+        StateMachineUpdateContent::V0 {
+            burn_block: burn_block.clone(),
+            burn_block_height,
+            current_miner: local_miner.clone(),
+        },
+    )
+    .unwrap();
+
+    let other_update = StateMachineUpdateMessage::new(
+        active_signer_protocol_version,
+        local_supported_signer_protocol_version,
+        StateMachineUpdateContent::V0 {
+            burn_block: burn_block.clone(),
+            burn_block_height,
+            current_miner: other_miner.clone(),
+        },
+    )
+    .unwrap();
+
+    let mut address_weights = HashMap::new();
+    let local_address = client.get_signer_address().clone();
+    address_weights.insert(local_address.clone(), 10);
+    let other_address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
+    address_weights.insert(other_address.clone(), 10);
+
+    let mut address_updates = HashMap::new();
+    address_updates.insert(local_address.clone(), local_update.clone());
+    address_updates.insert(other_address, other_update.clone());
+
+    let mut global_eval = GlobalStateEvaluator::new(address_updates, address_weights);
+
+    let signer_state_machine = SignerStateMachine {
+        burn_block: burn_block.clone(),
+        burn_block_height,
+        current_miner: local_miner.clone().into(),
+        tx_replay_set: ReplayTransactionSet::none(),
+        active_signer_protocol_version,
+    };
+
+    // Guard 1: last_capitulate_miner_view is too recent.
+    let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine.clone());
+    let mut signerdb = SignerDb::new(tmp_db_path()).expect("Failed to create signer db");
+    let mut last_capitulate_miner_view = SystemTime::now();
+    let timeout = Duration::from_secs(60);
+
+    local_state_machine.capitulate_viewpoint(
+        &client,
+        &mut signerdb,
+        &mut global_eval,
+        local_supported_signer_protocol_version,
+        &mut None,
+        timeout,
+        Duration::from_secs(u64::MAX),
+        &mut last_capitulate_miner_view,
+    );
+
+    assert_eq!(
+        local_state_machine,
+        LocalStateMachine::Initialized(signer_state_machine.clone()),
+        "Recent capitulate check should prevent state changes"
+    );
+
+    // Guard 2: recently signed a globally accepted block.
+    let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
+
+    signerdb
+        .insert_burn_block(
+            &BurnchainHeaderHash([0u8; 32]),
+            &local_miner_tenure_id,
+            burn_block_height,
+            &SystemTime::now(),
+            &BurnchainHeaderHash([1u8; 32]),
+        )
+        .unwrap();
+
+    let (mut block_info, _) = create_block_override(|b| {
+        b.block.header.consensus_hash = local_miner_tenure_id.clone();
+        b.block.header.miner_signature = MessageSignature([0x01; 65]);
+        b.block.header.chain_length = 1;
+        b.burn_height = burn_block_height;
+    });
+    block_info.signed_self = Some(get_epoch_time_secs());
+    signerdb
+        .mark_block_globally_accepted(&mut block_info)
+        .unwrap();
+    signerdb.insert_block(&block_info).unwrap();
+
+    last_capitulate_miner_view = SystemTime::now()
+        .checked_sub(Duration::from_secs(120))
+        .unwrap();
+
+    local_state_machine.capitulate_viewpoint(
+        &client,
+        &mut signerdb,
+        &mut global_eval,
+        local_supported_signer_protocol_version,
+        &mut None,
+        timeout,
+        Duration::from_secs(u64::MAX),
+        &mut last_capitulate_miner_view,
+    );
+
+    assert_eq!(
+        local_state_machine,
+        LocalStateMachine::Initialized(SignerStateMachine {
+            burn_block,
+            burn_block_height,
+            current_miner: local_miner.into(),
+            tx_replay_set: ReplayTransactionSet::none(),
+            active_signer_protocol_version,
+        }),
+        "Recent globally accepted block should prevent capitulation"
+    );
+}
+
 #[test]
 fn check_miner_inactivity_timeout() {
     let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();

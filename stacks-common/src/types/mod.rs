@@ -458,6 +458,11 @@ impl SIP031EmissionInterval {
 }
 
 impl StacksEpochId {
+    /// Highest epoch enabled in release builds.
+    /// Keep this in sync with `versions.toml` and `PEER_NETWORK_EPOCH`
+    /// (validated in tests and `validate_epochs()`)
+    pub const RELEASE_LATEST_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
+
     #[cfg(any(test, feature = "testing"))]
     pub const fn latest() -> StacksEpochId {
         StacksEpochId::Epoch34
@@ -465,7 +470,7 @@ impl StacksEpochId {
 
     #[cfg(not(any(test, feature = "testing")))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch33
+        StacksEpochId::RELEASE_LATEST_EPOCH
     }
 
     /// In this epoch, how should the mempool perform garbage collection?
@@ -611,6 +616,22 @@ impl StacksEpochId {
     ///  true for all epochs before 2.5. For 2.5 and after, this returns false.
     pub fn supports_pox_missed_slot_unlocks(&self) -> bool {
         self < &StacksEpochId::Epoch25
+    }
+
+    /// Whether `from-consensus-buff` treats unexpected serialization as `none` or causes
+    /// an error that makes the transaction un-includable in a block.
+    pub fn treats_unexpected_serialization_as_none(&self) -> bool {
+        self >= &StacksEpochId::Epoch34
+    }
+
+    /// Whether or not this epoch rejects `SupertypeTooLarge` errors.
+    pub fn rejects_supertype_too_large(&self) -> bool {
+        self < &StacksEpochId::Epoch34
+    }
+
+    /// Whether or not this epoch rejects parse-depth errors.
+    pub fn rejects_parse_depth_errors(&self) -> bool {
+        self < &StacksEpochId::Epoch34
     }
 
     /// What is the sortition mining commitment window for this epoch?
@@ -872,6 +893,24 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => false,
             StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
+        }
+    }
+
+    pub fn handles_with_stx_combined_check(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => false,
+            StacksEpochId::Epoch34 => true,
         }
     }
 

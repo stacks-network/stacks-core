@@ -3209,7 +3209,12 @@ fn new_tenure_no_winner_while_proposing_block() {
         .unwrap();
 
     // Pause block validation so that the next proposal cannot be accepted yet
-    TEST_VALIDATE_STALL.set(true);
+    TEST_VALIDATE_STALL.set(vec![signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
 
     info!("---- Proposing 3rd block in tenure N ----");
 
@@ -3246,7 +3251,7 @@ fn new_tenure_no_winner_while_proposing_block() {
     .expect("Timed out waiting for the signers to update their state");
 
     info!("---- Unpausing block validation ----");
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
 
     info!("---- Waiting for original block proposal acceptance after unpausing validation ----");
     wait_for_block_global_acceptance_from_signers(
@@ -3369,7 +3374,12 @@ fn new_tenure_no_winner_while_proposing_block_then_rejected() {
         .unwrap();
 
     // Pause block validation so that the next proposal cannot be accepted yet
-    TEST_VALIDATE_STALL.set(true);
+    TEST_VALIDATE_STALL.set(vec![signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
 
     info!("---- Proposing 3rd block in tenure N ----");
 
@@ -3416,7 +3426,7 @@ fn new_tenure_no_winner_while_proposing_block_then_rejected() {
     signer_test.mine_bitcoin_block();
 
     info!("---- Unpausing block validation and block response ----");
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
     TEST_STALL_BLOCK_RESPONSE.set(false);
 
     info!("---- Waiting for original block proposal rejection after unpausing validation ----");
@@ -3556,7 +3566,12 @@ fn new_tenure_no_winner_while_proposing_block_then_ignored() {
         .unwrap();
 
     // Pause block validation so that the next proposal cannot be accepted yet
-    TEST_VALIDATE_STALL.set(true);
+    TEST_VALIDATE_STALL.set(vec![signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
 
     info!("---- Proposing 3rd block in tenure N ----");
 
@@ -3600,7 +3615,7 @@ fn new_tenure_no_winner_while_proposing_block_then_ignored() {
     signer_test.mine_bitcoin_block();
 
     info!("---- Unpausing block validation and block response ----");
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
     TEST_STALL_BLOCK_RESPONSE.set(false);
 
     // Stop the signers from ignoring all blocks

@@ -84,7 +84,7 @@ fn test_accept_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpo
     let bad_defun = "(define-private (f (b (optional int int))) (* 10 (default-to 0 b)))";
     assert_eq!(
         execute(bad_defun).unwrap_err(),
-        RuntimeCheckErrorKind::InvalidTypeDescription.into()
+        RuntimeCheckErrorKind::ExpectsAcceptable("Invalid type description".to_string()).into()
     );
 }
 
@@ -109,7 +109,7 @@ fn test_bad_define_names() {
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeCheckErrorKind::ExpectedName,
+        RuntimeCheckErrorKind::ExpectsAcceptable("Expected name".to_string()),
         execute(test2).unwrap_err(),
     );
     assert_eq_err(
@@ -133,11 +133,17 @@ fn test_unwrap_ret() {
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeCheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(Value::Int(1))),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected optional or response value: {}",
+            Value::Int(1)
+        )),
         execute(test2).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeCheckErrorKind::ExpectedResponseValue(Box::new(Value::Int(1))),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Expected response value: {}",
+            Value::Int(1)
+        )),
         execute(test3).unwrap_err(),
     );
     assert_eq!(Ok(Some(Value::Int(1))), execute(test4));
@@ -157,15 +163,15 @@ fn test_define_read_only() {
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(test0));
     assert_eq_err(
-        RuntimeCheckErrorKind::WriteAttemptedInReadOnly,
+        RuntimeCheckErrorKind::ExpectsAcceptable("Write attempted in read-only".to_string()),
         execute(test1).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeCheckErrorKind::WriteAttemptedInReadOnly,
+        RuntimeCheckErrorKind::ExpectsAcceptable("Write attempted in read-only".to_string()),
         execute(test2).unwrap_err(),
     );
     assert_eq_err(
-        RuntimeCheckErrorKind::WriteAttemptedInReadOnly,
+        RuntimeCheckErrorKind::ExpectsAcceptable("Write attempted in read-only".to_string()),
         execute(test3).unwrap_err(),
     );
 }
@@ -218,7 +224,7 @@ fn test_recursive_panic(#[case] version: ClarityVersion, #[case] epoch: StacksEp
 #[test]
 fn test_bad_variables() {
     let test0 = "(+ a 1)";
-    let expected = RuntimeCheckErrorKind::UndefinedVariable("a".to_string());
+    let expected = RuntimeCheckErrorKind::ExpectsAcceptable("Undefined variable: a".to_string());
     assert_eq_err(expected, execute(test0).unwrap_err());
 
     let test1 = "(foo 2 1)";
@@ -226,11 +232,12 @@ fn test_bad_variables() {
     assert_eq_err(expected, execute(test1).unwrap_err());
 
     let test2 = "((lambda (x y) 1) 2 1)";
-    let expected = RuntimeCheckErrorKind::BadFunctionName;
+    let expected = RuntimeCheckErrorKind::ExpectsAcceptable("Bad function name".to_string());
     assert_eq_err(expected, execute(test2).unwrap_err());
 
     let test4 = "()";
-    let expected = RuntimeCheckErrorKind::NonFunctionApplication;
+    let expected =
+        RuntimeCheckErrorKind::ExpectsAcceptable("Non functional application".to_string());
     assert_eq_err(expected, execute(test4).unwrap_err());
 }
 
@@ -274,7 +281,8 @@ fn test_variable_shadowing() {
 #[test]
 fn test_define_parse_panic() {
     let tests = "(define-private () 1)";
-    let expected = RuntimeCheckErrorKind::DefineFunctionBadSignature;
+    let expected =
+        RuntimeCheckErrorKind::ExpectsAcceptable("Define function bad signature".to_string());
     assert_eq_err(expected, execute(tests).unwrap_err());
 }
 
@@ -282,7 +290,10 @@ fn test_define_parse_panic() {
 fn test_define_parse_panic_2() {
     let tests = "(define-private (a b (d)) 1)";
     assert_eq_err(
-        RuntimeCheckErrorKind::BadSyntaxBinding(SyntaxBindingError::eval_binding_not_list(0)),
+        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "Bad syntax binding: {}",
+            SyntaxBindingError::eval_binding_not_list(0)
+        )),
         execute(tests).unwrap_err(),
     );
 }
@@ -437,7 +448,7 @@ fn test_define_fungible_token_arg_count() {
     let test3 = "(define-fungible-token foo u2 u3)";
 
     assert_eq_err(
-        RuntimeCheckErrorKind::RequiresAtLeastArguments(1, 0),
+        RuntimeCheckErrorKind::ExpectsAcceptable("Requires at least args: 1 got 0".to_string()),
         execute(test0).unwrap_err(),
     );
     execute(test1).unwrap();

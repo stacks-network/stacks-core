@@ -15,7 +15,8 @@
 
 use std::{error, fmt};
 
-use crate::MAX_CALL_STACK_DEPTH;
+use stacks_common::types::StacksEpochId;
+
 use crate::diagnostic::{DiagnosableError, Diagnostic, Level};
 use crate::errors::{CostErrors, LexerError};
 use crate::execution_cost::ExecutionCost;
@@ -46,9 +47,9 @@ pub enum ParseErrorKind {
     /// Number of expressions exceeds the maximum allowed limit.
     TooManyExpressions,
     /// Nesting depth of expressions exceeds the maximum allowed stack depth.
-    ExpressionStackDepthTooDeep,
+    ExpressionStackDepthTooDeep { max_depth: u64 },
     /// Nesting depth of expressions exceeds the maximum allowed stack depth.
-    VaryExpressionStackDepthTooDeep,
+    VaryExpressionStackDepthTooDeep { max_depth: u64 },
 
     // Semantic errors
     /// Failed to parse a string into an integer literal.
@@ -202,13 +203,15 @@ impl ParseError {
         }
     }
 
-    pub fn rejectable(&self) -> bool {
-        matches!(
-            *self.err,
-            ParseErrorKind::InterpreterFailure
-                | ParseErrorKind::ExpressionStackDepthTooDeep
-                | ParseErrorKind::VaryExpressionStackDepthTooDeep
-        )
+    pub fn rejectable_in_epoch(&self, epoch: StacksEpochId) -> bool {
+        match *self.err {
+            ParseErrorKind::InterpreterFailure => true,
+            ParseErrorKind::ExpressionStackDepthTooDeep { .. }
+            | ParseErrorKind::VaryExpressionStackDepthTooDeep { .. } => {
+                epoch.rejects_parse_depth_errors()
+            }
+            _ => false,
+        }
     }
 
     pub fn has_pre_expression(&self) -> bool {
@@ -363,11 +366,9 @@ impl DiagnosableError for ParseErrorKind {
             ParseErrorKind::TraitReferenceUnknown(trait_name) => {
                 format!("use of undeclared trait <{trait_name}>")
             }
-            ParseErrorKind::ExpressionStackDepthTooDeep => format!(
-                "AST has too deep of an expression nesting. The maximum stack depth is {MAX_CALL_STACK_DEPTH}"
-            ),
-            ParseErrorKind::VaryExpressionStackDepthTooDeep => format!(
-                "AST has too deep of an expression nesting. The maximum stack depth is {MAX_CALL_STACK_DEPTH}"
+            ParseErrorKind::ExpressionStackDepthTooDeep { max_depth }
+            | ParseErrorKind::VaryExpressionStackDepthTooDeep { max_depth } => format!(
+                "AST has too deep of an expression nesting. The maximum stack depth is {max_depth}"
             ),
             ParseErrorKind::InvalidCharactersDetected => "invalid characters detected".into(),
             ParseErrorKind::InvalidEscaping => "invalid escaping detected in string".into(),
