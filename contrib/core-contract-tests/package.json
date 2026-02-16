@@ -16,6 +16,8 @@
     "@clarigen/test": "4.0.1",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
+    "@scure/base": "^2.0.0",
+    "@scure/btc-signer": "^2.0.1",
     "@stacks/clarinet-sdk": "^3.10.0",
     "@stacks/clarunit": "0.1.0",
     "@stacks/rendezvous": "^0.7.4",

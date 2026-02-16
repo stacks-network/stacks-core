@@ -3712,6 +3712,40 @@ export const contracts = {
         [height: TypedAbiArg<number | bigint, 'height'>],
         bigint
       >,
+      constructOutputScript: {
+        name: 'construct-output-script',
+        access: 'read_only',
+        args: [
+          { name: 'stacker', type: 'principal' },
+          { name: 'unlock-burn-height', type: { buffer: { length: 3 } } },
+          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+        ],
+        outputs: { type: { buffer: { length: 34 } } },
+      } as TypedAbiFunction<
+        [
+          stacker: TypedAbiArg<string, 'stacker'>,
+          unlockBurnHeight: TypedAbiArg<Uint8Array, 'unlockBurnHeight'>,
+          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+        ],
+        Uint8Array
+      >,
+      constructUnlockScript: {
+        name: 'construct-unlock-script',
+        access: 'read_only',
+        args: [
+          { name: 'stacker', type: 'principal' },
+          { name: 'unlock-burn-height', type: { buffer: { length: 3 } } },
+          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+        ],
+        outputs: { type: { buffer: { length: 286 } } },
+      } as TypedAbiFunction<
+        [
+          stacker: TypedAbiArg<string, 'stacker'>,
+          unlockBurnHeight: TypedAbiArg<Uint8Array, 'unlockBurnHeight'>,
+          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+        ],
+        Uint8Array
+      >,
       currentPoxRewardCycle: {
         name: 'current-pox-reward-cycle',
         access: 'read_only',
@@ -3784,6 +3818,12 @@ export const contracts = {
         args: [{ name: 'stacker', type: 'principal' }],
         outputs: { type: 'bool' },
       } as TypedAbiFunction<[stacker: TypedAbiArg<string, 'stacker'>], boolean>,
+      uintToBuffLe: {
+        name: 'uint-to-buff-le',
+        access: 'read_only',
+        args: [{ name: 'n', type: 'uint128' }],
+        outputs: { type: { buffer: { length: 1 } } },
+      } as TypedAbiFunction<[n: TypedAbiArg<number | bigint, 'n'>], Uint8Array>,
     },
     maps: {
       stackerSetLl: {
@@ -3888,6 +3928,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Uint8Array>,
+      ERR_INVALID_UNLOCK_BYTES_LENGTH: {
+        name: 'ERR_INVALID_UNLOCK_BYTES_LENGTH',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_NOT_STACKED: {
         name: 'ERR_NOT_STACKED',
         type: {
@@ -4013,6 +4063,10 @@ export const contracts = {
       aDDRESS_VERSION_P2SH: Uint8Array.from([1]),
       aDDRESS_VERSION_P2WPKH: Uint8Array.from([2]),
       aDDRESS_VERSION_P2WSH: Uint8Array.from([3]),
+      ERR_INVALID_UNLOCK_BYTES_LENGTH: {
+        isOk: false,
+        value: 3n,
+      },
       ERR_NOT_STACKED: {
         isOk: false,
         value: 2n,

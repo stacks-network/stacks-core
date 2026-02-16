@@ -1,5 +1,6 @@
 (define-constant ERR_STACKING_ALREADY_STACKED (err u1))
 (define-constant ERR_NOT_STACKED (err u2))
+(define-constant ERR_INVALID_UNLOCK_BYTES_LENGTH (err u3))
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -99,6 +100,51 @@
 (define-read-only (current-pox-reward-cycle)
     (burn-height-to-reward-cycle burn-block-height)
 )
+
+;;; Lock script helpers
+
+;; Contruct an L1 lockup script
+(define-read-only (construct-unlock-script
+        (stacker principal)
+        (unlock-burn-height (buff 3)) ;; (unlock-bytes-len (buff 2))
+        (unlock-bytes (buff 255))
+    )
+    (let (
+            (stacker-parts (unwrap-panic (principal-destruct? stacker)))
+            (stacker-bytes (concat (get version stacker-parts) (get hash-bytes stacker-parts)))
+            (unlock-bytes-len (uint-to-buff-le (len unlock-bytes)))
+        )
+        (concat 0x1605
+            (concat stacker-bytes
+                (concat 0x7503
+                    (concat unlock-burn-height
+                        (concat 0xb175 (concat unlock-bytes-len unlock-bytes))
+                    ))
+            ))
+    )
+)
+
+;; Construct the p2wsh output script for a L1 lockup address
+(define-read-only (construct-output-script
+        (stacker principal)
+        (unlock-burn-height (buff 3))
+        (unlock-bytes (buff 255))
+    )
+    (concat 0x0020
+        (sha256 (construct-unlock-script stacker unlock-burn-height unlock-bytes))
+    )
+)
+
+;; Convert a u8 to a little-endian byte buffer,
+;; ONLY FOR n < 256
+(define-read-only (uint-to-buff-le (n uint))
+    (unwrap-panic (as-max-len?
+        (unwrap-panic (slice? (unwrap-panic (to-consensus-buff? n)) u16 u17))
+        u1
+    ))
+)
+
+;;; Public functions
 
 (define-public (stack-stx
         (amount-ustx uint)

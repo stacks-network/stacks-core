@@ -3,6 +3,9 @@ import { projectErrors, projectFactory } from '@clarigen/core';
 import { rov, txErr, txOk } from '@clarigen/test';
 import { test, expect, describe } from 'vitest';
 import { randomStacksAddress } from '../test-helpers';
+import { hex } from '@scure/base';
+import * as BTC from '@scure/btc-signer';
+import { serializeLockupScript } from './pox-5-helpers';
 
 const contracts = projectFactory(project, 'simnet');
 const contract = contracts.pox5;
@@ -110,5 +113,35 @@ describe('linked list', () => {
       accounts.deployer.address,
     );
     expect(result.value).toEqual(errorCodes.ERR_NOT_STACKED);
+  });
+});
+
+describe('constructing lockup scripts', () => {
+  test('can get the byte for a u8', () => {
+    const n = 123;
+    const expected = BTC.ScriptNum().encode(BigInt(n));
+    const buff = rov(contract.uintToBuffLe(n));
+    expect(hex.encode(buff)).toStrictEqual(hex.encode(expected));
+  });
+
+  test('can construct a lockup script', () => {
+    const stacker = 'STAPZXVFZRPKHRK4MAVR9WV1EZAZA157K6E20SBW';
+    const unlockBurnHeight = 1_000_000n;
+    const unlockBytes = hex.decode(
+      '76a914de9db0e31c16b05c0b2d5be612fb3c5a6c41a25188ac',
+    );
+    const lockupScriptJs = serializeLockupScript({
+      stacker,
+      unlockBurnHeight,
+      unlockBytes,
+    });
+    const lockupScript = rov(
+      contract.constructUnlockScript({
+        stacker,
+        unlockBurnHeight: BTC.ScriptNum().encode(unlockBurnHeight),
+        unlockBytes,
+      }),
+    );
+    expect(hex.encode(lockupScript)).toStrictEqual(hex.encode(lockupScriptJs));
   });
 });
