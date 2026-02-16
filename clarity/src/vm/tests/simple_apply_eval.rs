@@ -86,14 +86,11 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db(), epoch);
-
+        let mut exec_env = env.get_exec_environment(None, None, &placeholder_context);
         assert_eq!(
             Ok(Value::Int(7)),
-            eval(
-                &parsed_program[0],
-                &mut env.get_exec_environment(None, None, &placeholder_context),
-                &context
-            )
+            eval(&parsed_program[0], &mut exec_env, &context)
+                .and_then(|val| val.clone_with_cost(&mut exec_env))
         );
     } else {
         panic!("Failed to parse program.");
@@ -756,9 +753,18 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
         );
 
         if let Ok(tests) = evals {
-            assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));
-            assert_eq!(Ok(Value::Int(3)), eval(&tests[1], &mut env, &context));
-            assert_eq!(Ok(Value::Int(0)), eval(&tests[2], &mut env, &context));
+            assert_eq!(
+                Ok(Value::Int(1)),
+                eval(&tests[0], &mut env, &context).and_then(|v| v.clone_with_cost(&mut env))
+            );
+            assert_eq!(
+                Ok(Value::Int(3)),
+                eval(&tests[1], &mut env, &context).and_then(|v| v.clone_with_cost(&mut env))
+            );
+            assert_eq!(
+                Ok(Value::Int(0)),
+                eval(&tests[2], &mut env, &context).and_then(|v| v.clone_with_cost(&mut env))
+            );
         } else {
             panic!("Failed to parse function bodies.");
         }

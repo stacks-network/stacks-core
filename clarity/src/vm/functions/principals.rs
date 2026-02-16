@@ -71,12 +71,12 @@ pub fn special_is_standard(
     runtime_cost(ClarityCostFunction::IsStandard, env, 0)?;
     let owner = eval(&args[0], env, context)?;
 
-    let version = if let Value::Principal(ref p) = owner {
+    let version = if let Value::Principal(p) = owner.as_ref() {
         p.version()
     } else {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(owner),
+            Box::new(owner.clone_with_cost(env)?),
         )
         .into());
     };
@@ -172,7 +172,7 @@ pub fn special_principal_destruct(
     check_argument_count(1, args)?;
     runtime_cost(ClarityCostFunction::PrincipalDestruct, env, 0)?;
 
-    let principal = eval(&args[0], env, context)?;
+    let principal = eval(&args[0], env, context)?.clone_with_cost(env)?;
 
     let (version_byte, hash_bytes, name_opt) = match principal {
         Value::Principal(PrincipalData::Standard(p)) => {
@@ -221,14 +221,14 @@ pub fn special_principal_construct(
     };
 
     // Check the version byte.
-    let verified_version = match version {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
+    let verified_version = match version.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) => data,
         _ => {
             return {
                 // This is an aborting error because this should have been caught in analysis pass.
                 Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_1),
-                    Box::new(version),
+                    Box::new(version.clone_with_cost(env)?),
                 )
                 .into())
             };
@@ -239,7 +239,7 @@ pub fn special_principal_construct(
         // should have been caught by the type-checker
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_1),
-            Box::new(version),
+            Box::new(version.clone_with_cost(env)?),
         )
         .into());
     } else if verified_version.is_empty() {
@@ -262,12 +262,12 @@ pub fn special_principal_construct(
 
     // Check the hash bytes -- they must be a (buff 20).
     // This is an aborting error because this should have been caught in analysis pass.
-    let verified_hash_bytes = match hash_bytes {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
+    let verified_hash_bytes = match hash_bytes.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_20),
-                Box::new(hash_bytes),
+                Box::new(hash_bytes.clone_with_cost(env)?),
             )
             .into());
         }
@@ -278,7 +278,7 @@ pub fn special_principal_construct(
     if verified_hash_bytes.len() > 20 {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_20),
-            Box::new(hash_bytes),
+            Box::new(hash_bytes.clone_with_cost(env)?),
         )
         .into());
     }
@@ -298,9 +298,9 @@ pub fn special_principal_construct(
     let principal = if let Some(name) = name_opt {
         // requested a contract principal.  Verify that the `name` is a valid ContractName.
         // The type-checker will have verified that it's (string-ascii 40), but not long enough.
-        let name_bytes = match name {
+        let name_bytes = match name.clone_with_cost(env)? {
             Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data,
-            _ => {
+            name => {
                 return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
                     Box::new(name),

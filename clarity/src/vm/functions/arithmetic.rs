@@ -87,13 +87,13 @@ macro_rules! type_force_binary_arithmetic {
 
 // The originally supported comparable types in Clarity1 were Int and UInt.
 macro_rules! type_force_binary_comparison_v1 {
-    ($function: ident, $x: expr, $y: expr) => {{
-        match ($x, $y) {
+    ($function: ident, $x: expr, $y: expr, $e: expr) => {{
+        match ($x.as_ref(), $y.as_ref()) {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
-            (x, _) => Err(RuntimeCheckErrorKind::UnionTypeValueError(
+            (_, _) => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                Box::new(x),
+                Box::new($x.clone_with_cost($e)?),
             )
             .into()),
         }
@@ -103,8 +103,8 @@ macro_rules! type_force_binary_comparison_v1 {
 // Clarity2 adds supported comparable types ASCII, UTF8 and Buffer. These are only
 // accessed if the ClarityVersion, as read by the SpecialFunction, is >= 2.
 macro_rules! type_force_binary_comparison_v2 {
-    ($function: ident, $x: expr, $y: expr) => {{
-        match ($x, $y) {
+    ($function: ident, $x: expr, $y: expr, $e: expr) => {{
+        match ($x.as_ref(), $y.as_ref()) {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
             (
@@ -119,7 +119,7 @@ macro_rules! type_force_binary_comparison_v2 {
                 Value::Sequence(SequenceData::Buffer(BuffData { data: x })),
                 Value::Sequence(SequenceData::Buffer(BuffData { data: y })),
             ) => BuffOps::$function(x, y),
-            (x, _) => Err(RuntimeCheckErrorKind::UnionTypeValueError(
+            (_, _) => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                 vec![
                     TypeSignature::IntType,
                     TypeSignature::UIntType,
@@ -127,7 +127,7 @@ macro_rules! type_force_binary_comparison_v2 {
                     TypeSignature::STRING_UTF8_MAX,
                     TypeSignature::BUFFER_MAX,
                 ],
-                Box::new(x),
+                Box::new($x.clone_with_cost($e)?),
             )
             .into()),
         }
@@ -202,17 +202,17 @@ macro_rules! type_force_variadic_arithmetic {
 macro_rules! make_comparison_ops {
     ($struct_name: ident, $type:ty) => {
         impl $struct_name {
-            fn greater(x: $type, y: $type) -> Result<Value, VmExecutionError> {
-                Ok(Value::Bool(x > y))
+            fn greater(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
+                Ok(Value::Bool(*x > *y))
             }
-            fn less(x: $type, y: $type) -> Result<Value, VmExecutionError> {
-                Ok(Value::Bool(x < y))
+            fn less(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
+                Ok(Value::Bool(*x < *y))
             }
-            fn leq(x: $type, y: $type) -> Result<Value, VmExecutionError> {
-                Ok(Value::Bool(x <= y))
+            fn leq(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
+                Ok(Value::Bool(*x <= *y))
             }
-            fn geq(x: $type, y: $type) -> Result<Value, VmExecutionError> {
-                Ok(Value::Bool(x >= y))
+            fn geq(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
+                Ok(Value::Bool(*x >= *y))
             }
         }
     };
@@ -395,7 +395,7 @@ fn special_geq_v1(
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
     runtime_cost(ClarityCostFunction::Geq, env, args.len())?;
-    type_force_binary_comparison_v1!(geq, a, b)
+    type_force_binary_comparison_v1!(geq, a, b, env)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -411,9 +411,9 @@ fn special_geq_v2(
     runtime_cost(
         ClarityCostFunction::Geq,
         env,
-        cmp::min(a.size()?, b.size()?),
+        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
     )?;
-    type_force_binary_comparison_v2!(geq, a, b)
+    type_force_binary_comparison_v2!(geq, a, b, env)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -442,7 +442,7 @@ fn special_leq_v1(
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
     runtime_cost(ClarityCostFunction::Leq, env, args.len())?;
-    type_force_binary_comparison_v1!(leq, a, b)
+    type_force_binary_comparison_v1!(leq, a, b, env)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -458,9 +458,9 @@ fn special_leq_v2(
     runtime_cost(
         ClarityCostFunction::Leq,
         env,
-        cmp::min(a.size()?, b.size()?),
+        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
     )?;
-    type_force_binary_comparison_v2!(leq, a, b)
+    type_force_binary_comparison_v2!(leq, a, b, env)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -488,7 +488,7 @@ fn special_greater_v1(
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
     runtime_cost(ClarityCostFunction::Ge, env, args.len())?;
-    type_force_binary_comparison_v1!(greater, a, b)
+    type_force_binary_comparison_v1!(greater, a, b, env)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -501,8 +501,12 @@ fn special_greater_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Ge, env, cmp::min(a.size()?, b.size()?))?;
-    type_force_binary_comparison_v2!(greater, a, b)
+    runtime_cost(
+        ClarityCostFunction::Ge,
+        env,
+        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
+    )?;
+    type_force_binary_comparison_v2!(greater, a, b, env)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -530,7 +534,7 @@ fn special_less_v1(
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
     runtime_cost(ClarityCostFunction::Le, env, args.len())?;
-    type_force_binary_comparison_v1!(less, a, b)
+    type_force_binary_comparison_v1!(less, a, b, env)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -543,8 +547,12 @@ fn special_less_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Le, env, cmp::min(a.size()?, b.size()?))?;
-    type_force_binary_comparison_v2!(less, a, b)
+    runtime_cost(
+        ClarityCostFunction::Le,
+        env,
+        cmp::min(a.as_ref().size()?, b.as_ref().size()?),
+    )?;
+    type_force_binary_comparison_v2!(less, a, b, env)
 }
 
 // This function is 'special', because it must access the context to determine

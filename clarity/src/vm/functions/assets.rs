@@ -97,7 +97,7 @@ pub fn special_stx_balance(
 
     let owner = eval(&args[0], env, context)?;
 
-    if let Value::Principal(ref principal) = owner {
+    if let Value::Principal(principal) = owner.as_ref() {
         let balance = {
             let mut snapshot = env
                 .global_context
@@ -109,7 +109,7 @@ pub fn special_stx_balance(
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(owner),
+            Box::new(owner.clone_with_cost(env)?),
         )
         .into())
     }
@@ -173,13 +173,17 @@ pub fn special_stx_transfer(
     let memo_val = Value::Sequence(SequenceData::Buffer(BuffData::empty()));
 
     if let (
-        Value::Principal(ref from),
-        Value::Principal(ref to),
+        Value::Principal(from),
+        Value::Principal(to),
         Value::UInt(amount),
-        Value::Sequence(SequenceData::Buffer(ref memo)),
-    ) = (from_val, to_val, amount_val, memo_val)
-    {
-        stx_transfer_consolidated(env, from, to, amount, memo)
+        Value::Sequence(SequenceData::Buffer(memo)),
+    ) = (
+        from_val.as_ref(),
+        to_val.as_ref(),
+        amount_val.as_ref(),
+        &memo_val,
+    ) {
+        stx_transfer_consolidated(env, from, to, *amount, memo)
     } else {
         Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into())
     }
@@ -199,13 +203,17 @@ pub fn special_stx_transfer_memo(
     let memo_val = eval(&args[3], env, context)?;
 
     if let (
-        Value::Principal(ref from),
-        Value::Principal(ref to),
+        Value::Principal(from),
+        Value::Principal(to),
         Value::UInt(amount),
-        Value::Sequence(SequenceData::Buffer(ref memo)),
-    ) = (from_val, to_val, amount_val, memo_val)
-    {
-        stx_transfer_consolidated(env, from, to, amount, memo)
+        Value::Sequence(SequenceData::Buffer(memo)),
+    ) = (
+        from_val.as_ref(),
+        to_val.as_ref(),
+        amount_val.as_ref(),
+        memo_val.as_ref(),
+    ) {
+        stx_transfer_consolidated(env, from, to, *amount, memo)
     } else {
         Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into())
     }
@@ -222,12 +230,12 @@ pub fn special_stx_account(
     runtime_cost(ClarityCostFunction::StxGetAccount, env, 0)?;
 
     let owner = eval(&args[0], env, context)?;
-    let principal = if let Value::Principal(p) = owner {
+    let principal = if let Value::Principal(p) = owner.as_ref() {
         p
     } else {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(owner),
+            Box::new(owner.clone_with_cost(env)?),
         )
         .into());
     };
@@ -280,8 +288,9 @@ pub fn special_stx_burn(
     let amount_val = eval(&args[0], env, context)?;
     let from_val = eval(&args[1], env, context)?;
 
-    if let (Value::Principal(from), Value::UInt(amount)) = (&from_val, amount_val) {
-        if amount == 0 {
+    if let (Value::Principal(from), Value::UInt(amount)) = (from_val.as_ref(), amount_val.as_ref())
+    {
+        if *amount == 0 {
             return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
@@ -297,19 +306,19 @@ pub fn special_stx_burn(
         })?)?;
 
         let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(from)?;
-        if !burner_snapshot.can_transfer(amount)? {
+        if !burner_snapshot.can_transfer(*amount)? {
             return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
         }
 
-        burner_snapshot.debit(amount)?;
+        burner_snapshot.debit(*amount)?;
         burner_snapshot.save()?;
 
         env.global_context
             .database
-            .decrement_ustx_liquid_supply(amount)?;
+            .decrement_ustx_liquid_supply(*amount)?;
 
-        env.global_context.log_stx_burn(from, amount)?;
-        env.register_stx_burn_event(from.clone(), amount)?;
+        env.global_context.log_stx_burn(from, *amount)?;
+        env.register_stx_burn_event(from.clone(), *amount)?;
 
         Ok(Value::okay_true())
     } else {
@@ -335,8 +344,8 @@ pub fn special_mint_token(
     let amount = eval(&args[1], env, context)?;
     let to = eval(&args[2], env, context)?;
 
-    if let (Value::UInt(amount), Value::Principal(ref to_principal)) = (amount, to) {
-        if amount == 0 {
+    if let (Value::UInt(amount), Value::Principal(to_principal)) = (amount.as_ref(), to.as_ref()) {
+        if *amount == 0 {
             return clarity_ecode!(MintTokenErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
@@ -347,7 +356,7 @@ pub fn special_mint_token(
         env.global_context.database.checked_increase_token_supply(
             &env.contract_context.contract_identifier,
             token_name,
-            amount,
+            *amount,
             ft_info,
         )?;
 
@@ -359,7 +368,7 @@ pub fn special_mint_token(
         )?;
 
         let final_to_bal = to_bal
-            .checked_add(amount)
+            .checked_add(*amount)
             .ok_or_else(|| VmInternalError::Expect("STX overflow".into()))?;
 
         env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
@@ -376,7 +385,7 @@ pub fn special_mint_token(
             contract_identifier: env.contract_context.contract_identifier.clone(),
             asset_name: token_name.clone(),
         };
-        env.register_ft_mint_event(to_principal.clone(), amount, asset_identifier)?;
+        env.register_ft_mint_event(to_principal.clone(), *amount, asset_identifier)?;
 
         Ok(Value::okay_true())
     } else {
@@ -411,19 +420,19 @@ pub fn special_mint_asset_v200(
         expected_asset_type.size()?,
     )?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type.admits(env.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset),
+            Box::new(asset.clone_with_cost(env)?),
         )
         .into());
     }
 
-    if let Value::Principal(ref to_principal) = to {
+    if let Value::Principal(to_principal) = to.as_ref() {
         match env.global_context.database.get_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             expected_asset_type,
         ) {
             Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => Ok(()),
@@ -438,7 +447,7 @@ pub fn special_mint_asset_v200(
         env.global_context.database.set_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             to_principal,
             expected_asset_type,
             &epoch,
@@ -448,13 +457,14 @@ pub fn special_mint_asset_v200(
             contract_identifier: env.contract_context.contract_identifier.clone(),
             asset_name: asset_name.clone(),
         };
+        let asset = asset.clone_with_cost(env)?;
         env.register_nft_mint_event(to_principal.clone(), asset, asset_identifier)?;
 
         Ok(Value::okay_true())
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(to),
+            Box::new(to.clone_with_cost(env)?),
         )
         .into())
     }
@@ -484,23 +494,24 @@ pub fn special_mint_asset_v205(
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
+        .as_ref()
         .serialized_size()
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftMint, env, asset_size)?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type.admits(env.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset),
+            Box::new(asset.clone_with_cost(env)?),
         )
         .into());
     }
 
-    if let Value::Principal(ref to_principal) = to {
+    if let Value::Principal(to_principal) = to.as_ref() {
         match env.global_context.database.get_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             expected_asset_type,
         ) {
             Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => Ok(()),
@@ -515,7 +526,7 @@ pub fn special_mint_asset_v205(
         env.global_context.database.set_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             to_principal,
             expected_asset_type,
             &epoch,
@@ -525,13 +536,14 @@ pub fn special_mint_asset_v205(
             contract_identifier: env.contract_context.contract_identifier.clone(),
             asset_name: asset_name.clone(),
         };
+        let asset = asset.clone_with_cost(env)?;
         env.register_nft_mint_event(to_principal.clone(), asset, asset_identifier)?;
 
         Ok(Value::okay_true())
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(to),
+            Box::new(to.clone_with_cost(env)?),
         )
         .into())
     }
@@ -565,15 +577,17 @@ pub fn special_transfer_asset_v200(
         expected_asset_type.size()?,
     )?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type.admits(env.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset),
+            Box::new(asset.clone_with_cost(env)?),
         )
         .into());
     }
 
-    if let (Value::Principal(ref from_principal), Value::Principal(ref to_principal)) = (from, to) {
+    if let (Value::Principal(from_principal), Value::Principal(to_principal)) =
+        (from.as_ref(), to.as_ref())
+    {
         if from_principal == to_principal {
             return clarity_ecode!(TransferAssetErrorCodes::SENDER_IS_RECIPIENT);
         }
@@ -581,7 +595,7 @@ pub fn special_transfer_asset_v200(
         let current_owner = match env.global_context.database.get_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             expected_asset_type,
         ) {
             Ok(owner) => Ok(owner),
@@ -602,16 +616,18 @@ pub fn special_transfer_asset_v200(
         env.global_context.database.set_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             to_principal,
             expected_asset_type,
             &epoch,
         )?;
 
+        let asset = asset.clone_with_cost(env)?;
         env.global_context.log_asset_transfer(
             from_principal,
             &env.contract_context.contract_identifier,
             asset_name,
+            // TODO: why is this not charged for?
             asset.clone(),
         )?;
 
@@ -657,19 +673,22 @@ pub fn special_transfer_asset_v205(
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
+        .as_ref()
         .serialized_size()
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type.admits(env.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset),
+            Box::new(asset.clone_with_cost(env)?),
         )
         .into());
     }
 
-    if let (Value::Principal(ref from_principal), Value::Principal(ref to_principal)) = (from, to) {
+    if let (Value::Principal(from_principal), Value::Principal(to_principal)) =
+        (from.as_ref(), to.as_ref())
+    {
         if from_principal == to_principal {
             return clarity_ecode!(TransferAssetErrorCodes::SENDER_IS_RECIPIENT);
         }
@@ -677,7 +696,7 @@ pub fn special_transfer_asset_v205(
         let current_owner = match env.global_context.database.get_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             expected_asset_type,
         ) {
             Ok(owner) => Ok(owner),
@@ -698,16 +717,18 @@ pub fn special_transfer_asset_v205(
         env.global_context.database.set_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             to_principal,
             expected_asset_type,
             &epoch,
         )?;
 
+        let asset = asset.clone_with_cost(env)?;
         env.global_context.log_asset_transfer(
             from_principal,
             &env.contract_context.contract_identifier,
             asset_name,
+            // TODO: why is this not charged for?
             asset.clone(),
         )?;
 
@@ -747,13 +768,10 @@ pub fn special_transfer_token(
     let from = eval(&args[2], env, context)?;
     let to = eval(&args[3], env, context)?;
 
-    if let (
-        Value::UInt(amount),
-        Value::Principal(ref from_principal),
-        Value::Principal(ref to_principal),
-    ) = (amount, from, to)
+    if let (Value::UInt(amount), Value::Principal(from_principal), Value::Principal(to_principal)) =
+        (amount.as_ref(), from.as_ref(), to.as_ref())
     {
-        if amount == 0 {
+        if *amount == 0 {
             return clarity_ecode!(TransferTokenErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
@@ -772,11 +790,11 @@ pub fn special_transfer_token(
             Some(ft_info),
         )?;
 
-        if from_bal < amount {
+        if from_bal < *amount {
             return clarity_ecode!(TransferTokenErrorCodes::NOT_ENOUGH_BALANCE);
         }
 
-        let final_from_bal = from_bal - amount;
+        let final_from_bal = from_bal - *amount;
 
         let to_bal = env.global_context.database.get_ft_balance(
             &env.contract_context.contract_identifier,
@@ -788,7 +806,7 @@ pub fn special_transfer_token(
         // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
         // - the total liquid ustx supply will overflow before such an overflowing transfer is allowed.
         let final_to_bal = to_bal
-            .checked_add(amount)
+            .checked_add(*amount)
             .ok_or(RuntimeError::ArithmeticOverflow)?;
 
         env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
@@ -813,7 +831,7 @@ pub fn special_transfer_token(
             from_principal,
             &env.contract_context.contract_identifier,
             token_name,
-            amount,
+            *amount,
         )?;
 
         let asset_identifier = AssetIdentifier {
@@ -823,7 +841,7 @@ pub fn special_transfer_token(
         env.register_ft_transfer_event(
             from_principal.clone(),
             to_principal.clone(),
-            amount,
+            *amount,
             asset_identifier,
         )?;
 
@@ -850,7 +868,7 @@ pub fn special_get_balance(
 
     let owner = eval(&args[1], env, context)?;
 
-    if let Value::Principal(ref principal) = owner {
+    if let Value::Principal(principal) = owner.as_ref() {
         let ft_info = env.contract_context.meta_ft.get(token_name).ok_or(
             RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such FT: {token_name}")),
         )?;
@@ -865,7 +883,7 @@ pub fn special_get_balance(
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(owner),
+            Box::new(owner.clone_with_cost(env)?),
         )
         .into())
     }
@@ -897,10 +915,10 @@ pub fn special_get_owner_v200(
         expected_asset_type.size()?,
     )?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type.admits(env.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset),
+            Box::new(asset.clone_with_cost(env)?),
         )
         .into());
     }
@@ -908,7 +926,7 @@ pub fn special_get_owner_v200(
     match env.global_context.database.get_nft_owner(
         &env.contract_context.contract_identifier,
         asset_name,
-        &asset,
+        asset.as_ref(),
         expected_asset_type,
     ) {
         Ok(owner) => Ok(Value::some(Value::Principal(owner)).map_err(|_| {
@@ -942,14 +960,15 @@ pub fn special_get_owner_v205(
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
+        .as_ref()
         .serialized_size()
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftOwner, env, asset_size)?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type.admits(env.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset),
+            Box::new(asset.clone_with_cost(env)?),
         )
         .into());
     }
@@ -957,7 +976,7 @@ pub fn special_get_owner_v205(
     match env.global_context.database.get_nft_owner(
         &env.contract_context.contract_identifier,
         asset_name,
-        &asset,
+        asset.as_ref(),
         expected_asset_type,
     ) {
         Ok(owner) => Ok(Value::some(Value::Principal(owner)).map_err(|_| {
@@ -1008,8 +1027,8 @@ pub fn special_burn_token(
     let amount = eval(&args[1], env, context)?;
     let from = eval(&args[2], env, context)?;
 
-    if let (Value::UInt(amount), Value::Principal(ref burner)) = (amount, from) {
-        if amount == 0 {
+    if let (Value::UInt(amount), Value::Principal(burner)) = (amount.as_ref(), from.as_ref()) {
+        if *amount == 0 {
             return clarity_ecode!(BurnTokenErrorCodes::NOT_ENOUGH_BALANCE_OR_NON_POSITIVE);
         }
 
@@ -1020,14 +1039,14 @@ pub fn special_burn_token(
             None,
         )?;
 
-        if amount > burner_bal {
+        if *amount > burner_bal {
             return clarity_ecode!(BurnTokenErrorCodes::NOT_ENOUGH_BALANCE_OR_NON_POSITIVE);
         }
 
         env.global_context.database.checked_decrease_token_supply(
             &env.contract_context.contract_identifier,
             token_name,
-            amount,
+            *amount,
         )?;
 
         let final_burner_bal = burner_bal - amount;
@@ -1043,7 +1062,7 @@ pub fn special_burn_token(
             contract_identifier: env.contract_context.contract_identifier.clone(),
             asset_name: token_name.clone(),
         };
-        env.register_ft_burn_event(burner.clone(), amount, asset_identifier)?;
+        env.register_ft_burn_event(burner.clone(), *amount, asset_identifier)?;
 
         env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
         env.add_memory(TypeSignature::UIntType.size()?.into())?;
@@ -1052,7 +1071,7 @@ pub fn special_burn_token(
             burner,
             &env.contract_context.contract_identifier,
             token_name,
-            amount,
+            *amount,
         )?;
 
         Ok(Value::okay_true())
@@ -1090,19 +1109,19 @@ pub fn special_burn_asset_v200(
         expected_asset_type.size()?,
     )?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type.admits(env.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset),
+            Box::new(asset.clone_with_cost(env)?),
         )
         .into());
     }
 
-    if let Value::Principal(ref sender_principal) = sender {
+    if let Value::Principal(sender_principal) = sender.as_ref() {
         let owner = match env.global_context.database.get_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             expected_asset_type,
         ) {
             Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
@@ -1123,15 +1142,17 @@ pub fn special_burn_asset_v200(
         env.global_context.database.burn_nft(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             expected_asset_type,
             &epoch,
         )?;
 
+        let asset = asset.clone_with_cost(env)?;
         env.global_context.log_asset_transfer(
             sender_principal,
             &env.contract_context.contract_identifier,
             asset_name,
+            // TODO: why is this not charged for?
             asset.clone(),
         )?;
 
@@ -1145,7 +1166,7 @@ pub fn special_burn_asset_v200(
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(sender),
+            Box::new(sender.clone_with_cost(env)?),
         )
         .into())
     }
@@ -1177,23 +1198,24 @@ pub fn special_burn_asset_v205(
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
+        .as_ref()
         .serialized_size()
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftBurn, env, asset_size)?;
 
-    if !expected_asset_type.admits(env.epoch(), &asset)? {
+    if !expected_asset_type.admits(env.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset),
+            Box::new(asset.clone_with_cost(env)?),
         )
         .into());
     }
 
-    if let Value::Principal(ref sender_principal) = sender {
+    if let Value::Principal(sender_principal) = sender.as_ref() {
         let owner = match env.global_context.database.get_nft_owner(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             expected_asset_type,
         ) {
             Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
@@ -1214,15 +1236,17 @@ pub fn special_burn_asset_v205(
         env.global_context.database.burn_nft(
             &env.contract_context.contract_identifier,
             asset_name,
-            &asset,
+            asset.as_ref(),
             expected_asset_type,
             &epoch,
         )?;
 
+        let asset = asset.clone_with_cost(env)?;
         env.global_context.log_asset_transfer(
             sender_principal,
             &env.contract_context.contract_identifier,
             asset_name,
+            // TODO: why is this clone not charged for?
             asset.clone(),
         )?;
 
@@ -1236,7 +1260,7 @@ pub fn special_burn_asset_v205(
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(sender),
+            Box::new(sender.clone_with_cost(env)?),
         )
         .into())
     }

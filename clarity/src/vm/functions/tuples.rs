@@ -57,7 +57,7 @@ pub fn tuple_get(
 
     let value = eval(&args[1], env, context)?;
 
-    match value {
+    match value.clone_with_cost(env)? {
         Value::Optional(opt_data) => {
             match opt_data.data {
                 Some(data) => {
@@ -83,9 +83,9 @@ pub fn tuple_get(
             runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
             Ok(tuple_data.get_owned(arg_name)?)
         }
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        other_value => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
             "Expected tuple: {}",
-            TypeSignature::type_of(&value)?
+            TypeSignature::type_of(&other_value)?
         ))
         .into()),
     }

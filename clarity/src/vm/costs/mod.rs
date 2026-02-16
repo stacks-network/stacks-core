@@ -41,7 +41,9 @@ use crate::vm::types::signatures::TupleTypeSignature;
 use crate::vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
 };
-use crate::vm::{CallStack, ClarityName, Environment, LocalContext, SymbolicExpression, Value};
+use crate::vm::{
+    CallStack, ClarityName, Environment, LocalContext, SymbolicExpression, Value, ValueRef,
+};
 pub mod constants;
 pub mod cost_functions;
 #[allow(unused_variables)]
@@ -1050,47 +1052,51 @@ impl LimitedCostTracker {
 
 pub fn parse_cost(
     cost_function_name: &str,
-    eval_result: Result<Option<Value>, VmExecutionError>,
+    eval_result: Result<Option<ValueRef<'_>>, VmExecutionError>,
 ) -> Result<ExecutionCost, CostErrors> {
-    match eval_result {
-        Ok(Some(Value::Tuple(data))) => {
-            let results = (
-                data.data_map.get("write_length"),
-                data.data_map.get("write_count"),
-                data.data_map.get("runtime"),
-                data.data_map.get("read_length"),
-                data.data_map.get("read_count"),
-            );
+    let val = eval_result
+        .map_err(|e| {
+            CostErrors::CostComputationFailed(format!(
+                "Error evaluating result of cost function {cost_function_name}: {e}"
+            ))
+        })?
+        .ok_or_else(|| {
+            CostErrors::CostComputationFailed(format!(
+                "Clarity cost function {cost_function_name} returned nothing"
+            ))
+        })?;
 
-            match results {
-                (
-                    Some(UInt(write_length)),
-                    Some(UInt(write_count)),
-                    Some(UInt(runtime)),
-                    Some(UInt(read_length)),
-                    Some(UInt(read_count)),
-                ) => Ok(ExecutionCost {
-                    write_length: (*write_length).try_into().unwrap_or(u64::MAX),
-                    write_count: (*write_count).try_into().unwrap_or(u64::MAX),
-                    runtime: (*runtime).try_into().unwrap_or(u64::MAX),
-                    read_length: (*read_length).try_into().unwrap_or(u64::MAX),
-                    read_count: (*read_count).try_into().unwrap_or(u64::MAX),
-                }),
-                _ => Err(CostErrors::CostComputationFailed(
-                    "Execution Cost tuple does not contain only UInts".to_string(),
-                )),
-            }
-        }
-        Ok(Some(_)) => Err(CostErrors::CostComputationFailed(
+    let Value::Tuple(data) = val.as_ref() else {
+        return Err(CostErrors::CostComputationFailed(
             "Clarity cost function returned something other than a Cost tuple".to_string(),
-        )),
-        Ok(None) => Err(CostErrors::CostComputationFailed(
-            "Clarity cost function returned nothing".to_string(),
-        )),
-        Err(e) => Err(CostErrors::CostComputationFailed(format!(
-            "Error evaluating result of cost function {cost_function_name}: {e}"
-        ))),
-    }
+        ));
+    };
+
+    let (
+        Some(UInt(write_length)),
+        Some(UInt(write_count)),
+        Some(UInt(runtime)),
+        Some(UInt(read_length)),
+        Some(UInt(read_count)),
+    ) = (
+        data.data_map.get("write_length"),
+        data.data_map.get("write_count"),
+        data.data_map.get("runtime"),
+        data.data_map.get("read_length"),
+        data.data_map.get("read_count"),
+    )
+    else {
+        return Err(CostErrors::CostComputationFailed(
+            "Execution Cost tuple does not contain only UInts".to_string(),
+        ));
+    };
+    Ok(ExecutionCost {
+        write_length: (*write_length).try_into().unwrap_or(u64::MAX),
+        write_count: (*write_count).try_into().unwrap_or(u64::MAX),
+        runtime: (*runtime).try_into().unwrap_or(u64::MAX),
+        read_length: (*read_length).try_into().unwrap_or(u64::MAX),
+        read_count: (*read_count).try_into().unwrap_or(u64::MAX),
+    })
 }
 
 // TODO: add tests from mutation testing results #4832
@@ -1130,9 +1136,9 @@ pub fn compute_cost(
         )));
     }
 
+    let context = LocalContext::new();
     let function_invocation = SymbolicExpression::list(program);
     let eval_result = global_context.execute(|global_context| {
-        let context = LocalContext::new();
         let mut call_stack = CallStack::new();
         let publisher: PrincipalData = cost_contract.contract_identifier.issuer.clone().into();
         let mut env = Environment::new(

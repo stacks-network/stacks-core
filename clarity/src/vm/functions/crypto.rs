@@ -104,21 +104,12 @@ pub fn special_principal_of(
     runtime_cost(ClarityCostFunction::PrincipalOf, env, 0)?;
 
     let param0 = eval(&args[0], env, context)?;
-    let pub_key = match param0 {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
-            if data.len() != 33 {
-                return Err(RuntimeCheckErrorKind::TypeValueError(
-                    Box::new(TypeSignature::BUFFER_33),
-                    Box::new(param0),
-                )
-                .into());
-            }
-            data
-        }
+    let pub_key = match param0.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
-                Box::new(param0),
+                Box::new(param0.clone_with_cost(env)?),
             )
             .into());
         }
@@ -152,33 +143,24 @@ pub fn special_secp256k1_recover(
     runtime_cost(ClarityCostFunction::Secp256k1recover, env, 0)?;
 
     let param0 = eval(&args[0], env, context)?;
-    let message = match param0 {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
-            if data.len() != 32 {
-                return Err(RuntimeCheckErrorKind::TypeValueError(
-                    Box::new(TypeSignature::BUFFER_32),
-                    Box::new(param0),
-                )
-                .into());
-            }
-            data
-        }
+    let message = match param0.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 32 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(param0),
+                Box::new(param0.clone_with_cost(env)?),
             )
             .into());
         }
     };
 
     let param1 = eval(&args[1], env, context)?;
-    let signature = match param1 {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+    let signature = match param1.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() > 65 {
                 return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_65),
-                    Box::new(param1),
+                    Box::new(param1.clone_with_cost(env)?),
                 )
                 .into());
             }
@@ -190,7 +172,7 @@ pub fn special_secp256k1_recover(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_65),
-                Box::new(param1),
+                Box::new(param1.clone_with_cost(env)?),
             )
             .into());
         }
@@ -218,33 +200,24 @@ pub fn special_secp256k1_verify(
     runtime_cost(ClarityCostFunction::Secp256k1verify, env, 0)?;
 
     let param0 = eval(&args[0], env, context)?;
-    let message = match param0 {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
-            if data.len() != 32 {
-                return Err(RuntimeCheckErrorKind::TypeValueError(
-                    Box::new(TypeSignature::BUFFER_32),
-                    Box::new(param0),
-                )
-                .into());
-            }
-            data
-        }
+    let message = match param0.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 32 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(param0),
+                Box::new(param0.clone_with_cost(env)?),
             )
             .into());
         }
     };
 
     let param1 = eval(&args[1], env, context)?;
-    let signature = match param1 {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+    let signature = match param1.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() > 65 {
                 return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_65),
-                    Box::new(param1),
+                    Box::new(param1.clone_with_cost(env)?),
                 )
                 .into());
             }
@@ -259,28 +232,19 @@ pub fn special_secp256k1_verify(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_65),
-                Box::new(param1),
+                Box::new(param1.clone_with_cost(env)?),
             )
             .into());
         }
     };
 
     let param2 = eval(&args[2], env, context)?;
-    let pubkey = match param2 {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
-            if data.len() != 33 {
-                return Err(RuntimeCheckErrorKind::TypeValueError(
-                    Box::new(TypeSignature::BUFFER_33),
-                    Box::new(param2),
-                )
-                .into());
-            }
-            data
-        }
+    let pubkey = match param2.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
-                Box::new(param2),
+                Box::new(param2.clone_with_cost(env)?),
             )
             .into());
         }
@@ -306,21 +270,12 @@ pub fn special_secp256r1_verify(
         .first()
         .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(0, 3))?;
     let message_value = eval(arg0, env, context)?;
-    let message = match message_value {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
-            if data.len() != 32 {
-                return Err(RuntimeCheckErrorKind::TypeValueError(
-                    Box::new(TypeSignature::BUFFER_32),
-                    Box::new(message_value),
-                )
-                .into());
-            }
-            data
-        }
+    let message = match message_value.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 32 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(message_value),
+                Box::new(message_value.clone_with_cost(env)?),
             )
             .into());
         }
@@ -330,15 +285,8 @@ pub fn special_secp256r1_verify(
         .get(1)
         .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 3))?;
     let signature_value = eval(arg1, env, context)?;
-    let signature = match signature_value {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
-            if data.len() > 64 {
-                return Err(RuntimeCheckErrorKind::TypeValueError(
-                    Box::new(TypeSignature::BUFFER_64),
-                    Box::new(signature_value),
-                )
-                .into());
-            }
+    let signature = match signature_value.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() <= 64 => {
             if data.len() != 64 {
                 return Ok(Value::Bool(false));
             }
@@ -347,7 +295,7 @@ pub fn special_secp256r1_verify(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_64),
-                Box::new(signature_value),
+                Box::new(signature_value.clone_with_cost(env)?),
             )
             .into());
         }
@@ -357,21 +305,12 @@ pub fn special_secp256r1_verify(
         .get(2)
         .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3))?;
     let pubkey_value = eval(arg2, env, context)?;
-    let pubkey = match pubkey_value {
-        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
-            if data.len() != 33 {
-                return Err(RuntimeCheckErrorKind::TypeValueError(
-                    Box::new(TypeSignature::BUFFER_33),
-                    Box::new(pubkey_value),
-                )
-                .into());
-            }
-            data
-        }
+    let pubkey = match pubkey_value.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
-                Box::new(pubkey_value),
+                Box::new(pubkey_value.clone_with_cost(env)?),
             )
             .into());
         }

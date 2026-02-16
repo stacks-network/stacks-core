@@ -1041,6 +1041,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             );
             let local_context = LocalContext::new();
             eval(&parsed[0], &mut nested_env, &local_context)
+                .and_then(|value| value.clone_with_cost(&mut nested_env))
         }
         .map_err(ClarityEvalError::from);
 
@@ -1053,7 +1054,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         let parsed =
             self.parse_nonempty_program(&QualifiedContractIdentifier::transient(), program)?;
         let local_context = LocalContext::new();
-        eval(&parsed[0], self, &local_context).map_err(ClarityEvalError::from)
+        eval(&parsed[0], self, &local_context)
+            .and_then(|value| value.clone_with_cost(self))
+            .map_err(ClarityEvalError::from)
     }
 
     /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
@@ -1275,7 +1278,8 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             .database
             .set_block_hash(bhh, false)
             .and_then(|prior_bhh| {
-                let result = eval(closure, self, local);
+                let result =
+                    eval(closure, self, local).and_then(|value| value.clone_with_cost(self));
                 self.global_context
                     .database
                     .set_block_hash(prior_bhh, true)
@@ -1468,16 +1472,17 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     ) -> StacksTransactionEvent {
         let print_event = SmartContractEventData {
             key: (contract_id.clone(), "print".to_string()),
+            // TODO: why isn't this charged for?
             value: value.clone(),
         };
 
         StacksTransactionEvent::SmartContractEvent(print_event)
     }
 
-    pub fn register_print_event(&mut self, value: Value) -> Result<(), VmExecutionError> {
+    pub fn register_print_event(&mut self, value: &Value) -> Result<(), VmExecutionError> {
         let event = Self::construct_print_transaction_event(
             &self.contract_context.contract_identifier,
-            &value,
+            value,
         );
 
         self.push_to_event_batch(event)?;
