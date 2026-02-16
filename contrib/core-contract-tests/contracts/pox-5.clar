@@ -55,7 +55,7 @@
 (define-data-var configured bool false)
 (define-data-var first-pox-4-reward-cycle uint u0)
 
-(define-map stacking-state
+(define-map staking-state
     principal
     {
         l1-script-hash: (buff 34),
@@ -103,7 +103,7 @@
 )
 
 (define-read-only (get-stacker-info (stacker principal))
-    (map-get? stacking-state stacker)
+    (map-get? staking-state stacker)
 )
 
 ;;; Lock script helpers
@@ -196,7 +196,7 @@
 
         (try! (add-stacker-to-set tx-sender))
 
-        (map-set stacking-state tx-sender {
+        (map-set staking-state tx-sender {
             signer-key: signer-key,
             amount-ustx: amount-ustx,
             pox-addr: pox-addr,

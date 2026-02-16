@@ -3882,8 +3882,8 @@ export const contracts = {
           prev: string | null;
         }
       >,
-      stackingState: {
-        name: 'stacking-state',
+      stakingState: {
+        name: 'staking-state',
         key: 'principal',
         value: {
           tuple: [
