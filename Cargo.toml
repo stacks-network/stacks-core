@@ -11,6 +11,8 @@ members = [
     "libsigner",
     "stacks-signer",
     "stacks-node",
+    "stacks-profiler",
+    "stacks-profiler-macros",
     "contrib/stacks-inspect",
     "contrib/clarity-cli",
     "contrib/stacks-cli"
@@ -18,8 +20,12 @@ members = [
 
 exclude = ["contrib/tools/config-docs-generator"]
 
-# Dependencies we want to keep the same between workspace members
 [workspace.dependencies]
+# Local dependencies
+stacks-profiler = { path = "stacks-profiler" }
+stacks-profiler-macros = { path = "stacks-profiler-macros" }
+
+# Dependencies we want to keep the same between workspace members
 ed25519-dalek = { version = "2.1.1", default-features = false }
 hashbrown = { version = "0.15.2", features = ["serde"] }
 lazy_static = "1.4.0"
@@ -34,6 +40,19 @@ rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", 
 tikv-jemallocator = "0.5.4"
 thiserror = "1.0.65"
 toml = "0.5.6"
+
+# Other dependencies
+libc = { version = "0.2.182", default-features = false }
+rapidhash = { version = "4.3.0", default-features = false, features = ["std"] }
+
+# Benchmarking dependencies
+criterion = { version = "0.8.2", default-features = false, features = ["html_reports"] }
+
+# Procedural macro dependencies
+syn = { version = "2.0.115", default-features = false, features = ["full", "extra-traits"] }
+quote = { version = "1.0.44", default-features = false, features = ["proc-macro"] }
+proc-macro2 = { version = "1.0.106", default-features = false, features = ["proc-macro", "span-locations"] }
+darling = { version = "0.23.0", default-features = false, features = ["suggestions"] }
 
 # Use a bit more than default optimization for
 # dev builds to speed up test execution
