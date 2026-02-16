@@ -1,6 +1,12 @@
-(define-constant ERR_STACKING_ALREADY_STACKED (err u1))
-(define-constant ERR_NOT_STACKED (err u2))
+;; The caller is already staked
+(define-constant ERR_ALREADY_STAKED (err u1))
+(define-constant ERR_NOT_STAKED (err u2))
 (define-constant ERR_INVALID_UNLOCK_BYTES_LENGTH (err u3))
+(define-constant ERR_INSUFFICIENT_FUNDS (err u4))
+;; The unlock height bytes are invalid
+(define-constant ERR_INVALID_UNLOCK_HEIGHT_BYTES_LENGTH (err u5))
+;; The unlock height is too soon
+(define-constant ERR_INVALID_UNLOCK_HEIGHT_TOO_SOON (err u6))
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -40,15 +46,6 @@
     u1050
 ))
 
-;; Stacking thresholds
-(define-constant STACKING_THRESHOLD_25 (if is-in-mainnet
-    u20000
-    u8000
-))
-
-;; SIP18 message prefix
-(define-constant SIP018_MSG_PREFIX 0x534950303138)
-
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
@@ -61,9 +58,13 @@
 (define-map stacking-state
     principal
     {
-        l1-script-hash: (optional (buff 32)),
+        l1-script-hash: (buff 34),
+        signer-key: (buff 33),
         amount-ustx: uint,
-        amount-sbtc: uint,
+        pox-addr: {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        },
     }
 )
 
@@ -99,6 +100,10 @@
 ;; What's the current PoX reward cycle?
 (define-read-only (current-pox-reward-cycle)
     (burn-height-to-reward-cycle burn-block-height)
+)
+
+(define-read-only (get-stacker-info (stacker principal))
+    (map-get? stacking-state stacker)
 )
 
 ;;; Lock script helpers
@@ -146,25 +151,26 @@
 
 ;;; Public functions
 
-(define-public (stack-stx
+(define-public (stake-stx
         (amount-ustx uint)
         (pox-addr {
             version: (buff 1),
             hashbytes: (buff 32),
         })
         (start-burn-ht uint)
-        (lock-period uint)
         (signer-sig (optional (buff 65)))
         (signer-key (buff 33))
         (max-amount uint)
         (auth-id uint)
-        (l1-script-hash (buff 32))
-        (amount-sbtc uint)
+        (unlock-height-bytes (buff 3))
+        (unlock-bytes (buff 255))
     )
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let (
             (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
             (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
+            (unlock-script-hash (construct-output-script tx-sender unlock-height-bytes unlock-bytes))
+            (unlock-height (buff-to-uint-le unlock-height-bytes))
         )
         ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
         ;;  to "post-date" their `stack-stx` transaction
@@ -172,20 +178,15 @@
         ;;           (err ERR_INVALID_START_BURN_HEIGHT))
 
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
-        ;; (asserts! (check-caller-allowed)
-        ;;           (err ERR_STACKING_PERMISSION_DENIED))
+        ;; (asserts! (check-caller-allowed) (err ERR_STACKING_PERMISSION_DENIED))
 
         ;;;;  tx-sender principal must not be stacking
-        ;; (asserts! (is-none (get-stacker-info tx-sender))
-        ;;   (err ERR_STACKING_ALREADY_STACKED))
-
-        ;;;;  tx-sender must not be delegating
-        ;; (asserts! (is-none (get-check-delegation tx-sender))
-        ;;   (err ERR_STACKING_ALREADY_DELEGATED))
+        (asserts! (is-none (get-stacker-info tx-sender)) ERR_ALREADY_STAKED)
 
         ;;;;  the Stacker must have sufficient unlocked funds
-        ;; (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
-        ;;   (err ERR_STACKING_INSUFFICIENT_FUNDS))
+        (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
+            ERR_INSUFFICIENT_FUNDS
+        )
 
         ;;;;  Validate ownership of the given signer key
         ;; (try! (consume-signer-key-authorization pox-addr (- first-reward-cycle u1) "stack-stx" lock-period signer-sig signer-key amount-ustx max-amount auth-id))
@@ -193,11 +194,21 @@
         ;;;;  ensure that stacking can be performed
         ;; (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
 
+        (try! (add-stacker-to-set tx-sender))
+
+        (map-set stacking-state tx-sender {
+            signer-key: signer-key,
+            amount-ustx: amount-ustx,
+            pox-addr: pox-addr,
+            l1-script-hash: unlock-script-hash,
+        })
+
         (ok {
             stacker: tx-sender,
-            l1-script-hash: l1-script-hash,
+            pox-addr: pox-addr,
+            l1-script-hash: unlock-script-hash,
+            unlock-height: unlock-height,
             amount-ustx: amount-ustx,
-            amount-sbtc: amount-sbtc,
         })
     )
 )
@@ -241,7 +252,7 @@
         )
         ;; Todo: remove this and guard in a higher-level fn
         (asserts! (not (is-some (map-get? stacker-set-ll stacker)))
-            (err ERR_STACKING_ALREADY_STACKED)
+            ERR_ALREADY_STAKED
         )
 
         (match last-item
@@ -274,7 +285,7 @@
     (let (
             (first-item (var-get stacker-set-ll-first))
             (last-item (var-get stacker-set-ll-last))
-            (node (unwrap! (map-get? stacker-set-ll stacker) (err ERR_NOT_STACKED)))
+            (node (unwrap! (map-get? stacker-set-ll stacker) (err ERR_NOT_STAKED)))
             (prev-item (get prev node))
             (next-item (get next node))
         )

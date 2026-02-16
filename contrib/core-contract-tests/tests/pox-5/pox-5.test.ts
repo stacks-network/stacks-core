@@ -6,6 +6,7 @@ import { randomStacksAddress } from '../test-helpers';
 import { hex } from '@scure/base';
 import * as BTC from '@scure/btc-signer';
 import { serializeLockupScript } from './pox-5-helpers';
+import { randomBytes } from '@stacks/transactions';
 
 const contracts = projectFactory(project, 'simnet');
 const contract = contracts.pox5;
@@ -22,6 +23,12 @@ function getAllStackers() {
     cur = item;
   }
   return stackers;
+}
+
+function getAllStackerInfos() {
+  return getAllStackers()
+    .map((stacker) => rov(contract.getStackerInfo(stacker)))
+    .filter((info) => info !== null);
 }
 
 describe('linked list', () => {
@@ -104,7 +111,7 @@ describe('linked list', () => {
       contract.addStackerToSet(stackers[0]!),
       accounts.deployer.address,
     );
-    expect(result.value).toEqual(errorCodes.ERR_STACKING_ALREADY_STACKED);
+    expect(result.value).toEqual(errorCodes.ERR_ALREADY_STAKED);
   });
 
   test('cannot remove a stacker that is not in the linked list', () => {
@@ -112,7 +119,7 @@ describe('linked list', () => {
       contract.removeStackerFromSet(stackers[0]!),
       accounts.deployer.address,
     );
-    expect(result.value).toEqual(errorCodes.ERR_NOT_STACKED);
+    expect(result.value).toEqual(errorCodes.ERR_NOT_STAKED);
   });
 });
 
@@ -143,5 +150,47 @@ describe('constructing lockup scripts', () => {
       }),
     );
     expect(hex.encode(lockupScript)).toStrictEqual(hex.encode(lockupScriptJs));
+  });
+});
+
+describe('basic staking', () => {
+  test('adds stacker to the linked list', () => {
+    const stacker = accounts.wallet_1.address;
+    const unlockBurnHeight = 1_000_000n;
+    const unlockBytes = randomBytes(255);
+    const signerKey = randomBytes(33);
+    const result = txOk(
+      contract.stakeStx({
+        amountUstx: 1000000,
+        poxAddr: {
+          version: Uint8Array.from([0x01]),
+          hashbytes: randomBytes(20),
+        },
+        signerKey,
+        maxAmount: 1000000,
+        authId: 0,
+        signerSig: randomBytes(65),
+        startBurnHt: 1000000,
+        unlockHeightBytes: BTC.ScriptNum().encode(unlockBurnHeight),
+        unlockBytes,
+      }),
+      stacker,
+    );
+    expect(result.value.unlockHeight).toBe(unlockBurnHeight);
+    const allStackers = getAllStackerInfos();
+    expect(allStackers).toHaveLength(1);
+    const info = allStackers[0];
+    expect(info.amountUstx).toBe(1000000n);
+    expect(info.poxAddr.version).toStrictEqual(Uint8Array.from([0x01]));
+    expect(info.signerKey).toStrictEqual(signerKey);
+
+    const expectedL1Script = rov(
+      contract.constructOutputScript(
+        stacker,
+        BTC.ScriptNum().encode(unlockBurnHeight),
+        unlockBytes,
+      ),
+    );
+    expect(info.l1ScriptHash).toStrictEqual(expectedL1Script);
   });
 });
