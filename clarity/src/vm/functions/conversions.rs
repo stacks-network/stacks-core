@@ -353,6 +353,9 @@ pub fn from_consensus_buff(
     ) {
         Ok(value) => value,
         Err(SerializationError::UnexpectedSerialization) => {
+            if env.epoch().treats_unexpected_serialization_as_none() {
+                return Ok(Value::none());
+            }
             return Err(
                 RuntimeCheckErrorKind::ExpectsRejectable("UnexpectedSerialization".into()).into(),
             );

@@ -225,7 +225,7 @@ fn special_match_resp(
     }
 }
 
-pub fn special_match<'a>(
+pub fn special_match(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,

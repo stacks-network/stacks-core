@@ -243,7 +243,7 @@ pub fn special_stx_account(
     let stx_balance = env
         .global_context
         .database
-        .get_stx_balance_snapshot(&principal)?
+        .get_stx_balance_snapshot(principal)?
         .canonical_balance_repr()?;
     let v1_unlock_ht = env.global_context.database.get_v1_unlock_height();
     let v2_unlock_ht = env.global_context.database.get_v2_unlock_height()?;

@@ -217,7 +217,7 @@ fn test_cost_balance_exceeded() {
 
 /// ParserError: [`ParseErrorKind::ExpressionStackDepthTooDeep`]
 /// Caused by: nested contract body exceeding stack depth limit on parsing tuples
-/// Outcome: block rejected
+/// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn test_stack_depth_too_deep_case_1_tuple_only_parsing() {
     contract_deploy_consensus_test!(
@@ -235,7 +235,7 @@ fn test_stack_depth_too_deep_case_1_tuple_only_parsing() {
 
 /// ParserError: [`ParseErrorKind::ExpressionStackDepthTooDeep`]
 /// Caused by: nested contract body exceeding stack depth limit on parsing lists
-/// Outcome: block rejected
+/// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn test_stack_depth_too_deep_case_2_list_only_parsing() {
     contract_deploy_consensus_test!(
@@ -252,7 +252,7 @@ fn test_stack_depth_too_deep_case_2_list_only_parsing() {
 
 /// ParserError: [`ParseErrorKind::ExpressionStackDepthTooDeep`]
 /// Caused by: nested contract body exceeding stack depth limit on checking lists ast
-/// Outcome: block rejected
+/// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn test_stack_depth_too_deep_case_3_list_only_checker() {
     contract_deploy_consensus_test!(
@@ -269,7 +269,7 @@ fn test_stack_depth_too_deep_case_3_list_only_checker() {
 
 /// ParserError: [`ParseErrorKind::VaryExpressionStackDepthTooDeep`]
 /// Caused by: nested contract body exceeding stack depth limit on checking vary list/tuple ast
-/// Outcome: block rejected
+/// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn test_vary_stack_depth_too_deep_checker() {
     contract_deploy_consensus_test!(

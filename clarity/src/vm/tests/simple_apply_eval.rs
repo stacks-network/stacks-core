@@ -308,7 +308,7 @@ fn test_from_consensus_buff_type_checks() {
         ),
         (
             "(from-consensus-buff? 2 0x10)",
-            "RuntimeCheck(ExpectsAcceptable(\"Invalid type description\"))",
+            "RuntimeCheck(ExpectsAcceptable(\"Unexpected error type during runtime analysis: InvalidTypeDescription\"))",
         ),
     ];
 

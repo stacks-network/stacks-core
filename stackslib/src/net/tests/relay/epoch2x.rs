@@ -2699,9 +2699,20 @@ fn static_problematic_txs_post_epoch21(#[case] epoch_id: StacksEpochId) {
         tx_edge,
         tx_exceeds,
     } = setup_deep_txs(epoch_id);
-    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_edge).is_err());
-    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_exceeds).is_err());
-    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_high).is_err());
+    let should_reject = epoch_id.rejects_parse_depth_errors();
+
+    for (tx_name, tx) in [
+        ("tx_edge", &tx_edge),
+        ("tx_exceeds", &tx_exceeds),
+        ("tx_high", &tx_high),
+    ] {
+        let is_rejected =
+            Relayer::static_check_problematic_relayed_tx(false, epoch_id, tx).is_err();
+        assert_eq!(
+            is_rejected, should_reject,
+            "unexpected static check result for {tx_name} in epoch {epoch_id:?}"
+        );
+    }
 }
 
 #[test]

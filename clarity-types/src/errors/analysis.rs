@@ -15,6 +15,8 @@
 
 use std::{error, fmt};
 
+use stacks_common::types::StacksEpochId;
+
 use crate::diagnostic::{DiagnosableError, Diagnostic};
 use crate::errors::{ClarityTypeError, CostErrors};
 use crate::execution_cost::ExecutionCost;
@@ -170,57 +172,19 @@ impl From<SyntaxBindingError> for CommonCheckErrorKind {
 #[derive(Debug, PartialEq)]
 pub enum CommonCheckErrorKind {
     // Cost checker errors
-    /// Arithmetic overflow in cost computation during type-checking, exceeding the maximum threshold.
-    CostOverflow,
-    /// Cumulative type-checking cost exceeds the allocated budget, indicating budget depletion.
-    /// The first `ExecutionCost` represents the total consumed cost, and the second represents the budget limit.
-    CostBalanceExceeded(ExecutionCost, ExecutionCost),
-    /// Memory usage during type-checking exceeds the allocated budget.
-    /// The first `u64` represents the total consumed memory, and the second represents the memory limit.
-    MemoryBalanceExceeded(u64, u64),
-    /// Failure in cost-tracking due to an unexpected condition or invalid state.
-    /// The `String` wraps the specific reason for the failure.
-    CostComputationFailed(String),
-    // Time checker errors
-    /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    ExecutionTimeExpired,
+    Cost(CostErrors),
 
-    /// Value exceeds the maximum allowed size for type-checking or serialization.
-    ValueTooLarge,
-    /// Value is outside the acceptable range for its type (e.g., integer bounds).
-    ValueOutOfBounds,
-    /// Type signature nesting depth exceeds the allowed limit during analysis.
-    TypeSignatureTooDeep,
+    // Errors originating from Clarity type system layer
+    ClarityType(ClarityTypeError),
+
+    // Syntax related
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
     ExpectedName,
-
-    // Unexpected interpreter behavior
-    /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    ExpectsRejectable(String),
-    // Unexpected interpreter behavior
-    /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    /// This error does NOT indicate a transaction would invalidate a block if included.
-    ExpectsAcceptable(String),
-
-    /// Type description is invalid or malformed, preventing proper type-checking.
-    InvalidTypeDescription,
     /// Referenced type name does not exist or is undefined.
     /// The `String` wraps the non-existent type name.
     UnknownTypeName(String),
-
-    /// Could not determine the type of an expression during analysis.
-    CouldNotDetermineType,
-
-    /// Empty tuple is not allowed in Clarity.
-    EmptyTuplesNotAllowed,
-
     /// Invalid or malformed signature in a function definition.
     DefineFunctionBadSignature,
-
-    /// Name (e.g., variable, function) is already in use within the same scope.
-    /// The `String` wraps the conflicting name.
-    NameAlreadyUsed(String),
-
     /// Invalid binding syntax in a generic construct (e.g., `let`, `match`).
     /// The `SyntaxBindingError` wraps the specific binding error.
     BadSyntaxBinding(SyntaxBindingError),
@@ -239,6 +203,7 @@ pub enum CommonCheckErrorKind {
     /// The first `usize` represents the number of parameters found, the second represents the maximum allowed.
     TooManyFunctionParameters(usize, usize),
 
+    // Trait related
     /// Expected a trait identifier (e.g., `.trait-name`) but found an invalid token.
     ExpectedTraitIdentifier,
     /// Invalid or malformed signature in a `(define-trait ...)` expression.
@@ -281,7 +246,7 @@ pub enum StaticCheckErrorKind {
     TypeSignatureTooDeep,
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
     ExpectedName,
-    /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
+    /// Supertype (i.e. common denominator between two types) exceeds the maximum allowed size or complexity.
     SupertypeTooLarge,
 
     // Unexpected interpreter behavior
@@ -694,12 +659,13 @@ impl RuntimeCheckErrorKind {
 }
 
 impl StaticCheckErrorKind {
-    /// This check indicates that the transaction should be rejected.
-    pub fn rejectable(&self) -> bool {
-        matches!(
-            self,
-            StaticCheckErrorKind::SupertypeTooLarge | StaticCheckErrorKind::ExpectsRejectable(_)
-        )
+    /// This check indicates that the transaction should be rejected in the given epoch.
+    pub fn rejectable_in_epoch(&self, epoch: StacksEpochId) -> bool {
+        match self {
+            StaticCheckErrorKind::SupertypeTooLarge => epoch.rejects_supertype_too_large(),
+            StaticCheckErrorKind::ExpectsRejectable(_) => true,
+            _ => false,
+        }
     }
 }
 
@@ -858,45 +824,7 @@ impl From<ClarityTypeError> for RuntimeCheckErrorKind {
 
 impl From<ClarityTypeError> for CommonCheckErrorKind {
     fn from(err: ClarityTypeError) -> Self {
-        match err {
-            ClarityTypeError::ValueTooLarge => Self::ValueTooLarge,
-            ClarityTypeError::TypeSignatureTooDeep => Self::TypeSignatureTooDeep,
-            ClarityTypeError::ValueOutOfBounds => Self::ValueOutOfBounds,
-            ClarityTypeError::DuplicateTupleField(name) => Self::NameAlreadyUsed(name),
-            ClarityTypeError::EmptyTuplesNotAllowed => Self::EmptyTuplesNotAllowed,
-            ClarityTypeError::InvalidTypeDescription => Self::InvalidTypeDescription,
-            ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
-            ClarityTypeError::ListTypeMismatch
-            | ClarityTypeError::TypeMismatch(_, _)
-            | ClarityTypeError::SequenceElementArityMismatch { .. }
-            | ClarityTypeError::ExpectedSequenceValue
-            | ClarityTypeError::InvalidAsciiCharacter(_)
-            | ClarityTypeError::InvalidUtf8Encoding
-            | ClarityTypeError::NoSuchTupleField(_, _)
-            | ClarityTypeError::TypeMismatchValue(_, _)
-            | ClarityTypeError::CouldNotDetermineSerializationType
-            | ClarityTypeError::InvalidUrlString(_)
-            | ClarityTypeError::InvalidClarityName(_)
-            | ClarityTypeError::InvalidContractName(_)
-            | ClarityTypeError::QualifiedContractEmptyIssuer
-            | ClarityTypeError::QualifiedContractMissingDot
-            | ClarityTypeError::InvalidPrincipalEncoding(_)
-            | ClarityTypeError::InvalidPrincipalLength(_)
-            | ClarityTypeError::ResponseTypeMismatch { .. } => Self::ExpectsAcceptable(format!(
-                "Unexpected but acceptable error type during analysis: {err}"
-            )),
-            ClarityTypeError::SupertypeTooLarge
-            | ClarityTypeError::InvariantViolation(_)
-            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::ExpectsRejectable(format!(
-                "Unexpected and unacceptable error type during analysis: {err}"
-            )),
-            ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
-                Self::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
-            }
-            ClarityTypeError::UnsupportedEpoch(epoch) => {
-                Self::ExpectsRejectable(format!("{epoch} is not supported"))
-            }
-        }
+        CommonCheckErrorKind::ClarityType(err)
     }
 }
 
@@ -984,24 +912,7 @@ impl From<CostErrors> for RuntimeCheckErrorKind {
 
 impl From<CostErrors> for CommonCheckErrorKind {
     fn from(err: CostErrors) -> Self {
-        match err {
-            CostErrors::CostOverflow => CommonCheckErrorKind::CostOverflow,
-            CostErrors::CostBalanceExceeded(a, b) => {
-                CommonCheckErrorKind::CostBalanceExceeded(a, b)
-            }
-            CostErrors::MemoryBalanceExceeded(a, b) => {
-                CommonCheckErrorKind::MemoryBalanceExceeded(a, b)
-            }
-            CostErrors::CostComputationFailed(s) => CommonCheckErrorKind::CostComputationFailed(s),
-            CostErrors::CostContractLoadFailure => {
-                CommonCheckErrorKind::CostComputationFailed("Failed to load cost contract".into())
-            }
-            CostErrors::InterpreterFailure => CommonCheckErrorKind::ExpectsRejectable(
-                "Unexpected interpreter failure in cost computation".into(),
-            ),
-            CostErrors::Expect(s) => CommonCheckErrorKind::ExpectsRejectable(s),
-            CostErrors::ExecutionTimeExpired => CommonCheckErrorKind::ExecutionTimeExpired,
-        }
+        CommonCheckErrorKind::Cost(err)
     }
 }
 
@@ -1038,19 +949,8 @@ impl From<CommonCheckErrorKind> for StaticCheckError {
 impl From<CommonCheckErrorKind> for RuntimeCheckErrorKind {
     fn from(err: CommonCheckErrorKind) -> Self {
         match err {
-            CommonCheckErrorKind::CostOverflow => RuntimeCheckErrorKind::CostOverflow,
-            CommonCheckErrorKind::CostBalanceExceeded(a, b) => {
-                RuntimeCheckErrorKind::CostBalanceExceeded(a, b)
-            }
-            CommonCheckErrorKind::MemoryBalanceExceeded(a, b) => {
-                RuntimeCheckErrorKind::MemoryBalanceExceeded(a, b)
-            }
-            CommonCheckErrorKind::CostComputationFailed(s) => {
-                RuntimeCheckErrorKind::CostComputationFailed(s)
-            }
-            CommonCheckErrorKind::ExecutionTimeExpired => {
-                RuntimeCheckErrorKind::ExecutionTimeExpired
-            }
+            CommonCheckErrorKind::Cost(e) => e.into(),
+            CommonCheckErrorKind::ClarityType(e) => e.into(),
             CommonCheckErrorKind::IncorrectArgumentCount(expected, args) => {
                 RuntimeCheckErrorKind::IncorrectArgumentCount(expected, args)
             }
@@ -1080,19 +980,6 @@ impl From<CommonCheckErrorKind> for RuntimeCheckErrorKind {
             CommonCheckErrorKind::ExpectedTraitIdentifier => {
                 RuntimeCheckErrorKind::ExpectsAcceptable("Expected trait identifier".to_string())
             }
-            CommonCheckErrorKind::CouldNotDetermineType => {
-                RuntimeCheckErrorKind::CouldNotDetermineType
-            }
-            CommonCheckErrorKind::ValueTooLarge => RuntimeCheckErrorKind::ValueTooLarge,
-            CommonCheckErrorKind::TypeSignatureTooDeep => {
-                RuntimeCheckErrorKind::TypeSignatureTooDeep
-            }
-            CommonCheckErrorKind::ExpectsRejectable(s) => {
-                RuntimeCheckErrorKind::ExpectsRejectable(s)
-            }
-            CommonCheckErrorKind::ExpectsAcceptable(s) => {
-                RuntimeCheckErrorKind::ExpectsAcceptable(s)
-            }
             CommonCheckErrorKind::DefineTraitDuplicateMethod(s) => {
                 RuntimeCheckErrorKind::ExpectsAcceptable(format!(
                     "Define trait duplicate method: {s}"
@@ -1106,18 +993,8 @@ impl From<CommonCheckErrorKind> for RuntimeCheckErrorKind {
             CommonCheckErrorKind::DefineTraitBadSignature => {
                 RuntimeCheckErrorKind::ExpectsAcceptable("Define trait bad signature".to_string())
             }
-            CommonCheckErrorKind::InvalidTypeDescription => {
-                RuntimeCheckErrorKind::ExpectsAcceptable("Invalid type description".to_string())
-            }
             CommonCheckErrorKind::BadSyntaxBinding(e) => {
                 RuntimeCheckErrorKind::ExpectsAcceptable(format!("Bad syntax binding: {e}"))
-            }
-            CommonCheckErrorKind::ValueOutOfBounds => RuntimeCheckErrorKind::ValueOutOfBounds,
-            CommonCheckErrorKind::EmptyTuplesNotAllowed => {
-                RuntimeCheckErrorKind::ExpectsAcceptable("Empty tuples not allowed".to_string())
-            }
-            CommonCheckErrorKind::NameAlreadyUsed(name) => {
-                RuntimeCheckErrorKind::NameAlreadyUsed(name)
             }
             CommonCheckErrorKind::UnknownTypeName(name) => {
                 RuntimeCheckErrorKind::ExpectsAcceptable(format!("Unknown type name: {name}"))
@@ -1129,19 +1006,8 @@ impl From<CommonCheckErrorKind> for RuntimeCheckErrorKind {
 impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
     fn from(err: CommonCheckErrorKind) -> Self {
         match err {
-            CommonCheckErrorKind::CostOverflow => StaticCheckErrorKind::CostOverflow,
-            CommonCheckErrorKind::CostBalanceExceeded(a, b) => {
-                StaticCheckErrorKind::CostBalanceExceeded(a, b)
-            }
-            CommonCheckErrorKind::MemoryBalanceExceeded(a, b) => {
-                StaticCheckErrorKind::MemoryBalanceExceeded(a, b)
-            }
-            CommonCheckErrorKind::CostComputationFailed(s) => {
-                StaticCheckErrorKind::CostComputationFailed(s)
-            }
-            CommonCheckErrorKind::ExecutionTimeExpired => {
-                StaticCheckErrorKind::ExecutionTimeExpired
-            }
+            CommonCheckErrorKind::Cost(e) => e.into(),
+            CommonCheckErrorKind::ClarityType(e) => e.into(),
             CommonCheckErrorKind::IncorrectArgumentCount(expected, args) => {
                 StaticCheckErrorKind::IncorrectArgumentCount(expected, args)
             }
@@ -1161,19 +1027,6 @@ impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
             CommonCheckErrorKind::ExpectedTraitIdentifier => {
                 StaticCheckErrorKind::ExpectedTraitIdentifier
             }
-            CommonCheckErrorKind::ExpectsRejectable(s) => {
-                StaticCheckErrorKind::ExpectsRejectable(s)
-            }
-            CommonCheckErrorKind::ExpectsAcceptable(s) => {
-                StaticCheckErrorKind::ExpectsAcceptable(s)
-            }
-            CommonCheckErrorKind::CouldNotDetermineType => {
-                StaticCheckErrorKind::CouldNotDetermineType
-            }
-            CommonCheckErrorKind::ValueTooLarge => StaticCheckErrorKind::ValueTooLarge,
-            CommonCheckErrorKind::TypeSignatureTooDeep => {
-                StaticCheckErrorKind::TypeSignatureTooDeep
-            }
             CommonCheckErrorKind::DefineTraitDuplicateMethod(s) => {
                 StaticCheckErrorKind::DefineTraitDuplicateMethod(s)
             }
@@ -1183,17 +1036,7 @@ impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
             CommonCheckErrorKind::TraitTooManyMethods(found, allowed) => {
                 StaticCheckErrorKind::TraitTooManyMethods(found, allowed)
             }
-            CommonCheckErrorKind::InvalidTypeDescription => {
-                StaticCheckErrorKind::InvalidTypeDescription
-            }
             CommonCheckErrorKind::BadSyntaxBinding(e) => StaticCheckErrorKind::BadSyntaxBinding(e),
-            CommonCheckErrorKind::ValueOutOfBounds => StaticCheckErrorKind::ValueOutOfBounds,
-            CommonCheckErrorKind::EmptyTuplesNotAllowed => {
-                StaticCheckErrorKind::EmptyTuplesNotAllowed
-            }
-            CommonCheckErrorKind::NameAlreadyUsed(name) => {
-                StaticCheckErrorKind::NameAlreadyUsed(name)
-            }
             CommonCheckErrorKind::UnknownTypeName(name) => {
                 StaticCheckErrorKind::UnknownTypeName(name)
             }

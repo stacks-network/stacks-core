@@ -19,24 +19,154 @@ expression: result
     evaluated_epoch: Epoch33,
     error: "Invalid Stacks block ac703a0c75befc6f05da28f028034a5af061ab04cdf6ac3680f6b82d7f759220: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
   )),
-  Failure(ExpectedFailureOutput(
+  Success(ExpectedBlockOutput(
+    marf_hash: "878f77092c97c09b703a26046b6b3e6de2f7e7cd8fec6613ae245684d30c1d4b",
     evaluated_epoch: Epoch34,
-    error: "Invalid Stacks block 046342e6fbbfea24827996b71a79f565a1b544f01987eaf0e9c2246657de7936: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 128 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 128\", spans: [], suggestion: None } }))",
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 25299,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 25299,
+    ),
   )),
-  Failure(ExpectedFailureOutput(
+  Success(ExpectedBlockOutput(
+    marf_hash: "fbeab513e4d8d301110b9850d007302b429bc6752a65450ca0ef65acb77b12f6",
     evaluated_epoch: Epoch34,
-    error: "Invalid Stacks block c4cadcec06dd4c892f80cde9066300906b12347aa85e88007d9e1edd51b8f1bf: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 128 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 128\", spans: [], suggestion: None } }))",
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 25299,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 25299,
+    ),
   )),
-  Failure(ExpectedFailureOutput(
+  Success(ExpectedBlockOutput(
+    marf_hash: "4b00307c66f5a0e36fe3c742f4961cf11a2aa08da0230115244f0525cdc36329",
     evaluated_epoch: Epoch34,
-    error: "Invalid Stacks block 52dc4439be0926eb3f8985be76347653281815be10f7e570e67700ec5fc62aa5: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 128 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 128\", spans: [], suggestion: None } }))",
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 25299,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 25299,
+    ),
   )),
-  Failure(ExpectedFailureOutput(
+  Success(ExpectedBlockOutput(
+    marf_hash: "29b08df7d3f46b6122958555cd8736c0334ac0d89df8005f28f7fa11faaf903a",
     evaluated_epoch: Epoch34,
-    error: "Invalid Stacks block d05a4118152eaf63fb9ff98cf5a0f3fbe1937b2db05af6fb60b6d05d2a6b28a1: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 128 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 128\", spans: [], suggestion: None } }))",
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 25299,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 25299,
+    ),
   )),
-  Failure(ExpectedFailureOutput(
+  Success(ExpectedBlockOutput(
+    marf_hash: "30dcfdcd21168c49b4b0477df1612394d4a8347ea8014ff34371a9fa53e6a2ac",
     evaluated_epoch: Epoch34,
-    error: "Invalid Stacks block 28fde079c0138b6110092360c75043056f5dfcfbd962cf530d80a8363e44cb6f: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 128 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 128\", spans: [], suggestion: None } }))",
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 25299,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 25299,
+    ),
   )),
 ]

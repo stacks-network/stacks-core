@@ -88,7 +88,7 @@ pub enum AssetMapEntry {
 }
 
 /**
-The AssetMap is used to track which assets have been transfered from whom
+The AssetMap is used to track which assets have been transferred from whom
 during the execution of a transaction.
 */
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -559,7 +559,7 @@ impl fmt::Display for AssetMap {
         }
         for (principal, principal_map) in self.asset_map.iter() {
             for (asset, transfer) in principal_map.iter() {
-                write!(f, "{principal} transfered [")?;
+                write!(f, "{principal} transferred [")?;
                 for t in transfer {
                     write!(f, "{t}, ")?;
                 }

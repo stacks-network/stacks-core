@@ -504,7 +504,7 @@ fn static_check_error_type_signature_too_deep() {
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::SupertypeTooLarge`]
 /// Caused by: combining tuples with `buff 600000` and `buff 10` forces a supertype beyond the size limit.
-/// Outcome: block rejected.
+/// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn static_check_error_supertype_too_large() {
     contract_deploy_consensus_test!(

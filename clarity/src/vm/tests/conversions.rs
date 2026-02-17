@@ -596,6 +596,35 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
     assert!(result.is_err());
 }
 
+#[apply(test_clarity_versions)]
+fn test_from_consensus_buff_unexpected_serialization_epoch_gate(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) {
+    // `from-consensus-buff?` is only available in Clarity 2 and later
+    if version < ClarityVersion::Clarity2 {
+        return;
+    }
+
+    let invalid_principal = "0x05200000000000000000000000000000000000000000";
+    let program = format!("(from-consensus-buff? principal {invalid_principal})");
+
+    let result = execute_with_parameters(&program, version, epoch, false);
+
+    if epoch.treats_unexpected_serialization_as_none() {
+        let value = result
+            .expect("Epoch34 should allow from-consensus-buff? to succeed")
+            .expect("from-consensus-buff? should return a value");
+        assert_eq!(value, Value::none());
+        return;
+    }
+    let err = result.expect_err("Epoch33 should treat unexpected serialization as an error");
+    assert_eq!(
+        err,
+        RuntimeCheckErrorKind::ExpectsRejectable("UnexpectedSerialization".into()).into()
+    );
+}
+
 fn evaluate_to_ascii(snippet: &str) -> Value {
     execute_versioned(snippet, ClarityVersion::latest())
         .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))

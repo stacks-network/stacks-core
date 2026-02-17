@@ -450,7 +450,7 @@ fn test_simple_map_append() {
 
     assert_eq!(
         execute("(append (append (list) 1) u2)").unwrap_err(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(IntType), Box::new(Value::UInt(2))).into()
+        RuntimeCheckErrorKind::TypeError(Box::new(IntType), Box::new(UIntType)).into()
     );
 }
 

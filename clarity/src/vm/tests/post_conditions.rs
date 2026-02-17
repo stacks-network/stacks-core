@@ -26,16 +26,17 @@ use clarity_types::types::{
 use clarity_types::{ClarityName, Value};
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestCaseResult};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
-use crate::vm::errors::{ClarityEvalError, EarlyReturnError, VmExecutionError};
+use crate::vm::errors::{ClarityEvalError, EarlyReturnError, VmExecutionError, VmInternalError};
 use crate::vm::tests::proptest_utils::{
     allowance_list_snippets, begin_block, body_with_allowances_snippets,
     clarity_values_no_response, execute, execute_and_check, execute_and_check_versioned,
-    ft_mint_snippets, ft_transfer_snippets, match_response_snippets, nft_mint_snippets,
-    nft_transfer_snippets, standard_principal_strategy, try_response_snippets,
+    execute_with_epoch, ft_mint_snippets, ft_transfer_snippets, match_response_snippets,
+    nft_mint_snippets, nft_transfer_snippets, standard_principal_strategy, try_response_snippets,
     value_to_clarity_literal,
 };
 
@@ -840,6 +841,24 @@ fn test_restrict_assets_with_stx_exceeds() {
 )"#;
     let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_stx_transfer_and_burn() {
+    let snippet = r#"
+(restrict-assets? tx-sender ((with-stx u10))
+  (try! (stx-transfer? u10 tx-sender 'SP000000000000000000002Q6VF78))
+  (try! (stx-burn? u10 tx-sender))
+)"#;
+    let result_epoch_34 = execute_with_epoch(snippet, StacksEpochId::Epoch34);
+    let expected = Value::error(Value::UInt(0)).unwrap();
+    assert_eq!(expected, result_epoch_34.unwrap().unwrap());
+    let result_epoch_33 = execute_with_epoch(snippet, StacksEpochId::Epoch33);
+    let expected_err: ClarityEvalError = VmExecutionError::Internal(VmInternalError::Expect(
+        "Total STX movement and burn exceeds allowance".into(),
+    ))
+    .into();
+    assert_eq!(expected_err, result_epoch_33.unwrap_err());
 }
 
 #[test]

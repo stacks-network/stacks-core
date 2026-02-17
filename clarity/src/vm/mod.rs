@@ -91,14 +91,15 @@ pub enum ValueRef<'a> {
     Owned(Value),
 }
 
-impl<'a> ValueRef<'a> {
-    pub fn as_ref(&self) -> &Value {
+impl AsRef<Value> for ValueRef<'_> {
+    fn as_ref(&self) -> &Value {
         match self {
             ValueRef::Borrowed(r) => r,
             ValueRef::Owned(o) => o,
         }
     }
-
+}
+impl<'a> ValueRef<'a> {
     pub fn clone_with_cost<T: CostTracker>(
         self,
         tracker: &mut T,
@@ -209,31 +210,26 @@ fn lookup_variable<'a>(
     } else if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
         // Reserved variables are constructed on the fly, so return as owned
         Ok(ValueRef::Owned(value))
-    } else {
-        if let Some(value) = context.lookup_variable(name) {
-            // Value is stored in context, return as borrowed
-            Ok(ValueRef::Borrowed(value))
-        } else if let Some(value) = env.contract_context.lookup_variable(name) {
-            // Value is stored in contract context which is borrowed from `env``, must be cloned as `env`` is the cost tracker
-            // and we cannot mutably borrow `env`` to track the cost if we return a borrowed reference to the value from `env``.
-            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
-            Ok(ValueRef::Owned(value.clone()))
-        } else if let Some(callable_data) = context.lookup_callable_contract(name) {
-            if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
-                Ok(ValueRef::Owned(
-                    callable_data.contract_identifier.clone().into(),
-                ))
-            } else {
-                Ok(ValueRef::Owned(Value::CallableContract(
-                    callable_data.clone(),
-                )))
-            }
+    } else if let Some(value) = context.lookup_variable(name) {
+        // Value is stored in context, return as borrowed
+        Ok(ValueRef::Borrowed(value))
+    } else if let Some(value) = env.contract_context.lookup_variable(name) {
+        // Value is stored in contract context which is borrowed from `env``, must be cloned as `env`` is the cost tracker
+        // and we cannot mutably borrow `env`` to track the cost if we return a borrowed reference to the value from `env``.
+        runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
+        Ok(ValueRef::Owned(value.clone()))
+    } else if let Some(callable_data) = context.lookup_callable_contract(name) {
+        if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
+            Ok(ValueRef::Owned(
+                callable_data.contract_identifier.clone().into(),
+            ))
         } else {
-            Err(
-                RuntimeCheckErrorKind::ExpectsAcceptable(format!("Undefined variable: {name}"))
-                    .into(),
-            )
+            Ok(ValueRef::Owned(Value::CallableContract(
+                callable_data.clone(),
+            )))
         }
+    } else {
+        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!("Undefined variable: {name}")).into())
     }
 }
 
@@ -396,7 +392,7 @@ pub fn eval<'a>(
                     RuntimeCheckErrorKind::ExpectsAcceptable("Bad function name".to_string()),
                 )?;
                 let f = lookup_function(function_name, env)?;
-                apply(&f, rest, env, context).map(|value| ValueRef::Owned(value))
+                apply(&f, rest, env, context).map(ValueRef::Owned)
             }
             TraitReference(_, _) | Field(_) => {
                 return Err(VmInternalError::BadSymbolicRepresentation(
@@ -424,7 +420,7 @@ pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
 /// This function evaluates a list of expressions, sharing a global context.
 /// It returns the final evaluated result.
 /// Used for the initialization of a new contract.
-pub fn eval_all<'a>(
+pub fn eval_all(
     expressions: &[SymbolicExpression],
     contract_context: &mut ContractContext,
     global_context: &mut GlobalContext,

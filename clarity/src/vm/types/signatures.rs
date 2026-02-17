@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use clarity_types::ClarityTypeError;
 use clarity_types::errors::analysis::{CommonCheckErrorKind, StaticCheckErrorKind};
 pub use clarity_types::types::Value;
 pub use clarity_types::types::signatures::{
@@ -228,17 +229,16 @@ impl TypeSignatureExt for TypeSignature {
         accounting: &mut A,
     ) -> Result<TypeSignature, CommonCheckErrorKind> {
         if type_args.len() != 2 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(ClarityTypeError::InvalidTypeDescription.into());
         }
 
         if let SymbolicExpressionType::LiteralValue(Value::Int(max_len)) = &type_args[0].expr {
             let atomic_type_arg = &type_args[type_args.len() - 1];
             let entry_type = TypeSignature::parse_type_repr(epoch, atomic_type_arg, accounting)?;
-            let max_len =
-                u32::try_from(*max_len).map_err(|_| CommonCheckErrorKind::ValueTooLarge)?;
+            let max_len = u32::try_from(*max_len).map_err(|_| ClarityTypeError::ValueTooLarge)?;
             Ok(ListTypeData::new_list(entry_type, max_len)?.into())
         } else {
-            Err(CommonCheckErrorKind::InvalidTypeDescription)
+            Err(ClarityTypeError::InvalidTypeDescription.into())
         }
     }
 
@@ -265,14 +265,14 @@ impl TypeSignatureExt for TypeSignature {
         type_args: &[SymbolicExpression],
     ) -> Result<TypeSignature, CommonCheckErrorKind> {
         if type_args.len() != 1 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(ClarityTypeError::InvalidTypeDescription.into());
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
             Ok(SequenceType(SequenceSubtype::BufferType(
                 BufferLength::try_from(*buff_len)?,
             )))
         } else {
-            Err(CommonCheckErrorKind::InvalidTypeDescription)
+            Err(ClarityTypeError::InvalidTypeDescription.into())
         }
     }
 
@@ -282,14 +282,14 @@ impl TypeSignatureExt for TypeSignature {
         type_args: &[SymbolicExpression],
     ) -> Result<TypeSignature, CommonCheckErrorKind> {
         if type_args.len() != 1 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(ClarityTypeError::InvalidTypeDescription.into());
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(utf8_len)) = &type_args[0].expr {
             Ok(SequenceType(SequenceSubtype::StringType(
                 StringSubtype::UTF8(StringUTF8Length::try_from(*utf8_len)?),
             )))
         } else {
-            Err(CommonCheckErrorKind::InvalidTypeDescription)
+            Err(ClarityTypeError::InvalidTypeDescription.into())
         }
     }
 
@@ -299,14 +299,14 @@ impl TypeSignatureExt for TypeSignature {
         type_args: &[SymbolicExpression],
     ) -> Result<TypeSignature, CommonCheckErrorKind> {
         if type_args.len() != 1 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(ClarityTypeError::InvalidTypeDescription.into());
         }
         if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
             Ok(SequenceType(SequenceSubtype::StringType(
                 StringSubtype::ASCII(BufferLength::try_from(*buff_len)?),
             )))
         } else {
-            Err(CommonCheckErrorKind::InvalidTypeDescription)
+            Err(ClarityTypeError::InvalidTypeDescription.into())
         }
     }
 
@@ -316,7 +316,7 @@ impl TypeSignatureExt for TypeSignature {
         accounting: &mut A,
     ) -> Result<TypeSignature, CommonCheckErrorKind> {
         if type_args.len() != 1 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(ClarityTypeError::InvalidTypeDescription.into());
         }
         let inner_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
 
@@ -329,7 +329,7 @@ impl TypeSignatureExt for TypeSignature {
         accounting: &mut A,
     ) -> Result<TypeSignature, CommonCheckErrorKind> {
         if type_args.len() != 2 {
-            return Err(CommonCheckErrorKind::InvalidTypeDescription);
+            return Err(ClarityTypeError::InvalidTypeDescription.into());
         }
         let ok_type = TypeSignature::parse_type_repr(epoch, &type_args[0], accounting)?;
         let err_type = TypeSignature::parse_type_repr(epoch, &type_args[1], accounting)?;
@@ -352,7 +352,7 @@ impl TypeSignatureExt for TypeSignature {
             SymbolicExpressionType::List(ref list_contents) => {
                 let (compound_type, rest) = list_contents
                     .split_first()
-                    .ok_or(CommonCheckErrorKind::InvalidTypeDescription)?;
+                    .ok_or(ClarityTypeError::InvalidTypeDescription)?;
                 if let SymbolicExpressionType::Atom(ref compound_type) = compound_type.expr {
                     match compound_type.as_ref() {
                         "list" => TypeSignature::parse_list_type_repr(epoch, rest, accounting),
@@ -366,10 +366,10 @@ impl TypeSignatureExt for TypeSignature {
                         "response" => {
                             TypeSignature::parse_response_type_repr(epoch, rest, accounting)
                         }
-                        _ => Err(CommonCheckErrorKind::InvalidTypeDescription),
+                        _ => Err(ClarityTypeError::InvalidTypeDescription.into()),
                     }
                 } else {
-                    Err(CommonCheckErrorKind::InvalidTypeDescription)
+                    Err(ClarityTypeError::InvalidTypeDescription.into())
                 }
             }
             SymbolicExpressionType::TraitReference(_, ref trait_definition)
@@ -394,7 +394,7 @@ impl TypeSignatureExt for TypeSignature {
                     )),
                 }
             }
-            _ => Err(CommonCheckErrorKind::InvalidTypeDescription),
+            _ => Err(ClarityTypeError::InvalidTypeDescription.into()),
         }
     }
 
@@ -407,7 +407,7 @@ impl TypeSignatureExt for TypeSignature {
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
         let functions_types = type_args
             .first()
-            .ok_or(CommonCheckErrorKind::InvalidTypeDescription)?
+            .ok_or(ClarityTypeError::InvalidTypeDescription)?
             .match_list()
             .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
 
@@ -432,7 +432,7 @@ impl TypeSignatureExt for TypeSignature {
                 .match_list()
                 .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
             if args.len() != 3 {
-                return Err(CommonCheckErrorKind::InvalidTypeDescription);
+                return Err(ClarityTypeError::InvalidTypeDescription.into());
             }
 
             // Extract function's name
@@ -716,11 +716,16 @@ mod test {
         let bad_type_descriptions = [
             (
                 "(tuple)",
-                ExpectsAcceptable("Empty tuples not allowed".to_string()),
+                ExpectsAcceptable(
+                    "Unexpected error type during runtime analysis: EmptyTuplesNotAllowed"
+                        .to_string(),
+                ),
             ),
             (
                 "(list int int)",
-                ExpectsAcceptable("Invalid type description".into()),
+                ExpectsAcceptable(
+                    "Unexpected error type during runtime analysis: InvalidTypeDescription".into(),
+                ),
             ),
             ("(list 4294967296 int)", ValueTooLarge),
             (
@@ -729,16 +734,22 @@ mod test {
             ),
             (
                 "(buff)",
-                ExpectsAcceptable("Invalid type description".into()),
+                ExpectsAcceptable(
+                    "Unexpected error type during runtime analysis: InvalidTypeDescription".into(),
+                ),
             ),
             ("(buff 4294967296)", ValueTooLarge),
             (
                 "(buff int)",
-                ExpectsAcceptable("Invalid type description".into()),
+                ExpectsAcceptable(
+                    "Unexpected error type during runtime analysis: InvalidTypeDescription".into(),
+                ),
             ),
             (
                 "(response int)",
-                ExpectsAcceptable("Invalid type description".into()),
+                ExpectsAcceptable(
+                    "Unexpected error type during runtime analysis: InvalidTypeDescription".into(),
+                ),
             ),
             (
                 "(optional bazel)",
@@ -756,16 +767,30 @@ mod test {
                 "bazel",
                 ExpectsAcceptable("Unknown type name: bazel".into()),
             ),
-            ("()", ExpectsAcceptable("Invalid type description".into())),
+            (
+                "()",
+                ExpectsAcceptable(
+                    "Unexpected error type during runtime analysis: InvalidTypeDescription".into(),
+                ),
+            ),
             (
                 "(1234)",
-                ExpectsAcceptable("Invalid type description".into()),
+                ExpectsAcceptable(
+                    "Unexpected error type during runtime analysis: InvalidTypeDescription".into(),
+                ),
             ),
             (
                 "(int 3 int)",
-                ExpectsAcceptable("Invalid type description".into()),
+                ExpectsAcceptable(
+                    "Unexpected error type during runtime analysis: InvalidTypeDescription".into(),
+                ),
             ),
-            ("1234", ExpectsAcceptable("Invalid type description".into())),
+            (
+                "1234",
+                ExpectsAcceptable(
+                    "Unexpected error type during runtime analysis: InvalidTypeDescription".into(),
+                ),
+            ),
             ("(list 1 (buff 1048576))", ValueTooLarge),
             ("(list 4294967295 (buff 2))", ValueTooLarge),
             ("(list 2147483647 (buff 2))", ValueTooLarge),

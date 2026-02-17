@@ -20,8 +20,6 @@ use std::collections::HashMap;
 use clarity::types::StacksEpochId;
 #[allow(unused_imports)]
 use clarity::vm::analysis::RuntimeCheckErrorKind;
-#[allow(unused_imports)]
-use clarity::vm::errors::RuntimeError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DEPTH};
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
 

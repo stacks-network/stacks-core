@@ -53,10 +53,10 @@ pub fn list_cons(
     Ok(value)
 }
 
-pub fn special_filter<'a>(
+pub fn special_filter(
     args: &[SymbolicExpression],
     env: &mut Environment,
-    context: &'a LocalContext,
+    context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
@@ -244,7 +244,7 @@ pub fn special_append(
                 type_signature,
             } = list;
             let (entry_type, size) = type_signature.destruct();
-            let element_type = TypeSignature::type_of(&element.as_ref())?;
+            let element_type = TypeSignature::type_of(element.as_ref())?;
             runtime_cost(
                 ClarityCostFunction::Append,
                 env,
@@ -255,25 +255,17 @@ pub fn special_append(
                 assert_eq!(size, 0);
                 return Ok(Value::cons_list(vec![element], env.epoch())?);
             }
+            let next_entry_type =
+                TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)?;
+            let (element, _) = Value::sanitize_value(env.epoch(), &next_entry_type, element)
+                .ok_or_else(|| RuntimeCheckErrorKind::ListTypesMustMatch)?;
 
-            if let Ok(next_entry_type) =
-                TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)
-            {
-                let (element, _) = Value::sanitize_value(env.epoch(), &next_entry_type, element)
-                    .ok_or_else(|| RuntimeCheckErrorKind::ListTypesMustMatch)?;
-
-                let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
-                data.push(element);
-                Ok(Value::Sequence(SequenceData::List(ListData {
-                    type_signature: next_type_signature,
-                    data,
-                })))
-            } else {
-                Err(
-                    RuntimeCheckErrorKind::TypeValueError(Box::new(entry_type), Box::new(element))
-                        .into(),
-                )
-            }
+            let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
+            data.push(element);
+            Ok(Value::Sequence(SequenceData::List(ListData {
+                type_signature: next_type_signature,
+                data,
+            })))
         }
         _ => Err(
             RuntimeCheckErrorKind::ExpectsAcceptable("Expected list application".to_string())
@@ -527,7 +519,7 @@ pub fn special_replace_at(
     check_argument_count(3, args)?;
 
     let seq = eval(&args[0], env, context)?;
-    let seq_type = TypeSignature::type_of(&seq.as_ref())?;
+    let seq_type = TypeSignature::type_of(seq.as_ref())?;
 
     // runtime is the cost to copy over one element into its place
     runtime_cost(ClarityCostFunction::ReplaceAt, env, seq_type.size()?)?;

@@ -84,7 +84,10 @@ fn test_accept_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpo
     let bad_defun = "(define-private (f (b (optional int int))) (* 10 (default-to 0 b)))";
     assert_eq!(
         execute(bad_defun).unwrap_err(),
-        RuntimeCheckErrorKind::ExpectsAcceptable("Invalid type description".to_string()).into()
+        RuntimeCheckErrorKind::ExpectsAcceptable(
+            "Unexpected error type during runtime analysis: InvalidTypeDescription".to_string()
+        )
+        .into()
     );
 }
 
