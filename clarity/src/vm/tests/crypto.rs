@@ -850,4 +850,285 @@ proptest! {
 
         prop_assert_eq!(Value::Bool(false), result);
     }
+
+    // Clarity5 sign_digest roundtrip. Checks both the crypto primitive and the
+    // VM to catch marshalling bugs.
+    #[test]
+    fn prop_secp256r1_clarity5_digest_roundtrip(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let message = message.to_vec();
+        let signature = privk.sign_digest(&message).unwrap();
+
+        let primitive_ok =
+            pubk.verify_digest(&message, &signature).is_ok();
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let vm_ok = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap() == Value::Bool(true);
+
+        prop_assert!(primitive_ok);
+        prop_assert!(vm_ok);
+        prop_assert_eq!(primitive_ok, vm_ok,
+            "primitive and VM diverged");
+    }
+
+    // Clarity5 uses verify_digest (prehash), so a double-hash signature from
+    // sign() must fail. Both primitive and VM must agree on rejection.
+    #[test]
+    fn prop_secp256r1_clarity5_rejects_double_hash(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let message = message.to_vec();
+        let signature = privk.sign(&message).unwrap();
+
+        let primitive_rejected =
+            pubk.verify_digest(&message, &signature).is_err();
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let vm_rejected = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap() == Value::Bool(false);
+
+        prop_assert!(primitive_rejected);
+        prop_assert!(vm_rejected);
+        prop_assert_eq!(primitive_rejected, vm_rejected,
+            "primitive and VM diverged");
+    }
+
+    // Clarity4 double-hashes, so a sign_digest() signature must not verify.
+    #[test]
+    fn prop_secp256r1_clarity4_rejects_single_hash(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let message = message.to_vec();
+        let signature = privk.sign_digest(&message).unwrap();
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    // ClarityVersion governs hashing, not epoch. A Clarity4 contract in
+    // Epoch34 must still double-hash.
+    #[test]
+    fn prop_secp256r1_clarity4_epoch34_double_hash(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let message = message.to_vec();
+
+        // sign() double-hashes and must verify.
+        let dh_sig = privk.sign(&message).unwrap();
+        let dh_prog = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&dh_sig.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let dh_result = execute_with_parameters(
+            &dh_prog,
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        prop_assert_eq!(Value::Bool(true), dh_result);
+
+        // sign_digest() single-hashes and must fail.
+        let sh_sig = privk.sign_digest(&message).unwrap();
+        let sh_prog = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&sh_sig.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let sh_result = execute_with_parameters(
+            &sh_prog,
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        prop_assert_eq!(Value::Bool(false), sh_result);
+    }
+
+    #[test]
+    fn prop_secp256r1_clarity5_tampered_msg(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>(),
+        byte_idx in 0usize..32
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let mut message = message.to_vec();
+        let signature = privk.sign_digest(&message).unwrap();
+
+        message[byte_idx] ^= 0x01;
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[test]
+    fn prop_secp256r1_clarity5_wrong_key(
+        seed_a in any::<[u8; 32]>(),
+        seed_b in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        prop_assume!(seed_a != seed_b);
+
+        let priv_a = Secp256r1PrivateKey::from_seed(&seed_a);
+        let pub_b = Secp256r1PublicKey::from_private(
+            &Secp256r1PrivateKey::from_seed(&seed_b),
+        );
+        let pub_b_bytes = pub_b.to_bytes_compressed();
+
+        let message = message.to_vec();
+        let signature =
+            priv_a.sign_digest(&message).unwrap();
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pub_b_bytes)
+        );
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[test]
+    fn prop_secp256r1_clarity5_malformed_pubkey(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>(),
+        fake_pubkey in any::<[u8; 33]>()
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let message = message.to_vec();
+        let signature = privk.sign_digest(&message).unwrap();
+
+        let fake_pubkey = fake_pubkey.to_vec();
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&fake_pubkey)
+        );
+        let result = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    // Random bytes, random lengths. Neither the primitive nor the VM may panic
+    // on any input shape.
+    #[test]
+    fn prop_secp256r1_clarity5_arbitrary_inputs(
+        msg_bytes in proptest::collection::vec(
+            any::<u8>(), 0..128),
+        sig_bytes in proptest::collection::vec(
+            any::<u8>(), 0..128),
+        pubkey_bytes in proptest::collection::vec(
+            any::<u8>(), 0..128),
+    ) {
+        let _ = stacks_common::util::secp256r1
+            ::secp256r1_verify_digest(
+                &msg_bytes, &sig_bytes, &pubkey_bytes,
+            );
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&msg_bytes),
+            buff_literal(&sig_bytes),
+            buff_literal(&pubkey_bytes)
+        );
+        let _ = execute_with_parameters(
+            &program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        );
+    }
 }
