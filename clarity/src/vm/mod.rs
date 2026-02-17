@@ -197,39 +197,122 @@ pub trait EvalHook {
     fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>);
 }
 
+/// Reject symbols that should never reach variable lookup. These indicate a parser/AST bug
+/// (or a misuse of the evaluator API) rather than a runtime "undefined variable".
+fn ensure_valid_variable_name(name: &str) -> Result<(), VmExecutionError> {
+    if name.starts_with(char::is_numeric) || name.starts_with('\'') {
+        return Err(VmInternalError::BadSymbolicRepresentation(format!(
+            "Unexpected variable name: {name}"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+/// Convert a callable-contract name into the value exposed to Clarity code.
+/// Clarity1 represents callable contracts as principals; Clarity2+ uses a dedicated type.
+fn callable_contract_value(name: &str, context: &LocalContext, env: &Environment) -> Option<Value> {
+    context.lookup_callable_contract(name).map(|callable_data| {
+        // TODO: Historically these callable-contract values have not been size-costed,
+        // even though they involve cloning. Keep this behavior unless deliberately changing costing?
+        if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
+            callable_data.contract_identifier.clone().into()
+        } else {
+            Value::CallableContract(callable_data.clone())
+        }
+    })
+}
+
+/// Pre-3.4 semantics:
+/// - Always returns an owned/cloned `Value`
+/// - Charges clone cost as part of lookup (size-based)
+///
+/// This exists because pre-3.4 epochs do not support borrowed references for variable lookup.
+fn lookup_variable_cloned(
+    name: &str,
+    context: &LocalContext,
+    env: &mut Environment,
+) -> Result<Value, VmExecutionError> {
+    ensure_valid_variable_name(name)?;
+    if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
+        return Ok(value);
+    }
+    runtime_cost(
+        ClarityCostFunction::LookupVariableDepth,
+        env,
+        context.depth(),
+    )?;
+    if let Some(value) = context.lookup_variable(name) {
+        runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
+        return Ok(value.clone());
+    }
+    if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
+        runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
+        let (value, _) =
+            Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value)?, value)
+                .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+        return Ok(value);
+    }
+    if let Some(value) = callable_contract_value(name, context, env) {
+        return Ok(value);
+    }
+    Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!("Undefined variable: {name}")).into())
+}
+
+/// Post-3.4 semantics:
+/// - Returns borrowed values from `LocalContext` when possible (no clone, no size cost yet)
+/// - Still returns owned for reserved variables and callable contracts
+/// - Returns owned for contract-context variables because `env` is the cost tracker:
+///   holding a borrow into `env` would prevent charging clone costs later.
+fn lookup_variable_by_ref<'a>(
+    name: &str,
+    context: &'a LocalContext,
+    env: &mut Environment,
+) -> Result<ValueRef<'a>, VmExecutionError> {
+    ensure_valid_variable_name(name)?;
+
+    // Reserved variables are synthesized on demand; always owned.
+    if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
+        return Ok(ValueRef::Owned(value));
+    }
+    runtime_cost(
+        ClarityCostFunction::LookupVariableDepth,
+        env,
+        context.depth(),
+    )?;
+    // Local bindings — borrow directly; cloning (and its size cost) is deferred until
+    //    `ValueRef::clone_with_cost()` is explicitly invoked.
+    if let Some(value) = context.lookup_variable(name) {
+        return Ok(ValueRef::Borrowed(value));
+    }
+    // Contract globals — must be owned.
+    // Because the clone cost is charged via `env` (mutable borrow). Returning a reference into
+    // `env.contract_context` would keep `env` immutably borrowed across the call boundary,
+    // making it impossible for the caller to later do `clone_with_cost(&mut env, ...)`.
+    if let Some(value) = env.contract_context.lookup_variable(name) {
+        runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
+        return Ok(ValueRef::Owned(value.clone()));
+    }
+    // Callable contracts are already owned values
+    if let Some(value) = callable_contract_value(name, context, env) {
+        return Ok(ValueRef::Owned(value));
+    }
+    Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!("Undefined variable: {name}")).into())
+}
+
 fn lookup_variable<'a>(
     name: &str,
     context: &'a LocalContext,
     env: &mut Environment,
 ) -> Result<ValueRef<'a>, VmExecutionError> {
-    if name.starts_with(char::is_numeric) || name.starts_with('\'') {
-        Err(
-            VmInternalError::BadSymbolicRepresentation(format!("Unexpected variable name: {name}"))
-                .into(),
-        )
-    } else if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
-        // Reserved variables are constructed on the fly, so return as owned
-        Ok(ValueRef::Owned(value))
-    } else if let Some(value) = context.lookup_variable(name) {
-        // Value is stored in context, return as borrowed
-        Ok(ValueRef::Borrowed(value))
-    } else if let Some(value) = env.contract_context.lookup_variable(name) {
-        // Value is stored in contract context which is borrowed from `env``, must be cloned as `env`` is the cost tracker
-        // and we cannot mutably borrow `env`` to track the cost if we return a borrowed reference to the value from `env``.
-        runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
-        Ok(ValueRef::Owned(value.clone()))
-    } else if let Some(callable_data) = context.lookup_callable_contract(name) {
-        if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
-            Ok(ValueRef::Owned(
-                callable_data.contract_identifier.clone().into(),
-            ))
-        } else {
-            Ok(ValueRef::Owned(Value::CallableContract(
-                callable_data.clone(),
-            )))
-        }
+    if env.epoch().supports_clarity_value_refs() {
+        // In post-3.4, we want to take advantage of the ability to return borrowed references to variables
+        // so that we can avoid unnecessary cloning and the associated cost where possible
+        lookup_variable_by_ref(name, context, env)
     } else {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!("Undefined variable: {name}")).into())
+        // Since we already track the depth cost in the pre-3.4 lookup, we can skip tracking it again
+        // by returning a ValueRef::Owned
+        lookup_variable_cloned(name, context, env).map(ValueRef::Owned)
     }
 }
 
