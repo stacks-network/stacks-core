@@ -165,8 +165,8 @@ pub trait HeadersDB {
     /// Returns the height of the burn chain block that created this block's tenure,
     /// which may be different from the burn chain tip.
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
-    /// Returns the burn view of the block, which is the tip of the burn chain and
-    /// not necessarily the block that created the tenure
+    /// Returns the burn view of the block, which is the tip of the burn chain at the
+    /// time this block was mined and not necessarily the block that created the tenure
     fn get_burn_view_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash>;
     fn get_miner_address(
         &self,
@@ -1129,8 +1129,8 @@ impl ClarityDatabase<'_> {
     ///
     /// For Epoch 3.4+:
     ///   This is the height of the burn view in which this block (or the `at-block` time travel target)
-    ///   is being mined. If there was no sortition in this burn block, this will be different from the
-    ///   block that started the tenure.
+    ///   is being mined. If this burn block didn't start a new tenure (e.g. because there was no sortition),
+    ///   this will be different from what the block's consensus hash points to.
     pub fn get_current_burnchain_block_height(&mut self) -> Result<u32, VmExecutionError> {
         // The height of the Stacks block that's currently being constructed. In particular,
         // a block of this height does *not* yet exist (at least not in this context, which

@@ -598,7 +598,9 @@ impl HeadersDB for TestSimHeadersDB {
     }
 
     fn get_burn_view_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        None //FIXME
+        // return the mocked consensus hash because even in the real world,
+        // most of the time it will be the same value as the burn view
+        self.get_consensus_hash_for_block(id_bhh, &StacksEpochId::latest())
     }
 
     fn get_miner_address(

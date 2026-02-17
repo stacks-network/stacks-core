@@ -714,8 +714,10 @@ impl HeadersDB for CLIHeadersDB {
         let conn = self.conn();
         get_cli_block_height(conn, id_bhh).map(|height| height as u32)
     }
-    fn get_burn_view_for_block(&self, _id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        None // FIXME
+    fn get_burn_view_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        // return the mocked consensus hash because even in the real world,
+        // most of the time it will be the same value as the burn view
+        self.get_consensus_hash_for_block(id_bhh, &StacksEpochId::latest())
     }
     fn get_miner_address(
         &self,
