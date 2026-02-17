@@ -14,14 +14,18 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::BTreeSet;
 
+use stacks_common::types::StacksEpochId;
+
+use crate::Value;
 use crate::errors::ClarityTypeError;
 use crate::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    BufferLength, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
+    BufferLength, CallableData, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
     MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype,
-    StringSubtype, StringUTF8Length, TraitIdentifier, TupleTypeSignature, WRAPPER_VALUE_SIZE,
+    StandardPrincipalData, StringSubtype, StringUTF8Length, TraitIdentifier, TupleData,
+    TupleTypeSignature, WRAPPER_VALUE_SIZE,
 };
 
 #[test]
@@ -98,6 +102,7 @@ fn test_type_buffer_max() {
         actual.size().unwrap(),
         "size should be 1_048_580"
     );
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -110,6 +115,7 @@ fn test_type_buffer_1() {
 
     assert_eq!(expected, actual);
     assert_eq!(5, actual.size().unwrap(), "size should be 5");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -122,6 +128,7 @@ fn test_type_buffer_20() {
 
     assert_eq!(expected, actual);
     assert_eq!(24, actual.size().unwrap(), "size should be 24");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -134,6 +141,7 @@ fn test_type_buffer_32() {
 
     assert_eq!(expected, actual);
     assert_eq!(36, actual.size().unwrap(), "size should be 36");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -146,6 +154,7 @@ fn test_type_buffer_33() {
 
     assert_eq!(expected, actual);
     assert_eq!(37, actual.size().unwrap(), "size should be 37");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -158,6 +167,7 @@ fn test_type_buffer_64() {
 
     assert_eq!(expected, actual);
     assert_eq!(68, actual.size().unwrap(), "size should be 68");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -170,6 +180,7 @@ fn test_type_buffer_65() {
 
     assert_eq!(expected, actual);
     assert_eq!(69, actual.size().unwrap(), "size should be 69");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -183,6 +194,7 @@ fn test_type_string_ascii_min() {
 
     assert_eq!(expected, actual);
     assert_eq!(5, actual.size().unwrap(), "size should be 5");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -200,6 +212,7 @@ fn test_type_string_ascii_max() {
         actual.size().unwrap(),
         "size should be 1_048_580"
     );
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -213,6 +226,7 @@ fn test_type_string_ascii_40() {
 
     assert_eq!(expected, actual);
     assert_eq!(44, actual.size().unwrap(), "size should be 44");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -274,6 +288,7 @@ fn test_type_string_utf8_min() {
 
     assert_eq!(expected, actual);
     assert_eq!(8, actual.size().unwrap(), "size should be 8");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -292,6 +307,7 @@ fn test_type_string_utf8_max() {
         actual.size().unwrap(),
         "size should be 1_048_580"
     );
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -305,6 +321,7 @@ fn test_type_string_utf8_40() {
 
     assert_eq!(expected, actual);
     assert_eq!(164, actual.size().unwrap(), "size should be 164");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -318,6 +335,7 @@ fn test_type_buffer_max_for_to_ascii_call() {
 
     assert_eq!(expected, actual);
     assert_eq!(524_288, actual.size().unwrap(), "size should be 524_288");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -335,6 +353,7 @@ fn test_type_string_max_ascii_for_to_ascii_call() {
         actual.size().unwrap(),
         "size should be 1_048_575"
     );
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -348,8 +367,182 @@ fn test_type_string_max_ascii_for_contract_name() {
 
     assert_eq!(expected, actual);
     assert_eq!(44, actual.size().unwrap(), "size should be 44");
+    assert_eq!(4, actual.min_size().unwrap(), "min_size should be 4");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_min_size_optional() {
+    let actual = TypeSignature::new_option(TypeSignature::IntType).unwrap();
+    assert_eq!(17, actual.size().unwrap(), "size should be 17");
+    assert_eq!(
+        2,
+        actual.min_size().unwrap(),
+        "min_size should be 2 (`none` path = NoType + 1 wrapper)"
+    );
+}
+
+#[test]
+fn test_type_min_size_response() {
+    let actual =
+        TypeSignature::new_response(TypeSignature::IntType, TypeSignature::BoolType).unwrap();
+    assert_eq!(
+        17,
+        actual.size().unwrap(),
+        "size should be 17 (max(16, 1) + 1)"
+    );
+    assert_eq!(
+        2,
+        actual.min_size().unwrap(),
+        "min_size should be 2 (min(16, 1) + 1)"
+    );
+}
+
+#[test]
+fn test_type_min_size_list() {
+    let actual = TypeSignature::list_of(TypeSignature::IntType, 10).unwrap();
+    assert!(actual.size().unwrap() > 6);
+    assert_eq!(
+        6,
+        actual.min_size().unwrap(),
+        "min_size should be 6 (entry type enum + list type enum + max_len)"
+    );
+}
+
+#[test]
+fn test_type_min_size_tuple() {
+    let actual = TypeSignature::TupleType(
+        TupleTypeSignature::try_from(vec![
+            ("a".into(), TypeSignature::IntType),
+            ("b".into(), TypeSignature::BoolType),
+        ])
+        .unwrap(),
+    );
+    // 2*len + type_size + (min_size(int)+len("a")) + (min_size(bool)+len("b")) = 4 + 8 + 17 + 2 = 31
+    assert_eq!(
+        31,
+        actual.min_size().unwrap(),
+        "min_size should match tuple formula"
+    );
+    assert!(actual.min_size().unwrap() <= actual.size().unwrap());
+}
+
+#[test]
+fn test_type_min_size_optional_matches_none_value() {
+    let declared_type = TypeSignature::new_option(TypeSignature::IntType).unwrap();
+    let min_value = Value::none();
+    let min_value_type = TypeSignature::type_of(&min_value).unwrap();
+
+    assert!(
+        declared_type
+            .admits_type(&StacksEpochId::latest(), &min_value_type)
+            .unwrap()
+    );
+    assert_eq!(min_value.size().unwrap(), declared_type.min_size().unwrap());
+}
+
+#[test]
+fn test_type_min_size_response_matches_smallest_branch_value() {
+    let declared_type =
+        TypeSignature::new_response(TypeSignature::IntType, TypeSignature::BoolType).unwrap();
+    let min_value = Value::error(Value::Bool(true)).unwrap();
+    let min_value_type = TypeSignature::type_of(&min_value).unwrap();
+
+    assert!(
+        declared_type
+            .admits_type(&StacksEpochId::latest(), &min_value_type)
+            .unwrap()
+    );
+    assert_eq!(min_value.size().unwrap(), declared_type.min_size().unwrap());
+}
+
+#[test]
+fn test_type_min_size_list_matches_empty_list_value() {
+    let declared_type = TypeSignature::list_of(TypeSignature::IntType, 10).unwrap();
+    let min_value = Value::cons_list_unsanitized(vec![]).unwrap();
+    let min_value_type = TypeSignature::type_of(&min_value).unwrap();
+
+    assert!(
+        declared_type
+            .admits_type(&StacksEpochId::latest(), &min_value_type)
+            .unwrap()
+    );
+    assert_eq!(min_value.size().unwrap(), declared_type.min_size().unwrap());
+}
+
+#[test]
+fn test_type_min_size_principal_matches_minimum_value_kind() {
+    let declared_type = TypeSignature::PrincipalType;
+    let min_value = Value::from(StandardPrincipalData::transient());
+    let min_value_type = TypeSignature::type_of(&min_value).unwrap();
+
+    assert_eq!(TypeSignature::PrincipalType, min_value_type);
+    assert!(
+        declared_type
+            .admits_type(&StacksEpochId::latest(), &min_value_type)
+            .unwrap()
+    );
+    assert_eq!(min_value.size().unwrap(), declared_type.min_size().unwrap());
+}
+
+#[test]
+fn test_type_min_size_callable_trait_matches_minimum_value_kind() {
+    let trait_id = TraitIdentifier {
+        name: "t".into(),
+        contract_identifier: QualifiedContractIdentifier::local("trait-def").unwrap(),
+    };
+    let declared_type = TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()));
+    let min_value = Value::CallableContract(CallableData {
+        contract_identifier: QualifiedContractIdentifier::local("a").unwrap(),
+        trait_identifier: Some(trait_id.clone()),
+    });
+    let min_value_type = TypeSignature::type_of(&min_value).unwrap();
+
+    assert_eq!(declared_type, min_value_type);
+    assert!(
+        declared_type
+            .admits_type(&StacksEpochId::latest(), &min_value_type)
+            .unwrap()
+    );
+    assert_eq!(min_value.size().unwrap(), declared_type.min_size().unwrap());
+}
+
+#[test]
+fn test_type_min_size_tuple_with_list_matches_minimum_value() {
+    let declared_type = TypeSignature::TupleType(
+        TupleTypeSignature::try_from(vec![
+            (
+                "items".into(),
+                TypeSignature::list_of(TypeSignature::IntType, 10).unwrap(),
+            ),
+            ("ok".into(), TypeSignature::BoolType),
+            (
+                "maybe".into(),
+                TypeSignature::new_option(TypeSignature::UIntType).unwrap(),
+            ),
+        ])
+        .unwrap(),
+    );
+    let min_value = Value::from(
+        TupleData::from_data(vec![
+            (
+                "items".into(),
+                Value::cons_list_unsanitized(vec![]).unwrap(),
+            ),
+            ("ok".into(), Value::Bool(false)),
+            ("maybe".into(), Value::none()),
+        ])
+        .unwrap(),
+    );
+    let min_value_type = TypeSignature::type_of(&min_value).unwrap();
+
+    assert!(
+        declared_type
+            .admits_type(&StacksEpochId::latest(), &min_value_type)
+            .unwrap()
+    );
+    assert_eq!(min_value.size().unwrap(), declared_type.min_size().unwrap());
 }
 
 #[test]

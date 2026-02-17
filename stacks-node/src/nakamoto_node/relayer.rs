@@ -816,7 +816,9 @@ impl RelayerThread {
             false
         });
 
-        if won_last_winning_snapshot && commits_to_tip_tenure {
+        if (won_last_winning_snapshot && commits_to_tip_tenure)
+            || self.config.get_node_config(false).mock_mining
+        {
             debug!(
                 "Relayer: we won the last winning sortition {}",
                 &last_winning_snapshot.consensus_hash

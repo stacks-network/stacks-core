@@ -32,11 +32,6 @@ jobs:
         with:
           btc-version: "25.0"
 
-      - name: Build Test Archive
-        run: |
-          set -euo pipefail
-          cargo nextest archive --archive-file ~/test_archive.tar.zst --bin stacks-node
-
       - name: List ignored tests
         id: list
         run: |
@@ -105,6 +100,7 @@ jobs:
           tests::nakamoto_integrations::large_mempool_next_constant_fee
           tests::nakamoto_integrations::large_mempool_next_random_fee
           tests::nakamoto_integrations::larger_mempool
+          tests::nakamoto_integrations::check_block_info_rewards
           tests::signer::v0::larger_mempool
           EOF
 

@@ -17,6 +17,8 @@
 #[cfg(test)]
 use std::cmp::Ordering;
 use std::collections::HashSet;
+#[cfg(test)]
+use std::str::FromStr;
 
 use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
@@ -24,6 +26,8 @@ pub use stacks_common::consts::MICROSTACKS_PER_STACKS;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 pub use stacks_common::types::StacksEpochId;
 use stacks_common::types::{EpochList as GenericEpochList, StacksEpoch as GenericStacksEpoch};
+#[cfg(test)]
+use stacks_common::versions::STACKS_NODE_VERSION;
 
 pub use self::mempool::MemPoolDB;
 use crate::burnchains::bitcoin::indexer::get_bitcoin_stacks_epochs;
@@ -603,6 +607,17 @@ pub const fn marker_for_epoch(epoch_id: StacksEpochId) -> Option<u8> {
     }
 }
 
+// Pick the release epoch whose `network_epoch` must match `PEER_NETWORK_EPOCH`.
+// `latest()` may be one-ahead in test/testing builds, so this check intentionally
+// anchors to the release latest epoch instead.
+fn peer_network_epoch_check_epoch_id() -> StacksEpochId {
+    assert!(
+        StacksEpochId::RELEASE_LATEST_EPOCH <= StacksEpochId::latest(),
+        "FATAL: RELEASE_LATEST_EPOCH cannot be greater than latest()"
+    );
+    StacksEpochId::RELEASE_LATEST_EPOCH
+}
+
 #[test]
 fn test_ord_for_stacks_epoch() {
     let epochs = &*STACKS_EPOCHS_MAINNET;
@@ -858,6 +873,68 @@ fn test_ord_for_stacks_epoch_id() {
         StacksEpochId::Epoch20.cmp(&StacksEpochId::Epoch10),
         Ordering::Greater
     );
+}
+
+#[cfg(test)]
+fn release_epoch_from_stacks_node_version() -> StacksEpochId {
+    let mut parts = STACKS_NODE_VERSION.split('.');
+    let major = parts
+        .next()
+        .expect("FATAL: STACKS_NODE_VERSION must include major version");
+    let minor = parts
+        .next()
+        .expect("FATAL: STACKS_NODE_VERSION must include minor version");
+    let release_epoch_str = format!("{major}.{minor}");
+    StacksEpochId::from_str(&release_epoch_str).unwrap_or_else(|_| {
+        panic!(
+            "FATAL: STACKS_NODE_VERSION major.minor '{release_epoch_str}' must map to a StacksEpochId"
+        )
+    })
+}
+
+#[test]
+fn test_release_epoch_matches_versions_and_peer_epoch() {
+    let release_epoch_from_version = release_epoch_from_stacks_node_version();
+    assert_eq!(
+        release_epoch_from_version,
+        StacksEpochId::RELEASE_LATEST_EPOCH,
+        "versions.toml stacks_node_version major.minor must match RELEASE_LATEST_EPOCH"
+    );
+    assert_eq!(
+        u32::from(StacksEpochId::network_epoch(
+            StacksEpochId::RELEASE_LATEST_EPOCH
+        )),
+        PEER_NETWORK_EPOCH,
+        "PEER_NETWORK_EPOCH must match RELEASE_LATEST_EPOCH's network_epoch"
+    );
+}
+
+#[test]
+fn test_peer_network_epoch_matches_static_epoch_tables() {
+    let check_epoch_id = peer_network_epoch_check_epoch_id();
+    for (network_name, epochs) in [
+        ("mainnet", &*STACKS_EPOCHS_MAINNET),
+        ("testnet", &*STACKS_EPOCHS_TESTNET),
+        ("regtest", &*STACKS_EPOCHS_REGTEST),
+    ] {
+        let check_epoch = epochs.get(check_epoch_id).unwrap_or_else(|| {
+            panic!("FATAL: {network_name} epoch table is missing check epoch {check_epoch_id:?}")
+        });
+        assert_eq!(
+            u32::from(check_epoch.network_epoch),
+            PEER_NETWORK_EPOCH,
+            "stacks-blockchain static network epoch should match {network_name} epoch {check_epoch_id:?}"
+        );
+    }
+}
+
+#[test]
+#[should_panic(expected = "stacks-blockchain static network epoch should match")]
+fn test_validate_epochs_rejects_stale_peer_network_epoch() {
+    let check_epoch_id = peer_network_epoch_check_epoch_id();
+    let mut bad_epochs = (*STACKS_EPOCHS_MAINNET).clone();
+    bad_epochs[check_epoch_id].network_epoch = (PEER_NETWORK_EPOCH + 1) as u8;
+    let _ = StacksEpoch::validate_epochs(&bad_epochs);
 }
 
 pub trait StacksEpochExtension {
@@ -2609,23 +2686,26 @@ impl StacksEpochExtension for StacksEpoch {
         let mut seen_epochs = HashSet::new();
         epochs.sort();
 
+        let latest_epoch = StacksEpochId::latest();
         let max_epoch = epochs_ref
             .iter()
             .max()
             .expect("FATAL: expect at least one epoch");
-        if max_epoch.epoch_id == StacksEpochId::Epoch34 {
-            assert!(PEER_NETWORK_EPOCH >= u32::from(PEER_VERSION_EPOCH_3_3));
-        } else {
-            assert!(
-                max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,
-                "stacks-blockchain static network epoch should be greater than or equal to the max epoch's"
-            );
-        }
+
+        let check_epoch_id = peer_network_epoch_check_epoch_id();
+        assert_peer_network_epoch(epochs_ref, max_epoch, check_epoch_id);
+
+        let latest_epoch_idx = StacksEpochId::ALL
+            .iter()
+            .position(|epoch_id| *epoch_id == latest_epoch)
+            .expect("FATAL: latest epoch id missing from StacksEpochId::ALL");
+        let max_epoch_idx = StacksEpochId::ALL
+            .iter()
+            .position(|epoch_id| *epoch_id == max_epoch.epoch_id)
+            .expect("FATAL: max epoch id missing from StacksEpochId::ALL");
 
         // Allow epochs up to one version ahead of latest() for development purposes
-        assert!(StacksEpochId::latest() >= max_epoch.epoch_id
-            || (StacksEpochId::latest() == StacksEpochId::Epoch33
-                && max_epoch.epoch_id == StacksEpochId::Epoch34),
+        assert!(max_epoch_idx <= latest_epoch_idx.saturating_add(1),
             "StacksEpochId::latest() should be greater than or equal to any epoch defined in the node (except for development epochs)"
         );
 
@@ -2769,4 +2849,64 @@ impl StacksEpochExtension for StacksEpoch {
             burnchain.pox_constants
         );
     }
+}
+
+// Test/testing variant:
+// - Allows older epoch markers (`<= PEER_NETWORK_EPOCH`) to cover back-compat fixtures
+//   (e.g. the historical 3.3 release that advertised 3.2).
+// - Allows partial epoch lists used by unit tests that intentionally stop before
+//   `RELEASE_LATEST_EPOCH`.
+#[cfg(any(test, feature = "testing"))]
+fn assert_peer_network_epoch(
+    epochs_ref: &[StacksEpoch],
+    max_epoch: &StacksEpoch,
+    check_epoch_id: StacksEpochId,
+) {
+    if epochs_ref
+        .iter()
+        .find(|epoch| epoch.epoch_id == check_epoch_id)
+        .is_none()
+    {
+        // Some test-only epoch lists intentionally end before the release latest epoch.
+        assert!(
+            max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,
+            "stacks-blockchain static network epoch should be greater than or equal to the max epoch's"
+        );
+    } else {
+        let check_epoch = epochs_ref
+            .iter()
+            .find(|epoch| epoch.epoch_id == check_epoch_id)
+            .expect("FATAL: check epoch must exist");
+        assert!(
+            u32::from(check_epoch.network_epoch) <= PEER_NETWORK_EPOCH,
+            "stacks-blockchain static network epoch should match {:?}'s network_epoch",
+            check_epoch_id
+        );
+    }
+}
+
+// Runtime variant:
+// - Enforces strict equality between `PEER_NETWORK_EPOCH` and the release epoch marker.
+// - Requires the release epoch to be present in the configured epoch list.
+#[cfg(not(any(test, feature = "testing")))]
+fn assert_peer_network_epoch(
+    epochs_ref: &[StacksEpoch],
+    _max_epoch: &StacksEpoch,
+    check_epoch_id: StacksEpochId,
+) {
+    let check_epoch = epochs_ref
+        .iter()
+        .find(|epoch| epoch.epoch_id == check_epoch_id)
+        .unwrap_or_else(|| {
+            panic!(
+                "FATAL: no {:?} defined in epoch list, cannot validate PEER_NETWORK_EPOCH",
+                check_epoch_id
+            )
+        });
+    assert_eq!(
+        u32::from(check_epoch.network_epoch),
+        PEER_NETWORK_EPOCH,
+        "stacks-blockchain static network epoch should match {:?}'s network_epoch",
+        check_epoch_id
+    );
 }

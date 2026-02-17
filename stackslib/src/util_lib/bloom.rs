@@ -23,7 +23,9 @@ use rand::thread_rng;
 use rusqlite::blob::Blob;
 use rusqlite::{params, Error as sqlite_error};
 use siphasher::sip::SipHasher; // this is SipHash-2-4
-use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::codec::{
+    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
+};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 
@@ -112,6 +114,9 @@ fn decode_bitfield<R: Read>(fd: &mut R) -> Result<Vec<u8>, codec_error> {
         x if x == BitFieldEncoding::Sparse as u8 => {
             // sparse encoding
             let vec_len: u32 = read_next(fd)?;
+            if vec_len > MAX_MESSAGE_LEN.saturating_sub(5) {
+                return Err(codec_error::OverflowError("vec_len is too big".into()));
+            }
             let num_filled: u32 = read_next(fd)?;
 
             let mut ret = vec![0u8; vec_len as usize];
@@ -929,6 +934,17 @@ pub mod test {
                 0x00, 0x00, 0x0f, 0x08
             ]
         );
+
+        // vec_len too big
+        let mut bitfield_too_big = vec![];
+        encode_bitfield(&mut bitfield_too_big, &vec![0u8; MAX_MESSAGE_LEN as usize]).unwrap();
+        let e = decode_bitfield(&mut &bitfield_too_big[..]);
+        if let Err(codec_error::OverflowError(s)) = e {
+            assert_eq!(s, "vec_len is too big".to_string());
+        } else {
+            error!("Unexpected decode_bitfield result: {e:?}");
+            panic!();
+        }
     }
 
     #[test]

@@ -83,7 +83,7 @@ pub fn make_block(
     burn_height: u64,
     block_height: u64,
 ) -> (ConsensusHash, BlockHeaderHash) {
-    let (mut chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
+    let (mut chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin();
 
     let anchored_header = StacksBlockHeader {
         version: 1,
