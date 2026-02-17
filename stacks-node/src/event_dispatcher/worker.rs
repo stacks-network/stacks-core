@@ -43,7 +43,7 @@ struct PayloadInfo {
 
 enum WorkerTask {
     Payload(PayloadInfo),
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     NoOp,
 }
 struct WorkerMessage {
@@ -240,7 +240,7 @@ impl EventDispatcherWorker {
             } = match task {
                 WorkerTask::Payload(p) => p,
 
-                #[cfg(any(test, feature = "testing"))]
+                #[cfg(test)]
                 WorkerTask::NoOp => {
                     // just ack and move on
                     debug!("Event Dispatcher Worker: doing no-op");
