@@ -32,16 +32,18 @@ use crate::event_dispatcher::db::EventDispatcherDbConnection;
 use crate::event_dispatcher::TEST_EVENT_OBSERVER_SKIP_RETRY;
 use crate::event_dispatcher::{EventDispatcherError, EventRequestData};
 
-#[allow(dead_code)] // NoOp is only used in test configurations
+struct PayloadInfo {
+    /// The id of the payload data in the event observer DB. It must exist.
+    id: i64,
+    /// If true, the HTTP request is only attempted once.
+    disable_retries: bool,
+    /// A value for the HTTP timeout is stored in the DB, but can optionally be overridden.
+    timeout_override: Option<Duration>,
+}
+
 enum WorkerTask {
-    Payload {
-        /// The id of the payload data in the event observer DB. It must exist.
-        id: i64,
-        /// If true, the HTTP request is only attempted once.
-        disable_retries: bool,
-        /// A value for the HTTP timeout is stored in the DB, but can optionally be overridden.
-        timeout_override: Option<Duration>,
-    },
+    Payload(PayloadInfo),
+    #[cfg(any(test, feature = "testing"))]
     NoOp,
 }
 struct WorkerMessage {
@@ -182,11 +184,11 @@ impl EventDispatcherWorker {
         debug!("Event Dispatcher Worker: sending payload {id}");
 
         self.sender.send(WorkerMessage {
-            task: WorkerTask::Payload {
+            task: WorkerTask::Payload(PayloadInfo {
                 id,
                 disable_retries,
                 timeout_override,
-            },
+            }),
             completion: sender,
         })?;
 
@@ -231,16 +233,20 @@ impl EventDispatcherWorker {
                 return;
             };
 
-            let WorkerTask::Payload {
+            let PayloadInfo {
                 id,
                 disable_retries,
                 timeout_override,
-            } = task
-            else {
-                // no-op -- just ack and move on
-                debug!("Event Dispatcher Worker: doing no-op");
-                let _ = completion.send(());
-                continue;
+            } = match task {
+                WorkerTask::Payload(p) => p,
+
+                #[cfg(any(test, feature = "testing"))]
+                WorkerTask::NoOp => {
+                    // just ack and move on
+                    debug!("Event Dispatcher Worker: doing no-op");
+                    let _ = completion.send(());
+                    continue;
+                }
             };
 
             debug!("Event Dispatcher Worker: doing payload {id}");
