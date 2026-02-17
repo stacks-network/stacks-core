@@ -824,3 +824,26 @@ pub fn utf8_string_literal(data: &UTF8Data) -> String {
     literal.push('"');
     literal
 }
+
+/// A strategy that generates valid Clarity type signature strings suitable for
+/// `from-consensus-buff?`. Parameterized types get randomized lengths up to
+/// 128.
+pub fn consensus_buff_type_strategy() -> BoxedStrategy<String> {
+    let len_range = 1u32..=128;
+
+    prop_oneof![
+        Just("int".to_string()),
+        Just("uint".to_string()),
+        Just("bool".to_string()),
+        Just("principal".to_string()),
+        len_range.clone().prop_map(|n| format!("(buff {n})")),
+        len_range
+            .clone()
+            .prop_map(|n| format!("(string-ascii {n})")),
+        len_range.clone().prop_map(|n| format!("(string-utf8 {n})")),
+        Just("(optional int)".to_string()),
+        len_range.prop_map(|n| format!("(list {n} int)")),
+        Just("(response int int)".to_string()),
+    ]
+    .boxed()
+}
