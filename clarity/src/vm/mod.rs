@@ -227,6 +227,27 @@ fn callable_contract_value(
     })
 }
 
+/// Lookup the variable `name` in the contract context, ensuring that the returned value is sanitized and charging for the size of the value.
+fn lookup_contract_context_sanitized_value(
+    name: &str,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+) -> Result<Option<Value>, VmExecutionError> {
+    let Some(value) = invoke_ctx.contract_context.lookup_variable(name).cloned() else {
+        return Ok(None);
+    };
+    // Have to santize the value here which requires a cloned value.
+    runtime_cost(
+        ClarityCostFunction::LookupVariableSize,
+        exec_state,
+        value.size()?,
+    )?;
+    let (value, _) =
+        Value::sanitize_value(exec_state.epoch(), &TypeSignature::type_of(&value)?, value)
+            .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+    Ok(Some(value))
+}
+
 /// Pre-3.4 semantics:
 /// - Always returns an owned/cloned `Value`
 /// - Charges clone cost as part of lookup (size-based)
@@ -255,15 +276,7 @@ fn lookup_variable_cloned(
         )?;
         return Ok(value.clone());
     }
-    if let Some(value) = invoke_ctx.contract_context.lookup_variable(name).cloned() {
-        runtime_cost(
-            ClarityCostFunction::LookupVariableSize,
-            exec_state,
-            value.size()?,
-        )?;
-        let (value, _) =
-            Value::sanitize_value(exec_state.epoch(), &TypeSignature::type_of(&value)?, value)
-                .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+    if let Some(value) = lookup_contract_context_sanitized_value(name, exec_state, invoke_ctx)? {
         return Ok(value);
     }
     if let Some(value) = callable_contract_value(name, context, invoke_ctx.contract_context) {
@@ -297,10 +310,8 @@ fn lookup_variable_by_ref<'a>(
     if let Some(value) = context.lookup_variable(name) {
         return Ok(ValueRef::Borrowed(value));
     }
-    // Contract globals —borrow directly; cloning (and its size cost) is deferred until
-    //    `ValueRef::clone_with_cost()` is explicitly invoked.
-    if let Some(value) = invoke_ctx.contract_context.lookup_variable(name) {
-        return Ok(ValueRef::Borrowed(value));
+    if let Some(value) = lookup_contract_context_sanitized_value(name, exec_state, invoke_ctx)? {
+        return Ok(ValueRef::Owned(value));
     }
     // Callable contracts are already owned values
     if let Some(value) = callable_contract_value(name, context, invoke_ctx.contract_context) {
