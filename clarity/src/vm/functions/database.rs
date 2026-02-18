@@ -19,6 +19,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::vm::callables::DefineType;
+use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
 use crate::vm::errors::{
@@ -30,7 +31,7 @@ use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, PrincipalData, SequenceData,
     StacksBlockInfoProperty, TenureInfoProperty, TupleData, TypeSignature, Value,
 };
-use crate::vm::{ClarityVersion, Environment, LocalContext, eval};
+use crate::vm::{ClarityVersion, LocalContext, eval};
 
 switch_on_global_epoch!(special_fetch_variable(
     special_fetch_variable_v200,
@@ -59,7 +60,8 @@ switch_on_global_epoch!(special_delete_entry(
 
 pub fn special_contract_call(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(2, args)?;
@@ -67,7 +69,7 @@ pub fn special_contract_call(
     // the second part of the contract_call cost (i.e., the load contract cost)
     //   is checked in `execute_contract`, and the function _application_ cost
     //   is checked in callables::DefinedFunction::execute_apply.
-    runtime_cost(ClarityCostFunction::ContractCall, env, 0)?;
+    runtime_cost(ClarityCostFunction::ContractCall, exec_state, 0)?;
 
     let function_name = args[1]
         .match_atom()
@@ -79,10 +81,10 @@ pub fn special_contract_call(
     let mut rest_args = Vec::with_capacity(rest_args_len);
     let mut rest_args_sizes = Vec::with_capacity(rest_args_len);
     for arg in rest_args_slice.iter() {
-        let evaluated_arg = eval(arg, env, context)?;
+        let evaluated_arg = eval(arg, exec_state, invoke_ctx, context)?;
         rest_args_sizes.push(evaluated_arg.as_ref().size()?.into());
         rest_args.push(SymbolicExpression::atom_value(
-            evaluated_arg.clone_with_cost(env)?,
+            evaluated_arg.clone_with_cost(exec_state)?,
         ));
     }
 
@@ -98,14 +100,16 @@ pub fn special_contract_call(
             match context.lookup_callable_contract(contract_ref) {
                 Some(trait_data) => {
                     // Ensure that contract-call is used for inter-contract calls only
-                    if trait_data.contract_identifier == env.contract_context.contract_identifier {
+                    if trait_data.contract_identifier
+                        == invoke_ctx.contract_context.contract_identifier
+                    {
                         return Err(RuntimeCheckErrorKind::CircularReference(vec![
                             trait_data.contract_identifier.name.to_string(),
                         ])
                         .into());
                     }
 
-                    let contract_to_check = env
+                    let contract_to_check = exec_state
                         .global_context
                         .database
                         .get_contract(&trait_data.contract_identifier)
@@ -134,7 +138,7 @@ pub fn special_contract_call(
                         let trait_name = trait_identifier.name.to_string();
 
                         // Retrieve, from the trait definition, the expected method signature
-                        let contract_defining_trait = env
+                        let contract_defining_trait = exec_state
                             .global_context
                             .database
                             .get_contract(&trait_identifier.contract_identifier)
@@ -155,7 +159,7 @@ pub fn special_contract_call(
                             ))?;
 
                         // Check read/write compatibility
-                        if env.global_context.is_read_only() {
+                        if exec_state.global_context.is_read_only() {
                             return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
                                 "Trait based contract call in read-only".to_string(),
                             )
@@ -172,7 +176,7 @@ pub fn special_contract_call(
                         }
 
                         function_to_check.check_trait_expectations(
-                            env.epoch(),
+                            exec_state.epoch(),
                             &contract_context_defining_trait,
                             trait_identifier,
                         )?;
@@ -200,31 +204,47 @@ pub fn special_contract_call(
         _ => return Err(RuntimeCheckErrorKind::ContractCallExpectName.into()),
     };
 
-    let contract_principal = env.contract_context.contract_identifier.clone().into();
+    let contract_principal = invoke_ctx
+        .contract_context
+        .contract_identifier
+        .clone()
+        .into();
 
-    let mut nested_env = env.nest_with_caller(contract_principal);
-    let result = if nested_env.short_circuit_contract_call(
+    let nested_ctx = invoke_ctx.with_caller(contract_principal);
+    let result = if exec_state.short_circuit_contract_call(
         contract_identifier,
         function_name,
         &rest_args_sizes,
     )? {
-        nested_env.run_free(|free_env| {
-            free_env.execute_contract(contract_identifier, function_name, &rest_args, false)
+        exec_state.run_free(&nested_ctx, |free_exec_state, nested_ctx| {
+            free_exec_state.execute_contract(
+                nested_ctx,
+                contract_identifier,
+                function_name,
+                &rest_args,
+                false,
+            )
         })
     } else {
-        nested_env.execute_contract(contract_identifier, function_name, &rest_args, false)
+        exec_state.execute_contract(
+            &nested_ctx,
+            contract_identifier,
+            function_name,
+            &rest_args,
+            false,
+        )
     }?;
 
     // sanitize contract-call outputs in epochs >= 2.4
     let result_type = TypeSignature::type_of(&result)?;
-    let (result, _) = Value::sanitize_value(env.epoch(), &result_type, result)
+    let (result, _) = Value::sanitize_value(exec_state.epoch(), &result_type, result)
         .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
     if let Some(returns_type_signature) = type_returns_constraint {
         let actual_returns = TypeSignature::type_of(&result)?;
-        if !returns_type_signature.admits_type(env.epoch(), &actual_returns)? {
+        if !returns_type_signature.admits_type(exec_state.epoch(), &actual_returns)? {
             return Err(RuntimeCheckErrorKind::ReturnTypesMustMatch(
                 Box::new(returns_type_signature),
                 Box::new(actual_returns),
@@ -238,7 +258,8 @@ pub fn special_contract_call(
 
 pub fn special_fetch_variable_v200(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     _context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
@@ -249,20 +270,25 @@ pub fn special_fetch_variable_v200(
             "Expected name".to_string(),
         ))?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such data variable: {var_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_var
+        .get(var_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such data variable: {var_name}"
+        )))?;
 
     runtime_cost(
         ClarityCostFunction::FetchVar,
-        env,
+        exec_state,
         data_types.value_type.size()?,
     )?;
 
-    let epoch = *env.epoch();
-    env.global_context
+    let epoch = *exec_state.epoch();
+    exec_state
+        .global_context
         .database
         .lookup_variable(contract, var_name, data_types, &epoch)
 }
@@ -271,7 +297,8 @@ pub fn special_fetch_variable_v200(
 ///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_fetch_variable_v205(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     _context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
@@ -282,14 +309,18 @@ pub fn special_fetch_variable_v205(
             "Expected name".to_string(),
         ))?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such data variable: {var_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_var
+        .get(var_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such data variable: {var_name}"
+        )))?;
 
-    let epoch = *env.epoch();
-    let result = env
+    let epoch = *exec_state.epoch();
+    let result = exec_state
         .global_context
         .database
         .lookup_variable_with_size(contract, var_name, data_types, &epoch);
@@ -299,17 +330,18 @@ pub fn special_fetch_variable_v205(
         Err(_e) => data_types.value_type.size()?.into(),
     };
 
-    runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
+    runtime_cost(ClarityCostFunction::FetchVar, exec_state, result_size)?;
 
     result.map(|data| data.value)
 }
 
 pub fn special_set_variable_v200(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if env.global_context.is_read_only() {
+    if exec_state.global_context.is_read_only() {
         return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
             "Write attempted in read-only".to_string(),
         )
@@ -318,7 +350,7 @@ pub fn special_set_variable_v200(
 
     check_argument_count(2, args)?;
 
-    let value = eval(&args[1], env, context)?;
+    let value = eval(&args[1], exec_state, invoke_ctx, context)?;
 
     let var_name = args[0]
         .match_atom()
@@ -326,23 +358,28 @@ pub fn special_set_variable_v200(
             "Expected name".to_string(),
         ))?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such data variable: {var_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_var
+        .get(var_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such data variable: {var_name}"
+        )))?;
 
     runtime_cost(
         ClarityCostFunction::SetVar,
-        env,
+        exec_state,
         data_types.value_type.size()?,
     )?;
 
-    env.add_memory(value.as_ref().get_memory_use()?)?;
+    exec_state.add_memory(value.as_ref().get_memory_use()?)?;
 
-    let value = value.clone_with_cost(env)?;
-    let epoch = *env.epoch();
-    env.global_context
+    let value = value.clone_with_cost(exec_state)?;
+    let epoch = *exec_state.epoch();
+    exec_state
+        .global_context
         .database
         .set_variable(contract, var_name, value, data_types, &epoch)
         .map(|data| data.value)
@@ -352,10 +389,11 @@ pub fn special_set_variable_v200(
 ///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_set_variable_v205(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if env.global_context.is_read_only() {
+    if exec_state.global_context.is_read_only() {
         return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
             "Write attempted in read-only".to_string(),
         )
@@ -364,7 +402,7 @@ pub fn special_set_variable_v205(
 
     check_argument_count(2, args)?;
 
-    let value = eval(&args[1], env, context)?;
+    let value = eval(&args[1], exec_state, invoke_ctx, context)?;
 
     let var_name = args[0]
         .match_atom()
@@ -372,15 +410,19 @@ pub fn special_set_variable_v205(
             "Expected name".to_string(),
         ))?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_var.get(var_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such data variable: {var_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_var
+        .get(var_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such data variable: {var_name}"
+        )))?;
 
-    let value = value.clone_with_cost(env)?;
-    let epoch = *env.epoch();
-    let result = env
+    let value = value.clone_with_cost(exec_state)?;
+    let epoch = *exec_state.epoch();
+    let result = exec_state
         .global_context
         .database
         .set_variable(contract, var_name, value, data_types, &epoch);
@@ -390,16 +432,17 @@ pub fn special_set_variable_v205(
         Err(_e) => data_types.value_type.size()?.into(),
     };
 
-    runtime_cost(ClarityCostFunction::SetVar, env, result_size)?;
+    runtime_cost(ClarityCostFunction::SetVar, exec_state, result_size)?;
 
-    env.add_memory(result_size)?;
+    exec_state.add_memory(result_size)?;
 
     result.map(|data| data.value)
 }
 
 pub fn special_fetch_entry_v200(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
@@ -410,31 +453,40 @@ pub fn special_fetch_entry_v200(
             "Expected name".to_string(),
         ))?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(&args[1], exec_state, invoke_ctx, context)?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_map.get(map_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such map: {map_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such map: {map_name}"
+        )))?;
 
     runtime_cost(
         ClarityCostFunction::FetchEntry,
-        env,
+        exec_state,
         data_types.value_type.size()? + data_types.key_type.size()?,
     )?;
 
-    let epoch = *env.epoch();
-    env.global_context
-        .database
-        .fetch_entry(contract, map_name, key.as_ref(), data_types, &epoch)
+    let epoch = *exec_state.epoch();
+    exec_state.global_context.database.fetch_entry(
+        contract,
+        map_name,
+        key.as_ref(),
+        data_types,
+        &epoch,
+    )
 }
 
 /// The Stacks v205 version of fetch_entry uses the actual stored size of the
 ///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_fetch_entry_v205(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
@@ -445,16 +497,20 @@ pub fn special_fetch_entry_v205(
             "Expected name".to_string(),
         ))?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(&args[1], exec_state, invoke_ctx, context)?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_map.get(map_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such map: {map_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such map: {map_name}"
+        )))?;
 
-    let epoch = *env.epoch();
-    let result = env.global_context.database.fetch_entry_with_size(
+    let epoch = *exec_state.epoch();
+    let result = exec_state.global_context.database.fetch_entry_with_size(
         contract,
         map_name,
         key.as_ref(),
@@ -467,20 +523,21 @@ pub fn special_fetch_entry_v205(
         Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
-    runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
+    runtime_cost(ClarityCostFunction::FetchEntry, exec_state, result_size)?;
 
     result.map(|data| data.value)
 }
 
 pub fn special_at_block(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    runtime_cost(ClarityCostFunction::AtBlock, env, 0)?;
-    let value = eval(&args[0], env, context)?;
+    runtime_cost(ClarityCostFunction::AtBlock, exec_state, 0)?;
+    let value = eval(&args[0], exec_state, invoke_ctx, context)?;
     let bhh = match value.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() != 32 {
@@ -493,25 +550,28 @@ pub fn special_at_block(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(value.clone_with_cost(env)?),
+                Box::new(value.clone_with_cost(exec_state)?),
             )
             .into());
         }
     };
 
-    env.add_memory(cost_constants::AT_BLOCK_MEMORY)?;
-    let result = env.evaluate_at_block(bhh, &args[1], context);
-    env.drop_memory(cost_constants::AT_BLOCK_MEMORY)?;
+    exec_state.add_memory(cost_constants::AT_BLOCK_MEMORY)?;
+    let result = exec_state
+        .evaluate_at_block(bhh, &args[1], invoke_ctx, context)
+        .and_then(|v| v.clone_with_cost(exec_state));
+    exec_state.drop_memory(cost_constants::AT_BLOCK_MEMORY)?;
 
     result
 }
 
 pub fn special_set_entry_v200(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if env.global_context.is_read_only() {
+    if exec_state.global_context.is_read_only() {
         return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
             "Write attempted in read-only".to_string(),
         )
@@ -520,9 +580,9 @@ pub fn special_set_entry_v200(
 
     check_argument_count(3, args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(&args[1], exec_state, invoke_ctx, context)?;
 
-    let value = eval(&args[2], env, context)?;
+    let value = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     let map_name = args[0]
         .match_atom()
@@ -530,25 +590,30 @@ pub fn special_set_entry_v200(
             "Expected name".to_string(),
         ))?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_map.get(map_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such map: {map_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such map: {map_name}"
+        )))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
-        env,
+        exec_state,
         data_types.value_type.size()? + data_types.key_type.size()?,
     )?;
 
-    env.add_memory(key.as_ref().get_memory_use()?)?;
-    env.add_memory(value.as_ref().get_memory_use()?)?;
+    exec_state.add_memory(key.as_ref().get_memory_use()?)?;
+    exec_state.add_memory(value.as_ref().get_memory_use()?)?;
 
-    let key = key.clone_with_cost(env)?;
-    let value = value.clone_with_cost(env)?;
-    let epoch = *env.epoch();
-    env.global_context
+    let key = key.clone_with_cost(exec_state)?;
+    let value = value.clone_with_cost(exec_state)?;
+    let epoch = *exec_state.epoch();
+    exec_state
+        .global_context
         .database
         .set_entry(contract, map_name, key, value, data_types, &epoch)
         .map(|data| data.value)
@@ -558,10 +623,11 @@ pub fn special_set_entry_v200(
 ///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_set_entry_v205(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if env.global_context.is_read_only() {
+    if exec_state.global_context.is_read_only() {
         return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
             "Write attempted in read-only".to_string(),
         )
@@ -570,9 +636,9 @@ pub fn special_set_entry_v205(
 
     check_argument_count(3, args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(&args[1], exec_state, invoke_ctx, context)?;
 
-    let value = eval(&args[2], env, context)?;
+    let value = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     let map_name = args[0]
         .match_atom()
@@ -580,16 +646,20 @@ pub fn special_set_entry_v205(
             "Expected name".to_string(),
         ))?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_map.get(map_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such map: {map_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such map: {map_name}"
+        )))?;
 
-    let key = key.clone_with_cost(env)?;
-    let value = value.clone_with_cost(env)?;
-    let epoch = *env.epoch();
-    let result = env
+    let key = key.clone_with_cost(exec_state)?;
+    let value = value.clone_with_cost(exec_state)?;
+    let epoch = *exec_state.epoch();
+    let result = exec_state
         .global_context
         .database
         .set_entry(contract, map_name, key, value, data_types, &epoch);
@@ -599,19 +669,20 @@ pub fn special_set_entry_v205(
         Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
-    runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
+    runtime_cost(ClarityCostFunction::SetEntry, exec_state, result_size)?;
 
-    env.add_memory(result_size)?;
+    exec_state.add_memory(result_size)?;
 
     result.map(|data| data.value)
 }
 
 pub fn special_insert_entry_v200(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if env.global_context.is_read_only() {
+    if exec_state.global_context.is_read_only() {
         return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
             "Write attempted in read-only".to_string(),
         )
@@ -620,9 +691,9 @@ pub fn special_insert_entry_v200(
 
     check_argument_count(3, args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(&args[1], exec_state, invoke_ctx, context)?;
 
-    let value = eval(&args[2], env, context)?;
+    let value = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     let map_name = args[0]
         .match_atom()
@@ -630,26 +701,31 @@ pub fn special_insert_entry_v200(
             "Expected name".to_string(),
         ))?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_map.get(map_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such map: {map_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such map: {map_name}"
+        )))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
-        env,
+        exec_state,
         data_types.value_type.size()? + data_types.key_type.size()?,
     )?;
 
-    env.add_memory(key.as_ref().get_memory_use()?)?;
-    env.add_memory(value.as_ref().get_memory_use()?)?;
+    exec_state.add_memory(key.as_ref().get_memory_use()?)?;
+    exec_state.add_memory(value.as_ref().get_memory_use()?)?;
 
-    let epoch = *env.epoch();
+    let epoch = *exec_state.epoch();
 
-    let key = key.clone_with_cost(env)?;
-    let value = value.clone_with_cost(env)?;
-    env.global_context
+    let key = key.clone_with_cost(exec_state)?;
+    let value = value.clone_with_cost(exec_state)?;
+    exec_state
+        .global_context
         .database
         .insert_entry(contract, map_name, key, value, data_types, &epoch)
         .map(|data| data.value)
@@ -659,10 +735,11 @@ pub fn special_insert_entry_v200(
 ///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_insert_entry_v205(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if env.global_context.is_read_only() {
+    if exec_state.global_context.is_read_only() {
         return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
             "Write attempted in read-only".to_string(),
         )
@@ -671,9 +748,9 @@ pub fn special_insert_entry_v205(
 
     check_argument_count(3, args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(&args[1], exec_state, invoke_ctx, context)?;
 
-    let value = eval(&args[2], env, context)?;
+    let value = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     let map_name = args[0]
         .match_atom()
@@ -681,16 +758,20 @@ pub fn special_insert_entry_v205(
             "Expected name".to_string(),
         ))?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_map.get(map_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such map: {map_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such map: {map_name}"
+        )))?;
 
-    let key = key.clone_with_cost(env)?;
-    let value = value.clone_with_cost(env)?;
-    let epoch = *env.epoch();
-    let result = env
+    let key = key.clone_with_cost(exec_state)?;
+    let value = value.clone_with_cost(exec_state)?;
+    let epoch = *exec_state.epoch();
+    let result = exec_state
         .global_context
         .database
         .insert_entry(contract, map_name, key, value, data_types, &epoch);
@@ -700,19 +781,20 @@ pub fn special_insert_entry_v205(
         Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?).into(),
     };
 
-    runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
+    runtime_cost(ClarityCostFunction::SetEntry, exec_state, result_size)?;
 
-    env.add_memory(result_size)?;
+    exec_state.add_memory(result_size)?;
 
     result.map(|data| data.value)
 }
 
 pub fn special_delete_entry_v200(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if env.global_context.is_read_only() {
+    if exec_state.global_context.is_read_only() {
         return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
             "Write attempted in read-only".to_string(),
         )
@@ -721,7 +803,7 @@ pub fn special_delete_entry_v200(
 
     check_argument_count(2, args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(&args[1], exec_state, invoke_ctx, context)?;
 
     let map_name = args[0]
         .match_atom()
@@ -729,22 +811,27 @@ pub fn special_delete_entry_v200(
             "Expected name".to_string(),
         ))?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_map.get(map_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such map: {map_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such map: {map_name}"
+        )))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
-        env,
+        exec_state,
         data_types.key_type.size()?,
     )?;
 
-    env.add_memory(key.as_ref().get_memory_use()?)?;
+    exec_state.add_memory(key.as_ref().get_memory_use()?)?;
 
-    let epoch = *env.epoch();
-    env.global_context
+    let epoch = *exec_state.epoch();
+    exec_state
+        .global_context
         .database
         .delete_entry(contract, map_name, key.as_ref(), data_types, &epoch)
         .map(|data| data.value)
@@ -754,10 +841,11 @@ pub fn special_delete_entry_v200(
 ///  value as input to the cost tabulation. Otherwise identical to v200.
 pub fn special_delete_entry_v205(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if env.global_context.is_read_only() {
+    if exec_state.global_context.is_read_only() {
         return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
             "Write attempted in read-only".to_string(),
         )
@@ -766,7 +854,7 @@ pub fn special_delete_entry_v205(
 
     check_argument_count(2, args)?;
 
-    let key = eval(&args[1], env, context)?;
+    let key = eval(&args[1], exec_state, invoke_ctx, context)?;
 
     let map_name = args[0]
         .match_atom()
@@ -774,14 +862,18 @@ pub fn special_delete_entry_v205(
             "Expected name".to_string(),
         ))?;
 
-    let contract = &env.contract_context.contract_identifier;
+    let contract = &invoke_ctx.contract_context.contract_identifier;
 
-    let data_types = env.contract_context.meta_data_map.get(map_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such map: {map_name}")),
-    )?;
+    let data_types = invoke_ctx
+        .contract_context
+        .meta_data_map
+        .get(map_name)
+        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            "No such map: {map_name}"
+        )))?;
 
-    let epoch = *env.epoch();
-    let result = env.global_context.database.delete_entry(
+    let epoch = *exec_state.epoch();
+    let result = exec_state.global_context.database.delete_entry(
         contract,
         map_name,
         key.as_ref(),
@@ -794,9 +886,9 @@ pub fn special_delete_entry_v205(
         Err(_e) => data_types.key_type.size()?.into(),
     };
 
-    runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
+    runtime_cost(ClarityCostFunction::SetEntry, exec_state, result_size)?;
 
-    env.add_memory(result_size)?;
+    exec_state.add_memory(result_size)?;
 
     result.map(|data| data.value)
 }
@@ -823,11 +915,12 @@ pub fn special_delete_entry_v205(
 /// - [`VmInternalError`] from database operations when retrieving block information.
 pub fn special_get_block_info(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (get-block-info? property-name block-height-uint)
-    runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
+    runtime_cost(ClarityCostFunction::BlockInfo, exec_state, 0)?;
 
     check_argument_count(2, args)?;
 
@@ -838,7 +931,7 @@ pub fn special_get_block_info(
             "Get block info expect property name".to_string(),
         ))?;
 
-    let version = env.contract_context.get_clarity_version();
+    let version = invoke_ctx.contract_context.get_clarity_version();
 
     let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(property_name, version)
         .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
@@ -846,12 +939,12 @@ pub fn special_get_block_info(
         ))?;
 
     // Handle the block-height input arg clause.
-    let height_eval = eval(&args[1], env, context)?;
+    let height_eval = eval(&args[1], exec_state, invoke_ctx, context)?;
     let height_value = match height_eval.as_ref() {
         Value::UInt(result) => Ok(*result),
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(height_eval.clone_with_cost(env)?),
+            Box::new(height_eval.clone_with_cost(exec_state)?),
         )),
     }?;
 
@@ -864,16 +957,16 @@ pub fn special_get_block_info(
     // * clarity version is less than Clarity3
     // * the evaluated epoch is geq 3.0
     // * we are not on (classic) primary testnet
-    let interpret_height_as_tenure_height = env.contract_context.get_clarity_version()
+    let interpret_height_as_tenure_height = invoke_ctx.contract_context.get_clarity_version()
         < &ClarityVersion::Clarity3
-        && env.global_context.epoch_id >= StacksEpochId::Epoch30
-        && env.global_context.chain_id != CHAIN_ID_TESTNET;
+        && exec_state.global_context.epoch_id >= StacksEpochId::Epoch30
+        && exec_state.global_context.chain_id != CHAIN_ID_TESTNET;
 
     let height_value = if !interpret_height_as_tenure_height {
         height_value
     } else {
         // interpretting height_value as a tenure height
-        let height_opt = env
+        let height_opt = exec_state
             .global_context
             .database
             .get_block_height_for_tenure_height(height_value)?;
@@ -883,21 +976,24 @@ pub fn special_get_block_info(
         }
     };
 
-    let current_block_height = env.global_context.database.get_current_block_height();
+    let current_block_height = exec_state
+        .global_context
+        .database
+        .get_current_block_height();
     if height_value >= current_block_height {
         return Ok(Value::none());
     }
 
     let result = match block_info_prop {
         BlockInfoProperty::Time => {
-            let block_time = env
+            let block_time = exec_state
                 .global_context
                 .database
                 .get_burn_block_time(height_value, None)?;
             Value::UInt(u128::from(block_time))
         }
         BlockInfoProperty::VrfSeed => {
-            let vrf_seed = env
+            let vrf_seed = exec_state
                 .global_context
                 .database
                 .get_block_vrf_seed(height_value)?;
@@ -906,7 +1002,7 @@ pub fn special_get_block_info(
             }))
         }
         BlockInfoProperty::HeaderHash => {
-            let header_hash = env
+            let header_hash = exec_state
                 .global_context
                 .database
                 .get_block_header_hash(height_value)?;
@@ -915,7 +1011,7 @@ pub fn special_get_block_info(
             }))
         }
         BlockInfoProperty::BurnchainHeaderHash => {
-            let burnchain_header_hash = env
+            let burnchain_header_hash = exec_state
                 .global_context
                 .database
                 .get_burnchain_block_header_hash(height_value)?;
@@ -924,7 +1020,7 @@ pub fn special_get_block_info(
             }))
         }
         BlockInfoProperty::IdentityHeaderHash => {
-            let id_header_hash = env
+            let id_header_hash = exec_state
                 .global_context
                 .database
                 .get_index_block_header_hash(height_value)?;
@@ -933,21 +1029,21 @@ pub fn special_get_block_info(
             }))
         }
         BlockInfoProperty::MinerAddress => {
-            let miner_address = env
+            let miner_address = exec_state
                 .global_context
                 .database
                 .get_miner_address(height_value)?;
             Value::from(miner_address)
         }
         BlockInfoProperty::MinerSpendWinner => {
-            let winner_spend = env
+            let winner_spend = exec_state
                 .global_context
                 .database
                 .get_miner_spend_winner(height_value)?;
             Value::UInt(winner_spend)
         }
         BlockInfoProperty::MinerSpendTotal => {
-            let total_spend = env
+            let total_spend = exec_state
                 .global_context
                 .database
                 .get_miner_spend_total(height_value)?;
@@ -955,7 +1051,10 @@ pub fn special_get_block_info(
         }
         BlockInfoProperty::BlockReward => {
             // this is already an optional
-            let block_reward_opt = env.global_context.database.get_block_reward(height_value)?;
+            let block_reward_opt = exec_state
+                .global_context
+                .database
+                .get_block_reward(height_value)?;
             return Ok(match block_reward_opt {
                 Some(x) => Value::some(Value::UInt(x))?,
                 None => Value::none(),
@@ -982,10 +1081,11 @@ pub fn special_get_block_info(
 /// - [`VmInternalError`] from database operations or value construction failures.
 pub fn special_get_burn_block_info(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    runtime_cost(ClarityCostFunction::GetBurnBlockInfo, env, 0)?;
+    runtime_cost(ClarityCostFunction::GetBurnBlockInfo, exec_state, 0)?;
 
     check_argument_count(2, args)?;
 
@@ -1003,13 +1103,13 @@ pub fn special_get_burn_block_info(
     )?;
 
     // Handle the block-height input arg clause.
-    let height_eval = eval(&args[1], env, context)?;
+    let height_eval = eval(&args[1], exec_state, invoke_ctx, context)?;
     let height_value = match height_eval.as_ref() {
         Value::UInt(result) => *result,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
-                Box::new(height_eval.clone_with_cost(env)?),
+                Box::new(height_eval.clone_with_cost(exec_state)?),
             )
             .into());
         }
@@ -1023,7 +1123,7 @@ pub fn special_get_burn_block_info(
 
     match block_info_prop {
         BurnBlockInfoProperty::HeaderHash => {
-            let burnchain_header_hash_opt = env
+            let burnchain_header_hash_opt = exec_state
                 .global_context
                 .database
                 .get_burnchain_block_header_hash_for_burnchain_height(height_value)?;
@@ -1038,7 +1138,7 @@ pub fn special_get_burn_block_info(
             }
         }
         BurnBlockInfoProperty::PoxAddrs => {
-            let pox_addrs_and_payout = env
+            let pox_addrs_and_payout = exec_state
                 .global_context
                 .database
                 .get_pox_payout_addrs_for_burnchain_height(height_value)?;
@@ -1050,7 +1150,7 @@ pub fn special_get_burn_block_info(
                             "addrs".into(),
                             Value::cons_list(
                                 addrs.into_iter().map(Value::Tuple).collect(),
-                                env.epoch(),
+                                exec_state.epoch(),
                             )
                             .map_err(|_| {
                                 VmInternalError::Expect(
@@ -1090,11 +1190,12 @@ pub fn special_get_burn_block_info(
 /// - [`VmInternalError`] from database operations when retrieving block information.
 pub fn special_get_stacks_block_info(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (get-stacks-block-info? property-name block-height-uint)
-    runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
+    runtime_cost(ClarityCostFunction::BlockInfo, exec_state, 0)?;
 
     check_argument_count(2, args)?;
 
@@ -1112,12 +1213,12 @@ pub fn special_get_stacks_block_info(
     )?;
 
     // Handle the block-height input arg.
-    let height_eval = eval(&args[1], env, context)?;
+    let height_eval = eval(&args[1], exec_state, invoke_ctx, context)?;
     let height_value = match height_eval.as_ref() {
         Value::UInt(result) => Ok(*result),
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(height_eval.clone_with_cost(env)?),
+            Box::new(height_eval.clone_with_cost(exec_state)?),
         )),
     }?;
 
@@ -1125,18 +1226,24 @@ pub fn special_get_stacks_block_info(
         return Ok(Value::none());
     };
 
-    let current_block_height = env.global_context.database.get_current_block_height();
+    let current_block_height = exec_state
+        .global_context
+        .database
+        .get_current_block_height();
     if height_value >= current_block_height {
         return Ok(Value::none());
     }
 
     let result = match block_info_prop {
         StacksBlockInfoProperty::Time => {
-            let block_time = env.global_context.database.get_block_time(height_value)?;
+            let block_time = exec_state
+                .global_context
+                .database
+                .get_block_time(height_value)?;
             Value::UInt(u128::from(block_time))
         }
         StacksBlockInfoProperty::HeaderHash => {
-            let header_hash = env
+            let header_hash = exec_state
                 .global_context
                 .database
                 .get_block_header_hash(height_value)?;
@@ -1145,7 +1252,7 @@ pub fn special_get_stacks_block_info(
             }))
         }
         StacksBlockInfoProperty::IndexHeaderHash => {
-            let id_header_hash = env
+            let id_header_hash = exec_state
                 .global_context
                 .database
                 .get_index_block_header_hash(height_value)?;
@@ -1178,11 +1285,12 @@ pub fn special_get_stacks_block_info(
 /// - [`VmInternalError`] from database operations when retrieving tenure information.
 pub fn special_get_tenure_info(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (get-tenure-info? property-name block-height-uint)
-    runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
+    runtime_cost(ClarityCostFunction::BlockInfo, exec_state, 0)?;
 
     check_argument_count(2, args)?;
 
@@ -1200,12 +1308,12 @@ pub fn special_get_tenure_info(
     )?;
 
     // Handle the block-height input arg.
-    let height_eval = eval(&args[1], env, context)?;
+    let height_eval = eval(&args[1], exec_state, invoke_ctx, context)?;
     let height_value = match height_eval.as_ref() {
         Value::UInt(result) => Ok(*result),
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(height_eval.clone_with_cost(env)?),
+            Box::new(height_eval.clone_with_cost(exec_state)?),
         )),
     }?;
 
@@ -1213,21 +1321,24 @@ pub fn special_get_tenure_info(
         return Ok(Value::none());
     };
 
-    let current_height = env.global_context.database.get_current_block_height();
+    let current_height = exec_state
+        .global_context
+        .database
+        .get_current_block_height();
     if height_value >= current_height {
         return Ok(Value::none());
     }
 
     let result = match block_info_prop {
         TenureInfoProperty::Time => {
-            let block_time = env
+            let block_time = exec_state
                 .global_context
                 .database
                 .get_burn_block_time(height_value, None)?;
             Value::UInt(u128::from(block_time))
         }
         TenureInfoProperty::VrfSeed => {
-            let vrf_seed = env
+            let vrf_seed = exec_state
                 .global_context
                 .database
                 .get_block_vrf_seed(height_value)?;
@@ -1236,7 +1347,7 @@ pub fn special_get_tenure_info(
             }))
         }
         TenureInfoProperty::BurnchainHeaderHash => {
-            let burnchain_header_hash = env
+            let burnchain_header_hash = exec_state
                 .global_context
                 .database
                 .get_burnchain_block_header_hash(height_value)?;
@@ -1245,21 +1356,21 @@ pub fn special_get_tenure_info(
             }))
         }
         TenureInfoProperty::MinerAddress => {
-            let miner_address = env
+            let miner_address = exec_state
                 .global_context
                 .database
                 .get_miner_address(height_value)?;
             Value::from(miner_address)
         }
         TenureInfoProperty::MinerSpendWinner => {
-            let winner_spend = env
+            let winner_spend = exec_state
                 .global_context
                 .database
                 .get_miner_spend_winner(height_value)?;
             Value::UInt(winner_spend)
         }
         TenureInfoProperty::MinerSpendTotal => {
-            let total_spend = env
+            let total_spend = exec_state
                 .global_context
                 .database
                 .get_miner_spend_total(height_value)?;
@@ -1267,7 +1378,10 @@ pub fn special_get_tenure_info(
         }
         TenureInfoProperty::BlockReward => {
             // this is already an optional
-            let block_reward_opt = env.global_context.database.get_block_reward(height_value)?;
+            let block_reward_opt = exec_state
+                .global_context
+                .database
+                .get_block_reward(height_value)?;
             return Ok(match block_reward_opt {
                 Some(x) => Value::some(Value::UInt(x))?,
                 None => Value::none(),
@@ -1281,14 +1395,15 @@ pub fn special_get_tenure_info(
 /// Handles the function `contract-hash?`
 pub fn special_contract_hash(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
     let contract_expr = args
         .first()
         .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0))?;
-    let contract_value = eval(contract_expr, env, context)?;
+    let contract_value = eval(contract_expr, exec_state, invoke_ctx, context)?;
     let contract_identifier = match contract_value.as_ref() {
         Value::Principal(PrincipalData::Standard(_)) => {
             // If the value is a standard principal, we return `(err u1)`.
@@ -1299,16 +1414,16 @@ pub fn special_contract_hash(
             // If the value is not a principal, we return a RuntimeCheckErrorKind.
             return Err(
                 RuntimeCheckErrorKind::ExpectedContractPrincipalValue(Box::new(
-                    contract_value.clone_with_cost(env)?,
+                    contract_value.clone_with_cost(exec_state)?,
                 ))
                 .into(),
             );
         }
     };
 
-    runtime_cost(ClarityCostFunction::ContractHash, env, 0)?;
+    runtime_cost(ClarityCostFunction::ContractHash, exec_state, 0)?;
 
-    let Some(contract_hash) = env
+    let Some(contract_hash) = exec_state
         .global_context
         .database
         .get_contract_hash(contract_identifier)?

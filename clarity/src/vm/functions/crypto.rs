@@ -22,6 +22,7 @@ use stacks_common::util::hash;
 use stacks_common::util::secp256k1::{Secp256k1PublicKey, secp256k1_recover, secp256k1_verify};
 use stacks_common::util::secp256r1::{secp256r1_verify, secp256r1_verify_digest};
 
+use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
@@ -29,7 +30,7 @@ use crate::vm::errors::{
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value};
-use crate::vm::{ClarityVersion, Environment, LocalContext, eval};
+use crate::vm::{ClarityVersion, LocalContext, eval};
 
 macro_rules! native_hash_func {
     ($name:ident, $module:ty) => {
@@ -94,22 +95,23 @@ fn pubkey_to_address_v2(
 
 pub fn special_principal_of(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (principal-of? (..))
     // arg0 => (buff 33)
     check_argument_count(1, args)?;
 
-    runtime_cost(ClarityCostFunction::PrincipalOf, env, 0)?;
+    runtime_cost(ClarityCostFunction::PrincipalOf, exec_state, 0)?;
 
-    let param0 = eval(&args[0], env, context)?;
+    let param0 = eval(&args[0], exec_state, invoke_ctx, context)?;
     let pub_key = match param0.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
-                Box::new(param0.clone_with_cost(env)?),
+                Box::new(param0.clone_with_cost(exec_state)?),
             )
             .into());
         }
@@ -118,8 +120,9 @@ pub fn special_principal_of(
     if let Ok(pub_key) = Secp256k1PublicKey::from_slice(pub_key) {
         // Note: Clarity1 had a bug in how the address is computed (issues/2619).
         // We want to preserve the old behavior unless the version is greater.
-        let addr = if *env.contract_context.get_clarity_version() > ClarityVersion::Clarity1 {
-            pubkey_to_address_v2(pub_key, env.global_context.mainnet)?
+        let addr = if *invoke_ctx.contract_context.get_clarity_version() > ClarityVersion::Clarity1
+        {
+            pubkey_to_address_v2(pub_key, exec_state.global_context.mainnet)?
         } else {
             pubkey_to_address_v1(pub_key)?
         };
@@ -133,34 +136,35 @@ pub fn special_principal_of(
 
 pub fn special_secp256k1_recover(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (secp256k1-recover? (..))
     // arg0 => (buff 32), arg1 => (buff 65)
     check_argument_count(2, args)?;
 
-    runtime_cost(ClarityCostFunction::Secp256k1recover, env, 0)?;
+    runtime_cost(ClarityCostFunction::Secp256k1recover, exec_state, 0)?;
 
-    let param0 = eval(&args[0], env, context)?;
+    let param0 = eval(&args[0], exec_state, invoke_ctx, context)?;
     let message = match param0.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 32 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(param0.clone_with_cost(env)?),
+                Box::new(param0.clone_with_cost(exec_state)?),
             )
             .into());
         }
     };
 
-    let param1 = eval(&args[1], env, context)?;
+    let param1 = eval(&args[1], exec_state, invoke_ctx, context)?;
     let signature = match param1.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() > 65 {
                 return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_65),
-                    Box::new(param1.clone_with_cost(env)?),
+                    Box::new(param1.clone_with_cost(exec_state)?),
                 )
                 .into());
             }
@@ -172,7 +176,7 @@ pub fn special_secp256k1_recover(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_65),
-                Box::new(param1.clone_with_cost(env)?),
+                Box::new(param1.clone_with_cost(exec_state)?),
             )
             .into());
         }
@@ -190,34 +194,35 @@ pub fn special_secp256k1_recover(
 
 pub fn special_secp256k1_verify(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (secp256k1-verify (..))
     // arg0 => (buff 32), arg1 => (buff 65), arg2 => (buff 33)
     check_argument_count(3, args)?;
 
-    runtime_cost(ClarityCostFunction::Secp256k1verify, env, 0)?;
+    runtime_cost(ClarityCostFunction::Secp256k1verify, exec_state, 0)?;
 
-    let param0 = eval(&args[0], env, context)?;
+    let param0 = eval(&args[0], exec_state, invoke_ctx, context)?;
     let message = match param0.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 32 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(param0.clone_with_cost(env)?),
+                Box::new(param0.clone_with_cost(exec_state)?),
             )
             .into());
         }
     };
 
-    let param1 = eval(&args[1], env, context)?;
+    let param1 = eval(&args[1], exec_state, invoke_ctx, context)?;
     let signature = match param1.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() > 65 {
                 return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_65),
-                    Box::new(param1.clone_with_cost(env)?),
+                    Box::new(param1.clone_with_cost(exec_state)?),
                 )
                 .into());
             }
@@ -232,19 +237,19 @@ pub fn special_secp256k1_verify(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_65),
-                Box::new(param1.clone_with_cost(env)?),
+                Box::new(param1.clone_with_cost(exec_state)?),
             )
             .into());
         }
     };
 
-    let param2 = eval(&args[2], env, context)?;
+    let param2 = eval(&args[2], exec_state, invoke_ctx, context)?;
     let pubkey = match param2.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
-                Box::new(param2.clone_with_cost(env)?),
+                Box::new(param2.clone_with_cost(exec_state)?),
             )
             .into());
         }
@@ -257,25 +262,26 @@ pub fn special_secp256k1_verify(
 
 pub fn special_secp256r1_verify(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (secp256r1-verify message-hash signature public-key)
     // message-hash: (buff 32), signature: (buff 64), public-key: (buff 33)
     check_argument_count(3, args)?;
 
-    runtime_cost(ClarityCostFunction::Secp256r1verify, env, 0)?;
+    runtime_cost(ClarityCostFunction::Secp256r1verify, exec_state, 0)?;
 
     let arg0 = args
         .first()
         .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(0, 3))?;
-    let message_value = eval(arg0, env, context)?;
+    let message_value = eval(arg0, exec_state, invoke_ctx, context)?;
     let message = match message_value.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 32 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(message_value.clone_with_cost(env)?),
+                Box::new(message_value.clone_with_cost(exec_state)?),
             )
             .into());
         }
@@ -284,7 +290,7 @@ pub fn special_secp256r1_verify(
     let arg1 = args
         .get(1)
         .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 3))?;
-    let signature_value = eval(arg1, env, context)?;
+    let signature_value = eval(arg1, exec_state, invoke_ctx, context)?;
     let signature = match signature_value.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() <= 64 => {
             if data.len() != 64 {
@@ -295,7 +301,7 @@ pub fn special_secp256r1_verify(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_64),
-                Box::new(signature_value.clone_with_cost(env)?),
+                Box::new(signature_value.clone_with_cost(exec_state)?),
             )
             .into());
         }
@@ -304,19 +310,19 @@ pub fn special_secp256r1_verify(
     let arg2 = args
         .get(2)
         .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3))?;
-    let pubkey_value = eval(arg2, env, context)?;
+    let pubkey_value = eval(arg2, exec_state, invoke_ctx, context)?;
     let pubkey = match pubkey_value.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
-                Box::new(pubkey_value.clone_with_cost(env)?),
+                Box::new(pubkey_value.clone_with_cost(exec_state)?),
             )
             .into());
         }
     };
 
-    let version = *env.contract_context.get_clarity_version();
+    let version = *invoke_ctx.contract_context.get_clarity_version();
     let verify_result = if version.uses_secp256r1_double_hashing() {
         secp256r1_verify(message, signature, pubkey)
     } else {

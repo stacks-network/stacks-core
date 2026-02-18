@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 
 use clarity::vm::analysis::types::ContractAnalysis;
 use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
+use clarity::vm::contexts::{AssetMap, AssetMapEntry, ExecutionState, InvocationContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
 use clarity::vm::errors::{VmExecutionError, VmInternalError};
@@ -871,7 +871,8 @@ impl StacksChainState {
     /// * contains the sender that reported the poison-microblock
     /// * contains the sequence number at which the fork occurred
     pub fn handle_poison_microblock(
-        env: &mut Environment,
+        env: &mut ExecutionState,
+        invoke_ctx: &InvocationContext,
         mblock_header_1: &StacksMicroblockHeader,
         mblock_header_2: &StacksMicroblockHeader,
     ) -> Result<Value, Error> {
@@ -882,7 +883,7 @@ impl StacksChainState {
         runtime_cost(ClarityCostFunction::PoisonMicroblock, env, 0)
             .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
 
-        let sender_principal = match &env.sender {
+        let sender_principal = match &invoke_ctx.sender {
             Some(ref sender) => {
                 if let PrincipalData::Standard(sender) = sender.clone() {
                     sender

@@ -195,8 +195,15 @@ impl RPCPoxInfoData {
                         sender,
                         None,
                         cost_track,
-                        |env| {
-                            env.execute_contract(&contract_identifier, function, &[], true)
+                        |exec_state, invoke_ctx| {
+                            exec_state
+                                .execute_contract(
+                                    invoke_ctx,
+                                    &contract_identifier,
+                                    function,
+                                    &[],
+                                    true,
+                                )
                                 .map_err(ClarityEvalError::from)
                         },
                     )

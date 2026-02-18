@@ -780,7 +780,7 @@ fn install_boot_code<C: ClarityStorage>(
                 QualifiedContractIdentifier::transient().issuer.into(),
                 None,
                 None,
-                |env| {
+                |env, _invoke_ctx| {
                     let res: Result<_, VmExecutionError> =
                         Ok(env.global_context.database.set_clarity_epoch_version(epoch));
                     res
@@ -1072,7 +1072,8 @@ pub fn execute_repl(
     );
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
-    let mut exec_env = vm_env.get_exec_environment(None, None, &placeholder_context);
+    let (mut exec_state, invoke_ctx) =
+        vm_env.get_exec_environment(None, None, &placeholder_context);
     let mut analysis_marf = MemoryBackingStore::new();
 
     let contract_id = QualifiedContractIdentifier::transient();
@@ -1125,7 +1126,7 @@ pub fn execute_repl(
         }
 
         // Evaluate the expression
-        let eval_result = match exec_env.eval_raw(&content) {
+        let eval_result = match exec_state.eval_raw(&invoke_ctx, &content) {
             Ok(val) => val,
             Err(error) => {
                 println!("Execution error:\n{error}");
@@ -1174,9 +1175,9 @@ pub fn execute_eval_raw(
     ) {
         Ok(_) => {
             // Analysis passed, now evaluate
-            let result = vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_raw(content);
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            let result = exec_state.eval_raw(&invoke_ctx, content);
             match result {
                 Ok(x) => (
                     0,
@@ -1231,9 +1232,9 @@ pub fn execute_eval(
     // Evaluate in a new block
     let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
         let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
-            vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_read_only(contract_identifier, content)
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            exec_state.eval_read_only(&invoke_ctx, contract_identifier, content)
         });
         (header_db, marf, result_and_cost)
     });
@@ -1290,9 +1291,9 @@ pub fn execute_eval_at_chaintip(
     // Evaluate at chaintip (no block advance)
     let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
         let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
-            vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_read_only(contract_identifier, content)
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            exec_state.eval_read_only(&invoke_ctx, contract_identifier, content)
         });
         let (result, cost) = result_and_cost;
 
@@ -1351,9 +1352,9 @@ pub fn execute_eval_at_block(
     // Evaluate at specific block
     let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
         let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
-            vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_read_only(contract_identifier, content)
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            exec_state.eval_read_only(&invoke_ctx, contract_identifier, content)
         });
         (marf, result_and_cost)
     });

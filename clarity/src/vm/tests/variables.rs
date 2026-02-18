@@ -71,10 +71,11 @@ fn test_block_height(
         None,
     );
 
-    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
 
     // Call the function
-    let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+    let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
     // In Clarity 3, this should trigger a runtime error
     if version >= ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
@@ -132,10 +133,11 @@ fn test_stacks_block_height(
         None,
     );
 
-    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
 
     // Call the function
-    let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+    let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
     // In Clarity 3, this should trigger a runtime error
     if version < ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
@@ -193,10 +195,11 @@ fn test_tenure_height(
         None,
     );
 
-    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
 
     // Call the function
-    let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+    let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
     // In Clarity 3, this should trigger a runtime error
     if version < ClarityVersion::Clarity3 {
         let err = eval_result.unwrap_err();
@@ -293,10 +296,11 @@ fn expect_contract_error(
         }
     }
 
-    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
 
     // Call the function
-    let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+    let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
 
     for (err_condition, expected_error) in expected_errors {
         if let ExpectedContractError::Runtime(expected_error) = expected_error {
@@ -1209,10 +1213,11 @@ fn test_block_time(
         None,
     );
 
-    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
 
     // Call the function
-    let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+    let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
 
     // In versions before Clarity 4, this should trigger a runtime error
     if version < ClarityVersion::Clarity4 {
@@ -1261,20 +1266,24 @@ fn test_block_time_in_expressions() {
     );
     assert!(result.is_ok());
 
-    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
 
     // Test comparison: 1 >= 0 should be true
-    let eval_result = env.eval_read_only(&contract_identifier, "(time-comparison u0)");
+    let eval_result =
+        exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(time-comparison u0)");
     info!("time-comparison result: {:?}", eval_result);
     assert_eq!(Ok(Value::Bool(true)), eval_result);
 
     // Test arithmetic: 1 + 100 = 101
-    let eval_result = env.eval_read_only(&contract_identifier, "(time-arithmetic)");
+    let eval_result =
+        exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(time-arithmetic)");
     info!("time-arithmetic result: {:?}", eval_result);
     assert_eq!(Ok(Value::UInt(101)), eval_result);
 
     // Test in response: (ok 1)
-    let eval_result = env.eval_read_only(&contract_identifier, "(time-in-response)");
+    let eval_result =
+        exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(time-in-response)");
     info!("time-in-response result: {:?}", eval_result);
     assert_eq!(Ok(Value::okay(Value::UInt(1)).unwrap()), eval_result);
 }
@@ -1338,10 +1347,11 @@ fn test_current_contract(
         None,
     );
 
-    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(None, None, &placeholder_context);
 
     // Call the function
-    let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+    let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
     // In Clarity 3, this should trigger a runtime error
     if version < ClarityVersion::Clarity4 {
         let err = eval_result.unwrap_err();
