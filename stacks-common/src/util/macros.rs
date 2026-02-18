@@ -50,7 +50,7 @@ macro_rules! define_named_enum {
         }
     ) => {
         $(#[$enum_meta])*
-        #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Clone)]
+        #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, PartialOrd, Eq, Clone)]
         pub enum $Name {
             $(
                 $(#[$variant_meta])*
