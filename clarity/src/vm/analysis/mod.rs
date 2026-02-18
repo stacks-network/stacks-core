@@ -57,7 +57,7 @@ pub fn mem_type_check(
 ) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticCheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
-        .map_err(|e| StaticCheckErrorKind::ExpectsRejectable(format!("Failed to build AST: {e}")))?
+        .map_err(|e| StaticCheckErrorKind::Unreachable(format!("Failed to build AST: {e}")))?
         .expressions;
 
     let mut marf = MemoryBackingStore::new();
@@ -79,11 +79,9 @@ pub fn mem_type_check(
             let first_type = x
                 .type_map
                 .as_ref()
-                .ok_or_else(|| {
-                    StaticCheckErrorKind::ExpectsRejectable("Should be non-empty".into())
-                })?
+                .ok_or_else(|| StaticCheckErrorKind::Unreachable("Should be non-empty".into()))?
                 .get_type_expected(x.expressions.last().ok_or_else(|| {
-                    StaticCheckErrorKind::ExpectsRejectable("Should be non-empty".into())
+                    StaticCheckErrorKind::Unreachable("Should be non-empty".into())
                 })?)
                 .cloned();
             Ok((first_type, x))
@@ -155,7 +153,7 @@ pub fn run_analysis(
                 TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db, build_type_map)
             }
             StacksEpochId::Epoch10 => {
-                return Err(StaticCheckErrorKind::ExpectsRejectable(
+                return Err(StaticCheckErrorKind::Unreachable(
                     "Epoch 1.0 is not a valid epoch for analysis".into(),
                 )
                 .into());

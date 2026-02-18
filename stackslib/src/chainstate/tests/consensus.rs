@@ -1138,7 +1138,7 @@ impl ContractConsensusTest<'_> {
 
                 let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
 
-                // Each deployment is a seperate TestBlock
+                // Each deployment is a separate TestBlock
                 for &version in clarity_versions {
                     let version_tag = version.to_string().replace(' ', "");
                     let name = format!("{contract_name}-{epoch_name}-{version_tag}");

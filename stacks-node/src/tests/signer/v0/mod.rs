@@ -3545,7 +3545,7 @@ fn duplicate_signers() {
     let accepted = signer_accepted_responses
         .iter()
         .min_by_key(|accepted| accepted.signer_signature_hash.clone())
-        .expect("No `BlockResponse::Accepted` messages recieved");
+        .expect("No `BlockResponse::Accepted` messages received");
     let selected_sighash = accepted.signer_signature_hash.clone();
 
     // Filter only resonses for selected block and collect unique pubkeys and signatures
