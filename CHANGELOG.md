@@ -13,7 +13,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Implemented the updated behavior for `secp256r1-verify`, effective in Clarity 5, in which the `message-hash` is no longer hashed again. See SIP-035 for details.
 - Increased allowed stack depth from 64 to 128, effective in epoch 3.4
 - Prepare for epoch 3.4's improved transaction inclusion, allowing transactions with certain errors to be included in blocks which would cause them to be rejected in earlier epochs.
-- Added post-condition enhancements for epoch 3.4: `Originator` post-condition mode (`0x03`) and NFT `MAY SEND` condition code (`0x12`), including serialization support and epoch-gated validation/enforcement.
+- Added post-condition enhancements for epoch 3.4 (SIP-040): `Originator` post-condition mode (`0x03`) and NFT `MAY SEND` condition code (`0x12`), including serialization support and epoch-gated validation/enforcement.
 
 ### Fixed
 
