@@ -23,8 +23,8 @@ use clarity::types::chainstate::StacksPrivateKey;
 use clarity_cli::{DEFAULT_CLI_EPOCH, read_file_or_stdin, read_file_or_stdin_bytes, vm_execute};
 use stacks_inspect::cli::{Cli, Command};
 use stacks_inspect::{
-    CommonOpts, command_contract_hash, command_replay_mock_mining, command_try_mine,
-    command_validate_block,
+    CommonOpts, command_contract_hash, command_replay_mock_mining, command_rollback,
+    command_try_mine, command_validate_block,
 };
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
@@ -1378,6 +1378,12 @@ fn main() {
         // Validation Commands
         Command::ValidateBlock(args) => {
             command_validate_block(&args, common_opts.config.as_ref());
+            process::exit(0);
+        }
+
+        // Recovery Commands
+        Command::Rollback(args) => {
+            command_rollback(&args);
             process::exit(0);
         }
 
