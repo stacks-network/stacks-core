@@ -587,7 +587,7 @@ pub struct PeerNetwork {
     public_ip_reply_handle: Option<ReplyHandleP2P>,
     public_ip_retries: u64,
 
-    // how many loops of the state-machine have occured?
+    // how many loops of the state-machine have occurred?
     // Used to coordinate with the chain synchronization logic to ensure that the node has at least
     // begun to download blocks after fetching the next reward cycles' sortitions.
     pub num_state_machine_passes: u64,
@@ -5782,7 +5782,7 @@ mod test {
                     thread::sleep(time::Duration::from_millis(500));
                 }
 
-                // peer_2 had better have recieved that ping
+                // peer_2 had better have received that ping
                 let mut got_ping = false;
                 for (_, convo) in peer_2.network.peers.iter() {
                     got_ping = got_ping

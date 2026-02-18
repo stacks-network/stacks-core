@@ -212,7 +212,7 @@ fn determine_latest_supported_signer_protocol_versions() {
         panic!("Unexpected state machine update message version");
     };
 
-    // Let's update 3 signers (60 percent) to support seperate but greater protocol versions
+    // Let's update 3 signers (60 percent) to support separate but greater protocol versions
     for (i, address) in addresses.into_iter().skip(1).take(3).enumerate() {
         let new_version = local_update.local_supported_signer_protocol_version + i as u64 + 1;
         let new_update = StateMachineUpdateMessage::new(
