@@ -1850,6 +1850,7 @@ mod tests {
             u32::MAX,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
         )
     }
 

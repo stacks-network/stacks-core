@@ -103,6 +103,7 @@ fn units_make_reward_set() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
 
     let addrs: Vec<_> = (0..10u64)
@@ -234,6 +235,7 @@ proptest! {
             10,
             u64::MAX,
             u64::MAX,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,

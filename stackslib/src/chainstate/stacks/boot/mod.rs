@@ -220,6 +220,7 @@ define_named_enum!(PoxVersions {
     Pox2("pox-2"),
     Pox3("pox-3"),
     Pox4("pox-4"),
+    Pox5("pox-5"),
 });
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -1511,6 +1512,7 @@ pub mod test {
             5,
             5000,
             10000,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
