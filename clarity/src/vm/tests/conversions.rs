@@ -621,7 +621,7 @@ fn test_from_consensus_buff_unexpected_serialization_epoch_gate(
     let err = result.expect_err("Epoch33 should treat unexpected serialization as an error");
     assert_eq!(
         err,
-        RuntimeCheckErrorKind::ExpectsRejectable("UnexpectedSerialization".into()).into()
+        RuntimeCheckErrorKind::Unreachable("UnexpectedSerialization".into()).into()
     );
 }
 

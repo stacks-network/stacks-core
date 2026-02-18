@@ -1898,7 +1898,7 @@ impl Relayer {
         true
     }
 
-    /// Process blocks and microblocks that we recieved, both downloaded (confirmed) and streamed
+    /// Process blocks and microblocks that we received, both downloaded (confirmed) and streamed
     /// (unconfirmed). Returns:
     /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
     /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages
