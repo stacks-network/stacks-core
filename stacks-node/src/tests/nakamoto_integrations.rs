@@ -6383,12 +6383,18 @@ fn nakamoto_attempt_time() {
 /// the block's parent, since the block is built before its burn block is
 /// mined. In Nakamoto, there is no longer this race condition, so Clarity
 /// contracts access the state of the current burn block.
+///
+/// Before Clarity 5 (Epoch 3.4) this didn't work correctly in `at-block`.
+/// This test ensures that once 3.4 is reached, it works as expected.
+///
 /// We should verify:
 /// - `burn-block-height` in epoch 3.x is the burn block of the Stacks block
 /// - `get-burn-block-info` is able to access info of the current burn block
 ///   in epoch 3.x
-///
-/// TODO: Update description
+/// - `burn-block-height` inside `at-block` is the burn view of the time
+///   travel target
+/// - this also works if the burn block didn't create a new tenure (in which
+///   case the Stacks block's burn view is different from its consensus hash).
 fn clarity_burn_state() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -6401,6 +6407,11 @@ fn clarity_burn_state() {
     naka_conf.miner.block_commit_delay = Duration::from_secs(0);
 
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
+
+    let epoch_34_start = epochs.get(StacksEpochId::Epoch34).unwrap().start_height;
+    // before these heights, the miner will not submit a block commit, so that there
+    // is no sortition and the previous tenure gets extended
+    let skip_sortitions_at_heights = vec![epoch_34_start + 1, epoch_34_start + 2];
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let sender_sk = Secp256k1PrivateKey::random();
@@ -6485,6 +6496,8 @@ fn clarity_burn_state() {
          )
      "#;
 
+    // This will be deployed once we reach Epoch 3.4 (Clarity 5), when #6123 was fixed and
+    // thus `burn-block-height` worked correctly in `at-block`
     let contract_34_name = "test-contract-34";
     let contract_34 = r#"
          (define-read-only (assert-height-at-block (block-id (buff 32)) (expected-height uint))
@@ -6499,7 +6512,6 @@ fn clarity_burn_state() {
      "#;
 
     let mut contract_34_deployed = false;
-    let mut skip_sortition_after_height = None::<u128>;
 
     let wait_for_sender_nonce = |min_expected: u64| {
         wait_for(30, || {
@@ -6520,8 +6532,13 @@ fn clarity_burn_state() {
     submit_tx(&http_origin, &contract_tx);
 
     let mut burn_block_height = 0;
-    let mut current_epoch: StacksEpochId;
+
+    // Once we've reached epoch 3.4, this vector will collect all blocks and
+    // their burn view heights. We'll use this list to assert that `burn-block-height`
+    // within `at-block` always returns the right thing.
     let mut expected_burn_heights: Vec<(StacksBlockId, u128)> = Vec::new();
+
+    let mut skipped_block_commit_count = 0;
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
@@ -6558,13 +6575,14 @@ fn clarity_burn_state() {
             submit_tx(&http_origin, &call_tx);
         }
 
-        let skip_sortition = skip_sortition_after_height.unwrap_or(10000000) <= burn_block_height;
+        let skip_commit = skip_sortitions_at_heights.contains(&(burn_block_height as u64 + 1));
 
-        if skip_sortition {
+        if skip_commit {
             info!("Stopping block commits to prevent sortition");
             counters.naka_skip_commit_op.set(true);
+            skipped_block_commit_count += 1;
         } else {
-            //counters.naka_skip_commit_op.set(false);
+            counters.naka_skip_commit_op.set(false);
         }
 
         let commits_before = commits_submitted.load(Ordering::SeqCst);
@@ -6574,21 +6592,23 @@ fn clarity_burn_state() {
             .get_stacks_blocks_processed();
         info!("waiting for next burn block");
         next_block_and(&mut btc_regtest_controller, 60, || {
-            Ok(skip_sortition || commits_submitted.load(Ordering::SeqCst) > commits_before)
+            Ok(skip_commit || commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
         .unwrap();
-        //if skip_sortition {
-        thread::sleep(Duration::from_secs(5));
-        //}
         info!("unstalling miner");
         fault_injection_unstall_miner();
         info!("waiting for stacks blocks");
+
+        // We're expecting two new blocks: The one with the tenure change transaction
+        // and the one with contract call. Even though not required by consensus, our
+        // miner will always create them in separate blocks.
+        let blocks_processed_expected = blocks_processed_before + 2;
         wait_for(20, || {
             Ok(coord_channel
                 .lock()
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed()
-                > blocks_processed_before)
+                >= blocks_processed_expected)
         })
         .unwrap();
         info!("done waiting for stacks blocks");
@@ -6601,17 +6621,12 @@ fn clarity_burn_state() {
 
         let info = get_chain_info(&naka_conf);
         burn_block_height = info.burn_block_height as u128;
-        info!("Expecting burn block height to be {burn_block_height}");
-        current_epoch = epochs
-            .iter()
-            .find(|e| {
-                e.start_height as u128 <= burn_block_height
-                    && e.end_height as u128 > burn_block_height
-            })
-            .expect("current epoch should exist")
-            .epoch_id;
 
-        if current_epoch == StacksEpochId::Epoch34 && !contract_34_deployed {
+        info!("Expecting burn block height to be {burn_block_height}");
+
+        let epoch34_reached = burn_block_height >= epoch_34_start as u128;
+
+        if epoch34_reached && !contract_34_deployed {
             info!("deploying 3.4 contract");
             let contract_tx = make_contract_publish(
                 &sender_sk,
@@ -6626,12 +6641,13 @@ fn clarity_burn_state() {
             wait_for_sender_nonce(sender_nonce)
                 .expect("timed out waiting for the 3.4 contract to deploy");
             contract_34_deployed = true;
-            skip_sortition_after_height = Some(burn_block_height + 2);
         }
+
         let blocks = test_observer::get_mined_nakamoto_blocks();
         let last_block = blocks.last().unwrap();
-        //assert_eq!(last_block.target_burn_height as u128, burn_block_height);
-        if current_epoch >= StacksEpochId::Epoch34 {
+        assert_eq!(last_block.target_burn_height as u128, burn_block_height);
+
+        if epoch34_reached {
             expected_burn_heights.push((
                 StacksBlockId::from_hex(&last_block.block_id).unwrap(),
                 last_block.target_burn_height as u128,
@@ -6741,7 +6757,7 @@ fn clarity_burn_state() {
 
             let blocks = test_observer::get_mined_nakamoto_blocks();
             let last_block = blocks.last().unwrap();
-            if current_epoch >= StacksEpochId::Epoch34 {
+            if epoch34_reached {
                 expected_burn_heights.push((
                     StacksBlockId::from_hex(&last_block.block_id).unwrap(),
                     last_block.target_burn_height as u128,
@@ -6761,20 +6777,13 @@ fn clarity_burn_state() {
                 }
             });
         }
-
-        let start_time = Instant::now();
-        while !skip_sortition && commits_submitted.load(Ordering::SeqCst) <= commits_before {
-            if start_time.elapsed() >= Duration::from_secs(20) {
-                panic!("Timed out waiting for block-commit");
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
     }
     assert!(contract_34_deployed);
     assert_eq!(
         expected_burn_heights.len() as u64,
-        (min_inter_blocks_per_tenure + 1) * (tenure_count - 4)
+        (min_inter_blocks_per_tenure + 1) * (tenure_count - 4) // the 4 are the pre-3.4 tenures
     );
+    assert_eq!(skip_sortitions_at_heights.len(), skipped_block_commit_count);
 
     coord_channel
         .lock()
