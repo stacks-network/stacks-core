@@ -28,7 +28,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::ast::parse;
 use crate::vm::callables::DefinedFunction;
-use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::contexts::{ExecutionState, InvocationContext, OwnedEnvironment};
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{
@@ -41,8 +41,8 @@ use crate::vm::types::{
     TypeSignature,
 };
 use crate::vm::{
-    CallStack, ClarityVersion, ContractContext, CostErrors, Environment, GlobalContext,
-    LocalContext, Value, eval, execute as vm_execute, execute_v2 as vm_execute_v2,
+    CallStack, ClarityVersion, ContractContext, CostErrors, GlobalContext, LocalContext, Value,
+    ValueRef, eval, execute as vm_execute, execute_v2 as vm_execute_v2,
     execute_with_limited_execution_time as vm_execute_with_limited_execution_time,
     execute_with_parameters,
 };
@@ -86,11 +86,11 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db(), epoch);
-        let mut exec_env = env.get_exec_environment(None, None, &placeholder_context);
+        let (mut exec_state, invoke_ctx) =
+            env.get_exec_environment(None, None, &placeholder_context);
         assert_eq!(
-            Ok(Value::Int(7)),
-            eval(&parsed_program[0], &mut exec_env, &context)
-                .and_then(|val| val.clone_with_cost(&mut exec_env))
+            Ok(ValueRef::Owned(Value::Int(7))),
+            eval(&parsed_program[0], &mut exec_state, &invoke_ctx, &context)
         );
     } else {
         panic!("Failed to parse program.");
@@ -743,27 +743,29 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             .insert("without_else".into(), user_function2);
 
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
         if let Ok(tests) = evals {
             assert_eq!(
-                Ok(Value::Int(1)),
-                eval(&tests[0], &mut env, &context).and_then(|v| v.clone_with_cost(&mut env))
+                Ok(ValueRef::Owned(Value::Int(1))),
+                eval(&tests[0], &mut exec_state, &invoke_ctx, &context)
             );
             assert_eq!(
-                Ok(Value::Int(3)),
-                eval(&tests[1], &mut env, &context).and_then(|v| v.clone_with_cost(&mut env))
+                Ok(ValueRef::Owned(Value::Int(3))),
+                eval(&tests[1], &mut exec_state, &invoke_ctx, &context)
             );
             assert_eq!(
-                Ok(Value::Int(0)),
-                eval(&tests[2], &mut env, &context).and_then(|v| v.clone_with_cost(&mut env))
+                Ok(ValueRef::Owned(Value::Int(0))),
+                eval(&tests[2], &mut exec_state, &invoke_ctx, &context)
             );
         } else {
             panic!("Failed to parse function bodies.");

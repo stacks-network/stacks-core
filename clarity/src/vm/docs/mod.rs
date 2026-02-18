@@ -3474,7 +3474,7 @@ mod test {
                     QualifiedContractIdentifier::local("tokens").unwrap().into(),
                     None,
                     None,
-                    |e| {
+                    |e, _invoke_ctx| {
                         let mut snapshot = e
                             .global_context
                             .database

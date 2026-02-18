@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::contexts::{Environment, LocalContext};
+use crate::vm::contexts::{ExecutionState, InvocationContext, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, check_arguments_at_least};
@@ -35,15 +35,16 @@ fn type_force_bool(value: &Value) -> Result<bool, RuntimeCheckErrorKind> {
 
 pub fn special_or(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(1, args)?;
 
-    runtime_cost(ClarityCostFunction::Or, env, args.len())?;
+    runtime_cost(ClarityCostFunction::Or, exec_state, args.len())?;
 
     for arg in args.iter() {
-        let evaluated = eval(arg, env, context)?;
+        let evaluated = eval(arg, exec_state, invoke_ctx, context)?;
         // TODO: this is not charged for really. But inside type_force_bool it does a clone? Should this be accounted for?
         let result = type_force_bool(evaluated.as_ref())?;
         if result {
@@ -56,15 +57,16 @@ pub fn special_or(
 
 pub fn special_and(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(1, args)?;
 
-    runtime_cost(ClarityCostFunction::And, env, args.len())?;
+    runtime_cost(ClarityCostFunction::And, exec_state, args.len())?;
 
     for arg in args.iter() {
-        let evaluated = eval(arg, env, context)?;
+        let evaluated = eval(arg, exec_state, invoke_ctx, context)?;
         // TODO: this is not charged for really. But inside type_force_bool it does a clone? Should this be accounted for?
         let result = type_force_bool(evaluated.as_ref())?;
         if !result {

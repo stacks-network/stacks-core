@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::Value::CallableContract;
-use crate::vm::contexts::{Environment, LocalContext};
+use crate::vm::contexts::{ExecutionState, InvocationContext, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, MemoryConsumer, runtime_cost};
 use crate::vm::errors::{
@@ -123,21 +123,27 @@ fn eval_with_new_binding(
     body: &SymbolicExpression,
     bind_name: ClarityName,
     bind_value: Value,
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let mut inner_context = context.extend()?;
-    if vm::is_reserved(&bind_name, env.contract_context.get_clarity_version())
-        || env.contract_context.lookup_function(&bind_name).is_some()
+    if vm::is_reserved(
+        &bind_name,
+        invoke_ctx.contract_context.get_clarity_version(),
+    ) || invoke_ctx
+        .contract_context
+        .lookup_function(&bind_name)
+        .is_some()
         || inner_context.lookup_variable(&bind_name).is_some()
     {
         return Err(RuntimeCheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
     }
 
     let memory_use = bind_value.get_memory_use()?;
-    env.add_memory(memory_use)?;
+    exec_state.add_memory(memory_use)?;
 
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2
+    if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2
         && let CallableContract(trait_data) = &bind_value
     {
         inner_context.callable_contracts.insert(
@@ -149,9 +155,10 @@ fn eval_with_new_binding(
         );
     }
     inner_context.variables.insert(bind_name, bind_value);
-    let result = vm::eval(body, env, &inner_context).and_then(|v| v.clone_with_cost(env));
+    let result = vm::eval(body, exec_state, invoke_ctx, &inner_context)
+        .and_then(|v| v.clone_with_cost(exec_state));
 
-    env.drop_memory(memory_use)?;
+    exec_state.drop_memory(memory_use)?;
 
     result
 }
@@ -159,7 +166,8 @@ fn eval_with_new_binding(
 fn special_match_opt(
     input: OptionalData,
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if args.len() != 3 {
@@ -179,15 +187,24 @@ fn special_match_opt(
     let none_branch = &args[2];
 
     match input.data {
-        Some(data) => eval_with_new_binding(some_branch, bind_name, *data, env, context),
-        None => vm::eval(none_branch, env, context).and_then(|v| v.clone_with_cost(env)),
+        Some(data) => eval_with_new_binding(
+            some_branch,
+            bind_name,
+            *data,
+            exec_state,
+            invoke_ctx,
+            context,
+        ),
+        None => vm::eval(none_branch, exec_state, invoke_ctx, context)
+            .and_then(|v| v.clone_with_cost(exec_state)),
     }
 }
 
 fn special_match_resp(
     input: ResponseData,
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if args.len() != 4 {
@@ -217,27 +234,47 @@ fn special_match_resp(
     let err_branch = &args[3];
 
     if input.committed {
-        eval_with_new_binding(ok_branch, ok_bind_name, *input.data, env, context)
+        eval_with_new_binding(
+            ok_branch,
+            ok_bind_name,
+            *input.data,
+            exec_state,
+            invoke_ctx,
+            context,
+        )
     } else {
-        eval_with_new_binding(err_branch, err_bind_name, *input.data, env, context)
+        eval_with_new_binding(
+            err_branch,
+            err_bind_name,
+            *input.data,
+            exec_state,
+            invoke_ctx,
+            context,
+        )
     }
 }
 
 pub fn special_match(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(1, args)?;
 
     // TODO: Should this be clone_with_cost? We do need the internal ResponseData which also has clones the internal value
-    let input = vm::eval(&args[0], env, context)?.clone_with_cost(env)?;
+    let input =
+        { vm::eval(&args[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)? };
 
-    runtime_cost(ClarityCostFunction::Match, env, 0)?;
+    runtime_cost(ClarityCostFunction::Match, exec_state, 0)?;
 
     match input {
-        Value::Response(data) => special_match_resp(data, &args[1..], env, context),
-        Value::Optional(data) => special_match_opt(data, &args[1..], env, context),
+        Value::Response(data) => {
+            special_match_resp(data, &args[1..], exec_state, invoke_ctx, context)
+        }
+        Value::Optional(data) => {
+            special_match_opt(data, &args[1..], exec_state, invoke_ctx, context)
+        }
         _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Bad match input: {}",
             TypeSignature::type_of(&input)?

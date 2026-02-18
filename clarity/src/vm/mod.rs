@@ -60,10 +60,8 @@ use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
 use crate::vm::callables::CallableType;
-pub use crate::vm::contexts::{
-    CallStack, ContractContext, Environment, LocalContext, MAX_CONTEXT_DEPTH,
-};
-use crate::vm::contexts::{ExecutionTimeTracker, GlobalContext};
+pub use crate::vm::contexts::{CallStack, ContractContext, LocalContext, MAX_CONTEXT_DEPTH};
+use crate::vm::contexts::{ExecutionState, ExecutionTimeTracker, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
@@ -179,7 +177,8 @@ pub trait EvalHook {
     // Called before the expression is evaluated
     fn will_begin_eval(
         &mut self,
-        _env: &mut Environment,
+        _env: &mut ExecutionState,
+        _invoke_ctx: &InvocationContext,
         _context: &LocalContext,
         _expr: &SymbolicExpression,
     );
@@ -187,7 +186,8 @@ pub trait EvalHook {
     // Called after the expression is evaluated
     fn did_finish_eval<'a>(
         &mut self,
-        _env: &mut Environment,
+        _env: &mut ExecutionState,
+        _invoke_ctx: &'a InvocationContext,
         _context: &'a LocalContext,
         _expr: &SymbolicExpression,
         _res: &core::result::Result<ValueRef<'a>, crate::vm::errors::VmExecutionError>,
@@ -199,8 +199,9 @@ pub trait EvalHook {
 
 fn lookup_variable<'a>(
     name: &str,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &'a InvocationContext,
     context: &'a LocalContext,
-    env: &mut Environment,
 ) -> Result<ValueRef<'a>, VmExecutionError> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         return Err(VmInternalError::BadSymbolicRepresentation(format!(
@@ -208,32 +209,41 @@ fn lookup_variable<'a>(
         ))
         .into());
     }
-    if let Some(value) = variables::lookup_reserved_variable(name, env)? {
+    if let Some(value) = variables::lookup_reserved_variable(name, exec_state, invoke_ctx)? {
         return Ok(ValueRef::Owned(value));
     };
     runtime_cost(
         ClarityCostFunction::LookupVariableDepth,
-        env,
+        exec_state,
         context.depth(),
     )?;
     if let Some(value) = context.lookup_variable(name) {
-        if env.epoch().supports_clarity_value_refs() {
+        if exec_state.epoch().supports_clarity_value_refs() {
             // If the epoch supports value refs, we can return a borrowed reference to the variable without cloning.
             return Ok(ValueRef::Borrowed(value));
         } else {
-            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
+            runtime_cost(
+                ClarityCostFunction::LookupVariableSize,
+                exec_state,
+                value.size()?,
+            )?;
             return Ok(ValueRef::Owned(value.clone()));
         }
     }
-    if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
-        runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
+    if let Some(value) = invoke_ctx.contract_context.lookup_variable(name).cloned() {
+        runtime_cost(
+            ClarityCostFunction::LookupVariableSize,
+            exec_state,
+            value.size()?,
+        )?;
         let (value, _) =
-            Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value)?, value)
+            Value::sanitize_value(exec_state.epoch(), &TypeSignature::type_of(&value)?, value)
                 .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
         return Ok(ValueRef::Owned(value));
     }
     if let Some(callable_data) = context.lookup_callable_contract(name) {
-        let value = if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
+        let value = if invoke_ctx.contract_context.get_clarity_version() < &ClarityVersion::Clarity2
+        {
             callable_data.contract_identifier.clone().into()
         } else {
             Value::CallableContract(callable_data.clone())
@@ -245,16 +255,18 @@ fn lookup_variable<'a>(
 
 pub fn lookup_function(
     name: &str,
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
 ) -> Result<CallableType, VmExecutionError> {
-    runtime_cost(ClarityCostFunction::LookupFunction, env, 0)?;
+    runtime_cost(ClarityCostFunction::LookupFunction, exec_state, 0)?;
 
-    if let Some(result) =
-        functions::lookup_reserved_functions(name, env.contract_context.get_clarity_version())
-    {
+    if let Some(result) = functions::lookup_reserved_functions(
+        name,
+        invoke_ctx.contract_context.get_clarity_version(),
+    ) {
         Ok(result)
     } else {
-        let user_function = env
+        let user_function = invoke_ctx
             .contract_context
             .lookup_function(name)
             .ok_or(RuntimeCheckErrorKind::UndefinedFunction(name.to_string()))?;
@@ -262,18 +274,19 @@ pub fn lookup_function(
     }
 }
 
-fn add_stack_trace(result: &mut Result<Value, VmExecutionError>, env: &Environment) {
+fn add_stack_trace(result: &mut Result<Value, VmExecutionError>, exec_state: &mut ExecutionState) {
     if let Err(VmExecutionError::Runtime(_, stack_trace)) = result
         && stack_trace.is_none()
     {
-        stack_trace.replace(env.call_stack.make_stack_trace());
+        stack_trace.replace(exec_state.call_stack.make_stack_trace());
     }
 }
 
 pub fn apply(
     function: &CallableType,
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let identifier = function.get_identifier();
@@ -282,70 +295,74 @@ pub fn apply(
 
     // do recursion check on user functions.
     let track_recursion = matches!(function, CallableType::UserFunction(_));
-    if track_recursion && env.call_stack.contains(&identifier) {
+    if track_recursion && exec_state.call_stack.contains(&identifier) {
         return Err(RuntimeCheckErrorKind::CircularReference(vec![identifier.to_string()]).into());
     }
 
-    if env.call_stack.depth() >= max_call_stack_depth_for_epoch(*env.epoch()) {
+    if exec_state.call_stack.depth() >= max_call_stack_depth_for_epoch(*exec_state.epoch()) {
         return Err(RuntimeError::MaxStackDepthReached.into());
     }
 
     if let CallableType::SpecialFunction(_, function) = function {
-        env.call_stack.insert(&identifier, track_recursion);
-        let mut resp = function(args, env, context);
-        add_stack_trace(&mut resp, env);
-        env.call_stack.remove(&identifier, track_recursion)?;
+        exec_state.call_stack.insert(&identifier, track_recursion);
+        let mut resp = function(args, exec_state, invoke_ctx, context);
+        add_stack_trace(&mut resp, exec_state);
+        exec_state.call_stack.remove(&identifier, track_recursion)?;
         resp
     } else {
         let mut used_memory = 0;
         let mut evaluated_args = Vec::with_capacity(args.len());
-        env.call_stack.incr_apply_depth();
+        exec_state.call_stack.incr_apply_depth();
         for arg_x in args.iter() {
-            let arg_value = match eval(arg_x, env, context).and_then(|v| v.clone_with_cost(env)) {
+            let arg_value = match eval(arg_x, exec_state, invoke_ctx, context)
+                .and_then(|v| v.clone_with_cost(exec_state))
+            {
                 Ok(x) => x,
                 Err(e) => {
-                    env.drop_memory(used_memory)?;
-                    env.call_stack.decr_apply_depth();
+                    exec_state.drop_memory(used_memory)?;
+                    exec_state.call_stack.decr_apply_depth();
                     return Err(e);
                 }
             };
             let arg_use = arg_value.get_memory_use()?;
-            match env.add_memory(arg_use) {
+            match exec_state.add_memory(arg_use) {
                 Ok(_x) => {}
                 Err(e) => {
-                    env.drop_memory(used_memory)?;
-                    env.call_stack.decr_apply_depth();
+                    exec_state.drop_memory(used_memory)?;
+                    exec_state.call_stack.decr_apply_depth();
                     return Err(VmExecutionError::from(e));
                 }
             };
             used_memory += arg_value.get_memory_use()?;
             evaluated_args.push(arg_value);
         }
-        env.call_stack.decr_apply_depth();
+        exec_state.call_stack.decr_apply_depth();
 
-        env.call_stack.insert(&identifier, track_recursion);
+        exec_state.call_stack.insert(&identifier, track_recursion);
         let mut resp = match function {
             CallableType::NativeFunction(_, function, cost_function) => {
-                runtime_cost(cost_function.clone(), env, evaluated_args.len())
+                runtime_cost(cost_function.clone(), exec_state, evaluated_args.len())
                     .map_err(VmExecutionError::from)
-                    .and_then(|_| function.apply(evaluated_args, env))
+                    .and_then(|_| function.apply(evaluated_args, exec_state, invoke_ctx))
             }
             CallableType::NativeFunction205(_, function, cost_function, cost_input_handle) => {
-                let cost_input = if env.epoch() >= &StacksEpochId::Epoch2_05 {
+                let cost_input = if exec_state.epoch() >= &StacksEpochId::Epoch2_05 {
                     cost_input_handle(evaluated_args.as_slice())?
                 } else {
                     evaluated_args.len() as u64
                 };
-                runtime_cost(cost_function.clone(), env, cost_input)
+                runtime_cost(cost_function.clone(), exec_state, cost_input)
                     .map_err(VmExecutionError::from)
-                    .and_then(|_| function.apply(evaluated_args, env))
+                    .and_then(|_| function.apply(evaluated_args, exec_state, invoke_ctx))
             }
-            CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
+            CallableType::UserFunction(function) => {
+                function.apply(&evaluated_args, exec_state, invoke_ctx)
+            }
             _ => return Err(VmInternalError::Expect("Should be unreachable.".into()).into()),
         };
-        add_stack_trace(&mut resp, env);
-        env.drop_memory(used_memory)?;
-        env.call_stack.remove(&identifier, track_recursion)?;
+        add_stack_trace(&mut resp, exec_state);
+        exec_state.drop_memory(used_memory)?;
+        exec_state.call_stack.remove(&identifier, track_recursion)?;
         resp
     }
 }
@@ -369,27 +386,28 @@ fn check_max_execution_time_expired(
 }
 
 pub fn eval<'a>(
-    exp: &SymbolicExpression,
-    env: &mut Environment,
+    exp: &'a SymbolicExpression,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &'a InvocationContext,
     context: &'a LocalContext,
 ) -> Result<ValueRef<'a>, VmExecutionError> {
     use crate::vm::representations::SymbolicExpressionType::{
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
-    check_max_execution_time_expired(env.global_context)?;
+    check_max_execution_time_expired(exec_state.global_context)?;
 
-    if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
+    if let Some(mut eval_hooks) = exec_state.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {
-            hook.will_begin_eval(env, context, exp);
+            hook.will_begin_eval(exec_state, invoke_ctx, context, exp);
         }
-        env.global_context.eval_hooks = Some(eval_hooks);
+        exec_state.global_context.eval_hooks = Some(eval_hooks);
     }
 
-    let res = match exp.expr {
-        AtomValue(ref value) | LiteralValue(ref value) => Ok(ValueRef::Owned(value.clone())),
-        Atom(ref value) => lookup_variable(value, context, env),
-        List(ref children) => {
+    let res = match &exp.expr {
+        AtomValue(value) | LiteralValue(value) => Ok(ValueRef::Owned(value.clone())),
+        Atom(value) => lookup_variable(value, exec_state, invoke_ctx, context),
+        List(children) => {
             let (function_variable, rest) =
                 children
                     .split_first()
@@ -403,8 +421,8 @@ pub fn eval<'a>(
                     .ok_or(RuntimeCheckErrorKind::Unreachable(
                         "Bad function name".to_string(),
                     ))?;
-            let f = lookup_function(function_name, env)?;
-            apply(&f, rest, env, context).map(ValueRef::Owned)
+            let f = lookup_function(function_name, exec_state, invoke_ctx)?;
+            apply(&f, rest, exec_state, invoke_ctx, context).map(ValueRef::Owned)
         }
         TraitReference(_, _) | Field(_) => {
             return Err(VmInternalError::BadSymbolicRepresentation(
@@ -414,11 +432,11 @@ pub fn eval<'a>(
         }
     };
 
-    if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
+    if let Some(mut eval_hooks) = exec_state.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {
-            hook.did_finish_eval(env, context, exp, &res);
+            hook.did_finish_eval(exec_state, invoke_ctx, context, exp, &res);
         }
-        env.global_context.eval_hooks = Some(eval_hooks);
+        exec_state.global_context.eval_hooks = Some(eval_hooks);
     }
 
     res
@@ -448,9 +466,17 @@ pub fn eval_all(
         for exp in expressions {
             let try_define = global_context.execute(|context| {
                 let mut call_stack = CallStack::new();
-                let mut env = Environment::new(
-                    context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
-                functions::define::evaluate_define(exp, &mut env)
+                let mut exec_state = ExecutionState {
+                    global_context: context,
+                    call_stack: &mut call_stack,
+                };
+                let invoke_ctx = InvocationContext {
+                    contract_context,
+                    sender: Some(publisher.clone()),
+                    caller: Some(publisher.clone()),
+                    sponsor: sponsor.clone(),
+                };
+                functions::define::evaluate_define(exp, &mut exec_state, &invoke_ctx)
             })?;
             match try_define {
                 DefineResult::Variable(name, value) => {
@@ -528,10 +554,17 @@ pub fn eval_all(
                     // not a define function, evaluate normally.
                     global_context.execute(|global_context| {
                         let mut call_stack = CallStack::new();
-                        let mut env = Environment::new(
-                            global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
-
-                        let result = eval(exp, &mut env, &context)?.clone_with_cost(&mut env)?;
+                        let mut exec_state = ExecutionState {
+                            global_context,
+                            call_stack: &mut call_stack,
+                        };
+                        let invoke_ctx = InvocationContext {
+                            contract_context,
+                            sender: Some(publisher.clone()),
+                            caller: Some(publisher.clone()),
+                            sponsor: sponsor.clone(),
+                        };
+                        let result = eval(exp, &mut exec_state, &invoke_ctx, &context)?.clone_with_cost(&mut exec_state)?;
                         last_executed = Some(result);
                         Ok(())
                     })?;
@@ -701,12 +734,13 @@ mod test {
 
     use super::ClarityVersion;
     use crate::vm::callables::{DefineType, DefinedFunction};
+    use crate::vm::contexts::{ExecutionState, InvocationContext};
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
     use crate::vm::{
-        CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
-        Value, ValueRef, eval,
+        CallStack, ContractContext, GlobalContext, LocalContext, SymbolicExpression, Value,
+        ValueRef, eval,
     };
 
     #[test]
@@ -760,17 +794,19 @@ mod test {
             .insert("do_work".into(), user_function);
 
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
         assert_eq!(
             Ok(ValueRef::Owned(Value::Int(64))),
-            eval(&content[0], &mut env, &context)
+            eval(&content[0], &mut exec_state, &invoke_ctx, &context)
         );
     }
 }

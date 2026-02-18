@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -3330,8 +3330,9 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
                             PrincipalData::Standard(StandardPrincipalData::transient()),
                             None,
                             LimitedCostTracker::new_free(),
-                            |env| {
-                                env.eval_read_only(
+                            |exec_state, invoke_ctx| {
+                                exec_state.eval_read_only(
+                                    invoke_ctx,
                                     &boot_code_id("pox-2", false),
                                     &format!("(get-burn-block-info? pox-addrs u{})", &burn_height),
                                 )

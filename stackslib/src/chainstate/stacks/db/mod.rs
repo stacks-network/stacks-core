@@ -2044,14 +2044,15 @@ impl StacksChainState {
             contract.clone().into(),
             None,
             LimitedCostTracker::Free,
-            |env| {
-                env.execute_contract(
-                    contract, function, &args,
-                    // read-only is set to `false` so that non-read-only functions
-                    //  can be executed. any transformation is rolled back.
-                    false,
-                )
-                .map_err(ClarityEvalError::from)
+            |exec_state, invoke_ctx| {
+                exec_state
+                    .execute_contract(
+                        invoke_ctx, contract, function, &args,
+                        // read-only is set to `false` so that non-read-only functions
+                        //  can be executed. any transformation is rolled back.
+                        false,
+                    )
+                    .map_err(ClarityEvalError::from)
             },
         )?;
 

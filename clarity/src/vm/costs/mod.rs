@@ -30,7 +30,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::errors::{RuntimeCheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
-use crate::vm::contexts::{ContractContext, GlobalContext};
+use crate::vm::contexts::{ContractContext, ExecutionState, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::database::ClarityDatabase;
 use crate::vm::database::clarity_store::NullBackingStore;
@@ -41,7 +41,7 @@ use crate::vm::types::signatures::TupleTypeSignature;
 use crate::vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
 };
-use crate::vm::{CallStack, ClarityName, Environment, LocalContext, SymbolicExpression, Value};
+use crate::vm::{CallStack, ClarityName, LocalContext, SymbolicExpression, Value};
 pub mod constants;
 pub mod cost_functions;
 #[allow(unused_variables)]
@@ -91,9 +91,9 @@ pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
 }
 
 macro_rules! finally_drop_memory {
-    ( $env: expr, $used_mem:expr; $exec:expr ) => {{
+    ( $gc: expr, $used_mem:expr; $exec:expr ) => {{
         let result = (|| $exec)();
-        $env.drop_memory($used_mem)?;
+        $gc.drop_memory($used_mem)?;
         result
     }};
 }
@@ -1132,19 +1132,19 @@ pub fn compute_cost(
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
         let publisher: PrincipalData = cost_contract.contract_identifier.issuer.clone().into();
-        let mut env = Environment::new(
+        let mut env = ExecutionState {
             global_context,
-            cost_contract,
-            &mut call_stack,
-            Some(publisher.clone()),
-            Some(publisher.clone()),
-            None,
-        );
-
-        super::eval(&function_invocation, &mut env, &context)
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: cost_contract,
+            sender: Some(publisher.clone()),
+            caller: Some(publisher.clone()),
+            sponsor: None,
+        };
+        super::eval(&function_invocation, &mut env, &invoke_ctx, &context)
             .and_then(|v| v.clone_with_cost(&mut env))
     });
-
     parse_cost(&cost_function_reference.to_string(), eval_result)
 }
 

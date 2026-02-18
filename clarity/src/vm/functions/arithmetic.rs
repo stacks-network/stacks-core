@@ -18,6 +18,7 @@ use std::cmp;
 
 use integer_sqrt::IntegerSquareRoot;
 
+use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
@@ -28,7 +29,7 @@ use crate::vm::types::{
     ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
 use crate::vm::version::ClarityVersion;
-use crate::vm::{Environment, LocalContext, eval};
+use crate::vm::{LocalContext, eval};
 
 struct U128Ops();
 struct I128Ops();
@@ -388,45 +389,48 @@ pub fn native_bitwise_not(a: Value) -> Result<Value, VmExecutionError> {
 // the clarity version.
 fn special_geq_v1(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Geq, env, args.len())?;
-    type_force_binary_comparison_v1!(geq, a, b, env)
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    runtime_cost(ClarityCostFunction::Geq, exec_state, args.len())?;
+    type_force_binary_comparison_v1!(geq, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 fn special_geq_v2(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
     runtime_cost(
         ClarityCostFunction::Geq,
-        env,
+        exec_state,
         cmp::min(a.as_ref().size()?, b.as_ref().size()?),
     )?;
-    type_force_binary_comparison_v2!(geq, a, b, env)
+    type_force_binary_comparison_v2!(geq, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 pub fn special_geq(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        special_geq_v2(args, env, context)
+    if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+        special_geq_v2(args, exec_state, invoke_ctx, context)
     } else {
-        special_geq_v1(args, env, context)
+        special_geq_v1(args, exec_state, invoke_ctx, context)
     }
 }
 
@@ -435,45 +439,48 @@ pub fn special_geq(
 // 2.05 and earlier
 fn special_leq_v1(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Leq, env, args.len())?;
-    type_force_binary_comparison_v1!(leq, a, b, env)
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    runtime_cost(ClarityCostFunction::Leq, exec_state, args.len())?;
+    type_force_binary_comparison_v1!(leq, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 fn special_leq_v2(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
     runtime_cost(
         ClarityCostFunction::Leq,
-        env,
+        exec_state,
         cmp::min(a.as_ref().size()?, b.as_ref().size()?),
     )?;
-    type_force_binary_comparison_v2!(leq, a, b, env)
+    type_force_binary_comparison_v2!(leq, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 pub fn special_leq(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        special_leq_v2(args, env, context)
+    if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+        special_leq_v2(args, exec_state, invoke_ctx, context)
     } else {
-        special_leq_v1(args, env, context)
+        special_leq_v1(args, exec_state, invoke_ctx, context)
     }
 }
 
@@ -481,45 +488,48 @@ pub fn special_leq(
 // the clarity version.
 fn special_greater_v1(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Ge, env, args.len())?;
-    type_force_binary_comparison_v1!(greater, a, b, env)
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    runtime_cost(ClarityCostFunction::Ge, exec_state, args.len())?;
+    type_force_binary_comparison_v1!(greater, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 fn special_greater_v2(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
     runtime_cost(
         ClarityCostFunction::Ge,
-        env,
+        exec_state,
         cmp::min(a.as_ref().size()?, b.as_ref().size()?),
     )?;
-    type_force_binary_comparison_v2!(greater, a, b, env)
+    type_force_binary_comparison_v2!(greater, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 pub fn special_greater(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        special_greater_v2(args, env, context)
+    if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+        special_greater_v2(args, exec_state, invoke_ctx, context)
     } else {
-        special_greater_v1(args, env, context)
+        special_greater_v1(args, exec_state, invoke_ctx, context)
     }
 }
 
@@ -527,45 +537,48 @@ pub fn special_greater(
 // the clarity version.
 fn special_less_v1(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Le, env, args.len())?;
-    type_force_binary_comparison_v1!(less, a, b, env)
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
+    runtime_cost(ClarityCostFunction::Le, exec_state, args.len())?;
+    type_force_binary_comparison_v1!(less, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 fn special_less_v2(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
+    let a = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let b = eval(&args[1], exec_state, invoke_ctx, context)?;
     runtime_cost(
         ClarityCostFunction::Le,
-        env,
+        exec_state,
         cmp::min(a.as_ref().size()?, b.as_ref().size()?),
     )?;
-    type_force_binary_comparison_v2!(less, a, b, env)
+    type_force_binary_comparison_v2!(less, a, b, exec_state)
 }
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 pub fn special_less(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        special_less_v2(args, env, context)
+    if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+        special_less_v2(args, exec_state, invoke_ctx, context)
     } else {
-        special_less_v1(args, env, context)
+        special_less_v1(args, exec_state, invoke_ctx, context)
     }
 }
 
