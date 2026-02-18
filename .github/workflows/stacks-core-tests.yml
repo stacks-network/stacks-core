@@ -70,7 +70,7 @@ jobs:
           output: "./openapi-docs.html"
           config: "./docs/rpc/redocly.yaml"
           validate: "true"
-          redocly-version: "1.34"
+          redocly-version: "2.19"
 
   ## Generate and upload node configuration documentation
   node-config-docsgen:
