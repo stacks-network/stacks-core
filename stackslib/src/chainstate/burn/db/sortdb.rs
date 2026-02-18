@@ -1342,7 +1342,7 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|result| result.is_some())
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition(
@@ -1688,7 +1688,7 @@ impl SortitionHandleTx<'_> {
                                 .get(ix as usize)
                                 .expect("Chosen reward set index not found in reward set")
                                 .clone();
-                            info!("PoX recipient chosen";
+                            debug!("PoX recipient chosen";
                                "recipient" => recipient.to_burnchain_repr(),
                                "block_height" => block_height,
                                "anchor_stacks_block_hash" => &anchor_block,
@@ -1723,7 +1723,7 @@ impl SortitionHandleTx<'_> {
                     for ix in chosen_recipients.into_iter() {
                         let ix = u16::try_from(ix).unwrap();
                         let recipient = self.get_reward_set_entry(ix)?;
-                        info!("PoX recipient chosen";
+                        debug!("PoX recipient chosen";
                            "recipient" => recipient.to_burnchain_repr(),
                            "block_height" => block_height,
                            "stacks_block_hash" => %anchor_block
@@ -2212,7 +2212,7 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(Some((block_commit, stacks_chain_tip)))
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition(
@@ -2258,7 +2258,7 @@ impl<'a> SortitionHandleConn<'a> {
         })
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     pub fn get_last_snapshot_with_sortition_from_tip(&self) -> Result<BlockSnapshot, db_error> {
         let ancestor_hash =
             match self.get_indexed(&self.context.chain_tip, db_keys::last_sortition())? {
@@ -5248,7 +5248,7 @@ impl SortitionDB {
         }
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition_tx(
@@ -5503,7 +5503,8 @@ impl SortitionHandleTx<'_> {
                     op.block_height, &op.txid, op.block_height, op.vtxindex;
                     "apparent_sender" => %op.apparent_sender,
                     "stacks_block_hash" => %op.block_header_hash,
-                    "parent_burn_block" => %op.parent_block_ptr
+                    "parent_burn_block" => %op.parent_block_ptr,
+                    "burn_fee" => %op.burn_fee,
                 );
                 self.insert_block_commit(op, sort_id)
             }

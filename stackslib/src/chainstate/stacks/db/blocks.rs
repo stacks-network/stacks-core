@@ -5995,7 +5995,7 @@ impl StacksChainState {
         dispatcher_opt: Option<&T>,
     ) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let blocks_path = self.blocks_path.clone();
-        let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
+        let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin();
 
         // this is a transaction against both the headers and staging blocks databases!
         let (next_microblocks, next_staging_block) =
@@ -11112,8 +11112,7 @@ pub mod test {
             let sortdb = peer.chain.sortdb.take().unwrap();
             {
                 let chainstate = peer.chainstate();
-                let (mut chainstate_tx, clarity_instance) =
-                    chainstate.chainstate_tx_begin().unwrap();
+                let (mut chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
                 let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops, vote_for_aggregate_key_ops) =
                     StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                         &mut chainstate_tx,
@@ -11799,8 +11798,7 @@ pub mod test {
             let sortdb = peer.chain.sortdb.take().unwrap();
             {
                 let chainstate = peer.chainstate();
-                let (mut chainstate_tx, clarity_instance) =
-                    chainstate.chainstate_tx_begin().unwrap();
+                let (mut chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
                 let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops, _) =
                     StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                         &mut chainstate_tx,

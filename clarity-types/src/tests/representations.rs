@@ -98,7 +98,7 @@ fn test_clarity_name_serialization(#[case] name: &str) {
 
 // the first byte is the length of the buffer.
 #[rstest]
-#[case::invalid_utf8(vec![4, 0xFF, 0xFE, 0xFD, 0xFC], "Failed to parse Clarity name: could not contruct from utf8")]
+#[case::invalid_utf8(vec![4, 0xFF, 0xFE, 0xFD, 0xFC], "Failed to parse Clarity name: could not construct from utf8")]
 #[case::invalid_name(vec![2, b'2', b'i'], "Failed to parse Clarity name: InvalidClarityName(\"2i\")")] // starts with number
 #[case::too_long(vec![MAX_STRING_LEN + 1], "Failed to deserialize clarity name: too long")]
 #[case::wrong_length(vec![3, b'a'], "failed to fill whole buffer")]

@@ -92,7 +92,7 @@ pub enum ClarityTypeError {
     InvalidUrlString(String),
     /// Empty tuple is not allowed in Clarity.
     EmptyTuplesNotAllowed,
-    /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
+    /// Supertype (i.e. common denominator between two types) exceeds the maximum allowed size or complexity.
     SupertypeTooLarge,
     /// Type description is invalid or malformed, preventing proper type-checking.
     InvalidTypeDescription,

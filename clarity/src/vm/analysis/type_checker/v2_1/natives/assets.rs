@@ -237,7 +237,7 @@ pub fn check_special_stx_transfer_memo(
     let to_type: TypeSignature = TypeSignature::PrincipalType;
     let memo_type: TypeSignature = TypeSignature::SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(TOKEN_TRANSFER_MEMO_LENGTH as u32)
-            .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into()))?,
+            .map_err(|_| StaticCheckErrorKind::Unreachable("Bad constructor".into()))?,
     ));
 
     runtime_cost(ClarityCostFunction::AnalysisTypeLookup, checker, 0)?;
