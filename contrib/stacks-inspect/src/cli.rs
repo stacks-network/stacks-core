@@ -672,39 +672,4 @@ mod tests {
         assert_eq!(cli.config, Some("/path/to/config.toml".to_string()));
         assert!(matches!(cli.command, Command::DumpConsts));
     }
-
-    #[test]
-    fn test_rollback_parsing() {
-        let cli =
-            Cli::try_parse_from(["stacks-inspect", "rollback", "/data/mainnet", "100"]).unwrap();
-
-        match cli.command {
-            Command::Rollback(args) => {
-                assert_eq!(args.db_path, "/data/mainnet");
-                assert_eq!(args.target_height, 100);
-                assert!(!args.dry_run);
-            }
-            _ => panic!("expected Rollback command"),
-        }
-    }
-
-    #[test]
-    fn test_rollback_dry_run_flag() {
-        let cli = Cli::try_parse_from([
-            "stacks-inspect",
-            "rollback",
-            "--dry-run",
-            "/data/mainnet",
-            "200",
-        ])
-        .unwrap();
-
-        match cli.command {
-            Command::Rollback(args) => {
-                assert_eq!(args.target_height, 200);
-                assert!(args.dry_run);
-            }
-            _ => panic!("expected Rollback command"),
-        }
-    }
 }

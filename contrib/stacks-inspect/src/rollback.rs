@@ -102,9 +102,6 @@ impl RollbackStats {
 ///
 /// `db_path` is the network-specific working directory — the directory that contains the
 /// `chainstate/` and `burnchain/` subdirectories (e.g. `~/.stacks-node/mainnet`).
-///
-/// When `dry_run` is `true` the function reports what *would* be removed but makes no
-/// changes to disk.
 pub fn chainstate_rollback(
     db_path: &str,
     target_height: u64,
@@ -112,14 +109,18 @@ pub fn chainstate_rollback(
 ) -> Result<RollbackStats, String> {
     let index_db_path = format!("{db_path}/chainstate/vm/index.sqlite");
     let nakamoto_staging_db_path = format!("{db_path}/chainstate/blocks/nakamoto.sqlite");
-    rollback_from_paths(&index_db_path, &nakamoto_staging_db_path, target_height, dry_run)
+    rollback_from_paths(
+        &index_db_path,
+        &nakamoto_staging_db_path,
+        target_height,
+        dry_run,
+    )
 }
 
 /// Core rollback function that accepts explicit database paths.
 ///
-/// This entry point exists primarily for testing, where callers control the exact file
-/// locations.  Most callers should use [`chainstate_rollback`] instead.
-pub fn rollback_from_paths(
+/// Most callers should use [`chainstate_rollback`] instead.
+pub(crate) fn rollback_from_paths(
     index_db_path: &str,
     nakamoto_staging_db_path: &str,
     target_height: u64,
@@ -137,9 +138,10 @@ pub fn rollback_from_paths(
     let mut stats = rollback_index_db(&mut conn, target_height, dry_run)?;
 
     if Path::new(nakamoto_staging_db_path).exists() {
-        let mut naka_conn =
-            Connection::open_with_flags(nakamoto_staging_db_path, open_flags)
-                .map_err(|e| format!("Failed to open Nakamoto staging DB at {nakamoto_staging_db_path}: {e}"))?;
+        let mut naka_conn = Connection::open_with_flags(nakamoto_staging_db_path, open_flags)
+            .map_err(|e| {
+                format!("Failed to open Nakamoto staging DB at {nakamoto_staging_db_path}: {e}")
+            })?;
         let naka_stats = rollback_nakamoto_staging_db(&mut naka_conn, target_height, dry_run)?;
         stats.nakamoto_staging_removed = naka_stats.nakamoto_staging_removed;
     }
@@ -152,56 +154,94 @@ pub fn rollback_from_paths(
 /// All committed block records at `block_height > target_height` are removed together with
 /// every row that references them in dependent tables.  The MARF trie entries for those
 /// blocks are also deleted so that Clarity state remains consistent with the new chain tip.
-///
-/// On success the function returns populated [`RollbackStats`].
-/// In dry-run mode it only reads the database and returns counts of what *would* change.
 pub fn rollback_index_db(
     conn: &mut Connection,
     target_height: u64,
     dry_run: bool,
 ) -> Result<RollbackStats, String> {
-    let mut stats = RollbackStats::default();
-
-    // ------------------------------------------------------------------
     // Count rows that will be affected.  We always do this so callers get
     // accurate numbers whether or not dry_run is set.
-    // ------------------------------------------------------------------
-    stats.nakamoto_blocks_removed =
-        try_count(conn, "SELECT COUNT(*) FROM nakamoto_block_headers WHERE block_height > ?1", target_height);
-    stats.epoch2_blocks_removed =
-        try_count(conn, "SELECT COUNT(*) FROM block_headers WHERE block_height > ?1", target_height);
+    let mut stats = RollbackStats {
+        nakamoto_blocks_removed: try_count(
+            conn,
+            "SELECT COUNT(*) FROM nakamoto_block_headers WHERE block_height > ?1",
+            target_height,
+        ),
+        epoch2_blocks_removed: try_count(
+            conn,
+            "SELECT COUNT(*) FROM block_headers WHERE block_height > ?1",
+            target_height,
+        ),
+        ..Default::default()
+    };
 
-    if dry_run || stats.total_blocks_removed() == 0 {
-        // Report additional counts in dry-run mode so the user sees the full picture.
+    if stats.total_blocks_removed() == 0 {
+        return Ok(stats);
+    }
+
+    if dry_run {
+        let ibh_subquery =
+            "SELECT index_block_hash FROM nakamoto_block_headers WHERE block_height > ?1
+                UNION ALL
+                SELECT index_block_hash FROM block_headers WHERE block_height > ?1";
+
         stats.transactions_removed = try_count(
             conn,
-            "SELECT COUNT(*) FROM transactions WHERE index_block_hash IN (
-                SELECT index_block_hash FROM nakamoto_block_headers WHERE block_height > ?1
-                UNION ALL
-                SELECT index_block_hash FROM block_headers WHERE block_height > ?1
-            )",
+            &format!(
+                "SELECT COUNT(*) FROM transactions WHERE index_block_hash IN ({ibh_subquery})"
+            ),
             target_height,
         );
         stats.payments_removed = try_count(
             conn,
-            "SELECT COUNT(*) FROM payments WHERE index_block_hash IN (
+            &format!("SELECT COUNT(*) FROM payments WHERE index_block_hash IN ({ibh_subquery})"),
+            target_height,
+        );
+        stats.matured_rewards_removed = try_count(
+            conn,
+            &format!(
+                "SELECT COUNT(*) FROM matured_rewards
+             WHERE child_index_block_hash IN ({ibh_subquery})
+                OR parent_index_block_hash IN ({ibh_subquery})"
+            ),
+            target_height,
+        );
+        stats.burnchain_txids_removed = try_count(
+            conn,
+            &format!(
+                "SELECT COUNT(*) FROM burnchain_txids WHERE index_block_hash IN ({ibh_subquery})"
+            ),
+            target_height,
+        );
+        stats.epoch_transitions_removed = try_count(
+            conn,
+            &format!("SELECT COUNT(*) FROM epoch_transitions WHERE block_id IN ({ibh_subquery})"),
+            target_height,
+        );
+        stats.nakamoto_reward_sets_removed = try_count(
+            conn,
+            "SELECT COUNT(*) FROM nakamoto_reward_sets WHERE index_block_hash IN (
                 SELECT index_block_hash FROM nakamoto_block_headers WHERE block_height > ?1
-                UNION ALL
-                SELECT index_block_hash FROM block_headers WHERE block_height > ?1
+            )",
+            target_height,
+        );
+        stats.tenure_events_removed = try_count(
+            conn,
+            "SELECT COUNT(*) FROM nakamoto_tenure_events WHERE block_id IN (
+                SELECT index_block_hash FROM nakamoto_block_headers WHERE block_height > ?1
             )",
             target_height,
         );
         stats.marf_entries_removed = try_count(
             conn,
-            "SELECT COUNT(*) FROM marf_data WHERE block_hash IN (
-                SELECT index_block_hash FROM nakamoto_block_headers WHERE block_height > ?1
-                UNION ALL
-                SELECT index_block_hash FROM block_headers WHERE block_height > ?1
-            )",
+            &format!("SELECT COUNT(*) FROM marf_data WHERE block_hash IN ({ibh_subquery})"),
             target_height,
         );
-        stats.epoch2_staging_removed =
-            try_count(conn, "SELECT COUNT(*) FROM staging_blocks WHERE height > ?1", target_height);
+        stats.epoch2_staging_removed = try_count(
+            conn,
+            "SELECT COUNT(*) FROM staging_blocks WHERE height > ?1",
+            target_height,
+        );
         return Ok(stats);
     }
 
@@ -327,22 +367,25 @@ pub fn rollback_index_db(
         "staging_blocks",
     )?;
 
-    // Microblock staging entries for rolled-back parent blocks.
-    let _ = tx.execute(
+    // Microblock staging entries for rolled-back parent blocks.  This table
+    // may not exist on all schema versions.
+    try_exec_delete(
+        &tx,
         "DELETE FROM staging_microblocks WHERE index_block_hash IN (
             SELECT index_block_hash FROM block_headers WHERE block_height > ?1
         )",
-        params![target_height],
+        target_height,
+        "staging_microblocks",
     );
 
     // Finally remove the header records themselves.  These must come last
     // because the earlier subqueries depend on them.
-    try_exec_delete(
+    exec_delete(
         &tx,
         "DELETE FROM nakamoto_block_headers WHERE block_height > ?1",
         target_height,
         "nakamoto_block_headers",
-    );
+    )?;
     exec_delete(
         &tx,
         "DELETE FROM block_headers WHERE block_height > ?1",
@@ -362,10 +405,14 @@ pub fn rollback_nakamoto_staging_db(
     target_height: u64,
     dry_run: bool,
 ) -> Result<RollbackStats, String> {
-    let mut stats = RollbackStats::default();
-
-    stats.nakamoto_staging_removed =
-        try_count(conn, "SELECT COUNT(*) FROM nakamoto_staging_blocks WHERE height > ?1", target_height);
+    let stats = RollbackStats {
+        nakamoto_staging_removed: try_count(
+            conn,
+            "SELECT COUNT(*) FROM nakamoto_staging_blocks WHERE height > ?1",
+            target_height,
+        ),
+        ..Default::default()
+    };
 
     if dry_run || stats.nakamoto_staging_removed == 0 {
         return Ok(stats);
@@ -396,7 +443,7 @@ pub fn rollback_nakamoto_staging_db(
 /// count, or `0` if the table does not exist or the query otherwise fails.
 fn try_count(conn: &Connection, sql: &str, height: u64) -> u64 {
     conn.query_row(sql, params![height], |row| row.get::<_, i64>(0))
-        .map(|n| n.max(0) as u64)
+        .map(|n| n as u64)
         .unwrap_or(0)
 }
 
@@ -416,16 +463,22 @@ fn exec_delete(
 
 /// Execute a DELETE statement, silently ignoring "no such table" errors.
 /// This is used for tables that may not exist across all supported schema versions.
-/// Returns the number of rows deleted, or `0` on any error.
+/// Returns the number of rows deleted, or `0` if the table does not exist.
+/// Logs a warning and returns `0` for any other error.
 fn try_exec_delete(
     tx: &rusqlite::Transaction<'_>,
     sql: &str,
     height: u64,
-    _table_name: &str,
+    table_name: &str,
 ) -> u64 {
-    tx.execute(sql, params![height])
-        .map(|n| n as u64)
-        .unwrap_or(0)
+    match tx.execute(sql, params![height]) {
+        Ok(n) => n as u64,
+        Err(e) if e.to_string().contains("no such table") => 0,
+        Err(e) => {
+            eprintln!("warning: DELETE from {table_name} failed: {e}");
+            0
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -661,11 +714,9 @@ mod tests {
 
     /// Count rows in a table.
     fn count(conn: &Connection, table: &str) -> u64 {
-        conn.query_row(
-            &format!("SELECT COUNT(*) FROM {table}"),
-            [],
-            |row| row.get::<_, i64>(0),
-        )
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get::<_, i64>(0)
+        })
         .map(|n| n as u64)
         .unwrap_or(0)
     }
@@ -686,8 +737,15 @@ mod tests {
 
         let stats = rollback_index_db(&mut conn, 2, false).unwrap();
 
-        assert_eq!(stats.epoch2_blocks_removed, 2, "blocks 3 and 4 should be removed");
-        assert_eq!(count(&conn, "block_headers"), 2, "blocks 1 and 2 should remain");
+        assert_eq!(
+            stats.epoch2_blocks_removed, 2,
+            "blocks 3 and 4 should be removed"
+        );
+        assert_eq!(
+            count(&conn, "block_headers"),
+            2,
+            "blocks 1 and 2 should remain"
+        );
     }
 
     #[test]
@@ -751,8 +809,15 @@ mod tests {
 
         let stats = rollback_index_db(&mut conn, 10, false).unwrap();
 
-        assert_eq!(stats.marf_entries_removed, 2, "MARF entries for heights 11 and 12 removed");
-        assert_eq!(count(&conn, "marf_data"), 1, "MARF entry for height 10 remains");
+        assert_eq!(
+            stats.marf_entries_removed, 2,
+            "MARF entries for heights 11 and 12 removed"
+        );
+        assert_eq!(
+            count(&conn, "marf_data"),
+            1,
+            "MARF entry for height 10 remains"
+        );
     }
 
     #[test]
@@ -819,7 +884,7 @@ mod tests {
         insert_epoch2_block(&conn, 2, "b");
         insert_epoch2_block(&conn, 3, "c");
 
-        // Reward row referencing heights 1 (parent) and 2 (child) — should survive.
+        // Reward row with child at height 2 and parent at height 1 — child is above target=1, so removed.
         conn.execute(
             "INSERT INTO matured_rewards(address, vtxindex, coinbase, child_index_block_hash, parent_index_block_hash)
              VALUES ('addr', 0, '100', 'epoch2_ibh_2_b', 'epoch2_ibh_1_a')",
@@ -930,7 +995,11 @@ mod tests {
         assert_eq!(stats.nakamoto_blocks_removed, 2);
         assert_eq!(count(&conn, "block_headers"), 2);
         assert_eq!(count(&conn, "nakamoto_block_headers"), 0);
-        assert_eq!(count(&conn, "marf_data"), 2, "MARF entries for heights 1-2 remain");
+        assert_eq!(
+            count(&conn, "marf_data"),
+            2,
+            "MARF entries for heights 1-2 remain"
+        );
     }
 
     #[test]

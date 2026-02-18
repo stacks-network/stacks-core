@@ -1316,15 +1316,18 @@ pub fn command_rollback(args: &RollbackArgs) {
                 "  Nakamoto block headers:  {}",
                 stats.nakamoto_blocks_removed
             );
-            eprintln!(
-                "  Epoch 2 block headers:   {}",
-                stats.epoch2_blocks_removed
-            );
+            eprintln!("  Epoch 2 block headers:   {}", stats.epoch2_blocks_removed);
             eprintln!("  MARF trie entries:       {}", stats.marf_entries_removed);
             eprintln!("  Transactions:            {}", stats.transactions_removed);
             eprintln!("  Payments:                {}", stats.payments_removed);
-            eprintln!("  Matured rewards:         {}", stats.matured_rewards_removed);
-            eprintln!("  Burnchain txids:         {}", stats.burnchain_txids_removed);
+            eprintln!(
+                "  Matured rewards:         {}",
+                stats.matured_rewards_removed
+            );
+            eprintln!(
+                "  Burnchain txids:         {}",
+                stats.burnchain_txids_removed
+            );
             eprintln!(
                 "  Epoch transitions:       {}",
                 stats.epoch_transitions_removed
@@ -1333,10 +1336,7 @@ pub fn command_rollback(args: &RollbackArgs) {
                 "  Nakamoto reward sets:    {}",
                 stats.nakamoto_reward_sets_removed
             );
-            eprintln!(
-                "  Tenure events:           {}",
-                stats.tenure_events_removed
-            );
+            eprintln!("  Tenure events:           {}", stats.tenure_events_removed);
             eprintln!(
                 "  Epoch 2 staging blocks:  {}",
                 stats.epoch2_staging_removed
@@ -1348,7 +1348,10 @@ pub fn command_rollback(args: &RollbackArgs) {
 
             if !args.dry_run {
                 eprintln!("\nThe sortition database was not modified.");
-                eprintln!("Restart the node to resume syncing from height {}.", args.target_height);
+                eprintln!(
+                    "Restart the node to resume syncing from height {}.",
+                    args.target_height
+                );
             }
         }
         Err(e) => {
