@@ -1052,43 +1052,42 @@ pub fn parse_cost(
     cost_function_name: &str,
     eval_result: Result<Value, VmExecutionError>,
 ) -> Result<ExecutionCost, CostErrors> {
-    let val = eval_result.map_err(|e| {
-        CostErrors::CostComputationFailed(format!(
-            "Error evaluating result of cost function {cost_function_name}: {e}"
-        ))
-    })?;
+    match eval_result {
+        Ok(Value::Tuple(data)) => {
+            let results = (
+                data.data_map.get("write_length"),
+                data.data_map.get("write_count"),
+                data.data_map.get("runtime"),
+                data.data_map.get("read_length"),
+                data.data_map.get("read_count"),
+            );
 
-    let Value::Tuple(data) = val else {
-        return Err(CostErrors::CostComputationFailed(
+            match results {
+                (
+                    Some(UInt(write_length)),
+                    Some(UInt(write_count)),
+                    Some(UInt(runtime)),
+                    Some(UInt(read_length)),
+                    Some(UInt(read_count)),
+                ) => Ok(ExecutionCost {
+                    write_length: (*write_length).try_into().unwrap_or(u64::MAX),
+                    write_count: (*write_count).try_into().unwrap_or(u64::MAX),
+                    runtime: (*runtime).try_into().unwrap_or(u64::MAX),
+                    read_length: (*read_length).try_into().unwrap_or(u64::MAX),
+                    read_count: (*read_count).try_into().unwrap_or(u64::MAX),
+                }),
+                _ => Err(CostErrors::CostComputationFailed(
+                    "Execution Cost tuple does not contain only UInts".to_string(),
+                )),
+            }
+        }
+        Ok(_) => Err(CostErrors::CostComputationFailed(
             "Clarity cost function returned something other than a Cost tuple".to_string(),
-        ));
-    };
-
-    let (
-        Some(UInt(write_length)),
-        Some(UInt(write_count)),
-        Some(UInt(runtime)),
-        Some(UInt(read_length)),
-        Some(UInt(read_count)),
-    ) = (
-        data.data_map.get("write_length"),
-        data.data_map.get("write_count"),
-        data.data_map.get("runtime"),
-        data.data_map.get("read_length"),
-        data.data_map.get("read_count"),
-    )
-    else {
-        return Err(CostErrors::CostComputationFailed(
-            "Execution Cost tuple does not contain only UInts".to_string(),
-        ));
-    };
-    Ok(ExecutionCost {
-        write_length: (*write_length).try_into().unwrap_or(u64::MAX),
-        write_count: (*write_count).try_into().unwrap_or(u64::MAX),
-        runtime: (*runtime).try_into().unwrap_or(u64::MAX),
-        read_length: (*read_length).try_into().unwrap_or(u64::MAX),
-        read_count: (*read_count).try_into().unwrap_or(u64::MAX),
-    })
+        )),
+        Err(e) => Err(CostErrors::CostComputationFailed(format!(
+            "Error evaluating result of cost function {cost_function_name}: {e}"
+        ))),
+    }
 }
 
 // TODO: add tests from mutation testing results #4832

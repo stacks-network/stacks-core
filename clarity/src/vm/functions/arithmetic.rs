@@ -204,16 +204,16 @@ macro_rules! make_comparison_ops {
     ($struct_name: ident, $type:ty) => {
         impl $struct_name {
             fn greater(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
-                Ok(Value::Bool(*x > *y))
+                Ok(Value::Bool(x > y))
             }
             fn less(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
-                Ok(Value::Bool(*x < *y))
+                Ok(Value::Bool(x < y))
             }
             fn leq(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
-                Ok(Value::Bool(*x <= *y))
+                Ok(Value::Bool(x <= y))
             }
             fn geq(x: &$type, y: &$type) -> Result<Value, VmExecutionError> {
-                Ok(Value::Bool(*x >= *y))
+                Ok(Value::Bool(x >= y))
             }
         }
     };

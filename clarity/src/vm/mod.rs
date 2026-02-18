@@ -316,12 +316,12 @@ fn lookup_variable<'a>(
     context: &'a LocalContext,
 ) -> Result<ValueRef<'a>, VmExecutionError> {
     if exec_state.epoch().supports_clarity_value_refs() {
-        // In post-3.4, we want to take advantage of the ability to return borrowed references to variables
+        // We want to take advantage of the ability to return borrowed references to variables
         // so that we can avoid unnecessary cloning and the associated cost where possible
         lookup_variable_by_ref(name, exec_state, invoke_ctx, context)
     } else {
-        // Since we already track the depth cost in the pre-3.4 lookup, we can skip tracking it again
-        // by returning a ValueRef::Owned
+        // We want to maintain the semantics of always charging for all values returned from variable lookup
+        // that we did before.
         lookup_variable_cloned(name, exec_state, invoke_ctx, context).map(ValueRef::Owned)
     }
 }

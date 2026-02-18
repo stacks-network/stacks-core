@@ -636,7 +636,7 @@ impl StacksEpochId {
 
     /// Whether or not this epoch supports returning Value references during variable lookup at clarity runtime
     pub fn supports_clarity_value_refs(&self) -> bool {
-        self >= &StacksEpochId::Epoch34
+        false
     }
 
     /// What is the sortition mining commitment window for this epoch?
