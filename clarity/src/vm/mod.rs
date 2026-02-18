@@ -387,7 +387,9 @@ pub fn apply(
         let mut evaluated_args = Vec::with_capacity(args.len());
         exec_state.call_stack.incr_apply_depth();
         for arg_x in args.iter() {
-            let arg_value = match eval(arg_x, exec_state, invoke_ctx, context) {
+            let arg_value = match eval(arg_x, exec_state, invoke_ctx, context)
+                .and_then(|v| v.clone_with_cost(exec_state))
+            {
                 Ok(x) => x,
                 Err(e) => {
                     exec_state.drop_memory(used_memory)?;
@@ -395,7 +397,7 @@ pub fn apply(
                     return Err(e);
                 }
             };
-            let arg_use = arg_value.as_ref().get_memory_use()?;
+            let arg_use = arg_value.get_memory_use()?;
             match exec_state.add_memory(arg_use) {
                 Ok(_x) => {}
                 Err(e) => {
@@ -404,8 +406,8 @@ pub fn apply(
                     return Err(VmExecutionError::from(e));
                 }
             };
-            used_memory += arg_value.as_ref().get_memory_use()?;
-            evaluated_args.push(arg_value.clone_with_cost(exec_state)?);
+            used_memory += arg_value.get_memory_use()?;
+            evaluated_args.push(arg_value);
         }
         exec_state.call_stack.decr_apply_depth();
 
@@ -476,7 +478,11 @@ pub fn eval<'a>(
     }
 
     let res = match &exp.expr {
-        AtomValue(value) | LiteralValue(value) => Ok(ValueRef::Borrowed(value)),
+        AtomValue(value) | LiteralValue(value) => {
+            // TODO: why wasn't this costed? We could avoid this clone
+            // but would mean we would start costing it and we would need to epoch gate this match
+            Ok(ValueRef::Owned(value.clone()))
+        }
         Atom(value) => lookup_variable(value, exec_state, invoke_ctx, context),
         List(children) => {
             let (function_variable, rest) =
