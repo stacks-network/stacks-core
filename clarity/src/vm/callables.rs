@@ -312,7 +312,7 @@ impl DefinedFunction {
         // if the error wasn't actually an error, but a function return,
         //    pull that out and return it.
         match result {
-            Ok(r) => Ok(r),
+            Ok(r) => Ok(r.clone_with_cost(env)?),
             Err(e) => match e {
                 VmExecutionError::EarlyReturn(v) => Ok(v.into()),
                 _ => Err(e),

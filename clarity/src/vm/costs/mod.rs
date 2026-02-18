@@ -1050,10 +1050,10 @@ impl LimitedCostTracker {
 
 pub fn parse_cost(
     cost_function_name: &str,
-    eval_result: Result<Option<Value>, VmExecutionError>,
+    eval_result: Result<Value, VmExecutionError>,
 ) -> Result<ExecutionCost, CostErrors> {
     match eval_result {
-        Ok(Some(Value::Tuple(data))) => {
+        Ok(Value::Tuple(data)) => {
             let results = (
                 data.data_map.get("write_length"),
                 data.data_map.get("write_count"),
@@ -1081,11 +1081,8 @@ pub fn parse_cost(
                 )),
             }
         }
-        Ok(Some(_)) => Err(CostErrors::CostComputationFailed(
+        Ok(_) => Err(CostErrors::CostComputationFailed(
             "Clarity cost function returned something other than a Cost tuple".to_string(),
-        )),
-        Ok(None) => Err(CostErrors::CostComputationFailed(
-            "Clarity cost function returned nothing".to_string(),
         )),
         Err(e) => Err(CostErrors::CostComputationFailed(format!(
             "Error evaluating result of cost function {cost_function_name}: {e}"
@@ -1144,8 +1141,8 @@ pub fn compute_cost(
             None,
         );
 
-        let result = super::eval(&function_invocation, &mut env, &context)?;
-        Ok(Some(result))
+        super::eval(&function_invocation, &mut env, &context)
+            .and_then(|v| v.clone_with_cost(&mut env))
     });
 
     parse_cost(&cost_function_reference.to_string(), eval_result)

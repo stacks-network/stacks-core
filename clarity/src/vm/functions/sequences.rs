@@ -36,8 +36,10 @@ pub fn list_cons(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    let eval_tried: Result<Vec<Value>, VmExecutionError> =
-        args.iter().map(|x| eval(x, env, context)).collect();
+    let eval_tried: Result<Vec<Value>, VmExecutionError> = args
+        .iter()
+        .map(|x| eval(x, env, context).and_then(|v| v.clone_with_cost(env)))
+        .collect();
     let args = eval_tried?;
 
     let mut arg_size = 0;
@@ -66,7 +68,7 @@ pub fn special_filter(
             "Expected name".to_string(),
         ))?;
 
-    let mut sequence = eval(&args[1], env, context)?;
+    let mut sequence = eval(&args[1], env, context)?.clone_with_cost(env)?;
     let function = lookup_function(function_name, env)?;
 
     match sequence {
@@ -122,8 +124,8 @@ pub fn special_fold(
         ))?;
 
     let function = lookup_function(function_name, env)?;
-    let mut sequence = eval(&args[1], env, context)?;
-    let initial = eval(&args[2], env, context)?;
+    let mut sequence = eval(&args[1], env, context)?.clone_with_cost(env)?;
+    let initial = eval(&args[2], env, context)?.clone_with_cost(env)?;
 
     match sequence {
         Value::Sequence(ref mut sequence_data) => sequence_data
@@ -172,7 +174,7 @@ pub fn special_map(
     let mut mapped_func_args = vec![];
     let mut min_args_len = usize::MAX;
     for map_arg in args[1..].iter() {
-        let mut sequence = eval(map_arg, env, context)?;
+        let mut sequence = eval(map_arg, env, context)?.clone_with_cost(env)?;
         match sequence {
             Value::Sequence(ref mut sequence_data) => {
                 min_args_len = min_args_len.min(sequence_data.len());
@@ -233,7 +235,7 @@ pub fn special_append(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    let sequence = eval(&args[0], env, context)?;
+    let sequence = eval(&args[0], env, context)?.clone_with_cost(env)?;
     match sequence {
         Value::Sequence(SequenceData::List(list)) => {
             let element = eval(&args[1], env, context)?;
@@ -242,16 +244,18 @@ pub fn special_append(
                 type_signature,
             } = list;
             let (entry_type, size) = type_signature.destruct();
-            let element_type = TypeSignature::type_of(&element)?;
+            let element_type = TypeSignature::type_of(element.as_ref())?;
             runtime_cost(
                 ClarityCostFunction::Append,
                 env,
                 u64::from(cmp::max(entry_type.size()?, element_type.size()?)),
             )?;
+            let element = element.clone_with_cost(env)?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
                 return Ok(Value::cons_list(vec![element], env.epoch())?);
             }
+
             let next_entry_type =
                 TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)?;
             let (element, _) = Value::sanitize_value(env.epoch(), &next_entry_type, element)
@@ -279,8 +283,8 @@ pub fn special_concat_v200(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    let mut wrapped_seq = eval(&args[0], env, context)?;
-    let other_wrapped_seq = eval(&args[1], env, context)?;
+    let mut wrapped_seq = eval(&args[0], env, context)?.clone_with_cost(env)?;
+    let other_wrapped_seq = eval(&args[1], env, context)?.clone_with_cost(env)?;
 
     runtime_cost(
         ClarityCostFunction::Concat,
@@ -318,8 +322,8 @@ pub fn special_concat_v205(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    let mut wrapped_seq = eval(&args[0], env, context)?;
-    let other_wrapped_seq = eval(&args[1], env, context)?;
+    let mut wrapped_seq = eval(&args[0], env, context)?.clone_with_cost(env)?;
+    let other_wrapped_seq = eval(&args[1], env, context)?.clone_with_cost(env)?;
 
     match (&mut wrapped_seq, other_wrapped_seq) {
         (Value::Sequence(seq), Value::Sequence(other_seq)) => {
@@ -359,7 +363,7 @@ pub fn special_as_max_len(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    let mut sequence = eval(&args[0], env, context)?;
+    let mut sequence = eval(&args[0], env, context)?.clone_with_cost(env)?;
 
     runtime_cost(ClarityCostFunction::AsMaxLen, env, 0)?;
 
@@ -386,7 +390,7 @@ pub fn special_as_max_len(
         let actual_len = eval(&args[1], env, context)?;
         Err(RuntimeCheckErrorKind::TypeError(
             Box::new(TypeSignature::UIntType),
-            Box::new(TypeSignature::type_of(&actual_len)?),
+            Box::new(TypeSignature::type_of(actual_len.as_ref())?),
         )
         .into())
     }
@@ -460,18 +464,20 @@ pub fn special_slice(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
-    let seq = eval(&args[0], env, context)?;
+    let seq = eval(&args[0], env, context)?.clone_with_cost(env)?;
     let left_position = eval(&args[1], env, context)?;
     let right_position = eval(&args[2], env, context)?;
 
     let sliced_seq_res: Result<Value, VmExecutionError> = (|| {
-        match (seq, left_position, right_position) {
+        match (seq, left_position.as_ref(), right_position.as_ref()) {
             (Value::Sequence(seq), Value::UInt(left_position), Value::UInt(right_position)) => {
-                let (left_position, right_position) =
-                    match (u32::try_from(left_position), u32::try_from(right_position)) {
-                        (Ok(left_position), Ok(right_position)) => (left_position, right_position),
-                        _ => return Ok(Value::none()),
-                    };
+                let (left_position, right_position) = match (
+                    u32::try_from(*left_position),
+                    u32::try_from(*right_position),
+                ) {
+                    (Ok(left_position), Ok(right_position)) => (left_position, right_position),
+                    _ => return Ok(Value::none()),
+                };
 
                 // Perform bound checks. Not necessary to check if positions are less than 0 since the vars are unsigned.
                 if left_position as usize >= seq.len() || right_position as usize > seq.len() {
@@ -511,7 +517,7 @@ pub fn special_replace_at(
     check_argument_count(3, args)?;
 
     let seq = eval(&args[0], env, context)?;
-    let seq_type = TypeSignature::type_of(&seq)?;
+    let seq_type = TypeSignature::type_of(seq.as_ref())?;
 
     // runtime is the cost to copy over one element into its place
     runtime_cost(ClarityCostFunction::ReplaceAt, env, seq_type.size()?)?;
@@ -527,17 +533,18 @@ pub fn special_replace_at(
     let new_element = eval(&args[2], env, context)?;
 
     if expected_elem_type != TypeSignature::NoType
-        && !expected_elem_type.admits(env.epoch(), &new_element)?
+        && !expected_elem_type.admits(env.epoch(), new_element.as_ref())?
     {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_elem_type),
-            Box::new(new_element),
+            Box::new(new_element.clone_with_cost(env)?),
         )
         .into());
     }
 
-    let index = if let Value::UInt(index_u128) = index_val {
-        if let Ok(index_usize) = usize::try_from(index_u128) {
+    // TODO: do you need to track the cost of evaluating copies on primative types?
+    let index = if let Value::UInt(index_u128) = index_val.as_ref() {
+        if let Ok(index_usize) = usize::try_from(*index_u128) {
             index_usize
         } else {
             return Ok(Value::none());
@@ -545,12 +552,12 @@ pub fn special_replace_at(
     } else {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(index_val),
+            Box::new(index_val.clone_with_cost(env)?),
         )
         .into());
     };
 
-    let Value::Sequence(data) = seq else {
+    let Value::Sequence(data) = seq.clone_with_cost(env)? else {
         return Err(
             RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {seq_type}")).into(),
         );
@@ -559,5 +566,6 @@ pub fn special_replace_at(
     if index >= seq_len {
         return Ok(Value::none());
     }
+    let new_element = new_element.clone_with_cost(env)?;
     Ok(data.replace_at(env.epoch(), index, new_element)?)
 }

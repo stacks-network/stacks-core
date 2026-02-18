@@ -130,9 +130,12 @@ fn eval_allowance(
                 return Err(RuntimeCheckErrorKind::IncorrectArgumentCount(1, rest.len()).into());
             }
             let amount = eval(&rest[0], env, context)?;
-            let amount = amount
-                .expect_u128()
-                .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
+            let amount = match amount.as_ref() {
+                Value::UInt(amount) => *amount,
+                _ => {
+                    return Err(VmInternalError::Expect("Expected u128".into()).into());
+                }
+            };
             Ok(Allowance::Stx(StxAllowance { amount }))
         }
         NativeFunctions::AllowanceWithFt => {
@@ -140,7 +143,7 @@ fn eval_allowance(
                 return Err(RuntimeCheckErrorKind::IncorrectArgumentCount(3, rest.len()).into());
             }
 
-            let contract_value = eval(&rest[0], env, context)?;
+            let contract_value = eval(&rest[0], env, context)?.clone_with_cost(env)?;
             let contract = contract_value
                 .clone()
                 .expect_principal()
@@ -155,7 +158,7 @@ fn eval_allowance(
                 PrincipalData::Contract(c) => c,
             };
 
-            let asset_name = eval(&rest[1], env, context)?;
+            let asset_name = eval(&rest[1], env, context)?.clone_with_cost(env)?;
             let asset_name = asset_name
                 .expect_string_ascii()
                 .map_err(|_| VmInternalError::Expect("Expected ASCII String.".into()))?;
@@ -171,7 +174,7 @@ fn eval_allowance(
                 asset_name,
             };
 
-            let amount = eval(&rest[2], env, context)?;
+            let amount = eval(&rest[2], env, context)?.clone_with_cost(env)?;
             let amount = amount
                 .expect_u128()
                 .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
@@ -183,7 +186,7 @@ fn eval_allowance(
                 return Err(RuntimeCheckErrorKind::IncorrectArgumentCount(3, rest.len()).into());
             }
 
-            let contract_value = eval(&rest[0], env, context)?;
+            let contract_value = eval(&rest[0], env, context)?.clone_with_cost(env)?;
             let contract = contract_value
                 .clone()
                 .expect_principal()
@@ -198,7 +201,7 @@ fn eval_allowance(
                 PrincipalData::Contract(c) => c,
             };
 
-            let asset_name = eval(&rest[1], env, context)?;
+            let asset_name = eval(&rest[1], env, context)?.clone_with_cost(env)?;
             let asset_name = asset_name
                 .expect_string_ascii()
                 .map_err(|_| VmInternalError::Expect("Expected ASCII String.".into()))?;
@@ -214,7 +217,7 @@ fn eval_allowance(
                 asset_name,
             };
 
-            let asset_id_list = eval(&rest[2], env, context)?;
+            let asset_id_list = eval(&rest[2], env, context)?.clone_with_cost(env)?;
             let asset_ids = asset_id_list
                 .expect_list()
                 .map_err(|_| VmInternalError::Expect("Expected list".into()))?;
@@ -225,7 +228,7 @@ fn eval_allowance(
             if rest.len() != 1 {
                 return Err(RuntimeCheckErrorKind::IncorrectArgumentCount(1, rest.len()).into());
             }
-            let amount = eval(&rest[0], env, context)?;
+            let amount = eval(&rest[0], env, context)?.clone_with_cost(env)?;
             let amount = amount
                 .expect_u128()
                 .map_err(|_| VmInternalError::Expect("Expected u128".into()))?;
@@ -263,7 +266,7 @@ pub fn special_restrict_assets(
         ))?;
     let body_exprs = &args[2..];
 
-    let asset_owner = eval(asset_owner_expr, env, context)?;
+    let asset_owner = eval(asset_owner_expr, env, context)?.clone_with_cost(env)?;
     let asset_owner = asset_owner
         .expect_principal()
         .map_err(|_| VmInternalError::Expect("Expected principal".into()))?;
@@ -293,7 +296,7 @@ pub fn special_restrict_assets(
         (|| -> Result<Option<Value>, VmExecutionError> {
             let mut last_result = None;
             for expr in body_exprs {
-                let result = eval(expr, env, context)?;
+                let result = eval(expr, env, context)?.clone_with_cost(env)?;
                 last_result.replace(result);
             }
             Ok(last_result)
@@ -387,7 +390,7 @@ pub fn special_as_contract(
         let eval_result: Result<Option<Value>, VmExecutionError> = (|| -> Result<Option<Value>, VmExecutionError> {
             let mut last_result = None;
             for expr in body_exprs {
-                let result = eval(expr, &mut nested_env, context)?;
+                let result = eval(expr, &mut nested_env, context)?.clone_with_cost(&mut nested_env)?;
                 last_result.replace(result);
             }
             Ok(last_result)

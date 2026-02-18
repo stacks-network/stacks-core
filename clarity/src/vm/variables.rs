@@ -19,7 +19,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::errors::VmInternalError;
 use crate::vm::ClarityVersion;
-use crate::vm::contexts::{Environment, LocalContext};
+use crate::vm::contexts::Environment;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{RuntimeError, VmExecutionError};
@@ -50,7 +50,6 @@ pub fn is_reserved_name(name: &str, version: &ClarityVersion) -> bool {
 
 pub fn lookup_reserved_variable(
     name: &str,
-    _context: &LocalContext,
     env: &mut Environment,
 ) -> Result<Option<Value>, VmExecutionError> {
     if let Some(variable) =
@@ -181,9 +180,7 @@ mod test {
             global_context: &mut global_context,
             call_stack: &mut call_stack,
         };
-        let ctx = LocalContext::default();
-
-        let res = lookup_reserved_variable("contract-caller", &ctx, &mut env);
+        let res = lookup_reserved_variable("contract-caller", &mut env);
         assert!(matches!(
             res,
             Err(VmExecutionError::Runtime(
@@ -214,9 +211,7 @@ mod test {
             global_context: &mut global_context,
             call_stack: &mut call_stack,
         };
-        let ctx = LocalContext::default();
-
-        let res = lookup_reserved_variable("tx-sender", &ctx, &mut env);
+        let res = lookup_reserved_variable("tx-sender", &mut env);
         assert!(matches!(
             res,
             Err(VmExecutionError::Runtime(

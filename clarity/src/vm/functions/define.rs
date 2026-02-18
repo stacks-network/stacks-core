@@ -128,7 +128,7 @@ fn handle_define_variable(
     // is the variable name legal?
     check_legal_define(variable, env.contract_context)?;
     let context = LocalContext::new();
-    let value = eval(expression, env, &context)?;
+    let value = eval(expression, env, &context)?.clone_with_cost(env)?;
     Ok(DefineResult::Variable(variable.clone(), value))
 }
 
@@ -186,7 +186,7 @@ fn handle_define_persisted_variable(
     let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
 
     let context = LocalContext::new();
-    let value = eval(value, env, &context)?;
+    let value = eval(value, env, &context)?.clone_with_cost(env)?;
 
     Ok(DefineResult::PersistedVariable(
         variable_str.clone(),
@@ -220,15 +220,15 @@ fn handle_define_fungible_token(
     if let Some(total_supply_expr) = total_supply {
         let context = LocalContext::new();
         let total_supply_value = eval(total_supply_expr, env, &context)?;
-        if let Value::UInt(total_supply_int) = total_supply_value {
+        if let Value::UInt(total_supply_int) = total_supply_value.as_ref() {
             Ok(DefineResult::FungibleToken(
                 asset_name.clone(),
-                Some(total_supply_int),
+                Some(*total_supply_int),
             ))
         } else {
             Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
-                Box::new(total_supply_value),
+                Box::new(total_supply_value.clone_with_cost(env)?),
             )
             .into())
         }

@@ -646,14 +646,14 @@ fn special_print(
     })?;
     let input = eval(arg, env, context)?;
 
-    runtime_cost(ClarityCostFunction::Print, env, input.size()?)?;
+    runtime_cost(ClarityCostFunction::Print, env, input.as_ref().size()?)?;
 
     if cfg!(feature = "developer-mode") {
-        debug!("{}", &input);
+        debug!("{}", input.as_ref());
     }
 
-    env.register_print_event(input.clone())?;
-    Ok(input)
+    env.register_print_event(input.as_ref())?;
+    input.clone_with_cost(env)
 }
 
 fn special_if(
@@ -666,17 +666,17 @@ fn special_if(
     runtime_cost(ClarityCostFunction::If, env, 0)?;
     // handle the conditional clause.
     let conditional = eval(&args[0], env, context)?;
-    match conditional {
+    match conditional.as_ref() {
         Value::Bool(result) => {
-            if result {
-                eval(&args[1], env, context)
+            if *result {
+                eval(&args[1], env, context)?.clone_with_cost(env)
             } else {
-                eval(&args[2], env, context)
+                eval(&args[2], env, context)?.clone_with_cost(env)
             }
         }
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
-            Box::new(conditional),
+            Box::new(conditional.clone_with_cost(env)?),
         )
         .into()),
     }
@@ -693,18 +693,18 @@ fn special_asserts(
     // handle the conditional clause.
     let conditional = eval(&args[0], env, context)?;
 
-    match conditional {
+    match conditional.as_ref() {
         Value::Bool(result) => {
-            if result {
-                Ok(conditional)
+            if *result {
+                conditional.clone_with_cost(env)
             } else {
-                let thrown = eval(&args[1], env, context)?;
+                let thrown = eval(&args[1], env, context)?.clone_with_cost(env)?;
                 Err(EarlyReturnError::AssertionFailed(Box::new(thrown)).into())
             }
         }
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
-            Box::new(conditional),
+            Box::new(conditional.clone_with_cost(env)?),
         )
         .into()),
     }
@@ -753,9 +753,16 @@ pub fn parse_eval_bindings(
     context: &LocalContext,
 ) -> Result<Vec<(ClarityName, Value)>, VmExecutionError> {
     let mut result = Vec::with_capacity(bindings.len());
-    handle_binding_list(bindings, binding_error_type, |var_name, var_sexp| {
-        eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
-    })?;
+
+    handle_binding_list(
+        bindings,
+        binding_error_type,
+        |var_name, var_sexp| -> Result<(), VmExecutionError> {
+            let value = eval(var_sexp, env, context)?.clone_with_cost(env)?;
+            result.push((var_name.clone(), value));
+            Ok(())
+        },
+    )?;
 
     Ok(result)
 }
@@ -794,9 +801,10 @@ fn special_let(
 
             let binding_value = eval(var_sexp, env, &inner_context)?;
 
-            let bind_mem_use = binding_value.get_memory_use()?;
+            let bind_mem_use = binding_value.as_ref().get_memory_use()?;
             env.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
+            let binding_value = binding_value.clone_with_cost(env)?;
             if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 && let CallableContract(trait_data) = &binding_value {
                 inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
             }
@@ -811,7 +819,7 @@ fn special_let(
             last_result.replace(body_result);
         }
         // last_result should always be Some(...), because of the arg len check above.
-        last_result.ok_or_else(|| VmInternalError::Expect("Failed to get let result".into()).into())
+        last_result.ok_or_else(|| VmExecutionError::from(VmInternalError::Expect("Failed to get let result".into())))?.clone_with_cost(env)
     })
 }
 
@@ -839,7 +847,7 @@ fn special_as_contract(
 
     env.drop_memory(cost_constants::AS_CONTRACT_MEMORY)?;
 
-    result
+    result?.clone_with_cost(env)
 }
 
 fn special_contract_of(

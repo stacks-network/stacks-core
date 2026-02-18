@@ -251,12 +251,12 @@ pub fn special_to_ascii(
 
     let value = eval(&args[0], env, context)?;
 
-    runtime_cost(ClarityCostFunction::ToAscii, env, value.size()?)?;
+    runtime_cost(ClarityCostFunction::ToAscii, env, value.as_ref().size()?)?;
 
-    match value {
+    match value.as_ref() {
         Value::Int(num) => convert_string_to_ascii_ok(num.to_string()),
         Value::UInt(num) => convert_string_to_ascii_ok(format!("u{num}")),
-        Value::Bool(b) => convert_string_to_ascii_ok(if b {
+        Value::Bool(b) => convert_string_to_ascii_ok(if *b {
             "true".to_string()
         } else {
             "false".to_string()
@@ -266,8 +266,8 @@ pub fn special_to_ascii(
             convert_string_to_ascii_ok(format!("0x{buffer_data}"))
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
-            // Convert UTF8 to string first, then to ASCII
-            let flattened_bytes: Vec<u8> = data.into_iter().flatten().collect();
+            // TODO: this is sort of not charged for? Should it be? borrow + copy bytes (metered by runtime_cost already?)
+            let flattened_bytes: Vec<u8> = data.iter().flatten().copied().collect();
             match String::from_utf8(flattened_bytes) {
                 Ok(utf8_string) => Ok(convert_utf8_to_ascii(utf8_string)?),
                 Err(_) => Ok(Value::err_uint(1)), // Invalid UTF8
@@ -282,7 +282,7 @@ pub fn special_to_ascii(
                 TypeSignature::TO_ASCII_BUFFER_MAX,
                 TypeSignature::STRING_UTF8_MAX,
             ],
-            Box::new(value),
+            Box::new(value.clone_with_cost(env)?),
         )
         .into()),
     }
@@ -323,12 +323,12 @@ pub fn from_consensus_buff(
 
     // get the buffer bytes from the supplied value. if not passed a buffer,
     // this is a type error
-    let input_bytes = if let Value::Sequence(SequenceData::Buffer(buff_data)) = value {
-        Ok(buff_data.data)
+    let input_bytes = if let Value::Sequence(SequenceData::Buffer(buff_data)) = value.as_ref() {
+        Ok(&buff_data.data)
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_MAX),
-            Box::new(value),
+            Box::new(value.clone_with_cost(env)?),
         ))
     }?;
 
@@ -347,7 +347,7 @@ pub fn from_consensus_buff(
     // type. A type mismatch at this point is an error that should be surfaced in
     // Clarity (as a none return).
     let result = match Value::try_deserialize_bytes_exact(
-        &input_bytes,
+        input_bytes,
         &type_arg,
         env.epoch().value_sanitizing(),
     ) {

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -632,6 +632,11 @@ impl StacksEpochId {
     /// Whether or not this epoch rejects parse-depth errors.
     pub fn rejects_parse_depth_errors(&self) -> bool {
         self < &StacksEpochId::Epoch34
+    }
+
+    /// Whether or not this epoch supports returning Value references during variable lookup at clarity runtime
+    pub fn supports_clarity_value_refs(&self) -> bool {
+        false
     }
 
     /// What is the sortition mining commitment window for this epoch?

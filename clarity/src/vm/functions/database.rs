@@ -80,8 +80,10 @@ pub fn special_contract_call(
     let mut rest_args_sizes = Vec::with_capacity(rest_args_len);
     for arg in rest_args_slice.iter() {
         let evaluated_arg = eval(arg, env, context)?;
-        rest_args_sizes.push(evaluated_arg.size()?.into());
-        rest_args.push(SymbolicExpression::atom_value(evaluated_arg));
+        rest_args_sizes.push(evaluated_arg.as_ref().size()?.into());
+        rest_args.push(SymbolicExpression::atom_value(
+            evaluated_arg.clone_with_cost(env)?,
+        ));
     }
 
     let (contract_identifier, type_returns_constraint) = match &args[0].expr {
@@ -333,8 +335,9 @@ pub fn special_set_variable_v200(
         data_types.value_type.size()?,
     )?;
 
-    env.add_memory(value.get_memory_use()?)?;
+    env.add_memory(value.as_ref().get_memory_use()?)?;
 
+    let value = value.clone_with_cost(env)?;
     let epoch = *env.epoch();
     env.global_context
         .database
@@ -371,6 +374,7 @@ pub fn special_set_variable_v205(
         RuntimeCheckErrorKind::Unreachable(format!("No such data variable: {var_name}")),
     )?;
 
+    let value = value.clone_with_cost(env)?;
     let epoch = *env.epoch();
     let result = env
         .global_context
@@ -419,7 +423,7 @@ pub fn special_fetch_entry_v200(
     let epoch = *env.epoch();
     env.global_context
         .database
-        .fetch_entry(contract, map_name, &key, data_types, &epoch)
+        .fetch_entry(contract, map_name, key.as_ref(), data_types, &epoch)
 }
 
 /// The Stacks v205 version of fetch_entry uses the actual stored size of the
@@ -446,10 +450,13 @@ pub fn special_fetch_entry_v205(
     )?;
 
     let epoch = *env.epoch();
-    let result = env
-        .global_context
-        .database
-        .fetch_entry_with_size(contract, map_name, &key, data_types, &epoch);
+    let result = env.global_context.database.fetch_entry_with_size(
+        contract,
+        map_name,
+        key.as_ref(),
+        data_types,
+        &epoch,
+    );
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
@@ -469,19 +476,20 @@ pub fn special_at_block(
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::AtBlock, env, 0)?;
-
-    let bhh = match eval(&args[0], env, context)? {
+    let value = eval(&args[0], env, context)?;
+    let bhh = match value.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() != 32 {
-                return Err(RuntimeError::BadBlockHash(data).into());
+                // TODO: does this need to be charged for? Its cloning internal data...
+                return Err(RuntimeError::BadBlockHash(data.clone()).into());
             } else {
                 StacksBlockId::from(data.as_slice())
             }
         }
-        x => {
+        _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(x),
+                Box::new(value.clone_with_cost(env)?),
             )
             .into());
         }
@@ -529,9 +537,11 @@ pub fn special_set_entry_v200(
         data_types.value_type.size()? + data_types.key_type.size()?,
     )?;
 
-    env.add_memory(key.get_memory_use()?)?;
-    env.add_memory(value.get_memory_use()?)?;
+    env.add_memory(key.as_ref().get_memory_use()?)?;
+    env.add_memory(value.as_ref().get_memory_use()?)?;
 
+    let key = key.clone_with_cost(env)?;
+    let value = value.clone_with_cost(env)?;
     let epoch = *env.epoch();
     env.global_context
         .database
@@ -570,6 +580,8 @@ pub fn special_set_entry_v205(
         RuntimeCheckErrorKind::Unreachable(format!("No such map: {map_name}")),
     )?;
 
+    let key = key.clone_with_cost(env)?;
+    let value = value.clone_with_cost(env)?;
     let epoch = *env.epoch();
     let result = env
         .global_context
@@ -623,11 +635,13 @@ pub fn special_insert_entry_v200(
         data_types.value_type.size()? + data_types.key_type.size()?,
     )?;
 
-    env.add_memory(key.get_memory_use()?)?;
-    env.add_memory(value.get_memory_use()?)?;
+    env.add_memory(key.as_ref().get_memory_use()?)?;
+    env.add_memory(value.as_ref().get_memory_use()?)?;
 
     let epoch = *env.epoch();
 
+    let key = key.clone_with_cost(env)?;
+    let value = value.clone_with_cost(env)?;
     env.global_context
         .database
         .insert_entry(contract, map_name, key, value, data_types, &epoch)
@@ -665,6 +679,8 @@ pub fn special_insert_entry_v205(
         RuntimeCheckErrorKind::Unreachable(format!("No such map: {map_name}")),
     )?;
 
+    let key = key.clone_with_cost(env)?;
+    let value = value.clone_with_cost(env)?;
     let epoch = *env.epoch();
     let result = env
         .global_context
@@ -716,12 +732,12 @@ pub fn special_delete_entry_v200(
         data_types.key_type.size()?,
     )?;
 
-    env.add_memory(key.get_memory_use()?)?;
+    env.add_memory(key.as_ref().get_memory_use()?)?;
 
     let epoch = *env.epoch();
     env.global_context
         .database
-        .delete_entry(contract, map_name, &key, data_types, &epoch)
+        .delete_entry(contract, map_name, key.as_ref(), data_types, &epoch)
         .map(|data| data.value)
 }
 
@@ -755,10 +771,13 @@ pub fn special_delete_entry_v205(
     )?;
 
     let epoch = *env.epoch();
-    let result = env
-        .global_context
-        .database
-        .delete_entry(contract, map_name, &key, data_types, &epoch);
+    let result = env.global_context.database.delete_entry(
+        contract,
+        map_name,
+        key.as_ref(),
+        data_types,
+        &epoch,
+    );
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
@@ -818,11 +837,11 @@ pub fn special_get_block_info(
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
-    let height_value = match height_eval {
-        Value::UInt(result) => Ok(result),
-        x => Err(RuntimeCheckErrorKind::TypeValueError(
+    let height_value = match height_eval.as_ref() {
+        Value::UInt(result) => Ok(*result),
+        _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(x),
+            Box::new(height_eval.clone_with_cost(env)?),
         )),
     }?;
 
@@ -975,12 +994,12 @@ pub fn special_get_burn_block_info(
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
-    let height_value = match height_eval {
-        Value::UInt(result) => result,
-        x => {
+    let height_value = match height_eval.as_ref() {
+        Value::UInt(result) => *result,
+        _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
-                Box::new(x),
+                Box::new(height_eval.clone_with_cost(env)?),
             )
             .into());
         }
@@ -1083,11 +1102,11 @@ pub fn special_get_stacks_block_info(
 
     // Handle the block-height input arg.
     let height_eval = eval(&args[1], env, context)?;
-    let height_value = match height_eval {
-        Value::UInt(result) => Ok(result),
-        x => Err(RuntimeCheckErrorKind::TypeValueError(
+    let height_value = match height_eval.as_ref() {
+        Value::UInt(result) => Ok(*result),
+        _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(x),
+            Box::new(height_eval.clone_with_cost(env)?),
         )),
     }?;
 
@@ -1169,11 +1188,11 @@ pub fn special_get_tenure_info(
 
     // Handle the block-height input arg.
     let height_eval = eval(&args[1], env, context)?;
-    let height_value = match height_eval {
-        Value::UInt(result) => Ok(result),
-        x => Err(RuntimeCheckErrorKind::TypeValueError(
+    let height_value = match height_eval.as_ref() {
+        Value::UInt(result) => Ok(*result),
+        _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(x),
+            Box::new(height_eval.clone_with_cost(env)?),
         )),
     }?;
 
@@ -1257,7 +1276,7 @@ pub fn special_contract_hash(
         .first()
         .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 0))?;
     let contract_value = eval(contract_expr, env, context)?;
-    let contract_identifier = match contract_value {
+    let contract_identifier = match contract_value.as_ref() {
         Value::Principal(PrincipalData::Standard(_)) => {
             // If the value is a standard principal, we return `(err u1)`.
             return Ok(Value::err_uint(1));
@@ -1266,8 +1285,10 @@ pub fn special_contract_hash(
         _ => {
             // If the value is not a principal, we return a RuntimeCheckErrorKind.
             return Err(
-                RuntimeCheckErrorKind::ExpectedContractPrincipalValue(Box::new(contract_value))
-                    .into(),
+                RuntimeCheckErrorKind::ExpectedContractPrincipalValue(Box::new(
+                    contract_value.clone_with_cost(env)?,
+                ))
+                .into(),
             );
         }
     };
@@ -1277,7 +1298,7 @@ pub fn special_contract_hash(
     let Some(contract_hash) = env
         .global_context
         .database
-        .get_contract_hash(&contract_identifier)?
+        .get_contract_hash(contract_identifier)?
     else {
         // If the contract does not exist, we return `(err u2)`.
         return Ok(Value::err_uint(2));

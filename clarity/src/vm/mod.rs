@@ -83,6 +83,42 @@ pub use crate::vm::types::Value;
 use crate::vm::types::{PrincipalData, TypeSignature};
 pub use crate::vm::version::ClarityVersion;
 
+/// A wrapper for variable value references that prevents accidental cloning.
+/// Only explicit clone_with_cost is allowed. Do not implement Clone or Copy for this type.
+#[derive(Debug, PartialEq)]
+pub enum ValueRef<'a> {
+    Borrowed(&'a Value),
+    Owned(Value),
+}
+
+impl AsRef<Value> for ValueRef<'_> {
+    fn as_ref(&self) -> &Value {
+        match self {
+            ValueRef::Borrowed(r) => r,
+            ValueRef::Owned(o) => o,
+        }
+    }
+}
+impl<'a> ValueRef<'a> {
+    pub fn clone_with_cost<T: CostTracker>(
+        self,
+        tracker: &mut T,
+    ) -> Result<Value, VmExecutionError> {
+        let value = self.as_ref();
+        match self {
+            ValueRef::Borrowed(r) => {
+                runtime_cost(
+                    ClarityCostFunction::LookupVariableSize,
+                    tracker,
+                    value.size()?,
+                )?;
+                Ok(r.clone())
+            }
+            ValueRef::Owned(o) => Ok(o),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ParsedContract {
     pub contract_identifier: String,
@@ -149,55 +185,62 @@ pub trait EvalHook {
     );
 
     // Called after the expression is evaluated
-    fn did_finish_eval(
+    fn did_finish_eval<'a>(
         &mut self,
         _env: &mut Environment,
-        _context: &LocalContext,
+        _context: &'a LocalContext,
         _expr: &SymbolicExpression,
-        _res: &core::result::Result<Value, crate::vm::errors::VmExecutionError>,
+        _res: &core::result::Result<ValueRef<'a>, crate::vm::errors::VmExecutionError>,
     );
 
     // Called upon completion of the execution
     fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>);
 }
 
-fn lookup_variable(
+fn lookup_variable<'a>(
     name: &str,
-    context: &LocalContext,
+    context: &'a LocalContext,
     env: &mut Environment,
-) -> Result<Value, VmExecutionError> {
+) -> Result<ValueRef<'a>, VmExecutionError> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
-        Err(
-            VmInternalError::BadSymbolicRepresentation(format!("Unexpected variable name: {name}"))
-                .into(),
-        )
-    } else if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
-        Ok(value)
-    } else {
-        runtime_cost(
-            ClarityCostFunction::LookupVariableDepth,
-            env,
-            context.depth(),
-        )?;
-        if let Some(value) = context.lookup_variable(name) {
-            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
-            Ok(value.clone())
-        } else if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
-            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
-            let (value, _) =
-                Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value)?, value)
-                    .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
-            Ok(value)
-        } else if let Some(callable_data) = context.lookup_callable_contract(name) {
-            if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
-                Ok(callable_data.contract_identifier.clone().into())
-            } else {
-                Ok(Value::CallableContract(callable_data.clone()))
-            }
+        return Err(VmInternalError::BadSymbolicRepresentation(format!(
+            "Unexpected variable name: {name}"
+        ))
+        .into());
+    }
+    if let Some(value) = variables::lookup_reserved_variable(name, env)? {
+        return Ok(ValueRef::Owned(value));
+    };
+    runtime_cost(
+        ClarityCostFunction::LookupVariableDepth,
+        env,
+        context.depth(),
+    )?;
+    if let Some(value) = context.lookup_variable(name) {
+        if env.epoch().supports_clarity_value_refs() {
+            // If the epoch supports value refs, we can return a borrowed reference to the variable without cloning.
+            return Ok(ValueRef::Borrowed(value));
         } else {
-            Err(RuntimeCheckErrorKind::Unreachable(format!("Undefined variable: {name}")).into())
+            runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
+            return Ok(ValueRef::Owned(value.clone()));
         }
     }
+    if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
+        runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
+        let (value, _) =
+            Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value)?, value)
+                .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+        return Ok(ValueRef::Owned(value));
+    }
+    if let Some(callable_data) = context.lookup_callable_contract(name) {
+        let value = if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
+            callable_data.contract_identifier.clone().into()
+        } else {
+            Value::CallableContract(callable_data.clone())
+        };
+        return Ok(ValueRef::Owned(value));
+    }
+    Err(RuntimeCheckErrorKind::Unreachable(format!("Undefined variable: {name}")).into())
 }
 
 pub fn lookup_function(
@@ -258,7 +301,7 @@ pub fn apply(
         let mut evaluated_args = Vec::with_capacity(args.len());
         env.call_stack.incr_apply_depth();
         for arg_x in args.iter() {
-            let arg_value = match eval(arg_x, env, context) {
+            let arg_value = match eval(arg_x, env, context).and_then(|v| v.clone_with_cost(env)) {
                 Ok(x) => x,
                 Err(e) => {
                     env.drop_memory(used_memory)?;
@@ -325,11 +368,11 @@ fn check_max_execution_time_expired(
     }
 }
 
-pub fn eval(
+pub fn eval<'a>(
     exp: &SymbolicExpression,
     env: &mut Environment,
-    context: &LocalContext,
-) -> Result<Value, VmExecutionError> {
+    context: &'a LocalContext,
+) -> Result<ValueRef<'a>, VmExecutionError> {
     use crate::vm::representations::SymbolicExpressionType::{
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
@@ -344,7 +387,7 @@ pub fn eval(
     }
 
     let res = match exp.expr {
-        AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
+        AtomValue(ref value) | LiteralValue(ref value) => Ok(ValueRef::Owned(value.clone())),
         Atom(ref value) => lookup_variable(value, context, env),
         List(ref children) => {
             let (function_variable, rest) =
@@ -361,7 +404,7 @@ pub fn eval(
                         "Bad function name".to_string(),
                     ))?;
             let f = lookup_function(function_name, env)?;
-            apply(&f, rest, env, context)
+            apply(&f, rest, env, context).map(ValueRef::Owned)
         }
         TraitReference(_, _) | Field(_) => {
             return Err(VmInternalError::BadSymbolicRepresentation(
@@ -488,7 +531,7 @@ pub fn eval_all(
                         let mut env = Environment::new(
                             global_context, contract_context, &mut call_stack, Some(publisher.clone()), Some(publisher.clone()), sponsor.clone());
 
-                        let result = eval(exp, &mut env, &context)?;
+                        let result = eval(exp, &mut env, &context)?.clone_with_cost(&mut env)?;
                         last_executed = Some(result);
                         Ok(())
                     })?;
@@ -663,7 +706,7 @@ mod test {
     use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
     use crate::vm::{
         CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
-        Value, eval,
+        Value, ValueRef, eval,
     };
 
     #[test]
@@ -725,6 +768,9 @@ mod test {
             None,
             None,
         );
-        assert_eq!(Ok(Value::Int(64)), eval(&content[0], &mut env, &context));
+        assert_eq!(
+            Ok(ValueRef::Owned(Value::Int(64))),
+            eval(&content[0], &mut env, &context)
+        );
     }
 }

@@ -149,7 +149,7 @@ fn eval_with_new_binding(
         );
     }
     inner_context.variables.insert(bind_name, bind_value);
-    let result = vm::eval(body, env, &inner_context);
+    let result = vm::eval(body, env, &inner_context).and_then(|v| v.clone_with_cost(env));
 
     env.drop_memory(memory_use)?;
 
@@ -180,7 +180,7 @@ fn special_match_opt(
 
     match input.data {
         Some(data) => eval_with_new_binding(some_branch, bind_name, *data, env, context),
-        None => vm::eval(none_branch, env, context),
+        None => vm::eval(none_branch, env, context).and_then(|v| v.clone_with_cost(env)),
     }
 }
 
@@ -230,7 +230,8 @@ pub fn special_match(
 ) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(1, args)?;
 
-    let input = vm::eval(&args[0], env, context)?;
+    // TODO: Should this be clone_with_cost? We do need the internal ResponseData which also has clones the internal value
+    let input = vm::eval(&args[0], env, context)?.clone_with_cost(env)?;
 
     runtime_cost(ClarityCostFunction::Match, env, 0)?;
 
