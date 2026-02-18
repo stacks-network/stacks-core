@@ -560,11 +560,8 @@ pub enum RuntimeCheckErrorKind {
     /// Type signature nesting depth exceeds the allowed limit during analysis.
     TypeSignatureTooDeep,
 
-    // Unexpected interpreter behavior
     /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
-    ExpectsRejectable(String),
-    /// Unexpected condition or failure in the type-checker, indicating a noncatastrophic bug or invalid state.
-    ExpectsAcceptable(String),
+    Unreachable(String),
 
     // List typing errors
     /// List elements have mismatched types, violating type consistency.
@@ -654,7 +651,7 @@ pub struct StaticCheckError {
 impl RuntimeCheckErrorKind {
     /// This check indicates that the transaction should be rejected.
     pub fn rejectable(&self) -> bool {
-        matches!(self, RuntimeCheckErrorKind::ExpectsRejectable(_))
+        matches!(self, RuntimeCheckErrorKind::Unreachable(_))
     }
 }
 
@@ -803,20 +800,20 @@ impl From<ClarityTypeError> for RuntimeCheckErrorKind {
             | ClarityTypeError::InvalidTypeDescription
             | ClarityTypeError::NoSuchTupleField(_, _)
             | ClarityTypeError::EmptyTuplesNotAllowed
-            | ClarityTypeError::ResponseTypeMismatch { .. } => Self::ExpectsAcceptable(format!(
+            | ClarityTypeError::ResponseTypeMismatch { .. } => Self::Unreachable(format!(
                 "Unexpected error type during runtime analysis: {err}"
             )),
             ClarityTypeError::InvariantViolation(_)
             | ClarityTypeError::InvalidPrincipalVersion(_)
-            | ClarityTypeError::SupertypeTooLarge => Self::ExpectsRejectable(format!(
+            | ClarityTypeError::SupertypeTooLarge => Self::Unreachable(format!(
                 "Unexpected error type during runtime analysis: {err}"
             )),
             ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
             ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
-                Self::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
+                Self::Unreachable(format!("{ty} should not be used in {epoch}"))
             }
             ClarityTypeError::UnsupportedEpoch(epoch) => {
-                Self::ExpectsRejectable(format!("{epoch} is not supported"))
+                Self::Unreachable(format!("{epoch} is not supported"))
             }
         }
     }
@@ -901,10 +898,10 @@ impl From<CostErrors> for RuntimeCheckErrorKind {
             CostErrors::CostContractLoadFailure => {
                 RuntimeCheckErrorKind::CostComputationFailed("Failed to load cost contract".into())
             }
-            CostErrors::InterpreterFailure => RuntimeCheckErrorKind::ExpectsRejectable(
+            CostErrors::InterpreterFailure => RuntimeCheckErrorKind::Unreachable(
                 "Unexpected interpreter failure in cost computation".into(),
             ),
-            CostErrors::Expect(s) => RuntimeCheckErrorKind::ExpectsRejectable(s),
+            CostErrors::Expect(s) => RuntimeCheckErrorKind::Unreachable(s),
             CostErrors::ExecutionTimeExpired => RuntimeCheckErrorKind::ExecutionTimeExpired,
         }
     }
@@ -955,49 +952,45 @@ impl From<CommonCheckErrorKind> for RuntimeCheckErrorKind {
                 RuntimeCheckErrorKind::IncorrectArgumentCount(expected, args)
             }
             CommonCheckErrorKind::RequiresAtLeastArguments(expected, args) => {
-                RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                RuntimeCheckErrorKind::Unreachable(format!(
                     "Requires at least args: {expected} got {args}"
                 ))
             }
             CommonCheckErrorKind::RequiresAtMostArguments(expected, args) => {
-                RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                RuntimeCheckErrorKind::Unreachable(format!(
                     "Requires at most args: {expected} got {args}"
                 ))
             }
             CommonCheckErrorKind::TooManyFunctionParameters(found, allowed) => {
-                RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                RuntimeCheckErrorKind::Unreachable(format!(
                     "Too many function params: found {found}, allowed {allowed}"
                 ))
             }
             CommonCheckErrorKind::ExpectedName => {
-                RuntimeCheckErrorKind::ExpectsAcceptable("Expected name".to_string())
+                RuntimeCheckErrorKind::Unreachable("Expected name".to_string())
             }
             CommonCheckErrorKind::DefineFunctionBadSignature => {
-                RuntimeCheckErrorKind::ExpectsAcceptable(
-                    "Define function bad signature".to_string(),
-                )
+                RuntimeCheckErrorKind::Unreachable("Define function bad signature".to_string())
             }
             CommonCheckErrorKind::ExpectedTraitIdentifier => {
-                RuntimeCheckErrorKind::ExpectsAcceptable("Expected trait identifier".to_string())
+                RuntimeCheckErrorKind::Unreachable("Expected trait identifier".to_string())
             }
             CommonCheckErrorKind::DefineTraitDuplicateMethod(s) => {
-                RuntimeCheckErrorKind::ExpectsAcceptable(format!(
-                    "Define trait duplicate method: {s}"
-                ))
+                RuntimeCheckErrorKind::Unreachable(format!("Define trait duplicate method: {s}"))
             }
             CommonCheckErrorKind::TraitTooManyMethods(found, allowed) => {
-                RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                RuntimeCheckErrorKind::Unreachable(format!(
                     "Trait too many methods: found {found}, allowed {allowed}"
                 ))
             }
             CommonCheckErrorKind::DefineTraitBadSignature => {
-                RuntimeCheckErrorKind::ExpectsAcceptable("Define trait bad signature".to_string())
+                RuntimeCheckErrorKind::Unreachable("Define trait bad signature".to_string())
             }
             CommonCheckErrorKind::BadSyntaxBinding(e) => {
-                RuntimeCheckErrorKind::ExpectsAcceptable(format!("Bad syntax binding: {e}"))
+                RuntimeCheckErrorKind::Unreachable(format!("Bad syntax binding: {e}"))
             }
             CommonCheckErrorKind::UnknownTypeName(name) => {
-                RuntimeCheckErrorKind::ExpectsAcceptable(format!("Unknown type name: {name}"))
+                RuntimeCheckErrorKind::Unreachable(format!("Unknown type name: {name}"))
             }
         }
     }

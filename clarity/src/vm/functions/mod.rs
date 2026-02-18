@@ -635,7 +635,7 @@ fn native_eq(
 fn native_begin(mut args: Vec<Value>) -> Result<Value, VmExecutionError> {
     match args.pop() {
         Some(v) => Ok(v),
-        None => Err(RuntimeCheckErrorKind::ExpectsAcceptable(
+        None => Err(RuntimeCheckErrorKind::Unreachable(
             "Requires at least args: 1 got 0".to_string(),
         )
         .into()),
@@ -797,7 +797,7 @@ fn special_let(
     // parse and eval the bindings.
     let bindings = args[0]
         .match_list()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad let syntax".to_string(),
         ))?;
 
@@ -887,7 +887,7 @@ fn special_contract_of(
     let contract_ref = match &args[0].expr {
         SymbolicExpressionType::Atom(contract_ref) => contract_ref,
         _ => {
-            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
+            return Err(RuntimeCheckErrorKind::Unreachable(
                 "Contract of expects trait".to_string(),
             )
             .into());
@@ -909,7 +909,7 @@ fn special_contract_of(
             &trait_data.contract_identifier
         }
         _ => {
-            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(
+            return Err(RuntimeCheckErrorKind::Unreachable(
                 "Contract of expects trait".to_string(),
             )
             .into());
@@ -981,7 +981,7 @@ mod test {
             special_contract_of(&[non_atom], &mut exec_state, &invoke_ctx, &context).unwrap_err();
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Contract of expects trait".to_string()
             ))
         );
@@ -1028,7 +1028,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Contract of expects trait".to_string()
             ))
         );
@@ -1073,7 +1073,7 @@ mod test {
         let err = special_let(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Bad let syntax".to_string()
             )),
             err
@@ -1124,14 +1124,14 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Get tenure info expect property name".to_string()
             ))
         );
     }
 
     /// If we bypass static analysis and pass a non-atom as the property name to `get-burn-block-info?`,
-    /// the runtime returns `ExpectsAcceptable`.
+    /// the runtime returns [`RuntimeCheckErrorKind::Unreachable`].
     #[apply(test_clarity_versions)]
     fn special_get_burn_block_info_expected_property_name(
         #[case] version: ClarityVersion,
@@ -1176,14 +1176,14 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Get block info expect property name".to_string()
             ))
         );
     }
 
     /// If we bypass static analysis and pass a non-atom to `get-stacks-block-info?`,
-    /// the runtime returns `ExpectsAcceptable`.
+    /// the runtime returns [`RuntimeCheckErrorKind::Unreachable`].
     #[apply(test_clarity_versions)]
     fn special_get_stacks_block_info_expect_property_name_non_atom(
         #[case] version: ClarityVersion,
@@ -1226,14 +1226,14 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Get stacks block info expect property name".to_string()
             ))
         );
     }
 
     /// If we bypass static analysis and pass an atom for a non existing property to `get-stacks-block-info?`,
-    /// the runtime returns `ExpectsAcceptable`.
+    /// the runtime returns [`RuntimeCheckErrorKind::Unreachable`].
     #[apply(test_clarity_versions)]
     fn special_get_stacks_block_info_no_such_property(
         #[case] version: ClarityVersion,
@@ -1277,14 +1277,14 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "No such stacks block info property: not-a-valid-stacks-prop".to_string()
             ))
         );
     }
 
     /// If we bypass static analysis and pass an atom for a non existing property to `get-burn-block-info?`,
-    /// the runtime returns `ExpectsAcceptable`.
+    /// the runtime returns [`RuntimeCheckErrorKind::Unreachable`].
     #[apply(test_clarity_versions)]
     fn special_get_burn_block_info_no_such_property(
         #[case] version: ClarityVersion,
@@ -1329,7 +1329,7 @@ mod test {
 
         assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "No such burn block info property: not-a-valid-burn-prop".to_string()
             ))
         );

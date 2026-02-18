@@ -817,7 +817,7 @@ fn test_readwrite_dynamic_dispatch(
             .unwrap_err();
 
         assert_eq!(
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Trait based contract call in read-only".to_string()
             ),),
             err_result
@@ -880,7 +880,7 @@ fn test_readwrite_violation_dynamic_dispatch(
             )
             .unwrap_err();
         assert_eq!(
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Trait based contract call in read-only".to_string()
             ),),
             err_result

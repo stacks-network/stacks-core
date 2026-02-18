@@ -81,9 +81,7 @@ fn test_block_height(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::ExpectsAcceptable(
-                    "Undefined variable: block-height".to_string()
-                )
+                RuntimeCheckErrorKind::Unreachable("Undefined variable: block-height".to_string())
             )),
             err
         );
@@ -143,7 +141,7 @@ fn test_stacks_block_height(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::ExpectsAcceptable(
+                RuntimeCheckErrorKind::Unreachable(
                     "Undefined variable: stacks-block-height".to_string()
                 )
             )),
@@ -205,9 +203,7 @@ fn test_tenure_height(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::ExpectsAcceptable(
-                    "Undefined variable: tenure-height".to_string()
-                )
+                RuntimeCheckErrorKind::Unreachable("Undefined variable: tenure-height".to_string())
             )),
             err
         );
@@ -1224,7 +1220,7 @@ fn test_block_time(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::ExpectsAcceptable(
+                RuntimeCheckErrorKind::Unreachable(
                     "Undefined variable: stacks-block-time".to_string()
                 )
             )),
@@ -1357,7 +1353,7 @@ fn test_current_contract(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::ExpectsAcceptable(
+                RuntimeCheckErrorKind::Unreachable(
                     "Undefined variable: current-contract".to_string()
                 )
             )),

@@ -269,7 +269,7 @@ fn lookup_variable_cloned(
     if let Some(value) = callable_contract_value(name, context, invoke_ctx.contract_context) {
         return Ok(value);
     }
-    Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!("Undefined variable: {name}")).into())
+    Err(RuntimeCheckErrorKind::Unreachable(format!("Undefined variable: {name}")).into())
 }
 
 /// Post-3.4 semantics:
@@ -306,7 +306,7 @@ fn lookup_variable_by_ref<'a>(
     if let Some(value) = callable_contract_value(name, context, invoke_ctx.contract_context) {
         return Ok(ValueRef::Owned(value));
     }
-    Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!("Undefined variable: {name}")).into())
+    Err(RuntimeCheckErrorKind::Unreachable(format!("Undefined variable: {name}")).into())
 }
 
 fn lookup_variable<'a>(
@@ -475,31 +475,33 @@ pub fn eval<'a>(
         exec_state.global_context.eval_hooks = Some(eval_hooks);
     }
 
-    let res =
-        match &exp.expr {
-            AtomValue(value) | LiteralValue(value) => Ok(ValueRef::Borrowed(value)),
-            Atom(value) => lookup_variable(value, exec_state, invoke_ctx, context),
-            List(children) => {
-                let (function_variable, rest) =
-                    children
-                        .split_first()
-                        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
-                            "Non functional application".to_string(),
-                        ))?;
+    let res = match &exp.expr {
+        AtomValue(value) | LiteralValue(value) => Ok(ValueRef::Borrowed(value)),
+        Atom(value) => lookup_variable(value, exec_state, invoke_ctx, context),
+        List(children) => {
+            let (function_variable, rest) =
+                children
+                    .split_first()
+                    .ok_or(RuntimeCheckErrorKind::Unreachable(
+                        "Non functional application".to_string(),
+                    ))?;
 
-                let function_name = function_variable.match_atom().ok_or(
-                    RuntimeCheckErrorKind::ExpectsAcceptable("Bad function name".to_string()),
-                )?;
-                let f = lookup_function(function_name, exec_state, invoke_ctx)?;
-                apply(&f, rest, exec_state, invoke_ctx, context).map(ValueRef::Owned)
-            }
-            TraitReference(_, _) | Field(_) => {
-                return Err(VmInternalError::BadSymbolicRepresentation(
-                    "Unexpected trait reference".into(),
-                )
-                .into());
-            }
-        };
+            let function_name =
+                function_variable
+                    .match_atom()
+                    .ok_or(RuntimeCheckErrorKind::Unreachable(
+                        "Bad function name".to_string(),
+                    ))?;
+            let f = lookup_function(function_name, exec_state, invoke_ctx)?;
+            apply(&f, rest, exec_state, invoke_ctx, context).map(ValueRef::Owned)
+        }
+        TraitReference(_, _) | Field(_) => {
+            return Err(VmInternalError::BadSymbolicRepresentation(
+                "Unexpected trait reference".into(),
+            )
+            .into());
+        }
+    };
 
     if let Some(mut eval_hooks) = exec_state.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {

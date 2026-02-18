@@ -143,16 +143,15 @@ fn handle_define_function(
     let (function_symbol, arg_symbols) =
         signature
             .split_first()
-            .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+            .ok_or(RuntimeCheckErrorKind::Unreachable(
                 "Define function bad signature".to_string(),
             ))?;
 
-    let function_name =
-        function_symbol
-            .match_atom()
-            .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
-                "Expected name".to_string(),
-            ))?;
+    let function_name = function_symbol
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
+            "Expected name".to_string(),
+        ))?;
 
     check_legal_define(function_name, invoke_ctx.contract_context)?;
 
@@ -567,7 +566,7 @@ mod test {
         .unwrap_err();
 
         assert_eq!(
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Bad syntax binding: NotList(Eval, 0)".to_string()
             )),
             err,
@@ -634,7 +633,7 @@ mod test {
         .unwrap_err();
 
         assert_eq!(
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Too many function params: found 257, allowed 256".to_string()
             )),
             err
