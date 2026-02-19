@@ -176,7 +176,7 @@ describe('basic staking', () => {
       }),
       stacker,
     );
-    expect(result.value.unlockHeight).toBe(unlockBurnHeight);
+    expect(result.value.unlockBurnHeight).toBe(unlockBurnHeight);
     const allStackers = getAllStackerInfos();
     expect(allStackers).toHaveLength(1);
     const info = allStackers[0];
@@ -184,13 +184,7 @@ describe('basic staking', () => {
     expect(info.poxAddr.version).toStrictEqual(Uint8Array.from([0x01]));
     expect(info.signerKey).toStrictEqual(signerKey);
 
-    const expectedL1Script = rov(
-      contract.constructOutputScript(
-        stacker,
-        BTC.ScriptNum().encode(unlockBurnHeight),
-        unlockBytes,
-      ),
-    );
-    expect(info.l1ScriptHash).toStrictEqual(expectedL1Script);
+    expect(info.unlockBurnHeight).toBe(unlockBurnHeight);
+    expect(info.unlockBytes).toStrictEqual(unlockBytes);
   });
 });

@@ -58,7 +58,8 @@
 (define-map staking-state
     principal
     {
-        l1-script-hash: (buff 34),
+        unlock-burn-height: uint,
+        unlock-bytes: (buff 255),
         signer-key: (buff 33),
         amount-ustx: uint,
         pox-addr: {
@@ -169,8 +170,7 @@
     (let (
             (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
             (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
-            (unlock-script-hash (construct-output-script tx-sender unlock-height-bytes unlock-bytes))
-            (unlock-height (buff-to-uint-le unlock-height-bytes))
+            (unlock-burn-height (buff-to-uint-le unlock-height-bytes))
         )
         ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
         ;;  to "post-date" their `stack-stx` transaction
@@ -200,14 +200,15 @@
             signer-key: signer-key,
             amount-ustx: amount-ustx,
             pox-addr: pox-addr,
-            l1-script-hash: unlock-script-hash,
+            unlock-burn-height: unlock-burn-height,
+            unlock-bytes: unlock-bytes,
         })
 
         (ok {
             stacker: tx-sender,
             pox-addr: pox-addr,
-            l1-script-hash: unlock-script-hash,
-            unlock-height: unlock-height,
+            unlock-burn-height: unlock-burn-height,
+            unlock-bytes: unlock-bytes,
             amount-ustx: amount-ustx,
         })
     )
@@ -246,10 +247,7 @@
 )
 
 (define-public (add-stacker-to-set (stacker principal))
-    (let (
-            (first-item (var-get stacker-set-ll-first))
-            (last-item (var-get stacker-set-ll-last))
-        )
+    (let ((last-item (var-get stacker-set-ll-last)))
         ;; Todo: remove this and guard in a higher-level fn
         (asserts! (not (is-some (map-get? stacker-set-ll stacker)))
             ERR_ALREADY_STAKED
@@ -283,8 +281,6 @@
 
 (define-public (remove-stacker-from-set (stacker principal))
     (let (
-            (first-item (var-get stacker-set-ll-first))
-            (last-item (var-get stacker-set-ll-last))
             (node (unwrap! (map-get? stacker-set-ll stacker) (err ERR_NOT_STAKED)))
             (prev-item (get prev node))
             (next-item (get next node))
