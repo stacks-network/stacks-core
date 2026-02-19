@@ -1,3 +1,18 @@
+// Copyright (C) 2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 #![allow(unused_macros)]
 #![allow(dead_code)]
 #![allow(non_camel_case_types)]
@@ -104,6 +119,9 @@ pub mod consts {
 
     /// number of uSTX per STX
     pub const MICROSTACKS_PER_STACKS: u32 = 1_000_000;
+
+    /// Maximum number of reward cycles to look back for `at-block` queries.
+    pub const AT_BLOCK_MAX_LOOKBACK_REWARD_CYCLES: u32 = 6;
 }
 
 pub mod versions {

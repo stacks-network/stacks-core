@@ -420,15 +420,15 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_pox_prepare_length(&self) -> u32 {
-        panic!("NullBurnStateDB should not return PoX info");
+        1
     }
 
     fn get_pox_reward_cycle_length(&self) -> u32 {
-        panic!("NullBurnStateDB should not return PoX info");
+        1
     }
 
     fn get_pox_rejection_fraction(&self) -> u64 {
-        panic!("NullBurnStateDB should not return PoX info");
+        1
     }
     fn get_pox_payout_addrs(
         &self,
@@ -1030,6 +1030,25 @@ impl ClarityDatabase<'_> {
     /// This is the height we are currently constructing. It comes from the MARF.
     pub fn get_current_block_height(&mut self) -> u32 {
         self.store.get_current_block_height()
+    }
+
+    /// Return the first burnchain height tracked by this chain.
+    pub fn get_burn_start_height(&self) -> u32 {
+        self.burn_state_db.get_burn_start_height()
+    }
+
+    /// Return the configured PoX reward cycle length in burnchain blocks.
+    pub fn get_pox_reward_cycle_length(&self) -> u32 {
+        self.burn_state_db.get_pox_reward_cycle_length()
+    }
+
+    /// Get the current burnchain tip height.
+    pub fn get_tip_burnchain_block_height(&self) -> Result<u32, VmExecutionError> {
+        self.burn_state_db
+            .get_tip_burn_block_height()
+            .ok_or_else(|| {
+                VmInternalError::Expect("Failed to get burnchain tip height.".into()).into()
+            })
     }
 
     /// Return the height for PoX v1 -> v2 auto unlocks

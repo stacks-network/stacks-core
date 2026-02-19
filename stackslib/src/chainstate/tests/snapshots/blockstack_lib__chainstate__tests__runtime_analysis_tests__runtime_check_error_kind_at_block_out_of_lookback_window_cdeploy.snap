@@ -1,0 +1,184 @@
+---
+source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
+expression: expected_result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "267e369c25ce66cd2694c7188c24f7bdadebe111fd7c67dfd22665e0f14d1608",
+    evaluated_epoch: Epoch20,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: oldhashsrc, code_body: [..], clarity_version: None)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 204,
+          write_count: 2,
+          read_length: 2,
+          read_count: 2,
+          runtime: 2134000,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 204,
+      write_count: 2,
+      read_length: 2,
+      read_count: 2,
+      runtime: 2134000,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f98f127135eaf96ab48acfe537f72db730d3d30a357374e42e0e9d8164aab5f0",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: abwdep, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(AtBlockOutOfLookbackWindow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 276,
+          write_count: 2,
+          read_length: 233,
+          read_count: 6,
+          runtime: 22031,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 276,
+      write_count: 2,
+      read_length: 233,
+      read_count: 6,
+      runtime: 22031,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3c2f8e8f37891c0ccc936cd6bd12c7d6a0789a9dcce190acabf27e63cd166995",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: abwdep, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(AtBlockOutOfLookbackWindow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 276,
+          write_count: 2,
+          read_length: 233,
+          read_count: 6,
+          runtime: 22030,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 276,
+      write_count: 2,
+      read_length: 233,
+      read_count: 6,
+      runtime: 22030,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "20dcea77ef6309ee8a7678013239aa4061888cb862e2351ccf288608cea1111c",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: abwdep, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(AtBlockOutOfLookbackWindow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 276,
+          write_count: 2,
+          read_length: 233,
+          read_count: 6,
+          runtime: 22030,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 276,
+      write_count: 2,
+      read_length: 233,
+      read_count: 6,
+      runtime: 22030,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a715c128f9d0a345aa1da9ae2cfa56de41b4daab0eaf58b40c74d78ed452292d",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: abwdep, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(AtBlockOutOfLookbackWindow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 276,
+          write_count: 2,
+          read_length: 233,
+          read_count: 6,
+          runtime: 22030,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 276,
+      write_count: 2,
+      read_length: 233,
+      read_count: 6,
+      runtime: 22030,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "73ac2455122c1d35e320d01f2a8c9c2d7df7dd3876170d06e66dd7a965a867da",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: abwdep, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(AtBlockOutOfLookbackWindow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 276,
+          write_count: 2,
+          read_length: 233,
+          read_count: 6,
+          runtime: 22030,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 276,
+      write_count: 2,
+      read_length: 233,
+      read_count: 6,
+      runtime: 22030,
+    ),
+  )),
+]

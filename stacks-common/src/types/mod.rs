@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -30,10 +30,11 @@ use crate::address::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::consts::{
-    MICROSTACKS_PER_STACKS, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
-    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
-    PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
-    PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
+    AT_BLOCK_MAX_LOOKBACK_REWARD_CYCLES, MICROSTACKS_PER_STACKS, PEER_VERSION_EPOCH_1_0,
+    PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
+    PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5,
+    PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3,
+    PEER_VERSION_EPOCH_3_4,
 };
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
@@ -457,6 +458,19 @@ impl SIP031EmissionInterval {
     }
 }
 
+/// Returns the reward cycle at `block_ht` for a chain that begins at `first_block_ht`
+/// with fixed reward cycles of length `reward_cycle_len`.
+pub fn block_height_to_reward_cycle(
+    block_ht: u64,
+    first_block_ht: u64,
+    reward_cycle_len: u64,
+) -> Option<u64> {
+    if reward_cycle_len == 0 || block_ht < first_block_ht {
+        return None;
+    }
+    Some((block_ht - first_block_ht) / reward_cycle_len)
+}
+
 impl StacksEpochId {
     /// Highest epoch enabled in release builds.
     /// Keep this in sync with `versions.toml` and `PEER_NETWORK_EPOCH`
@@ -671,6 +685,16 @@ impl StacksEpochId {
     /// block (behavior before 3.0).
     pub fn clarity_uses_tip_burn_block(&self) -> bool {
         self >= &StacksEpochId::Epoch30
+    }
+
+    /// Return the lookback window (in reward cycles) for bounded `at-block`,
+    /// or `None` if bounded `at-block` is not active in this epoch.
+    pub fn at_block_lookback_reward_cycles(&self) -> Option<u32> {
+        if self >= &StacksEpochId::Epoch34 {
+            Some(AT_BLOCK_MAX_LOOKBACK_REWARD_CYCLES)
+        } else {
+            None
+        }
     }
 
     /// Does this epoch use the nakamoto reward set, or the epoch2 reward set?

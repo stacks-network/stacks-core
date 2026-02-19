@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -661,10 +661,11 @@ impl PoxConstants {
         first_block_ht: u64,
         reward_cycle_len: u64,
     ) -> Option<u64> {
-        if block_ht < first_block_ht {
-            return None;
-        }
-        Some((block_ht - first_block_ht) / (reward_cycle_len))
+        stacks_common::types::block_height_to_reward_cycle(
+            block_ht,
+            first_block_ht,
+            reward_cycle_len,
+        )
     }
 }
 

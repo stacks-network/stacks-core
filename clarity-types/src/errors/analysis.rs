@@ -625,6 +625,9 @@ pub enum RuntimeCheckErrorKind {
     InvalidCharactersDetected,
     /// String contains invalid UTF-8 encoding.
     InvalidUTF8Encoding,
+
+    /// `at-block` attempted to query a block outside the supported lookback window.
+    AtBlockOutOfLookbackWindow,
 }
 
 #[derive(Debug, PartialEq)]

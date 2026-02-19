@@ -23,8 +23,8 @@ use clarity_types::errors::{ParseError, ParseErrorKind};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
-use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::{StacksEpochId, block_height_to_reward_cycle};
 
 use super::EvalHook;
 use crate::vm::ast::ContractAST;
@@ -1262,12 +1262,63 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         }
     }
 
+    fn check_at_block_lookback_window(
+        &self,
+        block_id: &StacksBlockId,
+    ) -> Result<(), VmExecutionError> {
+        let Some(lookback_cycles) = self
+            .global_context
+            .epoch_id
+            .at_block_lookback_reward_cycles()
+        else {
+            return Ok(());
+        };
+
+        let Some(target_burn_height) = self
+            .global_context
+            .database
+            .get_burnchain_block_height(block_id)
+        else {
+            // Preserve legacy behavior for unknown block ids.
+            return Ok(());
+        };
+
+        let current_burn_height = self
+            .global_context
+            .database
+            .get_tip_burnchain_block_height()?;
+        let first_burn_height = self.global_context.database.get_burn_start_height();
+        let reward_cycle_length = self.global_context.database.get_pox_reward_cycle_length();
+
+        let target_cycle = block_height_to_reward_cycle(
+            u64::from(target_burn_height),
+            u64::from(first_burn_height),
+            u64::from(reward_cycle_length),
+        )
+        .ok_or_else(|| VmInternalError::Expect("Invalid PoX reward cycle configuration".into()))?;
+        let current_cycle = block_height_to_reward_cycle(
+            u64::from(current_burn_height),
+            u64::from(first_burn_height),
+            u64::from(reward_cycle_length),
+        )
+        .ok_or_else(|| VmInternalError::Expect("Invalid PoX reward cycle configuration".into()))?;
+
+        let cycle_delta = current_cycle.saturating_sub(target_cycle);
+        if cycle_delta >= u64::from(lookback_cycles) {
+            return Err(RuntimeCheckErrorKind::AtBlockOutOfLookbackWindow.into());
+        }
+
+        Ok(())
+    }
+
     pub fn evaluate_at_block(
         &mut self,
         bhh: StacksBlockId,
         closure: &SymbolicExpression,
         local: &LocalContext,
     ) -> Result<Value, VmExecutionError> {
+        self.check_at_block_lookback_window(&bhh)?;
+
         self.global_context.begin_read_only();
 
         let result = self

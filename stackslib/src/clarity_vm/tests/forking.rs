@@ -15,15 +15,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity::vm::analysis::errors::RuntimeCheckErrorKind;
 use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::{ClarityEvalError, RuntimeError, VmExecutionError};
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use clarity::vm::tests::test_clarity_versions;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData, Value};
 use clarity::vm::version::ClarityVersion;
-use clarity::vm::ContractContext;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use clarity::vm::{ContractContext, StacksEpoch};
+use stacks_common::consts::{BITCOIN_REGTEST_FIRST_BLOCK_HASH, PEER_VERSION_EPOCH_2_0};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, PoxId, SortitionId, StacksBlockId,
+};
 use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
@@ -253,6 +258,70 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
     );
 }
 
+#[apply(test_clarity_versions)]
+fn test_at_block_bounded_window(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    fn initialize(owned_env: &mut OwnedEnvironment) {
+        let c = QualifiedContractIdentifier::local("contract").unwrap();
+        let contract = "(define-data-var datum int 1)
+             (define-public (read-historical)
+               (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
+                 (var-get datum))))";
+        owned_env.initialize_contract(c, contract, None).unwrap();
+    }
+
+    fn branch(
+        owned_env: &mut OwnedEnvironment,
+        version: ClarityVersion,
+        to_exec: &str,
+    ) -> Result<Value, VmExecutionError> {
+        let c = QualifiedContractIdentifier::local("contract").unwrap();
+        let p1 = execute(p1_str).expect_principal().unwrap();
+        let placeholder_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        {
+            let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+            let value = env.eval_read_only(&c, "(var-get datum)").unwrap();
+            assert_eq!(value, Value::Int(1));
+        }
+
+        owned_env
+            .execute_transaction(p1, None, c, to_exec, &[])
+            .map(|(x, _, _)| x)
+    }
+
+    let test_burn_state_db = AtBlockWindowTestBurnStateDB {
+        epoch_id: epoch,
+        tip_burn_height: 100,
+        reward_cycle_length: 1,
+    };
+
+    with_separate_forks_environment_with_burn_state(
+        version,
+        epoch,
+        &test_burn_state_db,
+        initialize,
+        |x| {
+            if epoch >= StacksEpochId::Epoch34 {
+                let resp = branch(x, version, "read-historical").unwrap_err();
+                assert_eq!(
+                    resp,
+                    VmExecutionError::RuntimeCheck(
+                        RuntimeCheckErrorKind::AtBlockOutOfLookbackWindow
+                    )
+                );
+            } else {
+                assert_eq!(
+                    branch(x, version, "read-historical").unwrap(),
+                    Value::okay(Value::Int(1)).unwrap()
+                );
+            }
+        },
+        |_x| {},
+        |_x| {},
+    );
+}
+
 // execute:
 // f -> a -> z
 //    \--> b
@@ -324,6 +393,167 @@ fn with_separate_forks_environment<F0, F1, F2, F3>(
         );
         z(&mut owned_env);
         store.test_commit();
+    }
+}
+
+fn with_separate_forks_environment_with_burn_state<F0, F1, F2, F3>(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    burn_state_db: &dyn BurnStateDB,
+    f: F0,
+    a: F1,
+    b: F2,
+    z: F3,
+) where
+    F0: FnOnce(&mut OwnedEnvironment),
+    F1: FnOnce(&mut OwnedEnvironment),
+    F2: FnOnce(&mut OwnedEnvironment),
+    F3: FnOnce(&mut OwnedEnvironment),
+{
+    let mut marf_kv = MarfedKV::temporary();
+
+    {
+        let mut store = marf_kv.begin(&StacksBlockId::sentinel(), &StacksBlockId([0; 32]));
+        store
+            .as_clarity_db(&TEST_HEADER_DB, burn_state_db)
+            .initialize();
+        store.test_commit();
+    }
+
+    {
+        let mut store = marf_kv.begin(&StacksBlockId([0; 32]), &StacksBlockId([1; 32]));
+        let mut owned_env =
+            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, burn_state_db), epoch);
+        f(&mut owned_env);
+        store.test_commit();
+    }
+
+    // Now, we can do our forking.
+
+    {
+        let mut store = marf_kv.begin(&StacksBlockId([1; 32]), &StacksBlockId([2; 32]));
+        let mut owned_env =
+            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, burn_state_db), epoch);
+        a(&mut owned_env);
+        store.test_commit();
+    }
+
+    {
+        let mut store = marf_kv.begin(&StacksBlockId([1; 32]), &StacksBlockId([3; 32]));
+        let mut owned_env =
+            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, burn_state_db), epoch);
+        b(&mut owned_env);
+        store.test_commit();
+    }
+
+    {
+        let mut store = marf_kv.begin(&StacksBlockId([2; 32]), &StacksBlockId([4; 32]));
+        let mut owned_env =
+            OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, burn_state_db), epoch);
+        z(&mut owned_env);
+        store.test_commit();
+    }
+}
+
+struct AtBlockWindowTestBurnStateDB {
+    epoch_id: StacksEpochId,
+    tip_burn_height: u32,
+    reward_cycle_length: u32,
+}
+
+impl BurnStateDB for AtBlockWindowTestBurnStateDB {
+    fn get_tip_burn_block_height(&self) -> Option<u32> {
+        Some(self.tip_burn_height)
+    }
+
+    fn get_tip_sortition_id(&self) -> Option<SortitionId> {
+        let bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+        Some(SortitionId::new(&bhh, &PoxId::stubbed()))
+    }
+
+    fn get_v1_unlock_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_v2_unlock_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_v3_unlock_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_pox_3_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_pox_4_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
+        Some(self.tip_burn_height)
+    }
+
+    fn get_burn_start_height(&self) -> u32 {
+        0
+    }
+
+    fn get_pox_prepare_length(&self) -> u32 {
+        1
+    }
+
+    fn get_pox_reward_cycle_length(&self) -> u32 {
+        self.reward_cycle_length
+    }
+
+    fn get_pox_rejection_fraction(&self) -> u64 {
+        1
+    }
+
+    fn get_burn_header_hash(
+        &self,
+        _height: u32,
+        _sortition_id: &SortitionId,
+    ) -> Option<BurnchainHeaderHash> {
+        Some(BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap())
+    }
+
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        _consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        let bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+        Some(SortitionId::new(&bhh, &PoxId::stubbed()))
+    }
+
+    fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
+        Some(StacksEpoch {
+            epoch_id: self.epoch_id,
+            start_height: 0,
+            end_height: u64::MAX,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        })
+    }
+
+    fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
+        self.get_stacks_epoch(0)
+    }
+
+    fn get_pox_payout_addrs(
+        &self,
+        _height: u32,
+        _sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        Some((
+            vec![TupleData::from_data(vec![
+                ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
+                ("hashbytes".into(), Value::buff_from(vec![0u8; 20]).unwrap()),
+            ])
+            .unwrap()],
+            123,
+        ))
     }
 }
 

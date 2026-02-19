@@ -24,8 +24,9 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DE
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
 
 use crate::chainstate::tests::consensus::{
-    contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
-    SetupContract, TestBlock, EPOCHS_TO_TEST, FAUCET_ADDRESS, FAUCET_PRIV_KEY,
+    clarity_versions_for_epoch, contract_call_consensus_test, contract_deploy_consensus_test,
+    ConsensusTest, ConsensusUtils, SetupContract, TestBlock, EPOCHS_TO_TEST, FAUCET_ADDRESS,
+    FAUCET_PRIV_KEY,
 };
 use crate::core::test_util::to_addr;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
@@ -129,6 +130,11 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         InvalidUTF8Encoding => {
             Ignored("Only reachable via legacy v1 parsing paths")
         },
+        AtBlockOutOfLookbackWindow => Tested(vec![
+            runtime_check_error_kind_at_block_out_of_lookback_window_cdeploy,
+            runtime_check_error_kind_at_block_out_of_lookback_window_ccall
+        ])
+
     };
 }
 
@@ -1138,6 +1144,149 @@ fn invalid_characters_detected_invalid_utf8() {
         ",
         exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buff?
     );
+}
+
+/// Error: [`RuntimeCheckErrorKind::AtBlockOutOfLookbackWindow`]
+/// Caused by: executing `at-block` with an old block hash, outside the
+/// bounded lookback window enabled in epoch 3.4+.
+/// Outcome: block accepted (transaction aborts with runtime error).
+#[test]
+fn runtime_check_error_kind_at_block_out_of_lookback_window_cdeploy() {
+    const EPOCH20_EMPTY_BLOCKS: usize = 50;
+    let mut nonce = 0;
+    let mut epoch_blocks = HashMap::new();
+
+    // In Epoch 2.0, deploy a helper that freezes an old block hash at deploy time,
+    // then mine enough additional blocks to move beyond the 6-cycle lookback window.
+    let mut epoch20_blocks = vec![];
+    epoch20_blocks.push(TestBlock {
+        transactions: vec![ConsensusUtils::new_deploy_tx(
+            nonce,
+            "oldhashsrc",
+            "
+            (define-constant stored-old-hash
+                (unwrap-panic (get-block-info? id-header-hash u0)))
+            (define-read-only (get-old-hash) stored-old-hash)
+            ",
+            None,
+        )],
+    });
+
+    nonce += 1;
+    for _ in 0..EPOCH20_EMPTY_BLOCKS {
+        epoch20_blocks.push(TestBlock {
+            transactions: vec![],
+        });
+    }
+    epoch_blocks.insert(StacksEpochId::Epoch20, epoch20_blocks);
+
+    for epoch in StacksEpochId::since(StacksEpochId::Epoch34) {
+        let mut blocks = vec![];
+        for clarity_version in clarity_versions_for_epoch(*epoch) {
+            blocks.push(TestBlock {
+                transactions: vec![ConsensusUtils::new_deploy_tx(
+                    nonce,
+                    "abwdep",
+                    "
+                        (define-constant old-hash
+                            (contract-call? .oldhashsrc get-old-hash))
+                        (define-constant trigger-error
+                            (at-block old-hash (ok u1)))
+                        ",
+                    Some(*clarity_version),
+                )],
+            });
+            nonce += 1;
+        }
+        epoch_blocks.insert(*epoch, blocks);
+    }
+
+    let result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
+    // Keep the first block result, skip exactly the first 50 empty blocks, then keep everything else.
+    let mut result_iter = result.into_iter();
+    let mut expected_result = vec![];
+    expected_result.push(result_iter.next().unwrap());
+    expected_result.extend(result_iter.skip(EPOCH20_EMPTY_BLOCKS));
+    insta::assert_ron_snapshot!(expected_result);
+}
+
+/// Error: [`RuntimeCheckErrorKind::AtBlockOutOfLookbackWindow`]
+/// Caused by: calling `at-block` with an old block hash, outside the
+/// bounded lookback window enabled in epoch 3.4+.
+/// Outcome: block accepted (transaction aborts with runtime error).
+#[test]
+fn runtime_check_error_kind_at_block_out_of_lookback_window_ccall() {
+    const EPOCH20_EMPTY_BLOCKS: usize = 50;
+    let mut nonce = 0;
+    let mut epoch_blocks = HashMap::new();
+
+    // In Epoch 2.0, deploy a helper that freezes an old block hash at deploy time,
+    // then mine enough additional blocks to move beyond the 6-cycle lookback window.
+    let mut epoch20_blocks = vec![];
+    epoch20_blocks.push(TestBlock {
+        transactions: vec![ConsensusUtils::new_deploy_tx(
+            nonce,
+            "oldhashsrc",
+            "
+            (define-constant stored-old-hash
+                (unwrap-panic (get-block-info? id-header-hash u0)))
+            (define-read-only (get-old-hash) stored-old-hash)
+            ",
+            None,
+        )],
+    });
+    nonce += 1;
+    for _ in 0..EPOCH20_EMPTY_BLOCKS {
+        epoch20_blocks.push(TestBlock {
+            transactions: vec![],
+        });
+    }
+    epoch_blocks.insert(StacksEpochId::Epoch20, epoch20_blocks);
+
+    // In Epoch 3.4, deploy the contract and call it.
+    for epoch in StacksEpochId::since(StacksEpochId::Epoch34) {
+        let mut contract_names = vec![];
+        let mut blocks = vec![];
+        for clarity_version in clarity_versions_for_epoch(*epoch) {
+            let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
+            let version_tag = clarity_version.to_string().replace(' ', "");
+            let contract_name = format!("abwcall-{epoch_name}-{version_tag}");
+            blocks.push(TestBlock {
+                transactions: vec![ConsensusUtils::new_deploy_tx(
+                    nonce,
+                    &contract_name,
+                    "
+                    (define-public (trigger-error)
+                        (let ((old-hash (contract-call? .oldhashsrc get-old-hash)))
+                            (at-block old-hash (ok u1))))
+                    ",
+                    Some(*clarity_version),
+                )],
+            });
+
+            contract_names.push(contract_name);
+            nonce += 1;
+        }
+        for contract_name in contract_names {
+            blocks.push(TestBlock {
+                transactions: vec![ConsensusUtils::new_call_tx(
+                    nonce,
+                    &contract_name,
+                    "trigger-error",
+                )],
+            });
+            nonce += 1;
+        }
+        epoch_blocks.insert(*epoch, blocks);
+    }
+
+    let result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
+    // Keep the first block result, skip exactly the first 50 empty blocks, then keep everything else.
+    let mut result_iter = result.into_iter();
+    let mut expected_result = vec![];
+    expected_result.push(result_iter.next().unwrap());
+    expected_result.extend(result_iter.skip(EPOCH20_EMPTY_BLOCKS));
+    insta::assert_ron_snapshot!(expected_result);
 }
 
 /// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (before epoch 3.4)
