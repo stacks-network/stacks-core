@@ -18,4 +18,4 @@
 //! Entry point for all bitcoin related test modules
 
 mod core_controller_integrations;
-mod bitcoin_rpc_integrations;
+mod rpc_integrations;
