@@ -101,7 +101,9 @@ pub fn lookup_reserved_variable(
                 let burn_block_height = env
                     .global_context
                     .database
-                    .get_current_burnchain_block_height()?;
+                    .get_current_burnchain_block_height_for_clarity_version(
+                        *env.contract_context.get_clarity_version(),
+                    )?;
                 Ok(Some(Value::UInt(u128::from(burn_block_height))))
             }
             NativeVariables::NativeNone => Ok(Some(Value::none())),

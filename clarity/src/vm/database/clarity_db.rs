@@ -28,6 +28,7 @@ use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, to_hex};
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
@@ -1114,6 +1115,60 @@ impl ClarityDatabase<'_> {
             .get_stacks_height_for_tenure_height(&query_tip, tenure_height))
     }
 
+    pub fn get_current_burnchain_block_height_clarity_5(
+        &mut self,
+    ) -> Result<u32, VmExecutionError> {
+        let cur_stacks_height = self.store.get_current_block_height();
+
+        if cur_stacks_height == 0 {
+            return Ok(self.burn_state_db.get_burn_start_height());
+        };
+
+        // First, see if we can look up the burn view for the current stacks height.
+        // This will fail if this block is currently being constructed, but if we're
+        // time-travelling (via `at-block`), it'll succeed.
+        let burn_view = self
+            .get_index_block_header_hash(cur_stacks_height)
+            .map(|bhh| self.headers_db.get_burn_view_for_block(&bhh));
+
+        let Ok(Some(burn_view)) = burn_view else {
+            // If it failed, the block is currently being built, and thus its burn view
+            // is the current tip of the burn chain.
+            return self
+                .burn_state_db
+                .get_tip_burn_block_height()
+                .ok_or_else(|| {
+                    VmInternalError::Expect("Failed to get burnchain tip height.".into()).into()
+                });
+        };
+
+        let sortition_id = self
+            .burn_state_db
+            .get_sortition_id_from_consensus_hash(&burn_view)
+            .ok_or_else(|| {
+                VmInternalError::Expect("Failed to find sortition ID for the burn view.".into())
+            })?;
+
+        self.burn_state_db
+            .get_burn_block_height(&sortition_id)
+            .ok_or_else(|| {
+                VmInternalError::Expect("Failed to find height of the burn view.".into()).into()
+            })
+    }
+
+    pub fn get_current_burnchain_block_height_for_clarity_version(
+        &mut self,
+        clarity_version: ClarityVersion,
+    ) -> Result<u32, VmExecutionError> {
+        if clarity_version < ClarityVersion::Clarity5 {
+            self.get_current_burnchain_block_height()
+        } else {
+            self.get_current_burnchain_block_height_clarity_5()
+        }
+    }
+
+    // TODO update the docs to match the Clarity version-based behavior
+
     /// Get the last-known burnchain block height.
     ///
     /// For Epoch 2.x:
@@ -1154,47 +1209,12 @@ impl ClarityDatabase<'_> {
                     ))
                     .into()
                 })
-        } else if epoch.clarity_always_uses_tip_burn_block_even_in_at_block() {
+        } else {
             // In epoch 3.0-3.3, this always returned the tip, even in an `at-block` context
             self.burn_state_db
                 .get_tip_burn_block_height()
                 .ok_or_else(|| {
                     VmInternalError::Expect("Failed to get burnchain tip height.".into()).into()
-                })
-        } else {
-            if cur_stacks_height == 0 {
-                return Ok(self.burn_state_db.get_burn_start_height());
-            };
-
-            // First, see if we can look up the burn view for the current stacks height.
-            // This will fail if this block is currently being constructed, but if we're
-            // time-travelling (via `at-block`), it'll succeed.
-            let burn_view = self
-                .get_index_block_header_hash(cur_stacks_height)
-                .map(|bhh| self.headers_db.get_burn_view_for_block(&bhh));
-
-            let Ok(Some(burn_view)) = burn_view else {
-                // If it failed, the block is currently being built, and thus its burn view
-                // is the current tip of the burn chain.
-                return self
-                    .burn_state_db
-                    .get_tip_burn_block_height()
-                    .ok_or_else(|| {
-                        VmInternalError::Expect("Failed to get burnchain tip height.".into()).into()
-                    });
-            };
-
-            let sortition_id = self
-                .burn_state_db
-                .get_sortition_id_from_consensus_hash(&burn_view)
-                .ok_or_else(|| {
-                    VmInternalError::Expect("Failed to find sortition ID for the burn view.".into())
-                })?;
-
-            self.burn_state_db
-                .get_burn_block_height(&sortition_id)
-                .ok_or_else(|| {
-                    VmInternalError::Expect("Failed to find height of the burn view.".into()).into()
                 })
         }
     }

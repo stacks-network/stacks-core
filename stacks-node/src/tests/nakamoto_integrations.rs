@@ -6426,7 +6426,7 @@ fn clarity_burn_state() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        deploy_fee * 2
+        deploy_fee * 3
             + tx_fee * tenure_count
             + tx_fee * tenure_count * min_inter_blocks_per_tenure,
     );
@@ -6496,10 +6496,12 @@ fn clarity_burn_state() {
          )
      "#;
 
-    // This will be deployed once we reach Epoch 3.4 (Clarity 5), when #6123 was fixed and
-    // thus `burn-block-height` worked correctly in `at-block`
-    let contract_34_name = "test-contract-34";
-    let contract_34 = r#"
+    // This will be deployed once in Epoch 3.0 and once in 3.4 (Clarity 5). The old behavior should be the
+    // backwards-compatible behavior described in #6123; the old behavior should be the correct one where
+    // `burn-block-height` works correctly in `at-block`
+    let at_block_contract_name_old_clarity = "test-contract-at-block-old-clarity";
+    let at_block_contract_name_clarity_5 = "test-contract-at-block-clarity-5";
+    let at_block_contract = r#"
          (define-read-only (assert-height-at-block (block-id (buff 32)) (expected-height uint))
             (at-block block-id
                 (begin
@@ -6511,7 +6513,20 @@ fn clarity_burn_state() {
          )        
      "#;
 
-    let mut contract_34_deployed = false;
+    let mut clarity_5_contract_deployed = false;
+
+    let deploy_contract = |name: &str, contract: &str, sender_nonce: u64| -> u64 {
+        let contract_tx = make_contract_publish(
+            &sender_sk,
+            sender_nonce,
+            deploy_fee,
+            naka_conf.burnchain.chain_id,
+            name,
+            contract,
+        );
+        submit_tx(&http_origin, &contract_tx);
+        sender_nonce + 1
+    };
 
     let wait_for_sender_nonce = |min_expected: u64| {
         wait_for(30, || {
@@ -6520,21 +6535,28 @@ fn clarity_burn_state() {
         })
     };
 
-    let contract_tx = make_contract_publish(
-        &sender_sk,
+    let call_read_only_and_expect_ok =
+        |description: &str, contract_name: &str, function: &str, args: Vec<&Value>| {
+            let result =
+                call_read_only(&naka_conf, &sender_addr, contract_name, function, args).result();
+            info!("Read-only call result for {description}: {result:?}");
+            result
+                .unwrap()
+                .expect_result_ok()
+                .expect(&format!("Read-only call for {description} failed"));
+        };
+
+    sender_nonce = deploy_contract(contract_name, contract, sender_nonce);
+    sender_nonce = deploy_contract(
+        at_block_contract_name_old_clarity,
+        at_block_contract,
         sender_nonce,
-        deploy_fee,
-        naka_conf.burnchain.chain_id,
-        contract_name,
-        contract,
     );
-    sender_nonce += 1;
-    submit_tx(&http_origin, &contract_tx);
 
     let mut burn_block_height = 0;
 
-    // Once we've reached epoch 3.4, this vector will collect all blocks and
-    // their burn view heights. We'll use this list to assert that `burn-block-height`
+    // This vector will collect a bunch of blocks and their burn view heights.
+    // We'll use this list to assert that in Clarity 5, `burn-block-height`
     // within `at-block` always returns the right thing.
     let mut expected_burn_heights: Vec<(StacksBlockId, u128)> = Vec::new();
 
@@ -6547,16 +6569,12 @@ fn clarity_burn_state() {
         // Don't submit this tx on the first iteration, because the contract is not published yet.
         if tenure_ix > 0 {
             // Call the read-only function and see if we see the correct burn block height
-            let result = call_read_only(
-                &naka_conf,
-                &sender_addr,
+            call_read_only_and_expect_ok(
+                "assert height",
                 contract_name,
                 "assert-height-readonly",
                 vec![&Value::UInt(burn_block_height)],
-            )
-            .result()
-            .unwrap();
-            result.expect_result_ok().expect("Read-only call failed");
+            );
 
             // Pause mining to prevent the stacks block from being mined before the tenure change is processed
             fault_injection_stall_miner();
@@ -6626,33 +6644,27 @@ fn clarity_burn_state() {
 
         let epoch34_reached = burn_block_height >= epoch_34_start as u128;
 
-        if epoch34_reached && !contract_34_deployed {
+        if epoch34_reached && !clarity_5_contract_deployed {
             info!("deploying 3.4 contract");
-            let contract_tx = make_contract_publish(
-                &sender_sk,
+            sender_nonce = deploy_contract(
+                at_block_contract_name_clarity_5,
+                at_block_contract,
                 sender_nonce,
-                deploy_fee,
-                naka_conf.burnchain.chain_id,
-                contract_34_name,
-                contract_34,
             );
-            sender_nonce += 1;
-            submit_tx(&http_origin, &contract_tx);
+
             wait_for_sender_nonce(sender_nonce)
                 .expect("timed out waiting for the 3.4 contract to deploy");
-            contract_34_deployed = true;
+            clarity_5_contract_deployed = true;
         }
 
         let blocks = test_observer::get_mined_nakamoto_blocks();
         let last_block = blocks.last().unwrap();
         assert_eq!(last_block.target_burn_height as u128, burn_block_height);
 
-        if epoch34_reached {
-            expected_burn_heights.push((
-                StacksBlockId::from_hex(&last_block.block_id).unwrap(),
-                last_block.target_burn_height as u128,
-            ));
-        }
+        expected_burn_heights.push((
+            StacksBlockId::from_hex(&last_block.block_id).unwrap(),
+            last_block.target_burn_height as u128,
+        ));
 
         // Assert that the contract call was successful
         last_block.tx_events.iter().for_each(|event| match event {
@@ -6682,39 +6694,42 @@ fn clarity_burn_state() {
 
             // Call the read-only function and see if we see the correct burn block height
             let expected_height = Value::UInt(burn_block_height);
-            let result = call_read_only(
-                &naka_conf,
-                &sender_addr,
+            call_read_only_and_expect_ok(
+                "assert height",
                 contract_name,
                 "assert-height-readonly",
                 vec![&expected_height],
-            )
-            .result()
-            .unwrap();
-            info!("Read-only result: {result:?}");
-            result.expect_result_ok().expect("Read-only call failed");
+            );
 
-            if contract_34_deployed {
-                for (block_id, expected_height) in expected_burn_heights.iter() {
-                    if *expected_height >= last_block.target_burn_height as u128 {
-                        continue;
-                    }
-                    let result_34 = call_read_only(
-                        &naka_conf,
-                        &sender_addr,
-                        contract_34_name,
+            for (block_id, expected_height) in expected_burn_heights.iter() {
+                if *expected_height >= last_block.target_burn_height as u128 {
+                    continue;
+                }
+
+                // The pre-clarity 5 contract should use the burn chain tip even inside `at-block`.
+                // While that is not desirable, it's how it behaved pre-5.
+                call_read_only_and_expect_ok(
+                    "assert height at-block with older Clarity",
+                    at_block_contract_name_old_clarity,
+                    "assert-height-at-block",
+                    vec![
+                        &Value::buff_from(block_id.as_bytes().to_vec()).unwrap(),
+                        &Value::UInt(last_block.target_burn_height as u128),
+                    ],
+                );
+
+                // The clarity 5 contract should use the correct burn view height that we
+                // recorded in `expected_burn_heights`.
+                if epoch34_reached {
+                    call_read_only_and_expect_ok(
+                        "assert height at-block with Clarity 5",
+                        at_block_contract_name_clarity_5,
                         "assert-height-at-block",
                         vec![
                             &Value::buff_from(block_id.as_bytes().to_vec()).unwrap(),
                             &Value::UInt(*expected_height),
                         ],
-                    )
-                    .result();
-                    info!("at-block result: {result_34:?}");
-                    result_34
-                        .unwrap()
-                        .expect_result_ok()
-                        .expect("Read-only call failed");
+                    );
                 }
             }
 
@@ -6757,7 +6772,9 @@ fn clarity_burn_state() {
 
             let blocks = test_observer::get_mined_nakamoto_blocks();
             let last_block = blocks.last().unwrap();
-            if epoch34_reached {
+
+            // just add a couple to the list -- the first interim block, one from the middle, and the last one
+            if interim_ix == 0 || interim_ix == 4 || interim_ix == min_inter_blocks_per_tenure - 1 {
                 expected_burn_heights.push((
                     StacksBlockId::from_hex(&last_block.block_id).unwrap(),
                     last_block.target_burn_height as u128,
@@ -6769,7 +6786,7 @@ fn clarity_burn_state() {
             last_block.tx_events.iter().for_each(|event| match event {
                 TransactionEvent::Success(TransactionSuccessEvent { result, .. }) => {
                     info!("Contract call result: {result}");
-                    //result.clone().expect_result_ok().expect("Ok result");
+                    result.clone().expect_result_ok().expect("Ok result");
                 }
                 _ => {
                     info!("Unsuccessful event: {event:?}");
@@ -6778,11 +6795,8 @@ fn clarity_burn_state() {
             });
         }
     }
-    assert!(contract_34_deployed);
-    assert_eq!(
-        expected_burn_heights.len() as u64,
-        (min_inter_blocks_per_tenure + 1) * (tenure_count - 4) // the 4 are the pre-3.4 tenures
-    );
+    assert!(clarity_5_contract_deployed);
+    assert_eq!(expected_burn_heights.len() as u64, 4 * tenure_count);
     assert_eq!(skip_sortitions_at_heights.len(), skipped_block_commit_count);
 
     coord_channel
