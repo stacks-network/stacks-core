@@ -869,7 +869,7 @@ impl StacksChainState {
     /// * contains the block height of the block with the slashed microblock public key hash
     /// * contains the microblock public key hash
     /// * contains the sender that reported the poison-microblock
-    /// * contains the sequence number at which the fork occured
+    /// * contains the sequence number at which the fork occurred
     pub fn handle_poison_microblock(
         env: &mut Environment,
         mblock_header_1: &StacksMicroblockHeader,
@@ -1285,13 +1285,13 @@ impl StacksChainState {
                             }
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {
-                                    if err.rejectable() {
+                                    if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));
                                     }
                                 }
                                 if let ClarityError::StaticCheck(err) = &other_error {
-                                    if err.err.rejectable() {
+                                    if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));
                                     }
@@ -10855,24 +10855,23 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
         )
-        .unwrap();
-        assert_eq!(fee, 1);
-        match tx_receipt.result {
-            Value::Response(ResponseData {
-                committed: false,
-                data,
-            }) => (),
-            _ => panic!("expected successful call"),
+        .unwrap_err();
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
+            runtime_check_err,
+        ))) = err
+        {
+            assert_eq!(
+                RuntimeCheckErrorKind::Unreachable("Trait reference unknown: foo".to_string()),
+                runtime_check_err
+            );
+        } else {
+            panic!("Did not get unchecked interpreter error");
         }
-        assert_eq!(
-            tx_receipt.vm_error,
-            Some("TraitReferenceUnknown(\"foo\")".to_string())
-        );
 
         conn.commit_block();
 
@@ -10917,24 +10916,23 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
+        let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
         )
-        .unwrap();
-        assert_eq!(fee, 1);
-        match tx_receipt.result {
-            Value::Response(ResponseData {
-                committed: false,
-                data,
-            }) => (),
-            _ => panic!("expected successful call"),
+        .unwrap_err();
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
+            runtime_check_err,
+        ))) = err
+        {
+            assert_eq!(
+                RuntimeCheckErrorKind::Unreachable("Trait reference unknown: foo".to_string()),
+                runtime_check_err
+            );
+        } else {
+            panic!("Did not get unchecked interpreter error");
         }
-        assert_eq!(
-            tx_receipt.vm_error,
-            Some("TraitReferenceUnknown(\"foo\")".to_string())
-        );
 
         conn.commit_block();
 

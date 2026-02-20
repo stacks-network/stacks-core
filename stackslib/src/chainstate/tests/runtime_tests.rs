@@ -21,7 +21,7 @@ use clarity::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use clarity::types::StacksEpochId;
 use clarity::vm::errors::RuntimeError;
 use clarity::vm::types::{PrincipalData, ResponseData};
-use clarity::vm::{ClarityVersion, Value as ClarityValue};
+use clarity::vm::{max_call_stack_depth_for_epoch, ClarityVersion, Value as ClarityValue};
 use stacks_common::address::AddressHashMode;
 
 use crate::chainstate::nakamoto::tests::node::TestStacker;
@@ -31,7 +31,8 @@ use crate::chainstate::stacks::boot::test::{
     make_signer_key_signature,
 };
 use crate::chainstate::tests::consensus::{
-    contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, TestBlock, SK_1,
+    clarity_versions_for_epoch, contract_call_consensus_test, contract_deploy_consensus_test,
+    ConsensusTest, ConsensusUtils, ContractConsensusTest, TestBlock, EPOCHS_TO_TEST, SK_1,
 };
 use crate::core::test_util::to_addr;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
@@ -556,25 +557,41 @@ fn arithmetic_pow_neg_ccall() {
 /// Outcome: block accepted
 #[test]
 fn stack_depth_too_deep_call_chain_cdeploy() {
-    // Build a chain of private functions foo-0 → foo-1 → ... → foo-63
-    // Each foo-i calls foo-(i-1), so calling foo-63 triggers 64 nested calls.
-    let mut defs = Vec::new();
-    // Base function
-    defs.push("(define-private (foo-0 (x int)) (+ 1 x))".to_string());
-    // Generate foo-1 through foo-63
-    for i in 1..=63 {
-        defs.push(format!(
-            "(define-private (foo-{i} (x int)) (foo-{} (+ 1 x)))",
-            i - 1
-        ));
+    // Build a chain of private functions foo-0 → ... → foo-(limit-1)
+    // Each foo-i calls foo-(i-1), so calling foo-(limit-1) triggers `limit` nested calls.
+    fn build_contract(limit: u64) -> String {
+        let mut defs = Vec::with_capacity(limit as usize + 2);
+        defs.push("(define-private (foo-0 (x int)) (+ 1 x))".to_string());
+        for i in 1..limit {
+            defs.push(format!(
+                "(define-private (foo-{i} (x int)) (foo-{} (+ 1 x)))",
+                i - 1
+            ));
+        }
+        defs.push(format!("(foo-{} 1)", limit - 1));
+        defs.join("\n")
     }
-    // The top-level expression we want to trigger evaluation of foo-63
-    defs.push("(foo-63 1)".into());
-    let contract_code = defs.join("\n");
-    contract_deploy_consensus_test!(
-        contract_name: "max-stack-depth",
-        contract_code: &contract_code,
-    );
+
+    let mut result = Vec::new();
+    for epoch in EPOCHS_TO_TEST {
+        let contract_code = build_contract(max_call_stack_depth_for_epoch(*epoch));
+        let each_result = ContractConsensusTest::new(
+            function_name!(),
+            vec![],
+            &[*epoch],
+            &[],
+            "max-stack-depth",
+            &contract_code,
+            "",
+            &[],
+            &[],
+            &[],
+        )
+        .run();
+        result.extend(each_result);
+    }
+
+    insta::assert_ron_snapshot!(result);
 }
 
 /// Error: [`RuntimeError::MaxStackDepthReached`]
@@ -582,32 +599,66 @@ fn stack_depth_too_deep_call_chain_cdeploy() {
 /// Outcome: block accepted, execution rejected when function is called
 #[test]
 fn stack_depth_too_deep_call_chain_ccall() {
-    // Build 65 private functions: foo-0 → foo-64
-    let mut defs = Vec::new();
-
-    // Base function: depth = 1
-    defs.push("(define-private (foo-0 (x int)) (let ((y (+ x 1))) y))".to_string());
-
-    // Chain functions: each adds 1 to local context via let
-    for i in 1..65 {
-        let prev = i - 1;
-        defs.push(format!(
-            "(define-private (foo-{i} (x int)) (let ((y (foo-{prev} x))) (+ y 1)))"
-        ));
+    // Build `limit + 1` private functions: foo-0 → foo-limit.
+    // The public entrypoint calls foo-limit to exceed the runtime stack depth.
+    fn build_contract(limit: u64) -> String {
+        let mut defs = Vec::with_capacity(limit as usize + 3);
+        defs.push("(define-private (foo-0 (x int)) (let ((y (+ x 1))) y))".to_string());
+        for i in 1..=limit {
+            let prev = i - 1;
+            defs.push(format!(
+                "(define-private (foo-{i} (x int)) (let ((y (foo-{prev} x))) (+ y 1)))"
+            ));
+        }
+        defs.push(format!("(define-public (trigger) (ok (foo-{limit} 0)))"));
+        defs.join("\n")
     }
 
-    // Public function triggers the runtime error by calling foo-64
-    defs.push("(define-public (trigger) (ok (foo-64 0)))".into());
+    let mut epoch_blocks = HashMap::new();
+    let mut nonce = 0;
+    let deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20);
+    let mut contract_names = Vec::new();
 
-    let contract_code = defs.join("\n");
+    for epoch in deploy_epochs {
+        let contract_code = build_contract(max_call_stack_depth_for_epoch(*epoch));
+        let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
+        let clarity_versions = clarity_versions_for_epoch(*epoch);
+        let mut blocks = Vec::with_capacity(clarity_versions.len());
 
-    // Call the public function via the consensus test macro
-    contract_call_consensus_test!(
-        contract_name: "context-depth",
-        contract_code: &contract_code,
-        function_name: "trigger",
-        function_args: &[],
-    );
+        for version in clarity_versions {
+            let version_tag = version.to_string().replace(' ', "");
+            let name = format!("context-depth-{epoch_name}-{version_tag}");
+            contract_names.push(name.clone());
+            let clarity_version = if *epoch < StacksEpochId::Epoch21 {
+                None
+            } else {
+                Some(*version)
+            };
+            blocks.push(TestBlock {
+                transactions: vec![ConsensusUtils::new_deploy_tx(
+                    nonce,
+                    &name,
+                    &contract_code,
+                    clarity_version,
+                )],
+            });
+            nonce += 1;
+        }
+
+        if EPOCHS_TO_TEST.contains(epoch) {
+            for name in &contract_names {
+                blocks.push(TestBlock {
+                    transactions: vec![ConsensusUtils::new_call_tx(nonce, name, "trigger")],
+                });
+                nonce += 1;
+            }
+        }
+
+        epoch_blocks.insert(*epoch, blocks);
+    }
+
+    let result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
+    insta::assert_ron_snapshot!(result);
 }
 
 /// Error: [`RuntimeError::UnknownBlockHeaderHash`]

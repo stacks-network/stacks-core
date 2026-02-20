@@ -85,7 +85,7 @@ impl TrieHash {
     }
 
     /// Convert to a String that can be used in e.g. sqlite
-    /// If we did not implement this seperate from Display,
+    /// If we did not implement this separate from Display,
     /// we would use the stacks_common::util::hash::to_hex function
     /// which is the unrolled version of this function.
     #[allow(clippy::inherent_to_string_shadow_display)]

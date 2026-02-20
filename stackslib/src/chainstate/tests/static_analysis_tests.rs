@@ -68,8 +68,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         TypeSignatureTooDeep => Tested(vec![static_check_error_type_signature_too_deep]),
         ExpectedName => Tested(vec![static_check_error_expected_name]),
         SupertypeTooLarge => Tested(vec![static_check_error_supertype_too_large]),
-        ExpectsAcceptable(_) => Unreachable_ExpectLike,
-        ExpectsRejectable(_) => Unreachable_ExpectLike,
+        Unreachable(_) => Unreachable_ExpectLike,
         BadMatchOptionSyntax(static_check_error_kind) => {
             Tested(vec![static_check_error_bad_match_option_syntax])
         }
@@ -145,7 +144,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         MaxLengthOverflow => Unreachable_ExpectLike,  // Should exceed u32 elements in memory.
         BadLetSyntax => Tested(vec![static_check_error_bad_let_syntax]),
         BadSyntaxBinding(syntax_binding_error) => Tested(vec![static_check_error_bad_syntax_binding]),
-        MaxContextDepthReached => Unreachable_Functionally("Before type checking runs, the parser enforces an AST nesting limit of (5 + 64). Any contract exceeding depth 69 fails with `ParseErrorKind::ExpressionStackDepthTooDeep`"),
+        MaxContextDepthReached => Unreachable_Functionally("Before type checking runs, the parser enforces an AST nesting limit of (5 + max call stack depth). Any contract exceeding that depth fails with `ParseErrorKind::ExpressionStackDepthTooDeep`"),
         UndefinedVariable(_) => Tested(vec![static_check_error_undefined_variable]),
         RequiresAtLeastArguments(_, _) => Tested(vec![static_check_error_requires_at_least_arguments]),
         RequiresAtMostArguments(_, _) => Tested(vec![static_check_error_requires_at_most_arguments]),
@@ -504,7 +503,7 @@ fn static_check_error_type_signature_too_deep() {
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::SupertypeTooLarge`]
 /// Caused by: combining tuples with `buff 600000` and `buff 10` forces a supertype beyond the size limit.
-/// Outcome: block rejected.
+/// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn static_check_error_supertype_too_large() {
     contract_deploy_consensus_test!(

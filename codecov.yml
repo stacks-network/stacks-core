@@ -12,8 +12,8 @@ coverage:
     patch: false
     project:
       default:
-        target: 80%
-        threshold: 1%
+        target: auto
+        threshold: 0%
 comment:
   layout: "condensed_header, diff, files, footer"
   hide_project_coverage: false

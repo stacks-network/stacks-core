@@ -103,7 +103,7 @@ jobs:
         shell: bash
         run: |
           var_docker_tag_rc=false
-          if [[ "${docker_tag}" =~ -rc[0-9]*$ ]]; then
+          if [[ "${{ env.DOCKER_TAG }}" =~ -rc[0-9]*$ ]]; then
             # is a release candidate
             var_docker_tag_rc=true
           fi

@@ -9324,6 +9324,291 @@ fn mock_mining() {
     follower_thread.join().unwrap();
 }
 
+fn run_mock_mining_ongoing_tenure_boot_test(check_empty_sortition_recovery: bool) {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.node.pox_sync_sample_secs = 30;
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
+
+    let localhost = "127.0.0.1";
+    naka_conf.node.rpc_bind = format!("{localhost}:{node_1_rpc}");
+    naka_conf.node.p2p_bind = format!("{localhost}:{node_1_p2p}");
+    naka_conf.node.data_url = format!("http://{localhost}:{node_1_rpc}");
+    naka_conf.node.p2p_address = format!("{localhost}:{node_1_p2p}");
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        (send_amt + send_fee) * 10,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    // Wait one block to confirm the VRF register, wait until a block commit is submitted.
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // Mine the next burn block so the regular miner starts a new tenure before the follower boots.
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .expect("Failed to mine initial tenure start block");
+
+    let mut follower_conf = naka_conf.clone();
+    follower_conf.node.mock_mining = true;
+    follower_conf.events_observers.clear();
+    follower_conf.node.working_dir = format!("{}-follower", &naka_conf.node.working_dir);
+    follower_conf.node.seed = vec![0x01; 32];
+    follower_conf.node.local_peer_seed = vec![0x02; 32];
+    follower_conf.node.rpc_bind = format!("{localhost}:{node_2_rpc}");
+    follower_conf.node.p2p_bind = format!("{localhost}:{node_2_p2p}");
+    follower_conf.node.data_url = format!("http://{localhost}:{node_2_rpc}");
+    follower_conf.node.p2p_address = format!("{localhost}:{node_2_p2p}");
+
+    let node_info = get_chain_info(&naka_conf);
+    follower_conf.node.add_bootstrap_node(
+        &format!(
+            "{}@{}",
+            &node_info.node_public_key.unwrap(),
+            naka_conf.node.p2p_bind
+        ),
+        naka_conf.burnchain.chain_id,
+        PEER_VERSION_TESTNET,
+    );
+
+    let mut follower_run_loop = boot_nakamoto::BootRunLoop::new(follower_conf.clone()).unwrap();
+    let follower_run_loop_stopper = follower_run_loop.get_termination_switch();
+    let follower_coord_channel = follower_run_loop.coordinator_channels();
+
+    let follower_thread = thread::Builder::new()
+        .name("follower-thread".into())
+        .spawn(move || follower_run_loop.start(None, 0))
+        .unwrap();
+
+    info!("Booted follower-thread, waiting for the follower to sync to the chain tip");
+    wait_for(600, || {
+        let Some(miner_node_info) = get_chain_info_opt(&naka_conf) else {
+            return Ok(false);
+        };
+        let Some(follower_node_info) = get_chain_info_opt(&follower_conf) else {
+            return Ok(false);
+        };
+        Ok(
+            miner_node_info.stacks_tip_height == follower_node_info.stacks_tip_height
+                && miner_node_info.stacks_tip == follower_node_info.stacks_tip,
+        )
+    })
+    .expect("Timed out waiting for follower to catch up to the miner");
+
+    // Restart follower during an ongoing tenure so it begins with `last_block_mined = None`
+    // while the canonical tip is already inside an active tenure.
+    follower_coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    follower_run_loop_stopper.store(false, Ordering::SeqCst);
+    follower_thread.join().unwrap();
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+        .expect("Failed to mine a tenure-start block while follower was offline");
+
+    // Mine an interim block in the same tenure while follower is still offline.
+    let interim_height_before = get_chain_info(&naka_conf).stacks_tip_height;
+    let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
+    let transfer_tx = make_stacks_transfer_serialized(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+    wait_for(60, || {
+        Ok(get_chain_info(&naka_conf).stacks_tip_height > interim_height_before)
+    })
+    .expect("Failed to mine an interim block while follower was offline");
+    let target_miner_height = get_chain_info(&naka_conf).stacks_tip_height;
+
+    let mut follower_run_loop = boot_nakamoto::BootRunLoop::new(follower_conf.clone()).unwrap();
+    let follower_run_loop_stopper = follower_run_loop.get_termination_switch();
+    let follower_coord_channel = follower_run_loop.coordinator_channels();
+    let Counters {
+        naka_mined_blocks: follower_mined_blocks,
+        ..
+    } = follower_run_loop.counters();
+
+    let follower_thread = thread::Builder::new()
+        .name("follower-thread-restarted".into())
+        .spawn(move || follower_run_loop.start(None, 0))
+        .unwrap();
+
+    wait_for(180, || {
+        let Some(follower_node_info) = get_chain_info_opt(&follower_conf) else {
+            return Ok(false);
+        };
+        Ok(follower_node_info.stacks_tip_height >= target_miner_height)
+    })
+    .expect("Timed out waiting for restarted follower to sync");
+
+    if check_empty_sortition_recovery {
+        // Precondition for this scenario: the restarted follower has mined at least one block in
+        // the ongoing tenure, so we can verify it *continues* across an empty sortition.
+        let follower_mined_before_precondition = follower_mined_blocks.load(Ordering::SeqCst);
+        TEST_P2P_BROADCAST_STALL.set(true);
+        let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
+        let transfer_tx = make_stacks_transfer_serialized(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient,
+            send_amt,
+        );
+        submit_tx(&http_origin, &transfer_tx);
+        wait_for(60, || {
+            Ok(follower_mined_blocks.load(Ordering::SeqCst) > follower_mined_before_precondition)
+        })
+        .expect("Precondition failed: mock miner did not mine before empty sortition");
+        let follower_mined_before_empty_sortition = follower_mined_blocks.load(Ordering::SeqCst);
+
+        // Force an empty sortition and ensure the restarted mock miner keeps mining afterwards.
+        counters.naka_skip_commit_op.set(true);
+        let miner_burn_height_before = get_chain_info(&naka_conf).burn_block_height;
+        let follower_burn_height_before = get_chain_info(&follower_conf).burn_block_height;
+
+        btc_regtest_controller.build_empty_block();
+        wait_for(60, || {
+            let miner_info = get_chain_info(&naka_conf);
+            let follower_info = get_chain_info(&follower_conf);
+            Ok(miner_info.burn_block_height > miner_burn_height_before
+                && follower_info.burn_block_height > follower_burn_height_before)
+        })
+        .expect("Timed out waiting for empty-sortition block to process");
+
+        let sortition = get_sortition_info(&naka_conf);
+        assert!(
+            !sortition.was_sortition,
+            "Expected empty sortition while commit ops were skipped"
+        );
+
+        wait_for(60, || {
+            Ok(
+                follower_mined_blocks.load(Ordering::SeqCst)
+                    > follower_mined_before_empty_sortition,
+            )
+        })
+        .expect("Mock miner did not continue mining after empty sortition");
+        TEST_P2P_BROADCAST_STALL.set(false);
+        counters.naka_skip_commit_op.set(false);
+    } else {
+        // Confirm the restarted follower can start mining in the middle of an ongoing tenure.
+        let follower_mined_before_mid_tenure = follower_mined_blocks.load(Ordering::SeqCst);
+        TEST_P2P_BROADCAST_STALL.set(true);
+        let sender_nonce = get_account(&http_origin, &sender_addr).nonce;
+        let transfer_tx = make_stacks_transfer_serialized(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient,
+            send_amt,
+        );
+        submit_tx(&http_origin, &transfer_tx);
+        wait_for(60, || {
+            Ok(follower_mined_blocks.load(Ordering::SeqCst) > follower_mined_before_mid_tenure)
+        })
+        .expect("Mock miner failed to start mining in the middle of an ongoing tenure");
+        TEST_P2P_BROADCAST_STALL.set(false);
+    }
+
+    // Best-effort reset for test globals before teardown.
+    TEST_P2P_BROADCAST_STALL.set(false);
+    counters.naka_skip_commit_op.set(false);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    follower_coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    follower_run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+    follower_thread.join().unwrap();
+}
+
+/// Confirm that a mock miner can start mining if it boots mid-tenure.
+#[test]
+#[ignore]
+fn mock_mining_start_mid_tenure() {
+    run_mock_mining_ongoing_tenure_boot_test(false);
+}
+
+/// Confirm that a mock miner continues mining after a burn block with no sortition.
+#[test]
+#[ignore]
+fn mock_mining_continue_after_empty_sortition() {
+    run_mock_mining_ongoing_tenure_boot_test(true);
+}
+
 #[test]
 #[ignore]
 /// This test checks for the proper handling of the case where UTXOs are not

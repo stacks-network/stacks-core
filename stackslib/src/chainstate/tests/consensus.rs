@@ -831,7 +831,7 @@ impl ConsensusChain<'_> {
             .unwrap()
             .unwrap();
 
-        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
         let burndb_conn = sortdb.index_handle_at_tip();
 
         let mut clarity_tx = StacksChainState::chainstate_block_begin(
@@ -1138,7 +1138,7 @@ impl ContractConsensusTest<'_> {
 
                 let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
 
-                // Each deployment is a seperate TestBlock
+                // Each deployment is a separate TestBlock
                 for &version in clarity_versions {
                     let version_tag = version.to_string().replace(' ', "");
                     let name = format!("{contract_name}-{epoch_name}-{version_tag}");

@@ -1249,6 +1249,83 @@ impl BlockMinerThread {
         tx_signer.get_tx().unwrap()
     }
 
+    #[cfg_attr(test, mutants::skip)]
+    /// Load up the parent block header for mining the next block.
+    /// If we can't find the parent in the DB but we expect one, return Err(ParentNotFound).
+    ///
+    /// The nakamoto miner must always build off of a chain tip that is either:
+    /// 1. The highest block in our own tenure
+    /// 2. The highest block in our tenure's parent tenure (i.e., `self.parent_tenure_id`)
+    ///
+    /// `self.parent_tenure_id` is the tenure start block which was
+    /// committed to by our tenure's associated block commit.
+    fn load_block_parent_header(
+        &self,
+        burn_db: &mut SortitionDB,
+        chain_state: &mut StacksChainState,
+    ) -> Result<StacksHeaderInfo, NakamotoNodeError> {
+        let my_tenure_tip = self
+            .find_highest_known_block_in_my_tenure(&burn_db, &chain_state)
+            .map_err(|e| {
+                error!(
+                    "Could not find highest header info for miner's tenure {}: {e:?}",
+                    &self.burn_election_block.consensus_hash
+                );
+                NakamotoNodeError::ParentNotFound
+            })?;
+        if let Some(my_tenure_tip) = my_tenure_tip {
+            debug!(
+                "Stacks block parent ID is last block in tenure ID {}",
+                &my_tenure_tip.consensus_hash
+            );
+            return Ok(my_tenure_tip);
+        }
+
+        // My tenure is empty on the canonical fork, so our parent should be the highest block in
+        //   self.parent_tenure_id
+        debug!(
+            "Stacks block parent ID is last block in parent tenure tipped by {}",
+            &self.parent_tenure_id
+        );
+
+        // find the last block in the parent tenure, since this is the tip we'll build atop
+        let parent_tenure_header =
+            NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
+                .map_err(|e| {
+                    error!(
+                        "Could not query header for parent tenure ID {}: {e:?}",
+                        &self.parent_tenure_id
+                    );
+                    NakamotoNodeError::ParentNotFound
+                })?
+                .ok_or_else(|| {
+                    error!("No header for parent tenure ID {}", &self.parent_tenure_id);
+                    NakamotoNodeError::ParentNotFound
+                })?;
+
+        let header_opt = NakamotoChainState::find_highest_known_block_header_in_tenure(
+            &chain_state,
+            burn_db,
+            &parent_tenure_header.consensus_hash,
+        )
+        .map_err(|e| {
+            error!("Could not query parent tenure finish block: {e:?}");
+            NakamotoNodeError::ParentNotFound
+        })?;
+
+        if let Some(parent_tenure_tip) = header_opt {
+            return Ok(parent_tenure_tip);
+        }
+
+        // this is an epoch2 block
+        debug!(
+            "Stacks block parent ID is an epoch2x block: {}",
+            &self.parent_tenure_id
+        );
+
+        Ok(parent_tenure_header)
+    }
+
     // TODO: add tests from mutation testing results #4869
     #[cfg_attr(test, mutants::skip)]
     /// Load up the parent block info for mining.
@@ -1258,91 +1335,7 @@ impl BlockMinerThread {
         burn_db: &mut SortitionDB,
         chain_state: &mut StacksChainState,
     ) -> Result<ParentStacksBlockInfo, NakamotoNodeError> {
-        // load up stacks chain tip
-        let (stacks_tip_ch, stacks_tip_bh) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(burn_db.conn()).map_err(|e| {
-                error!("Failed to load canonical Stacks tip: {e:?}");
-                NakamotoNodeError::ParentNotFound
-            })?;
-
-        let stacks_tip_block_id = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
-        let tenure_tip_opt = self
-            .find_highest_known_block_in_my_tenure(&burn_db, &chain_state)
-            .map_err(|e| {
-                error!(
-                "Could not query header info for tenure tip {} off of {stacks_tip_block_id}: {e:?}",
-                &self.burn_election_block.consensus_hash
-            );
-                NakamotoNodeError::ParentNotFound
-            })?;
-
-        // The nakamoto miner must always build off of a chain tip that is the highest of:
-        // 1. The highest block in the miner's current tenure
-        // 2. The highest block in the current tenure's parent tenure
-        //
-        // Where the current tenure's parent tenure is the tenure start block committed to in the current tenure's associated block commit.
-        let stacks_tip_header = if let Some(tenure_tip) = tenure_tip_opt {
-            debug!(
-                "Stacks block parent ID is last block in tenure ID {}",
-                &tenure_tip.consensus_hash
-            );
-            tenure_tip
-        } else {
-            // This tenure is empty on the canonical fork, so mine the first tenure block.
-            debug!(
-                "Stacks block parent ID is last block in parent tenure tipped by {}",
-                &self.parent_tenure_id
-            );
-
-            // find the last block in the parent tenure, since this is the tip we'll build atop
-            let parent_tenure_header =
-                NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
-                    .map_err(|e| {
-                        error!(
-                            "Could not query header for parent tenure ID {}: {e:?}",
-                            &self.parent_tenure_id
-                        );
-                        NakamotoNodeError::ParentNotFound
-                    })?
-                    .ok_or_else(|| {
-                        error!("No header for parent tenure ID {}", &self.parent_tenure_id);
-                        NakamotoNodeError::ParentNotFound
-                    })?;
-
-            let header_opt = NakamotoChainState::get_highest_block_header_in_tenure(
-                &mut chain_state.index_conn(),
-                &stacks_tip_block_id,
-                &parent_tenure_header.consensus_hash,
-            )
-            .map_err(|e| {
-                error!("Could not query parent tenure finish block: {e:?}");
-                NakamotoNodeError::ParentNotFound
-            })?;
-            if let Some(header) = header_opt {
-                header
-            } else {
-                // this is an epoch2 block
-                debug!(
-                    "Stacks block parent ID may be an epoch2x block: {}",
-                    &self.parent_tenure_id
-                );
-                NakamotoChainState::get_block_header(chain_state.db(), &self.parent_tenure_id)
-                    .map_err(|e| {
-                        error!(
-                            "Could not query header info for epoch2x tenure block ID {}: {e:?}",
-                            &self.parent_tenure_id
-                        );
-                        NakamotoNodeError::ParentNotFound
-                    })?
-                    .ok_or_else(|| {
-                        error!(
-                            "No header info for epoch2x tenure block ID {}",
-                            &self.parent_tenure_id
-                        );
-                        NakamotoNodeError::ParentNotFound
-                    })?
-            }
-        };
+        let stacks_tip_header = self.load_block_parent_header(burn_db, chain_state)?;
 
         debug!(
             "Miner: stacks tip parent header is {} {stacks_tip_header:?}",
@@ -1527,8 +1520,14 @@ impl BlockMinerThread {
         }
 
         if self.last_block_mined.is_none() && parent_block_info.parent_tenure.is_none() {
-            warn!("Miner should be starting a new tenure, but failed to load parent tenure info");
-            return Err(NakamotoNodeError::ParentNotFound);
+            if self.config.node.mock_mining {
+                info!("Mock miner will follow canonical tip within an ongoing tenure; no parent tenure info loaded yet");
+            } else {
+                warn!(
+                    "Miner should be starting a new tenure, but failed to load parent tenure info"
+                );
+                return Err(NakamotoNodeError::ParentNotFound);
+            }
         };
 
         // create our coinbase if this is the first block we've mined this tenure
