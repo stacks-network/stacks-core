@@ -321,11 +321,14 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             SetupSnapshotResult::NoSnapshot => false,
         };
 
+        let test_observer_port = test_observer.port;
+
         let node = setup_stx_btc_node(
             naka_conf,
             &signer_stacks_private_keys,
             &signer_configs,
             btc_miner_pubkeys.as_slice(),
+            |conf| node_config_modifier(conf, test_observer_port),
             snapshot_exists,
             test_observer,
         );
@@ -1738,11 +1741,12 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     }
 }
 
-fn setup_stx_btc_node(
+fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     mut naka_conf: NeonConfig,
     signer_stacks_private_keys: &[StacksPrivateKey],
     signer_configs: &[SignerConfig],
     btc_miner_pubkeys: &[Secp256k1PublicKey],
+    mut node_config_modifier: G,
     snapshot_exists: bool,
     test_observer: TestObserver,
 ) -> RunningNodes {
@@ -1793,6 +1797,7 @@ fn setup_stx_btc_node(
             }
         }
     }
+    node_config_modifier(&mut naka_conf);
 
     info!("Make new BitcoinCoreController");
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
