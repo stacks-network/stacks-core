@@ -495,6 +495,7 @@ fn runtime_check_error_kind_type_signature_too_deep_ccall() {
 /// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
 /// runtime `TypeError(UIntType, OptionalType(NoType))`.
 /// Outcome: block accepted.
+/// Note: This test only works until Epoch 3.3. Epoch 3.4 will return a [`RuntimeCheckErrorKind::AtBlockOutOfLookbackWindow`].
 #[test]
 fn runtime_check_error_kind_type_error_cdeploy() {
     let contract_1 = SetupContract::new(
@@ -541,6 +542,7 @@ fn runtime_check_error_kind_type_error_cdeploy() {
         (ok shares)))
 
     (define-constant result (get-shares u999 .pool))",
+        deploy_epochs: &[StacksEpochId::Epoch33],
         setup_contracts: &[contract_1, contract_2],
     );
 }
@@ -551,6 +553,7 @@ fn runtime_check_error_kind_type_error_cdeploy() {
 /// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
 /// runtime `TypeError(UIntType, OptionalType(NoType))`.
 /// Outcome: block accepted.
+/// Note: This test only works until Epoch 3.3. Epoch 3.4 will return a [`RuntimeCheckErrorKind::AtBlockOutOfLookbackWindow`].
 #[test]
 fn runtime_check_error_kind_type_error_ccall() {
     let contract_1 = SetupContract::new(
@@ -577,6 +580,9 @@ fn runtime_check_error_kind_type_error_ccall() {
     )
     .with_clarity_version(ClarityVersion::Clarity1); // Only works with clarity 1 or 2
 
+    let mut deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20).to_vec();
+    deploy_epochs.retain(|epoch| *epoch <= StacksEpochId::Epoch33);
+
     contract_call_consensus_test!(
         contract_name: "value-too-large",
         contract_code: "
@@ -599,6 +605,8 @@ fn runtime_check_error_kind_type_error_ccall() {
         (get-shares u999 .pool))",
         function_name: "trigger-error",
         function_args: &[],
+        deploy_epochs: &deploy_epochs,
+        call_epochs: &[StacksEpochId::Epoch33],
         setup_contracts: &[contract_1, contract_2],
     );
 }
