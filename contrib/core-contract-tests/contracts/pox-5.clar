@@ -1,17 +1,22 @@
 ;; The caller is already staked
 (define-constant ERR_ALREADY_STAKED (err u1))
 (define-constant ERR_NOT_STAKED (err u2))
-;; (define-constant ERR_INVALID_UNLOCK_BYTES_LENGTH (err u3))
+
 (define-constant ERR_INSUFFICIENT_FUNDS (err u4))
 ;; The unlock height bytes are invalid
 ;; (define-constant ERR_INVALID_UNLOCK_HEIGHT_BYTES_LENGTH (err u5))
 ;; The unlock height is too soon
-(define-constant ERR_INVALID_UNLOCK_HEIGHT_TOO_SOON (err u6))
+;; (define-constant ERR_INVALID_UNLOCK_HEIGHT_TOO_SOON (err u6))
 ;; The stacker is trying to unstake before their unlock height
-(define-constant ERR_NOT_UNLOCKED (err u7))
+;; (define-constant ERR_NOT_UNLOCKED (err u7))
 ;; The `start-burn-ht` is not valid - it must be in the next reward cycle
 (define-constant ERR_INVALID_START_BURN_HEIGHT (err u8))
+;; The `num-cycles` provided is invalid - it must be less than MAX_NUM_CYCLES
 (define-constant ERR_INVALID_NUM_CYCLES (err u9))
+;; The stacker tried to call `stake-extend` but not during their last cycle
+(define-constant ERR_CANNOT_EXTEND (err u10))
+(define-constant ERR_INVALID_AMOUNT (err u11))
+(define-constant ERR_INVALID_POX_ADDRESS (err u13))
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -57,10 +62,12 @@
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
+;; #[allow(unused_data_var)]
 (define-data-var pox-prepare-cycle-length uint PREPARE_CYCLE_LENGTH)
 (define-data-var pox-reward-cycle-length uint REWARD_CYCLE_LENGTH)
 (define-data-var first-burnchain-block-height uint u0)
 (define-data-var configured bool false)
+;; #[allow(unused_data_var)]
 (define-data-var first-pox-5-reward-cycle uint u0)
 
 ;; This function can only be called once, when it boots up
@@ -87,28 +94,15 @@
 (define-map staking-state
     principal
     {
-        unlock-burn-height: uint,
+        num-cycles: uint,
         unlock-bytes: (buff 255),
         signer-key: (buff 33),
         amount-ustx: uint,
+        first-reward-cycle: uint,
         pox-addr: {
             version: (buff 1),
             hashbytes: (buff 32),
         },
-    }
-)
-
-;; First item in the linked list of stakers
-(define-data-var staker-set-ll-first (optional principal) none)
-;; Last item in the linked list of stakers
-(define-data-var staker-set-ll-last (optional principal) none)
-
-;; Linked list of all stakers.
-(define-map staker-set-ll
-    principal
-    {
-        prev: (optional principal),
-        next: (optional principal),
     }
 )
 
@@ -124,6 +118,14 @@
 (define-read-only (reward-cycle-to-burn-height (cycle uint))
     (+ (var-get first-burnchain-block-height)
         (* cycle (var-get pox-reward-cycle-length))
+    )
+)
+
+;; Get the L1 unlock height for a given reward cycle.
+;; This is equal to exactly halfway through the provided cycle.
+(define-read-only (reward-cycle-to-unlock-height (cycle uint))
+    (+ (reward-cycle-to-burn-height cycle)
+        (/ (var-get pox-reward-cycle-length) u2)
     )
 )
 
@@ -152,20 +154,40 @@
         (max-amount uint)
         ;; #[allow(unused_binding)]
         (auth-id uint)
-        (unlock-burn-height uint)
+        (num-cycles uint)
         (unlock-bytes (buff 255))
     )
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let (
-            (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
+            (current-cycle (current-pox-reward-cycle))
+            (first-reward-cycle (+ u1 current-cycle))
             (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
-            (unlock-cycle (burn-height-to-reward-cycle unlock-burn-height))
-            (num-cycles (- unlock-cycle first-reward-cycle))
+            (unlock-cycle (+ current-cycle num-cycles))
+            (unlock-burn-height (reward-cycle-to-unlock-height unlock-cycle))
         )
         ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
         ;;  to "post-date" their `stack-stx` transaction
         (asserts! (is-eq first-reward-cycle specified-reward-cycle)
             ERR_INVALID_START_BURN_HEIGHT
+        )
+
+        ;;  amount must be valid
+        (asserts! (> amount-ustx u0) ERR_INVALID_AMOUNT)
+
+        ;;  lock period must be in acceptable range.
+        (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
+
+        ;;  address version must be valid
+        (asserts! (check-pox-addr-version (get version pox-addr))
+            ERR_INVALID_POX_ADDRESS
+        )
+
+        ;;  address hashbytes must be valid for the version
+        (asserts!
+            (check-pox-addr-hashbytes (get version pox-addr)
+                (get hashbytes pox-addr)
+            )
+            ERR_INVALID_POX_ADDRESS
         )
 
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
@@ -188,8 +210,9 @@
             signer-key: signer-key,
             amount-ustx: amount-ustx,
             pox-addr: pox-addr,
-            unlock-burn-height: unlock-burn-height,
             unlock-bytes: unlock-bytes,
+            first-reward-cycle: first-reward-cycle,
+            num-cycles: num-cycles,
         })
 
         (ok {
@@ -217,20 +240,31 @@
         (max-amount uint)
         ;; #[allow(unused_binding)]
         (auth-id uint)
-        (unlock-burn-height uint)
+        (num-cycles uint)
         (unlock-bytes (buff 255))
     )
-    (let ((current-stacker-info (unwrap! (get-staker-info tx-sender) ERR_NOT_STAKED)))
-        (asserts!
-            (> unlock-burn-height (get unlock-burn-height current-stacker-info))
-            ERR_INVALID_UNLOCK_HEIGHT_TOO_SOON
+    (let (
+            (current-stacker-info (unwrap! (get-staker-info tx-sender) ERR_NOT_STAKED))
+            (prev-unlock-cycle (-
+                (+ (get first-reward-cycle current-stacker-info)
+                    (get num-cycles current-stacker-info)
+                )
+                u1
+            ))
+            (current-cycle (current-pox-reward-cycle))
+            (unlock-cycle (+ current-cycle num-cycles))
+            (unlock-burn-height (reward-cycle-to-unlock-height unlock-cycle))
         )
+        (asserts! (is-eq prev-unlock-cycle current-cycle) ERR_CANNOT_EXTEND)
+
+        (try! (add-staker-to-reward-cycles tx-sender (+ current-cycle u1) num-cycles))
 
         (map-set staking-state tx-sender {
             signer-key: signer-key,
             amount-ustx: (get amount-ustx current-stacker-info),
             pox-addr: pox-addr,
-            unlock-burn-height: unlock-burn-height,
+            first-reward-cycle: (+ current-cycle u1),
+            num-cycles: num-cycles,
             unlock-bytes: unlock-bytes,
         })
         (ok {
@@ -240,7 +274,37 @@
             unlock-bytes: unlock-bytes,
             amount-ustx: (get amount-ustx current-stacker-info),
             signer-key: signer-key,
+            unlock-cycle: unlock-cycle,
+            num-cycles: num-cycles,
         })
+    )
+)
+
+;;; Validation helpers
+
+(define-read-only (check-pox-lock-period (lock-period uint))
+    (and
+        (>= lock-period u1)
+        (<= lock-period MAX_NUM_CYCLES)
+    )
+)
+
+;; Is the address mode valid for a PoX address?
+(define-read-only (check-pox-addr-version (version (buff 1)))
+    (<= (buff-to-uint-be version) MAX_ADDRESS_VERSION)
+)
+
+;; Is this buffer the right length for the given PoX address?
+(define-read-only (check-pox-addr-hashbytes
+        (version (buff 1))
+        (hashbytes (buff 32))
+    )
+    (if (<= (buff-to-uint-be version) MAX_ADDRESS_VERSION_BUFF_20)
+        (is-eq (len hashbytes) u20)
+        (if (<= (buff-to-uint-be version) MAX_ADDRESS_VERSION_BUFF_32)
+            (is-eq (len hashbytes) u32)
+            false
+        )
     )
 )
 
@@ -323,7 +387,7 @@
     }))
 )
 
-(define-public (add-staker-to-set-for-cycle
+(define-private (add-staker-to-set-for-cycle
         (staker principal)
         (cycle uint)
     )
@@ -375,8 +439,7 @@
     )
 )
 
-;; #[allow(unnecessary_public)]
-(define-public (add-staker-to-reward-cycles
+(define-private (add-staker-to-reward-cycles
         (staker principal)
         (first-reward-cycle uint)
         (num-cycles uint)
@@ -401,8 +464,7 @@
     )
 )
 
-;; #[allow(unnecessary_public)]
-(define-public (add-staker-to-nth-reward-cycle
+(define-private (add-staker-to-nth-reward-cycle
         (cycle-index uint)
         (params-resp (response {
             staker: principal,

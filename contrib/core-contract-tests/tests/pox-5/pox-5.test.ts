@@ -10,6 +10,7 @@ import { hex } from '@scure/base';
 import * as BTC from '@scure/btc-signer';
 import { serializeLockupScript, pox5, errorCodes } from './pox-5-helpers';
 import { randomBytes } from '@stacks/transactions';
+import { inspect } from 'node:util';
 
 function getAllStackers() {
   const nextCycle = rov(pox5.currentPoxRewardCycle()) + 1n;
@@ -35,22 +36,21 @@ function getAllStackerInfos() {
     .filter((info) => info !== null);
 }
 
-beforeEach(() => {
-  txOk(
-    pox5.setBurnchainParameters({
-      firstBurnHeight: 0n,
-      prepareCycleLength: 10n,
-      rewardCycleLength: 100n,
-      beginPox5RewardCycle: 0n,
-    }),
-    accounts.deployer.address,
-  );
-});
-
 describe('staking', () => {
+  beforeEach(() => {
+    txOk(
+      pox5.setBurnchainParameters({
+        firstBurnHeight: 0n,
+        prepareCycleLength: 10n,
+        rewardCycleLength: 100n,
+        beginPox5RewardCycle: 0n,
+      }),
+      accounts.deployer.address,
+    );
+  });
   test('staking adds a stacker to the linked list', () => {
     const stacker = accounts.wallet_1.address;
-    const unlockBurnHeight = 550n;
+    const numCycles = 4;
     const unlockBytes = randomBytes(255);
     const signerKey = randomBytes(33);
     const result = txOk(
@@ -62,12 +62,12 @@ describe('staking', () => {
         authId: 0,
         signerSig: randomBytes(65),
         startBurnHt: simnet.burnBlockHeight,
-        unlockBurnHeight,
+        numCycles,
         unlockBytes,
       }),
       stacker,
     );
-    expect(result.value.unlockBurnHeight).toBe(unlockBurnHeight);
+    expect(result.value.unlockBurnHeight).toBe(450n);
     const allStackers = getAllStackerInfos();
     expect(allStackers).toHaveLength(1);
     const info = allStackers[0];
@@ -75,10 +75,10 @@ describe('staking', () => {
     expect(info.poxAddr.version).toStrictEqual(Uint8Array.from([0x01]));
     expect(info.signerKey).toStrictEqual(signerKey);
 
-    expect(info.unlockBurnHeight).toBe(unlockBurnHeight);
+    expect(info.firstRewardCycle).toBe(1n);
+    expect(info.numCycles).toBe(4n);
     expect(info.unlockBytes).toStrictEqual(unlockBytes);
-    const { unlockCycle, numCycles } = result.value;
-    expect(unlockCycle).toBe(5n);
+    expect(result.value.unlockCycle).toBe(4n);
     const startCycle = 1;
     for (let i = 0; i < numCycles; i++) {
       const stackers = getAllStackersForCycle(BigInt(startCycle + i));
@@ -90,9 +90,10 @@ describe('staking', () => {
     ).toBeNull();
   });
 
-  test('can stake for 24 cycles', () => {
+  test(`can stake for ${pox5.constants.MAX_NUM_CYCLES} cycles`, () => {
     const staker = accounts.wallet_1.address;
-    const unlockHeight = 2550n;
+    const maxCycles = pox5.constants.MAX_NUM_CYCLES;
+    const numCycles = maxCycles;
     const result = txOk(
       pox5.stake({
         amountUstx: 1000000,
@@ -102,14 +103,20 @@ describe('staking', () => {
         authId: 0,
         signerSig: randomBytes(65),
         startBurnHt: simnet.burnBlockHeight,
-        unlockBurnHeight: unlockHeight,
+        numCycles,
         unlockBytes: randomBytes(255),
       }),
       staker,
     );
-    const { unlockCycle, numCycles } = result.value;
-    expect(unlockCycle).toBe(25n);
-    expect(numCycles).toBe(24n);
+    if (result.costs) {
+      console.log(
+        'Costs to stake for max cycles:\n',
+        inspect(result.costs, { depth: null }),
+      );
+    }
+    const { unlockCycle } = result.value;
+    expect(unlockCycle).toBe(maxCycles);
+    expect(numCycles).toBe(maxCycles);
     const startCycle = 1;
     for (let i = 0; i < numCycles; i++) {
       const stackers = getAllStackersForCycle(BigInt(startCycle + i));
@@ -121,9 +128,9 @@ describe('staking', () => {
     ).toBeNull();
   });
 
-  test('cannot stake for 25 cycles', () => {
+  test(`cannot stake for ${pox5.constants.MAX_NUM_CYCLES + 1n} cycles`, () => {
     const staker = accounts.wallet_1.address;
-    const unlockHeight = 2650n;
+    const numCycles = pox5.constants.MAX_NUM_CYCLES + 1n;
     const result = txErr(
       pox5.stake({
         amountUstx: 1000000,
@@ -133,7 +140,7 @@ describe('staking', () => {
         authId: 0,
         signerSig: randomBytes(65),
         startBurnHt: simnet.burnBlockHeight,
-        unlockBurnHeight: unlockHeight,
+        numCycles,
         unlockBytes: randomBytes(255),
       }),
       staker,
@@ -142,58 +149,17 @@ describe('staking', () => {
   });
 
   describe('extending stake', () => {
-    test('cannot extend stake with shorter unlock height', () => {
-      const stacker = accounts.wallet_1.address;
-      const firstUnlock = 550n;
-      const secondUnlock = 549n;
-      const poxAddr = randomPoxAddress();
-      const signerKey = randomBytes(33);
-      const signerSig = randomBytes(65);
-      const unlockBytes = randomBytes(255);
-
-      txOk(
-        pox5.stake({
-          amountUstx: 1000000,
-          poxAddr,
-          signerKey,
-          maxAmount: 1000000,
-          authId: 0,
-          signerSig,
-          startBurnHt: simnet.burnBlockHeight,
-          unlockBurnHeight: firstUnlock,
-          unlockBytes,
-        }),
-        stacker,
-      );
-
-      simnet.mineEmptyBlocks(100);
-      const result = txErr(
-        pox5.extendStake({
-          unlockBurnHeight: secondUnlock,
-          poxAddr,
-          signerKey,
-          signerSig,
-          maxAmount: 1000000,
-          authId: 0,
-          unlockBytes,
-        }),
-        stacker,
-      );
-      expect(result.value).toEqual(
-        errorCodes.ERR_INVALID_UNLOCK_HEIGHT_TOO_SOON,
-      );
-    });
-
     test('can extend stake with longer unlock height', () => {
       const stacker = accounts.wallet_1.address;
-      const firstUnlock = 150n;
       const secondUnlock = 250n;
       const poxAddr = randomPoxAddress();
       const signerKey = randomBytes(33);
       const signerSig = randomBytes(65);
       const unlockBytes = randomBytes(255);
+      const firstNumCycles = 1;
+      const secondNumCycles = 1;
 
-      txOk(
+      const stakeReceipt = txOk(
         pox5.stake({
           amountUstx: 1000000,
           poxAddr,
@@ -202,17 +168,18 @@ describe('staking', () => {
           authId: 0,
           signerSig,
           startBurnHt: simnet.burnBlockHeight,
-          unlockBurnHeight: firstUnlock,
+          numCycles: firstNumCycles,
           unlockBytes,
         }),
         stacker,
       );
+      expect(stakeReceipt.value.unlockCycle).toBe(1n);
 
-      mineUntil(200n);
+      mineUntil(stakeReceipt.value.unlockBurnHeight);
 
-      txOk(
+      const extendReceipt = txOk(
         pox5.extendStake({
-          unlockBurnHeight: secondUnlock,
+          numCycles: secondNumCycles,
           poxAddr,
           signerKey,
           signerSig,
@@ -222,9 +189,11 @@ describe('staking', () => {
         }),
         stacker,
       );
+      expect(extendReceipt.value.unlockCycle).toBe(2n);
 
       const stakerInfo = rov(pox5.getStakerInfo(stacker))!;
-      expect(stakerInfo.unlockBurnHeight).toBe(secondUnlock);
+      expect(stakerInfo.firstRewardCycle).toBe(2n);
+      expect(stakerInfo.numCycles).toBe(1n);
     });
   });
 });
@@ -380,5 +349,33 @@ describe('constructing lockup scripts', () => {
       }),
     );
     expect(hex.encode(lockupScript)).toStrictEqual(hex.encode(lockupScriptJs));
+  });
+});
+
+describe('calculating l1 unlock height', () => {
+  test('scenario 1', () => {
+    txOk(
+      pox5.setBurnchainParameters({
+        firstBurnHeight: 0n,
+        prepareCycleLength: 10n,
+        rewardCycleLength: 100n,
+        beginPox5RewardCycle: 0n,
+      }),
+      accounts.deployer.address,
+    );
+    expect(rov(pox5.rewardCycleToUnlockHeight(1n))).toBe(150n);
+  });
+
+  test('scenario 2', () => {
+    txOk(
+      pox5.setBurnchainParameters({
+        firstBurnHeight: 0n,
+        prepareCycleLength: 10n,
+        rewardCycleLength: 2100n,
+        beginPox5RewardCycle: 0n,
+      }),
+      accounts.deployer.address,
+    );
+    expect(rov(pox5.rewardCycleToUnlockHeight(2))).toBe(5250n);
   });
 });
