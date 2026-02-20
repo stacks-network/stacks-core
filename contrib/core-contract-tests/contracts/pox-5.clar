@@ -11,6 +11,7 @@
 (define-constant ERR_NOT_UNLOCKED (err u7))
 ;; The `start-burn-ht` is not valid - it must be in the next reward cycle
 (define-constant ERR_INVALID_START_BURN_HEIGHT (err u8))
+(define-constant ERR_INVALID_NUM_CYCLES (err u9))
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -27,6 +28,9 @@
 ;; Values for stacks address versions
 (define-constant STACKS_ADDR_VERSION_MAINNET 0x16)
 (define-constant STACKS_ADDR_VERSION_TESTNET 0x1a)
+
+;; Maximum number of cycles you can stake for
+(define-constant MAX_NUM_CYCLES u24)
 
 ;; Keep these constants in lock-step with the address version buffs above
 ;; Maximum value of an address version as a uint
@@ -141,9 +145,12 @@
             hashbytes: (buff 32),
         })
         (start-burn-ht uint)
+        ;; #[allow(unused_binding)]
         (signer-sig (optional (buff 65)))
         (signer-key (buff 33))
+        ;; #[allow(unused_binding)]
         (max-amount uint)
+        ;; #[allow(unused_binding)]
         (auth-id uint)
         (unlock-burn-height uint)
         (unlock-bytes (buff 255))
@@ -152,6 +159,8 @@
     (let (
             (first-reward-cycle (+ u1 (current-pox-reward-cycle)))
             (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
+            (unlock-cycle (burn-height-to-reward-cycle unlock-burn-height))
+            (num-cycles (- unlock-cycle first-reward-cycle))
         )
         ;; the start-burn-ht must result in the next reward cycle, do not allow stackers
         ;;  to "post-date" their `stack-stx` transaction
@@ -173,10 +182,7 @@
         ;;;;  Validate ownership of the given signer key
         ;; (try! (consume-signer-key-authorization pox-addr (- first-reward-cycle u1) "stack-stx" lock-period signer-sig signer-key amount-ustx max-amount auth-id))
 
-        ;;;;  ensure that stacking can be performed
-        ;; (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
-
-        (try! (add-stacker-to-set tx-sender))
+        (try! (add-staker-to-reward-cycles tx-sender first-reward-cycle num-cycles))
 
         (map-set staking-state tx-sender {
             signer-key: signer-key,
@@ -193,6 +199,8 @@
             unlock-bytes: unlock-bytes,
             amount-ustx: amount-ustx,
             signer-key: signer-key,
+            unlock-cycle: unlock-cycle,
+            num-cycles: num-cycles,
         })
     )
 )
@@ -202,9 +210,12 @@
             version: (buff 1),
             hashbytes: (buff 32),
         })
+        ;; #[allow(unused_binding)]
         (signer-sig (optional (buff 65)))
         (signer-key (buff 33))
+        ;; #[allow(unused_binding)]
         (max-amount uint)
+        ;; #[allow(unused_binding)]
         (auth-id uint)
         (unlock-burn-height uint)
         (unlock-bytes (buff 255))
@@ -233,111 +244,245 @@
     )
 )
 
-(define-public (unstake)
-    (let ((current-stacker-info (unwrap! (get-staker-info tx-sender) ERR_NOT_STAKED)))
-        (asserts!
-            (> burn-block-height (get unlock-burn-height current-stacker-info))
-            ERR_NOT_UNLOCKED
-        )
-        (map-delete staking-state tx-sender)
-        (try! (remove-stacker-from-set tx-sender))
-        (ok true)
+;;; Cycle-based Linked List functions
+
+;; First item in the linked list of stakers
+(define-map staker-set-ll-first-for-cycle
+    uint
+    principal
+)
+;; Last item in the linked list of stakers
+(define-map staker-set-ll-last-for-cycle
+    uint
+    principal
+)
+
+;; Linked list of all stakers for a cycle
+(define-map staker-set-ll-for-cycle
+    {
+        cycle: uint,
+        staker: principal,
+    }
+    {
+        prev: (optional principal),
+        next: (optional principal),
+    }
+)
+
+(define-read-only (get-staker-set-last-item-for-cycle (cycle uint))
+    (map-get? staker-set-ll-last-for-cycle cycle)
+)
+
+(define-read-only (get-staker-set-first-item-for-cycle (cycle uint))
+    (map-get? staker-set-ll-first-for-cycle cycle)
+)
+
+(define-read-only (get-staker-set-item-for-cycle
+        (staker principal)
+        (cycle uint)
     )
+    (map-get? staker-set-ll-for-cycle {
+        cycle: cycle,
+        staker: staker,
+    })
 )
 
-;;; Linked List functions
-
-(define-read-only (get-stacker-set-last-item)
-    (var-get staker-set-ll-last)
-)
-
-(define-read-only (get-stacker-set-first-item)
-    (var-get staker-set-ll-first)
-)
-
-(define-read-only (get-stacker-set-item (stacker principal))
-    (map-get? staker-set-ll stacker)
-)
-
-(define-read-only (get-stacker-set-next-item (stacker principal))
-    (match (map-get? staker-set-ll stacker)
+(define-read-only (get-staker-set-next-item-for-cycle
+        (staker principal)
+        (cycle uint)
+    )
+    (match (map-get? staker-set-ll-for-cycle {
+        cycle: cycle,
+        staker: staker,
+    })
         item (get next item)
         none
     )
 )
 
-(define-read-only (get-stacker-set-prev-item (stacker principal))
-    (match (map-get? staker-set-ll stacker)
+(define-read-only (get-staker-set-prev-item-for-cycle
+        (staker principal)
+        (cycle uint)
+    )
+    (match (map-get? staker-set-ll-for-cycle {
+        cycle: cycle,
+        staker: staker,
+    })
         item (get prev item)
         none
     )
 )
 
-(define-read-only (stacker-set-contains (stacker principal))
-    (is-some (map-get? staker-set-ll stacker))
+(define-read-only (staker-set-contains-for-cycle
+        (staker principal)
+        (cycle uint)
+    )
+    (is-some (map-get? staker-set-ll-for-cycle {
+        cycle: cycle,
+        staker: staker,
+    }))
 )
 
-(define-public (add-stacker-to-set (stacker principal))
-    (let ((last-item (var-get staker-set-ll-last)))
+(define-public (add-staker-to-set-for-cycle
+        (staker principal)
+        (cycle uint)
+    )
+    (let ((last-item (map-get? staker-set-ll-last-for-cycle cycle)))
         ;; Todo: remove this and guard in a higher-level fn
-        (asserts! (not (is-some (map-get? staker-set-ll stacker)))
+        (asserts!
+            (not (is-some (map-get? staker-set-ll-for-cycle {
+                cycle: cycle,
+                staker: staker,
+            })))
             ERR_ALREADY_STAKED
         )
 
         (match last-item
-            last-stacker (let ((last-node (unwrap-panic (map-get? staker-set-ll last-stacker))))
-                (map-set staker-set-ll last-stacker {
+            last-stacker (let ((last-node (unwrap-panic (map-get? staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: last-stacker,
+                }))))
+                (map-set staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: last-stacker,
+                } {
                     prev: (get prev last-node),
-                    next: (some stacker),
+                    next: (some staker),
                 })
-                (map-set staker-set-ll stacker {
+                (map-set staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: staker,
+                } {
                     prev: (some last-stacker),
                     next: none,
                 })
             )
             (begin
                 ;; This is the first item
-                (map-set staker-set-ll stacker {
+                (map-set staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: staker,
+                } {
                     prev: none,
                     next: none,
                 })
-                (var-set staker-set-ll-first (some stacker)) ;; Stacker is the first item
+                (map-set staker-set-ll-first-for-cycle cycle staker)
             )
         )
 
-        (var-set staker-set-ll-last (some stacker))
+        (map-set staker-set-ll-last-for-cycle cycle staker)
         (ok true)
     )
 )
 
-(define-public (remove-stacker-from-set (stacker principal))
+;; #[allow(unnecessary_public)]
+(define-public (add-staker-to-reward-cycles
+        (staker principal)
+        (first-reward-cycle uint)
+        (num-cycles uint)
+    )
+    (let ((cycle-indexes (unwrap!
+            (slice?
+                (list
+                    u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15
+                    u16 u17 u18 u19 u20 u21 u22 u23
+                )
+                u0 num-cycles
+            )
+            ERR_INVALID_NUM_CYCLES
+        )))
+        (try! (fold add-staker-to-nth-reward-cycle cycle-indexes
+            (ok {
+                staker: staker,
+                first-reward-cycle: first-reward-cycle,
+            })
+        ))
+        (ok true)
+    )
+)
+
+;; #[allow(unnecessary_public)]
+(define-public (add-staker-to-nth-reward-cycle
+        (cycle-index uint)
+        (params-resp (response {
+            staker: principal,
+            first-reward-cycle: uint,
+        }
+            uint
+        ))
+    )
+    (let ((params (try! params-resp)))
+        (try! (add-staker-to-set-for-cycle (get staker params)
+            (+ (get first-reward-cycle params) cycle-index)
+        ))
+        (ok params)
+    )
+)
+
+(define-public (remove-stacker-from-set-for-cycle
+        (stacker principal)
+        (cycle uint)
+    )
     (let (
-            (node (unwrap! (map-get? staker-set-ll stacker) ERR_NOT_STAKED))
+            (node (unwrap!
+                (map-get? staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: stacker,
+                })
+                ERR_NOT_STAKED
+            ))
             (prev-item (get prev node))
             (next-item (get next node))
         )
         (match prev-item
             prev-stacker
-            (let ((prev-node (unwrap-panic (map-get? staker-set-ll prev-stacker))))
-                (map-set staker-set-ll prev-stacker {
+            (let ((prev-node (unwrap-panic (map-get? staker-set-ll-for-cycle {
+                    staker: prev-stacker,
+                    cycle: cycle,
+                }))))
+                (map-set staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: prev-stacker,
+                } {
                     prev: (get prev prev-node),
                     next: next-item,
                 })
             )
-            (var-set staker-set-ll-first next-item) ;; This is the first item
+            ;; this is the first item
+            (match next-item
+                next (map-set staker-set-ll-first-for-cycle cycle next)
+                (map-delete staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: stacker,
+                })
+            )
         )
 
         (match next-item
-            next-stacker
-            (let ((next-node (unwrap-panic (map-get? staker-set-ll next-stacker))))
-                (map-set staker-set-ll next-stacker {
+            next-stacker (let ((next-node (unwrap-panic (map-get? staker-set-ll-for-cycle {
+                    staker: next-stacker,
+                    cycle: cycle,
+                }))))
+                (map-set staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: next-stacker,
+                } {
                     prev: prev-item,
                     next: (get next next-node),
                 })
             )
-            (var-set staker-set-ll-last prev-item) ;; This is the last item
+            (match prev-item
+                prev-stacker (map-set staker-set-ll-last-for-cycle cycle prev-stacker)
+                (map-delete staker-set-ll-for-cycle {
+                    cycle: cycle,
+                    staker: stacker,
+                })
+            )
         )
-        (map-delete staker-set-ll stacker)
+        (map-delete staker-set-ll-for-cycle {
+            cycle: cycle,
+            staker: stacker,
+        })
         (ok true)
     )
 )

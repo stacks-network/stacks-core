@@ -12,12 +12,17 @@ import { serializeLockupScript, pox5, errorCodes } from './pox-5-helpers';
 import { randomBytes } from '@stacks/transactions';
 
 function getAllStackers() {
-  const first = rov(pox5.getStackerSetFirstItem());
+  const nextCycle = rov(pox5.currentPoxRewardCycle()) + 1n;
+  return getAllStackersForCycle(nextCycle);
+}
+
+function getAllStackersForCycle(cycle: bigint) {
+  const first = rov(pox5.getStakerSetFirstItemForCycle(cycle));
   let stackers: string[] = [];
   let cur: string | null = first;
   if (cur) stackers.push(cur);
   while (cur) {
-    const item = rov(pox5.getStackerSetNextItem(cur));
+    const item = rov(pox5.getStakerSetNextItemForCycle(cur, cycle));
     if (item) stackers.push(item);
     cur = item;
   }
@@ -45,7 +50,7 @@ beforeEach(() => {
 describe('staking', () => {
   test('staking adds a stacker to the linked list', () => {
     const stacker = accounts.wallet_1.address;
-    const unlockBurnHeight = 1_000_000n;
+    const unlockBurnHeight = 550n;
     const unlockBytes = randomBytes(255);
     const signerKey = randomBytes(33);
     const result = txOk(
@@ -72,12 +77,23 @@ describe('staking', () => {
 
     expect(info.unlockBurnHeight).toBe(unlockBurnHeight);
     expect(info.unlockBytes).toStrictEqual(unlockBytes);
+    const { unlockCycle, numCycles } = result.value;
+    expect(unlockCycle).toBe(5n);
+    const startCycle = 1;
+    for (let i = 0; i < numCycles; i++) {
+      const stackers = getAllStackersForCycle(BigInt(startCycle + i));
+      expect(stackers).toHaveLength(1);
+      expect(stackers[0]).toBe(stacker);
+    }
+    expect(
+      rov(pox5.getStakerSetItemForCycle({ staker: stacker, cycle: 0n })),
+    ).toBeNull();
   });
 
-  test('cannot unstake before the unlock height', () => {
-    const unlockHeight = 2000n;
-
-    txOk(
+  test('can stake for 24 cycles', () => {
+    const staker = accounts.wallet_1.address;
+    const unlockHeight = 2550n;
+    const result = txOk(
       pox5.stake({
         amountUstx: 1000000,
         poxAddr: randomPoxAddress(),
@@ -89,20 +105,26 @@ describe('staking', () => {
         unlockBurnHeight: unlockHeight,
         unlockBytes: randomBytes(255),
       }),
-      accounts.wallet_1.address,
+      staker,
     );
-
-    simnet.mineEmptyBlocks(Number(unlockHeight) - simnet.burnBlockHeight);
-
-    const failure = txErr(pox5.unstake(), accounts.wallet_1.address);
-
-    expect(failure.value).toEqual(errorCodes.ERR_NOT_UNLOCKED);
+    const { unlockCycle, numCycles } = result.value;
+    expect(unlockCycle).toBe(25n);
+    expect(numCycles).toBe(24n);
+    const startCycle = 1;
+    for (let i = 0; i < numCycles; i++) {
+      const stackers = getAllStackersForCycle(BigInt(startCycle + i));
+      expect(stackers).toHaveLength(1);
+      expect(stackers[0]).toBe(staker);
+    }
+    expect(
+      rov(pox5.getStakerSetItemForCycle({ staker, cycle: 0n })),
+    ).toBeNull();
   });
 
-  test('can unstake after the end of their unlock cycle', () => {
-    const unlockHeight = 250n;
-
-    txOk(
+  test('cannot stake for 25 cycles', () => {
+    const staker = accounts.wallet_1.address;
+    const unlockHeight = 2650n;
+    const result = txErr(
       pox5.stake({
         amountUstx: 1000000,
         poxAddr: randomPoxAddress(),
@@ -114,24 +136,16 @@ describe('staking', () => {
         unlockBurnHeight: unlockHeight,
         unlockBytes: randomBytes(255),
       }),
-      accounts.wallet_1.address,
+      staker,
     );
-
-    mineUntil(300n);
-
-    txOk(pox5.unstake(), accounts.wallet_1.address);
-
-    expect(rov(pox5.getStakerInfo(accounts.wallet_1.address))).toBe(null);
-
-    const allStackers = getAllStackers();
-    expect(allStackers).toHaveLength(0);
+    expect(result.value).toEqual(errorCodes.ERR_INVALID_NUM_CYCLES);
   });
 
   describe('extending stake', () => {
     test('cannot extend stake with shorter unlock height', () => {
       const stacker = accounts.wallet_1.address;
-      const firstUnlock = 1_000_000n;
-      const secondUnlock = 999_999n;
+      const firstUnlock = 550n;
+      const secondUnlock = 549n;
       const poxAddr = randomPoxAddress();
       const signerKey = randomBytes(33);
       const signerSig = randomBytes(65);
@@ -215,7 +229,7 @@ describe('staking', () => {
   });
 });
 
-describe('linked list', () => {
+describe('cycle-based linked list', () => {
   const stackers = [
     randomStacksAddress(),
     randomStacksAddress(),
@@ -223,70 +237,108 @@ describe('linked list', () => {
     randomStacksAddress(),
     randomStacksAddress(),
   ];
+  const cycle = 1n;
+
   test('can add multiple stackers to the linked list', () => {
     for (const stacker of stackers) {
-      txOk(pox5.addStackerToSet(stacker), accounts.deployer.address);
+      txOk(
+        pox5.addStakerToSetForCycle(stacker, cycle),
+        accounts.deployer.address,
+      );
     }
-    const lastItem = rov(pox5.getStackerSetLastItem());
+    const lastItem = rov(pox5.getStakerSetLastItemForCycle(cycle));
     expect(lastItem).toBe(stackers.at(-1));
-    expect(rov(pox5.getStackerSetFirstItem())).toBe(stackers[0]);
-    const allStackers = getAllStackers();
+    expect(rov(pox5.getStakerSetFirstItemForCycle(cycle))).toBe(stackers[0]);
+    const allStackers = getAllStackersForCycle(cycle);
     expect(allStackers).toEqual(stackers);
   });
 
   test('can remove a non-last item from the linked list', () => {
     for (const stacker of stackers) {
-      txOk(pox5.addStackerToSet(stacker), accounts.deployer.address);
+      txOk(
+        pox5.addStakerToSetForCycle(stacker, cycle),
+        accounts.deployer.address,
+      );
     }
     const toRemove = stackers[1]!;
-    txOk(pox5.removeStackerFromSet(toRemove), accounts.deployer.address);
-    const allStackers = getAllStackers();
+    txOk(
+      pox5.removeStackerFromSetForCycle(toRemove, cycle),
+      accounts.deployer.address,
+    );
+    const allStackers = getAllStackersForCycle(cycle);
     expect(allStackers).toEqual(stackers.filter((s) => s !== toRemove));
-    expect(rov(pox5.getStackerSetNextItem(stackers[0]!))).toBe(stackers[2]!);
-    expect(rov(pox5.getStackerSetPrevItem(stackers[2]!))).not.toBe(toRemove);
-    expect(rov(pox5.getStackerSetPrevItem(stackers[2]!))).toBe(stackers[0]!);
-    expect(rov(pox5.getStackerSetPrevItem(toRemove))).toBe(null);
-    expect(rov(pox5.getStackerSetNextItem(toRemove))).toBe(null);
+    expect(rov(pox5.getStakerSetNextItemForCycle(stackers[0]!, cycle))).toBe(
+      stackers[2]!,
+    );
+    expect(
+      rov(pox5.getStakerSetPrevItemForCycle(stackers[2]!, cycle)),
+    ).not.toBe(toRemove);
+    expect(rov(pox5.getStakerSetPrevItemForCycle(stackers[2]!, cycle))).toBe(
+      stackers[0]!,
+    );
+    expect(rov(pox5.getStakerSetPrevItemForCycle(toRemove, cycle))).toBe(null);
+    expect(rov(pox5.getStakerSetNextItemForCycle(toRemove, cycle))).toBe(null);
   });
 
   test('can remove the last item from the linked list', () => {
     for (const stacker of stackers) {
-      txOk(pox5.addStackerToSet(stacker), accounts.deployer.address);
+      txOk(
+        pox5.addStakerToSetForCycle(stacker, cycle),
+        accounts.deployer.address,
+      );
     }
     const toRemove = stackers.at(-1)!;
     const newLast = stackers.at(-2)!;
-    txOk(pox5.removeStackerFromSet(toRemove), accounts.deployer.address);
-    const allStackers = getAllStackers();
+    txOk(
+      pox5.removeStackerFromSetForCycle(toRemove, cycle),
+      accounts.deployer.address,
+    );
+    const allStackers = getAllStackersForCycle(cycle);
     expect(allStackers).toEqual(stackers.filter((s) => s !== toRemove));
-    expect(rov(pox5.getStackerSetLastItem())).toBe(newLast);
-    expect(rov(pox5.getStackerSetFirstItem())).toBe(stackers[0]!);
-    expect(rov(pox5.getStackerSetNextItem(newLast))).toBe(null);
-    expect(rov(pox5.getStackerSetPrevItem(newLast))).toBe(stackers.at(-3));
-    expect(rov(pox5.getStackerSetPrevItem(toRemove))).toBe(null);
-    expect(rov(pox5.getStackerSetNextItem(toRemove))).toBe(null);
+    expect(rov(pox5.getStakerSetLastItemForCycle(cycle))).toBe(newLast);
+    expect(rov(pox5.getStakerSetFirstItemForCycle(cycle))).toBe(stackers[0]!);
+    expect(rov(pox5.getStakerSetNextItemForCycle(newLast, cycle))).toBe(null);
+    expect(rov(pox5.getStakerSetPrevItemForCycle(newLast, cycle))).toBe(
+      stackers.at(-3),
+    );
+    expect(rov(pox5.getStakerSetPrevItemForCycle(toRemove, cycle))).toBe(null);
+    expect(rov(pox5.getStakerSetNextItemForCycle(toRemove, cycle))).toBe(null);
   });
 
   test('can remove the first item from the linked list', () => {
     for (const stacker of stackers) {
-      txOk(pox5.addStackerToSet(stacker), accounts.deployer.address);
+      txOk(
+        pox5.addStakerToSetForCycle(stacker, cycle),
+        accounts.deployer.address,
+      );
     }
     const toRemove = stackers[0]!;
     const newFirst = stackers[1]!;
-    txOk(pox5.removeStackerFromSet(toRemove), accounts.deployer.address);
-    const allStackers = getAllStackers();
+    txOk(
+      pox5.removeStackerFromSetForCycle(toRemove, cycle),
+      accounts.deployer.address,
+    );
+    const allStackers = getAllStackersForCycle(cycle);
     expect(allStackers).toEqual(stackers.filter((s) => s !== toRemove));
-    expect(rov(pox5.getStackerSetFirstItem())).toBe(newFirst);
-    expect(rov(pox5.getStackerSetLastItem())).toBe(stackers.at(-1)!);
-    expect(rov(pox5.getStackerSetNextItem(newFirst))).toBe(stackers[2]!);
-    expect(rov(pox5.getStackerSetPrevItem(newFirst))).toBe(null);
-    expect(rov(pox5.getStackerSetPrevItem(toRemove))).toBe(null);
-    expect(rov(pox5.getStackerSetNextItem(toRemove))).toBe(null);
+    expect(rov(pox5.getStakerSetFirstItemForCycle(cycle))).toBe(newFirst);
+    expect(rov(pox5.getStakerSetLastItemForCycle(cycle))).toBe(
+      stackers.at(-1)!,
+    );
+    expect(rov(pox5.getStakerSetNextItemForCycle(newFirst, cycle))).toBe(
+      stackers[2]!,
+    );
+    expect(rov(pox5.getStakerSetPrevItemForCycle(newFirst, cycle))).toBe(null);
+    expect(rov(pox5.getStakerSetPrevItemForCycle(toRemove, cycle))).toBe(null);
+    expect(rov(pox5.getStakerSetNextItemForCycle(toRemove, cycle))).toBe(null);
   });
 
   test('cannot add a stacker that is already in the linked list', () => {
-    txOk(pox5.addStackerToSet(stackers[0]!), accounts.deployer.address);
+    txOk(
+      pox5.addStakerToSetForCycle(stackers[0]!, cycle),
+      accounts.deployer.address,
+    );
     const result = txErr(
-      pox5.addStackerToSet(stackers[0]!),
+      pox5.addStakerToSetForCycle(stackers[0]!, cycle),
       accounts.deployer.address,
     );
     expect(result.value).toEqual(errorCodes.ERR_ALREADY_STAKED);
@@ -294,7 +346,7 @@ describe('linked list', () => {
 
   test('cannot remove a stacker that is not in the linked list', () => {
     const result = txErr(
-      pox5.removeStackerFromSet(stackers[0]!),
+      pox5.removeStackerFromSetForCycle(stackers[0]!, cycle),
       accounts.deployer.address,
     );
     expect(result.value).toEqual(errorCodes.ERR_NOT_STAKED);
