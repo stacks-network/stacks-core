@@ -1,0 +1,76 @@
+## Github workflow to run bitcoin RPC tests over multiple versions of Bitcoin Core
+
+name: Tests::Bitcoin RPC
+
+on:
+  workflow_call:
+
+env:
+  RUST_BACKTRACE: full
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 5
+  TEST_TIMEOUT: 5
+  START_MAJOR: "25"
+
+jobs:
+  discover-bitcoind-majors:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.discover.outputs.versions }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Discover available major tags on Docker Hub
+        id: discover
+        run: |
+          set -euo pipefail
+
+          discovery_json="$(bash ./.github/workflows/scripts/discover-bitcoind-majors.sh "$START_MAJOR")"
+          echo "$discovery_json" | jq .
+
+          versions_json="$(jq -c '.versions' <<< "$discovery_json")"
+
+          if [[ -z "$versions_json" ]]; then
+            echo "Unable to parse versions JSON from .github/workflows/scripts/discover-bitcoind-majors.sh output."
+            exit 1
+          fi
+
+          echo "versions=$versions_json" >> "$GITHUB_OUTPUT"
+
+  test-bitcoind:
+    needs: discover-bitcoind-majors
+    name: test-bitcoind:${{ matrix.bitcoin_version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        bitcoin_version: ${{ fromJSON(needs.discover-bitcoind-majors.outputs.versions) }}
+
+    steps:
+      ## Setup test environment
+      - name: Setup Test Environment
+        id: setup_tests
+        uses: stacks-network/actions/stacks-core/testenv@main
+        with:
+          btc-version: "25.0" ## TODO: Remove this cache restore as no more needed
+
+      - name: Check Docker
+        run: docker version
+
+      - name: Pre-pull bitcoind image ${{ matrix.bitcoin_version }}
+        run: docker pull bitcoin/bitcoin:${{ matrix.bitcoin_version }}
+
+      - name: Run tests on bitcoind:${{ matrix.bitcoin_version }}
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        env:
+          BITCOIN_IMAGE_TAG: ${{ matrix.bitcoin_version }}
+        run: |
+          cargo nextest run \
+            --archive-file ~/test_archive.tar.zst \
+            --fail-fast \
+            --status-level fail \
+            --run-ignored all \
+            -E 'package(stacks-node) & binary(stacks-node) & test(/^tests::bitcoin::rpc_integrations::/)'

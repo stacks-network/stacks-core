@@ -28,14 +28,17 @@ use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
 };
 use crate::burnchains::rpc::rpc_transport::RpcError;
+use crate::tests::bitcoin::core_container::BitcoinCoreContainer;
 
 mod utils {
+    use std::env;
     use std::net::TcpListener;
 
     use stacks::config::Config;
 
     use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
     use crate::burnchains::rpc::rpc_transport::RpcAuth;
+    use crate::tests::bitcoin::core_container::{BitcoinCoreContainer, RPC_PASSWORD, RPC_USERNAME};
     use crate::util::get_epoch_time_ms;
 
     pub fn create_stx_config() -> Config {
@@ -65,12 +68,33 @@ mod utils {
         config
     }
 
+    pub fn get_bitcoin_image_tag() -> String {
+        match env::var("BITCOIN_IMAGE_TAG") {
+            Ok(tag) if !tag.trim().is_empty() => tag,
+            _ => "25".to_string(),
+        }
+    }
+
     pub fn create_client_no_auth_from_stx_config(config: &Config) -> BitcoinRpcClient {
         BitcoinRpcClient::new(
             config.burnchain.peer_host.clone(),
             config.burnchain.rpc_port,
             RpcAuth::None,
             config.burnchain.timeout,
+            "stacks".to_string(),
+        )
+        .expect("Rpc client creation should be ok!")
+    }
+
+    pub fn create_client_from_container(container: &BitcoinCoreContainer) -> BitcoinRpcClient {
+        BitcoinRpcClient::new(
+            "127.0.0.1".to_string(),
+            container.get_rpc_port(),
+            RpcAuth::Basic {
+                username: RPC_USERNAME.into(),
+                password: RPC_PASSWORD.into(),
+            },
+            300,
             "stacks".to_string(),
         )
         .expect("Rpc client creation should be ok!")
@@ -147,18 +171,12 @@ fn test_client_creation_fails_due_to_stx_config_missing_auth() {
 #[ignore]
 #[test]
 fn test_get_blockchain_info_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let client = utils::create_client_from_container(&btc_container);
 
     let info = client.get_blockchain_info().expect("Should be ok!");
     assert_eq!(BitcoinNetworkType::Regtest, info.chain);

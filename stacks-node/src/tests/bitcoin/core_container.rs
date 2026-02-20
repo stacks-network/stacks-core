@@ -1,10 +1,12 @@
 use std::cell::OnceCell;
 use std::time::Duration;
 
-use stacks::config::Config;
 use testcontainers::core::WaitFor;
 use testcontainers::runners::SyncRunner;
 use testcontainers::{Container, GenericImage, ImageExt};
+
+pub const RPC_USERNAME: &str = "stacksdev";
+pub const RPC_PASSWORD: &str = RPC_USERNAME;
 
 pub struct BitcoinCoreContainer {
     image_tag: String,
@@ -14,32 +16,9 @@ pub struct BitcoinCoreContainer {
 }
 
 impl BitcoinCoreContainer {
+    /*
     pub fn from_stx_config(config: &Config, image_tag: &str) -> Self {
-        let mut result = BitcoinCoreContainer::new(image_tag);
-
-        result
-            .add_arg("-regtest")
-            .add_arg("-nodebug")
-            //.add_arg("-nodebuglogfile");
-            //.add_arg("-rest");
-            //.add_arg("-persistmempool=1");
-            //.add_arg("-dbcache=100");
-            .add_arg("-txindex=1")
-            .add_arg("-server=1")
-            //result.add_arg("-listenonion=0");
-            .add_arg("-rpcbind=127.0.0.1");
-        //result.add_arg(format!("-datadir={}", result.data_path));
-
-        /*
-        let peer_port = config.burnchain.peer_port;
-        if peer_port == BURNCHAIN_CONFIG_PEER_PORT_DISABLED {
-            info!("Peer Port is disabled. So `-listen=0` flag will be used");
-            result.add_arg("-listen=0");
-        } else {
-            result.add_arg(format!("-port={peer_port}"));
-        }
-        */
-        //result.add_arg(format!("-rpcport={}", config.burnchain.rpc_port));
+        let mut result = BitcoinCoreContainer::new_with_defaults(image_tag);
 
         if let (Some(username), Some(password)) =
             (&config.burnchain.username, &config.burnchain.password)
@@ -51,6 +30,7 @@ impl BitcoinCoreContainer {
 
         result
     }
+    */
 
     pub fn new(image_tag: &str) -> Self {
         BitcoinCoreContainer {
@@ -60,12 +40,32 @@ impl BitcoinCoreContainer {
         }
     }
 
+    pub fn new_with_defaults(image_tag: &str) -> Self {
+        let mut result = Self::new(image_tag);
+        result
+            .set_arg("-regtest=1")
+            .set_arg("-server=1")
+            .set_arg("-txindex=1")
+            .set_arg("-dnsseed=0")
+            .set_arg("-dns=0")
+            .set_arg("-discover=0")
+            .set_arg("-listenonion=0")
+            .set_arg("-rest=1")
+            .set_arg("-rpcbind=0.0.0.0")
+            .set_arg("-rpcallowip=0.0.0.0/0")
+            .set_arg("-rpcallowip=::/0")
+            .set_arg(format!("-rpcuser={}", RPC_USERNAME))
+            .set_arg(format!("-rpcpassword={}", RPC_PASSWORD))
+            .set_arg("-fallbackfee=0.00001");
+        result
+    }
+
     /// Add argument (like "-name=value") to be used to run bitcoind process
-    pub fn add_arg(&mut self, arg: impl Into<String>) -> &mut Self {
+    pub fn set_arg(&mut self, arg: impl Into<String>) -> &mut Self {
         if self.is_started() {
             panic!("the container is already started");
         }
-        
+
         self.args.push(arg.into());
         self
     }
@@ -76,7 +76,7 @@ impl BitcoinCoreContainer {
         }
 
         let container = GenericImage::new("bitcoin/bitcoin", &self.image_tag)
-            .with_wait_for(WaitFor::message_on_stdout("dnsseed thread exit"))
+            .with_wait_for(WaitFor::message_on_stdout("Done loading"))
             .with_startup_timeout(Duration::from_secs(60))
             .with_cmd(self.args.clone())
             .start()
@@ -101,11 +101,11 @@ impl BitcoinCoreContainer {
         }
 
         self.raw_container
-            .get().unwrap()
+            .get()
+            .unwrap()
             .get_host_port_ipv4(18443)
             .expect("Failed to get mapped RPC port")
     }
-
 }
 
 impl Drop for BitcoinCoreContainer {
@@ -120,9 +120,7 @@ mod tests {
     #[test]
     fn test_start_and_stop() {
         let mut container = BitcoinCoreContainer::new("25");
-        container
-            .add_arg("-chain=regtest")
-            .add_arg("-server");
+        container.set_arg("-chain=regtest").set_arg("-server");
 
         assert!(!container.is_started());
 
