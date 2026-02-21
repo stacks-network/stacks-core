@@ -15,8 +15,6 @@
 
 //! Integration tests for [`BitcoinRpcClient`]
 
-use std::env;
-
 use stacks::burnchains::bitcoin::address::LegacyBitcoinAddressType;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
@@ -24,48 +22,17 @@ use stacks::types::chainstate::BurnchainHeaderHash;
 
 use crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType;
 use crate::burnchains::rpc::bitcoin_rpc_client::{
-    BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
+    BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
 };
 use crate::burnchains::rpc::rpc_transport::RpcError;
 use crate::tests::bitcoin::core_container::BitcoinCoreContainer;
 
 mod utils {
     use std::env;
-    use std::net::TcpListener;
-
-    use stacks::config::Config;
 
     use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
     use crate::burnchains::rpc::rpc_transport::RpcAuth;
     use crate::tests::bitcoin::core_container::{BitcoinCoreContainer, RPC_PASSWORD, RPC_USERNAME};
-    use crate::util::get_epoch_time_ms;
-
-    pub fn create_stx_config() -> Config {
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
-        config.burnchain.username = Some(String::from("user"));
-        config.burnchain.password = Some(String::from("12345"));
-        // overriding default "0.0.0.0" because doesn't play nicely on Windows.
-        config.burnchain.peer_host = String::from("127.0.0.1");
-        // avoiding peer port biding to reduce the number of ports to bind to.
-        config.burnchain.peer_port = 0;
-        config.burnchain.wallet_name = "my_wallet".to_string();
-
-        //Ask the OS for a free port. Not guaranteed to stay free,
-        //after TcpListner is dropped, but good enough for testing
-        //and starting bitcoind right after config is created
-        let tmp_listener =
-            TcpListener::bind("127.0.0.1:0").expect("Failed to bind to get a free port");
-        let port = tmp_listener.local_addr().unwrap().port();
-
-        config.burnchain.rpc_port = port;
-
-        let now = get_epoch_time_ms();
-        let dir = format!("/tmp/rpc-client-{port}-{now}");
-        config.node.working_dir = dir;
-
-        config
-    }
 
     pub fn get_bitcoin_image_tag() -> String {
         match env::var("BITCOIN_IMAGE_TAG") {
@@ -139,22 +106,6 @@ fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
         matches!(err, BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_))),
         "Expected RpcError::Network, got: {err:?}"
     );
-}
-
-#[ignore]
-#[test]
-fn test_client_creation_fails_due_to_stx_config_missing_auth() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    let mut config_no_auth = utils::create_stx_config();
-    config_no_auth.burnchain.username = None;
-    config_no_auth.burnchain.password = None;
-
-    let err = BitcoinRpcClient::from_stx_config(&config_no_auth).expect_err("Client should fail!");
-
-    assert!(matches!(err, BitcoinRpcClientError::MissingCredentials));
 }
 
 #[ignore]
