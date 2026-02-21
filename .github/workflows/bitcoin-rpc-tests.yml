@@ -8,11 +8,11 @@ on:
 env:
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 5
-  TEST_TIMEOUT: 5
+  TEST_TIMEOUT_MINS: 5
   START_MAJOR: "25"
 
 jobs:
-  discover-bitcoind-majors:
+  discover-bitcoin-majors:
     runs-on: ubuntu-latest
     outputs:
       versions: ${{ steps.discover.outputs.versions }}
@@ -28,34 +28,33 @@ jobs:
         run: |
           set -euo pipefail
 
-          discovery_json="$(bash ./.github/workflows/scripts/discover-bitcoind-majors.sh "$START_MAJOR")"
-          echo "$discovery_json" | jq .
+          result_json="$(bash ./.github/workflows/scripts/docker-bitcoin-majors.sh "$START_MAJOR")"
+          echo "$result_json" | jq .
 
-          versions_json="$(jq -c '.versions' <<< "$discovery_json")"
+          versions_json="$(jq -c '.versions' <<< "$result_json")"
 
           if [[ -z "$versions_json" ]]; then
-            echo "Unable to parse versions JSON from .github/workflows/scripts/discover-bitcoind-majors.sh output."
+            echo "Unable to parse versions JSON from script output."
             exit 1
           fi
 
           echo "versions=$versions_json" >> "$GITHUB_OUTPUT"
 
-  test-bitcoind:
-    needs: discover-bitcoind-majors
-    name: test-bitcoind:${{ matrix.bitcoin_version }}
+  test-rpc:
+    needs: discover-bitcoin-majors
+    name: test-rpc-bitcoin:${{ matrix.bitcoin_version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        bitcoin_version: ${{ fromJSON(needs.discover-bitcoind-majors.outputs.versions) }}
+        bitcoin_version: ${{ fromJSON(needs.discover-bitcoin-majors.outputs.versions) }}
 
     steps:
-      ## Setup test environment
       - name: Setup Test Environment
         id: setup_tests
         uses: stacks-network/actions/stacks-core/testenv@main
         with:
-          btc-version: "25.0" ## TODO: Remove this cache restore as no more needed
+          btc-version: "25.0" ## TODO: Remove this cache restore as no needed here?!
 
       - name: Check Docker
         run: docker version
@@ -64,7 +63,7 @@ jobs:
         run: docker pull bitcoin/bitcoin:${{ matrix.bitcoin_version }}
 
       - name: Run tests on bitcoind:${{ matrix.bitcoin_version }}
-        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT_MINS) }}
         env:
           BITCOIN_IMAGE_TAG: ${{ matrix.bitcoin_version }}
         run: |
@@ -73,4 +72,5 @@ jobs:
             --fail-fast \
             --status-level fail \
             --run-ignored all \
+            --no-tests fail \
             -E 'package(stacks-node) & binary(stacks-node) & test(/^tests::bitcoin::rpc_integrations::/)'
