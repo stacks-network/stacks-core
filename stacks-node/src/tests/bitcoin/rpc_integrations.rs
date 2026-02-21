@@ -191,18 +191,12 @@ fn test_get_blockchain_info_ok() {
 #[ignore]
 #[test]
 fn test_wallet_listing_and_creation_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let client = utils::create_client_from_container(&btc_container);
 
     let wallets = client.list_wallets().unwrap();
     assert_eq!(0, wallets.len());
@@ -228,18 +222,12 @@ fn test_wallet_listing_and_creation_ok() {
 #[ignore]
 #[test]
 fn test_wallet_creation_fails_if_already_exists() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let client = utils::create_client_from_container(&btc_container);
 
     client
         .create_wallet("mywallet1", Some(false))
@@ -263,19 +251,14 @@ fn test_wallet_creation_fails_if_already_exists() {
 #[ignore]
 #[test]
 fn test_get_new_address_for_each_address_type() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(&wallet, Some(false)).expect("OK");
 
     // Check Legacy p2pkh type OK
@@ -318,19 +301,14 @@ fn test_get_new_address_for_each_address_type() {
 #[ignore]
 #[test]
 fn test_generate_to_address_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(wallet, Some(false)).expect("OK");
     let address = client
         .get_new_address(wallet, None, Some(AddressType::Legacy))
@@ -345,19 +323,14 @@ fn test_generate_to_address_ok() {
 #[ignore]
 #[test]
 fn test_list_unspent_empty_with_empty_wallet() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(wallet, Some(false)).expect("OK");
 
     let utxos = client
@@ -369,19 +342,14 @@ fn test_list_unspent_empty_with_empty_wallet() {
 #[ignore]
 #[test]
 fn test_list_unspent_with_defaults() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(wallet, Some(false)).expect("OK");
 
     let address = client
@@ -401,19 +369,14 @@ fn test_list_unspent_with_defaults() {
 #[ignore]
 #[test]
 fn test_list_unspent_one_address_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(wallet, Some(false)).expect("OK");
     let address = client
         .get_new_address(wallet, None, Some(AddressType::Legacy))
@@ -455,19 +418,14 @@ fn test_list_unspent_one_address_ok() {
 #[ignore]
 #[test]
 fn test_list_unspent_two_addresses_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client.create_wallet(wallet, Some(false)).expect("OK");
 
     let address1 = client
@@ -535,19 +493,14 @@ fn test_list_unspent_two_addresses_ok() {
 #[ignore]
 #[test]
 fn test_generate_block_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
@@ -564,20 +517,14 @@ fn test_generate_block_ok() {
 #[ignore]
 #[test]
 fn test_get_raw_transaction_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .add_arg("-fallbackfee=0.0002")
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
@@ -606,20 +553,14 @@ fn test_get_raw_transaction_ok() {
 #[ignore]
 #[test]
 fn test_get_transaction_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .add_arg("-fallbackfee=0.0002")
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
@@ -646,19 +587,14 @@ fn test_get_transaction_ok() {
 #[ignore]
 #[test]
 fn test_get_descriptor_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, None)
         .expect("create wallet ok!");
@@ -676,19 +612,14 @@ fn test_get_descriptor_ok() {
 #[ignore]
 #[test]
 fn test_import_descriptor_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(true))
         .expect("create wallet ok!");
@@ -714,19 +645,14 @@ fn test_import_descriptor_ok() {
 #[ignore]
 #[test]
 fn test_import_descriptor_twice_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(true))
         .expect("create wallet ok!");
@@ -756,18 +682,12 @@ fn test_import_descriptor_twice_ok() {
 #[ignore]
 #[test]
 fn test_stop_bitcoind_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let client = utils::create_client_from_container(&btc_container);
     let msg = client.stop().expect("Should shutdown!");
     assert_eq!("Bitcoin Core stopping", msg);
 }
@@ -775,19 +695,14 @@ fn test_stop_bitcoind_ok() {
 #[ignore]
 #[test]
 fn test_invalidate_block_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
@@ -814,19 +729,12 @@ fn test_invalidate_block_ok() {
 #[ignore]
 #[test]
 fn test_get_block_hash_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let client = utils::create_client_from_container(&btc_container);
 
     let bhh = client
         .get_block_hash(0)
@@ -837,20 +745,14 @@ fn test_get_block_hash_ok() {
 #[ignore]
 #[test]
 fn test_send_raw_transaction_rebroadcast_ok() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config = utils::create_stx_config();
-    let wallet = &config.burnchain.wallet_name;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
-    btcd_controller
-        .add_arg("-fallbackfee=0.0002")
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_from_container(&btc_container);
 
-    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    let wallet = "mywallet";
     client
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
