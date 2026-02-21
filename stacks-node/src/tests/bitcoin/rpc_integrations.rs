@@ -32,7 +32,7 @@ mod utils {
 
     use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
     use crate::burnchains::rpc::rpc_transport::RpcAuth;
-    use crate::tests::bitcoin::core_container::{BitcoinCoreContainer, RPC_PASSWORD, RPC_USERNAME};
+    use crate::tests::bitcoin::core_container::{BitcoinCoreContainer, BITCOIN_RPC_PASSWORD, BITCOIN_RPC_USERNAME};
 
     pub fn get_bitcoin_image_tag() -> String {
         match env::var("BITCOIN_IMAGE_TAG") {
@@ -41,12 +41,24 @@ mod utils {
         }
     }
 
+    pub fn create_container_no_auth(image_tag: &str) -> BitcoinCoreContainer {
+        let mut result = BitcoinCoreContainer::new(image_tag);
+        result
+            .add_arg("-regtest=1")
+            .add_arg("-server=1")
+            .add_arg("-rest=1")
+            .add_arg("-rpcbind=0.0.0.0")
+            .add_arg("-rpcallowip=0.0.0.0/0")
+            .add_arg("-rpcallowip=::/0");
+        result
+    }
+
     pub fn create_client_from_container(container: &BitcoinCoreContainer) -> BitcoinRpcClient {
         create_client_from_container_and_auth(
             container,
             RpcAuth::Basic {
-                username: RPC_USERNAME.into(),
-                password: RPC_PASSWORD.into(),
+                username: BITCOIN_RPC_USERNAME.into(),
+                password: BITCOIN_RPC_PASSWORD.into(),
             },
         )
     }
@@ -63,7 +75,7 @@ mod utils {
     ) -> BitcoinRpcClient {
         BitcoinRpcClient::new(
             "127.0.0.1".to_string(),
-            container.get_rpc_port(),
+            container.get_host_rpc_port(),
             auth,
             300,
             "stacks".to_string(),
@@ -94,9 +106,7 @@ fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
 fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
     let image_tag = utils::get_bitcoin_image_tag();
 
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
-    btc_container.unset_arg("rpcuser");
-    btc_container.unset_arg("rpcpassword");
+    let mut btc_container = utils::create_container_no_auth(&image_tag);
     btc_container.start();
 
     let client = utils::create_client_no_auth_from_container(&btc_container);
