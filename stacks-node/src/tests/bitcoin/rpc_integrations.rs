@@ -13,7 +13,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Integration tests for [`BitcoinRpcClient`]
+//! Integration tests for [`BitcoinRpcClient`].
+//!
+//! These tests run against a real `bitcoind` node in Docker (via
+//! `BitcoinCoreContainer`). Set `BITCOIN_IMAGE_TAG` to run the suite
+//! against a specific Bitcoin Core image tag (for example, `25` or `25.2`).
+//! If `BITCOIN_IMAGE_TAG` is not set (or is empty),
+//! tests fall back to `BITCOIN_IMAGE_TAG_FALLBACK`.
+//!
+//! CI uses this mechanism to automate checks across
+//! the relevant set of Bitcoin Core versions.
 
 use stacks::burnchains::bitcoin::address::LegacyBitcoinAddressType;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
@@ -32,12 +41,17 @@ mod utils {
 
     use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
     use crate::burnchains::rpc::rpc_transport::RpcAuth;
-    use crate::tests::bitcoin::core_container::{BitcoinCoreContainer, BITCOIN_RPC_PASSWORD, BITCOIN_RPC_USERNAME};
+    use crate::tests::bitcoin::core_container::{
+        BitcoinCoreContainer, BITCOIN_RPC_PASSWORD, BITCOIN_RPC_USERNAME,
+    };
+
+    const ENV_BITCOIN_IMAGE_TAG: &str = "BITCOIN_IMAGE_TAG";
+    const BITCOIN_IMAGE_TAG_FALLBACK: &str = "25";
 
     pub fn get_bitcoin_image_tag() -> String {
-        match env::var("BITCOIN_IMAGE_TAG") {
+        match env::var(ENV_BITCOIN_IMAGE_TAG) {
             Ok(tag) if !tag.trim().is_empty() => tag,
-            _ => "25".to_string(),
+            _ => BITCOIN_IMAGE_TAG_FALLBACK.to_string(),
         }
     }
 
