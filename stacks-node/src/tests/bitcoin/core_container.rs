@@ -1,4 +1,5 @@
 use std::cell::OnceCell;
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use testcontainers::core::WaitFor;
@@ -12,7 +13,10 @@ pub struct BitcoinCoreContainer {
     image_tag: String,
     raw_container: OnceCell<Container<GenericImage>>,
     /// Command-line arguments used to launch the process.
-    args: Vec<String>,
+    ///
+    /// The map key is the argument name without leading dashes (e.g. `rpcuser`) and the value is the
+    /// argument value (e.g. `stacksdev`).
+    args: BTreeMap<String, String>,
 }
 
 impl BitcoinCoreContainer {
@@ -36,37 +40,50 @@ impl BitcoinCoreContainer {
         BitcoinCoreContainer {
             image_tag: image_tag.into(),
             raw_container: OnceCell::new(),
-            args: vec![],
+            args: BTreeMap::new(),
         }
     }
 
     pub fn new_with_defaults(image_tag: &str) -> Self {
         let mut result = Self::new(image_tag);
         result
-            .set_arg("-regtest=1")
-            .set_arg("-server=1")
-            .set_arg("-txindex=1")
-            .set_arg("-dnsseed=0")
-            .set_arg("-dns=0")
-            .set_arg("-discover=0")
-            .set_arg("-listenonion=0")
-            .set_arg("-rest=1")
-            .set_arg("-rpcbind=0.0.0.0")
-            .set_arg("-rpcallowip=0.0.0.0/0")
-            .set_arg("-rpcallowip=::/0")
-            .set_arg(format!("-rpcuser={}", RPC_USERNAME))
-            .set_arg(format!("-rpcpassword={}", RPC_PASSWORD))
-            .set_arg("-fallbackfee=0.00001");
+            .set_arg("regtest", "1")
+            .set_arg("server", "1")
+            .set_arg("txindex", "1")
+            .set_arg("dnsseed", "0")
+            .set_arg("dns", "0")
+            .set_arg("discover", "0")
+            .set_arg("listenonion", "0")
+            .set_arg("rest", "1")
+            .set_arg("rpcbind", "0.0.0.0")
+            .set_arg("rpcallowip", "0.0.0.0/0")
+            .set_arg("rpcallowip", "::/0")
+            .set_arg("rpcuser", RPC_USERNAME)
+            .set_arg("rpcpassword", RPC_PASSWORD)
+            .set_arg("fallbackfee", "0.00001");
         result
     }
 
-    /// Add argument (like "-name=value") to be used to run bitcoind process
-    pub fn set_arg(&mut self, arg: impl Into<String>) -> &mut Self {
+    /// Add or replace an argument to be used to run
+    /// bitcoind process.
+    ///
+    /// Setting the same argument name multiple times keeps the latest value.
+    pub fn set_arg(&mut self, key: impl Into<String>, value: impl Into<String>) -> &mut Self {
         if self.is_started() {
             panic!("the container is already started");
         }
 
-        self.args.push(arg.into());
+        self.args.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn unset_arg(&mut self, name: impl Into<String>) -> &mut Self {
+        if self.is_started() {
+            panic!("the container is already started");
+        }
+
+        let name = name.into();
+        self.args.remove(&name);
         self
     }
 
@@ -78,7 +95,12 @@ impl BitcoinCoreContainer {
         let container = GenericImage::new("bitcoin/bitcoin", &self.image_tag)
             .with_wait_for(WaitFor::message_on_stdout("Done loading"))
             .with_startup_timeout(Duration::from_secs(60))
-            .with_cmd(self.args.clone())
+            .with_cmd(
+                self.args
+                    .iter()
+                    .map(|(arg_name, arg_value)| format!("-{arg_name}={arg_value}"))
+                    .collect::<Vec<String>>(),
+            )
             .start()
             .expect("Failed to start bitcoind container");
 
@@ -120,7 +142,6 @@ mod tests {
     #[test]
     fn test_start_and_stop() {
         let mut container = BitcoinCoreContainer::new("25");
-        container.set_arg("-chain=regtest").set_arg("-server");
 
         assert!(!container.is_started());
 

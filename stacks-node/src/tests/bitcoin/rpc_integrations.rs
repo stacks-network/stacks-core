@@ -22,7 +22,6 @@ use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 use stacks::types::chainstate::BurnchainHeaderHash;
 
-use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType;
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
@@ -75,25 +74,30 @@ mod utils {
         }
     }
 
-    pub fn create_client_no_auth_from_stx_config(config: &Config) -> BitcoinRpcClient {
-        BitcoinRpcClient::new(
-            config.burnchain.peer_host.clone(),
-            config.burnchain.rpc_port,
-            RpcAuth::None,
-            config.burnchain.timeout,
-            "stacks".to_string(),
-        )
-        .expect("Rpc client creation should be ok!")
-    }
-
     pub fn create_client_from_container(container: &BitcoinCoreContainer) -> BitcoinRpcClient {
-        BitcoinRpcClient::new(
-            "127.0.0.1".to_string(),
-            container.get_rpc_port(),
+        create_client_from_container_and_auth(
+            container,
             RpcAuth::Basic {
                 username: RPC_USERNAME.into(),
                 password: RPC_PASSWORD.into(),
             },
+        )
+    }
+
+    pub fn create_client_no_auth_from_container(
+        container: &BitcoinCoreContainer,
+    ) -> BitcoinRpcClient {
+        create_client_from_container_and_auth(container, RpcAuth::None)
+    }
+
+    fn create_client_from_container_and_auth(
+        container: &BitcoinCoreContainer,
+        auth: RpcAuth,
+    ) -> BitcoinRpcClient {
+        BitcoinRpcClient::new(
+            "127.0.0.1".to_string(),
+            container.get_rpc_port(),
+            auth,
             300,
             "stacks".to_string(),
         )
@@ -104,21 +108,14 @@ mod utils {
 #[ignore]
 #[test]
 fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let config_with_auth = utils::create_stx_config();
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.start();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config_with_auth);
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
-
-    let client = utils::create_client_no_auth_from_stx_config(&config_with_auth);
+    let client = utils::create_client_no_auth_from_container(&btc_container);
 
     let err = client.get_blockchain_info().expect_err("Should fail!");
-
     assert!(
         matches!(err, BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_))),
         "Expected RpcError::Network, got: {err:?}"
@@ -128,24 +125,16 @@ fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
 #[ignore]
 #[test]
 fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
+    let image_tag = utils::get_bitcoin_image_tag();
 
-    let mut config_no_auth = utils::create_stx_config();
-    config_no_auth.burnchain.username = None;
-    config_no_auth.burnchain.password = None;
+    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    btc_container.unset_arg("rpcuser");
+    btc_container.unset_arg("rpcpassword");
+    btc_container.start();
 
-    let client = utils::create_client_no_auth_from_stx_config(&config_no_auth);
-
-    let mut btcd_controller =
-        BitcoinCoreController::from_stx_config_and_client(&config_no_auth, client.clone());
-    btcd_controller
-        .start_bitcoind()
-        .expect("bitcoind should be started!");
+    let client = utils::create_client_no_auth_from_container(&btc_container);
 
     let err = client.get_blockchain_info().expect_err("Should fail!");
-
     assert!(
         matches!(err, BitcoinRpcClientError::Rpc(RpcError::NetworkIO(_))),
         "Expected RpcError::Network, got: {err:?}"
