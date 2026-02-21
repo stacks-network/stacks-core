@@ -97,14 +97,23 @@ pub enum DefineFunctionsParsed<'a> {
 
 #[derive(Debug)]
 pub enum DefineResult {
+    /// `define-constant`
     Variable(ClarityName, Value),
+    /// `define-private`, `define-public`, `define-read-only`
     Function(ClarityName, DefinedFunction),
+    /// `define-map`
     Map(ClarityName, TypeSignature, TypeSignature),
+    /// `define-data-var`
     PersistedVariable(ClarityName, TypeSignature, Value),
+    /// `define-fungible-token`
     FungibleToken(ClarityName, Option<u128>),
+    /// `define-non-fungible-token`
     NonFungibleAsset(ClarityName, TypeSignature),
+    /// `define-trait`
     Trait(ClarityName, BTreeMap<ClarityName, FunctionSignature>),
+    /// `use-trait`
     UseTrait(ClarityName, TraitIdentifier),
+    /// `impl-trait`
     ImplTrait(TraitIdentifier),
     NoDefine,
 }
@@ -120,6 +129,7 @@ fn check_legal_define(
     }
 }
 
+/// Handle a define-constant statement, which defines a named constant.
 fn handle_define_variable(
     variable: &ClarityName,
     expression: &SymbolicExpression,

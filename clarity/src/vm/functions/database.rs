@@ -89,7 +89,7 @@ pub fn special_contract_call(
             contract_identifier,
         ))) => {
             // Static dispatch
-            (contract_identifier, None)
+            (contract_identifier.clone(), None)
         }
         SymbolicExpressionType::Atom(contract_ref) => {
             // Dynamic dispatch
@@ -125,7 +125,7 @@ pub fn special_contract_call(
                     // then we can simply rely on the analysis performed at publish time.
                     if contract_context_to_check.is_explicitly_implementing_trait(trait_identifier)
                     {
-                        (&trait_data.contract_identifier, None)
+                        (trait_data.contract_identifier.clone(), None)
                     } else {
                         let trait_name = trait_identifier.name.to_string();
 
@@ -185,12 +185,27 @@ pub fn special_contract_call(
                             )),
                         )?;
                         (
-                            &trait_data.contract_identifier,
+                            trait_data.contract_identifier.clone(),
                             Some(expected_sig.returns.clone()),
                         )
                     }
                 }
-                _ => return Err(RuntimeCheckErrorKind::ContractCallExpectName.into()),
+                _ => {
+                    // In Clarity 2+, the type-checker allows contract calls through "callable"
+                    // values, but before epoch 3.4, this would cause a runtime error.
+                    if env
+                        .contract_context
+                        .get_clarity_version()
+                        .supports_callables()
+                        && env.epoch().supports_call_with_constant()
+                        && let Some(Value::Principal(PrincipalData::Contract(contract_identifier))) =
+                            env.contract_context.lookup_variable(contract_ref)
+                    {
+                        (contract_identifier.clone(), None)
+                    } else {
+                        return Err(RuntimeCheckErrorKind::ContractCallExpectName.into());
+                    }
+                }
             }
         }
         _ => return Err(RuntimeCheckErrorKind::ContractCallExpectName.into()),
@@ -200,15 +215,15 @@ pub fn special_contract_call(
 
     let mut nested_env = env.nest_with_caller(contract_principal);
     let result = if nested_env.short_circuit_contract_call(
-        contract_identifier,
+        &contract_identifier,
         function_name,
         &rest_args_sizes,
     )? {
         nested_env.run_free(|free_env| {
-            free_env.execute_contract(contract_identifier, function_name, &rest_args, false)
+            free_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
         })
     } else {
-        nested_env.execute_contract(contract_identifier, function_name, &rest_args, false)
+        nested_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
     }?;
 
     // sanitize contract-call outputs in epochs >= 2.4
