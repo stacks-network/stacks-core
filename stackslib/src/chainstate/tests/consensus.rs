@@ -44,7 +44,8 @@ use crate::chainstate::stacks::{
 };
 use crate::chainstate::tests::TestChainstate;
 use crate::core::test_util::{
-    make_contract_call, make_contract_publish_versioned, make_stacks_transfer_tx, to_addr,
+    make_contract_call, make_contract_call_tx, make_contract_publish_versioned,
+    make_stacks_transfer_tx, to_addr,
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::tests::NakamotoBootPlan;
@@ -1800,6 +1801,25 @@ impl ConsensusUtils {
             &[],
         );
         StacksTransaction::consensus_deserialize(&mut call_tx.as_slice()).unwrap()
+    }
+
+    /// Like `new_call_tx` but accepts function arguments.
+    pub fn new_call_tx_with_args(
+        nonce: u64,
+        contract_name: &str,
+        funct_name: &str,
+        args: &[ClarityValue],
+    ) -> StacksTransaction {
+        make_contract_call_tx(
+            &FAUCET_PRIV_KEY,
+            nonce,
+            200,
+            CHAIN_ID_TESTNET,
+            &to_addr(&FAUCET_PRIV_KEY),
+            contract_name,
+            funct_name,
+            args,
+        )
     }
 }
 
