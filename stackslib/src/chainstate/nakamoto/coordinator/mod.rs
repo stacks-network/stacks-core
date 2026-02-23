@@ -154,7 +154,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                 debug_log,
             )
         } else if matches!(pox_version, PoxVersions::Pox5) {
-            Err(Error::ChainstateError(ChainstateError::InvalidChainstateDB)) // PLACEHOLDER (rob-stacks)
+            todo!() // PLACEHOLDER (rob-stacks)
         } else {
             Err(
                 "Active PoX contract version at tip is Pre-PoX-4, the signer set is not fetchable"

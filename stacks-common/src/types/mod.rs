@@ -34,6 +34,7 @@ use crate::consts::{
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
+    PEER_VERSION_EPOCH_3_5,
 };
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
@@ -131,6 +132,7 @@ define_stacks_epochs! {
     Epoch32 = 0x03002,
     Epoch33 = 0x03003,
     Epoch34 = 0x03004,
+    Epoch35 = 0x03005,
 }
 
 #[derive(Debug)]
@@ -488,7 +490,8 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => MempoolCollectionBehavior::ByReceiveTime,
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => MempoolCollectionBehavior::ByReceiveTime,
         }
     }
 
@@ -508,7 +511,8 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => true,
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => true,
         }
     }
 
@@ -528,7 +532,8 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => true,
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => true,
         }
     }
 
@@ -545,7 +550,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => false,
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 | StacksEpochId::Epoch35 => true,
         }
     }
 
@@ -565,7 +570,8 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => true,
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => true,
         }
     }
 
@@ -585,7 +591,8 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => true,
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => true,
         }
     }
 
@@ -604,7 +611,8 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => true,
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => true,
         }
     }
 
@@ -655,7 +663,8 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => MINING_COMMITMENT_FREQUENCY_NAKAMOTO,
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => MINING_COMMITMENT_FREQUENCY_NAKAMOTO,
         }
     }
 
@@ -695,7 +704,8 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => cur_reward_cycle > first_epoch30_reward_cycle,
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => cur_reward_cycle > first_epoch30_reward_cycle,
         }
     }
 
@@ -814,7 +824,8 @@ impl StacksEpochId {
             StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => self.coinbase_reward_sip029(
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => self.coinbase_reward_sip029(
                 mainnet,
                 first_burnchain_height,
                 current_burnchain_height,
@@ -835,7 +846,10 @@ impl StacksEpochId {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31 => false,
-            StacksEpochId::Epoch32 | StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
+            StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => true,
         }
     }
 
@@ -852,7 +866,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => false,
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 | StacksEpochId::Epoch35 => true,
         }
     }
 
@@ -873,7 +887,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => false,
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 | StacksEpochId::Epoch35 => true,
         }
     }
 
@@ -892,7 +906,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => false,
-            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => true,
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 | StacksEpochId::Epoch35 => true,
         }
     }
 
@@ -910,7 +924,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33 => false,
-            StacksEpochId::Epoch34 => true,
+            StacksEpochId::Epoch34 | StacksEpochId::Epoch35 => true,
         }
     }
 
@@ -930,6 +944,7 @@ impl StacksEpochId {
             StacksEpochId::Epoch32 => PEER_VERSION_EPOCH_3_2,
             StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_3,
             StacksEpochId::Epoch34 => PEER_VERSION_EPOCH_3_4,
+            StacksEpochId::Epoch35 => PEER_VERSION_EPOCH_3_5,
         }
     }
 
@@ -960,6 +975,7 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch32 => write!(f, "3.2"),
             StacksEpochId::Epoch33 => write!(f, "3.3"),
             StacksEpochId::Epoch34 => write!(f, "3.4"),
+            StacksEpochId::Epoch35 => write!(f, "3.5"),
         }
     }
 }
@@ -982,6 +998,7 @@ impl FromStr for StacksEpochId {
             "3.2" => Ok(StacksEpochId::Epoch32),
             "3.3" => Ok(StacksEpochId::Epoch33),
             "3.4" => Ok(StacksEpochId::Epoch34),
+            "3.5" => Ok(StacksEpochId::Epoch35),
             _ => Err("Invalid epoch string"),
         }
     }

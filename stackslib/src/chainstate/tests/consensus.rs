@@ -98,6 +98,13 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity4,
             ClarityVersion::Clarity5,
         ],
+        StacksEpochId::Epoch35 => &[
+            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity2,
+            ClarityVersion::Clarity3,
+            ClarityVersion::Clarity4,
+            ClarityVersion::Clarity5,
+        ],
     }
 }
 
@@ -381,7 +388,8 @@ impl ConsensusChain<'_> {
                 StacksEpochId::Epoch30
                 | StacksEpochId::Epoch31
                 | StacksEpochId::Epoch32
-                | StacksEpochId::Epoch33 => {
+                | StacksEpochId::Epoch33
+                | StacksEpochId::Epoch34 => {
                     // Only need 1 block per Epoch
                     if num_blocks_per_epoch.contains_key(epoch_id) {
                         start_height + 1
@@ -392,7 +400,7 @@ impl ConsensusChain<'_> {
                     }
                 }
                 // The last Epoch height never ends
-                StacksEpochId::Epoch34 => STACKS_EPOCH_MAX,
+                StacksEpochId::Epoch35 => STACKS_EPOCH_MAX,
             };
 
             // Special case the Epoch 2.5 -> Epoch 3.0 transition
