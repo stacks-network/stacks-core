@@ -1073,6 +1073,9 @@ fn block_info_tests(use_primary_testnet: bool) {
             ClarityVersion::Clarity2 => panic!("Clarity2 not supported in this test"),
             ClarityVersion::Clarity3 => &clar3_contract_id,
             ClarityVersion::Clarity4 => &clar4_contract_id,
+            // Later versions of Clarity are just running the same code as Clarity4 for now
+            // so it's not necessary to test them all individually here.
+            ClarityVersion::Clarity5 => panic!("Clarity5 not supported in this test"),
         };
         peer.with_db_state(|sortdb, chainstate, _, _| {
             let sortdb_handle = sortdb.index_handle_at_tip();
@@ -2456,7 +2459,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         }
         let block_id = StacksBlockId(sn.winning_stacks_block_hash.0);
 
-        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
         let sort_db_tx = sort_db.tx_begin_at_tip();
 
         let stx_balance = clarity_instance
@@ -2522,7 +2525,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     {
         let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.chain.sortdb.as_mut().unwrap();
-        let (mut chainstate_tx, _) = chainstate.chainstate_tx_begin().unwrap();
+        let (mut chainstate_tx, _) = chainstate.chainstate_tx_begin();
         for i in 0..24 {
             let matured_reward_opt = NakamotoChainState::get_matured_miner_reward_schedules(
                 &mut chainstate_tx,
@@ -3199,7 +3202,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         }
         let block_id = StacksBlockId(sn.winning_stacks_block_hash.0);
 
-        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
         let sort_db_tx = sort_db.tx_begin_at_tip();
 
         let stx_balance = clarity_instance
@@ -3387,7 +3390,7 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
                         &format!("test-{contract_count}"),
                         smart_contract,
                         &private_key,
-                        ClarityVersion::Clarity4,
+                        ClarityVersion::latest(),
                         account.nonce,
                         u64::try_from(smart_contract.len() * 2).unwrap(),
                     );
@@ -3924,7 +3927,7 @@ fn process_next_nakamoto_block_deadlock() {
 
     // Lock the chainstate db
     info!("  -------------------------------   TRYING TO LOCK THE CHAINSTATE");
-    let chainstate_tx = chainstate.chainstate_tx_begin().unwrap();
+    let chainstate_tx = chainstate.chainstate_tx_begin();
 
     info!("  -------------------------------   SORTDB AND CHAINSTATE LOCKED");
     drop(chainstate_tx);

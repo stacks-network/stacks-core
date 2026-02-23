@@ -15,10 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity_types::errors::ClarityTypeError;
 
-use crate::vm::errors::{CheckErrorKind, EarlyReturnError, SyntaxBindingError, VmExecutionError};
-use crate::vm::types::{
-    ListData, SequenceData, TupleData, TupleTypeSignature, TypeSignature, Value,
+use crate::vm::errors::{
+    ClarityEvalError, EarlyReturnError, RuntimeCheckErrorKind, SyntaxBindingError, VmExecutionError,
 };
+use crate::vm::types::{ListData, SequenceData, TupleData, Value};
 use crate::vm::{ClarityName, execute};
 
 fn assert_executes(expected: Result<Value, ClarityTypeError>, input: &str) {
@@ -296,7 +296,9 @@ fn test_set_response_variable() {
     "#;
     let contract_src = contract_src.to_string();
     assert_eq!(
-        Err(EarlyReturnError::UnwrapFailed(Box::new(Value::Int(5))).into()),
+        Err(ClarityEvalError::Vm(
+            EarlyReturnError::UnwrapFailed(Box::new(Value::Int(5))).into()
+        )),
         execute(&contract_src)
     );
 }
@@ -474,7 +476,7 @@ fn datamap_errors() {
     for program in tests.iter() {
         assert_eq!(
             execute(program).unwrap_err(),
-            CheckErrorKind::NoSuchMap("non-existent".to_string()).into()
+            RuntimeCheckErrorKind::Unreachable("No such map: non-existent".to_string()).into()
         );
     }
 }
@@ -495,7 +497,9 @@ fn lists_system_2() {
 
     matches!(
         execute(test),
-        Err(VmExecutionError::Unchecked(CheckErrorKind::TypeError(_, _)))
+        Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeError(_, _)
+        )))
     );
 }
 
@@ -560,9 +564,8 @@ fn lists_system() {
         println!("{test:#?}");
         assert!(matches!(
             test,
-            Err(VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(
-                _,
-                _
+            Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TypeValueError(_, _)
             )))
         ));
     }
@@ -626,7 +629,9 @@ fn tuples_system() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))) => true,
+            Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TypeValueError(_, _),
+            ))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -646,12 +651,19 @@ fn bad_define_maps() {
         "(define-map lists { name: int } contents 5)",
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
-    let expected: Vec<VmExecutionError> = vec![
-        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0)).into(),
-        CheckErrorKind::UnknownTypeName("contents".to_string()).into(),
-        CheckErrorKind::ExpectedName.into(),
-        CheckErrorKind::IncorrectArgumentCount(3, 4).into(),
-        CheckErrorKind::InvalidTypeDescription.into(),
+    let expected: Vec<ClarityEvalError> = vec![
+        RuntimeCheckErrorKind::Unreachable(format!(
+            "Bad syntax binding: {}",
+            SyntaxBindingError::tuple_cons_invalid_length(0)
+        ))
+        .into(),
+        RuntimeCheckErrorKind::Unreachable("Unknown type name: contents".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()).into(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(3, 4).into(),
+        RuntimeCheckErrorKind::Unreachable(
+            "Unexpected error type during runtime analysis: InvalidTypeDescription".to_string(),
+        )
+        .into(),
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
@@ -671,15 +683,12 @@ fn bad_tuples() {
         "(get 1234 (tuple (name 1)))",
     ];
     let expected = vec![
-        CheckErrorKind::NameAlreadyUsed("name".into()),
-        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(0)),
-        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(1)),
-        CheckErrorKind::NoSuchTupleField(
-            "value".into(),
-            TupleTypeSignature::try_from(vec![("name".into(), TypeSignature::IntType)]).unwrap(),
-        ),
-        CheckErrorKind::IncorrectArgumentCount(2, 3),
-        CheckErrorKind::ExpectedName,
+        RuntimeCheckErrorKind::NameAlreadyUsed("name".into()),
+        RuntimeCheckErrorKind::Unreachable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_not_list(0))),
+        RuntimeCheckErrorKind::Unreachable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_invalid_length(1))),
+        RuntimeCheckErrorKind::Unreachable("Unexpected error type during runtime analysis: NoSuchTupleField(\"value\", TupleTypeSignature { \"name\": int,})".to_string()),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3),
+        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()),
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
@@ -772,7 +781,9 @@ fn test_non_tuple_map_get_set() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))) => true,
+            Err(ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::TypeValueError(_, _),
+            ))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false

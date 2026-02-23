@@ -18,6 +18,7 @@
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check as run_analysis_helper;
@@ -25,6 +26,7 @@ use crate::vm::ast::definition_sorter::DefinitionSorter;
 use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
 use crate::vm::ast::expression_identifier::ExpressionIdentifier;
 use crate::vm::ast::parser;
+use crate::vm::ast::stack_depth_checker::StackDepthLimits;
 use crate::vm::ast::types::ContractAST;
 use crate::vm::types::QualifiedContractIdentifier;
 
@@ -36,7 +38,10 @@ fn test_clarity_versions_definition_sorter(#[case] version: ClarityVersion) {}
 
 fn run_scoped_parsing_helper(contract: &str, version: ClarityVersion) -> ParseResult<ContractAST> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let pre_expressions = parser::v1::parse(contract)?;
+    let pre_expressions = parser::v1::parse(
+        contract,
+        StackDepthLimits::for_epoch(StacksEpochId::Epoch2_05),
+    )?;
     let mut contract_ast = ContractAST::new(contract_identifier, pre_expressions);
     ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast, version)?;
     DefinitionSorter::run_pass(&mut contract_ast, &mut (), version)?;

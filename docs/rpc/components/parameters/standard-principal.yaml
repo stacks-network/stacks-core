@@ -1,0 +1,8 @@
+name: principal
+in: path
+required: true
+description: |
+  Standard Stacks address (standard principal, not contract principal).
+  Must be 28-41 characters long using Stacks c32check format.
+schema:
+  $ref: '../schemas/standard-principal.schema.yaml'

@@ -20,7 +20,9 @@ pub mod lexer;
 
 use std::{error, fmt};
 
-pub use analysis::{CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind};
+pub use analysis::{
+    CommonCheckErrorKind, RuntimeCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
+};
 pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
@@ -90,7 +92,7 @@ pub enum ClarityTypeError {
     InvalidUrlString(String),
     /// Empty tuple is not allowed in Clarity.
     EmptyTuplesNotAllowed,
-    /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
+    /// Supertype (i.e. common denominator between two types) exceeds the maximum allowed size or complexity.
     SupertypeTooLarge,
     /// Type description is invalid or malformed, preventing proper type-checking.
     InvalidTypeDescription,

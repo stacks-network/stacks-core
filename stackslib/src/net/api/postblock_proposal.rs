@@ -44,6 +44,7 @@ use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, Transact
 use crate::clarity_vm::clarity::ClarityError;
 use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::core::mempool::ProposalCallbackReceiver;
+use crate::net::connection::ConnectionOptions;
 use crate::net::http::{
     http_reason, parse_json, Error, HttpContentType, HttpRequest, HttpRequestContents,
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
@@ -51,9 +52,13 @@ use crate::net::http::{
 };
 use crate::net::httpcore::RPCRequestHandler;
 use crate::net::{Error as NetError, StacksNodeState};
+use crate::util_lib::db::Error as db_error;
 
+/// Test flag to stall block validation per endpoint with a matching passphrase
 #[cfg(any(test, feature = "testing"))]
-pub static TEST_VALIDATE_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+pub static TEST_VALIDATE_STALL: LazyLock<TestFlag<Vec<Option<String>>>> =
+    LazyLock::new(TestFlag::default);
+
 #[cfg(any(test, feature = "testing"))]
 /// Artificial delay to add to block validation.
 pub static TEST_VALIDATE_DELAY_DURATION_SECS: LazyLock<TestFlag<u64>> =
@@ -82,7 +87,8 @@ define_u8_enum![ValidateRejectCode {
     InvalidTransactionReplay = 7,
     InvalidParentBlock = 8,
     InvalidTimestamp = 9,
-    NetworkChainMismatch = 10
+    NetworkChainMismatch = 10,
+    NotFoundError = 11
 }];
 
 pub static TOO_MANY_REQUESTS_STATUS: u16 = 429;
@@ -139,9 +145,13 @@ where
 {
     fn from(value: T) -> Self {
         let ce: ChainError = value.into();
+        let reason_code = match ce {
+            ChainError::DBError(db_error::NotFoundError) => ValidateRejectCode::NotFoundError,
+            _ => ValidateRejectCode::ChainstateError,
+        };
         Self {
             reason: format!("Chainstate Error: {ce}"),
-            reason_code: ValidateRejectCode::ChainstateError,
+            reason_code,
         }
     }
 }
@@ -189,6 +199,23 @@ impl BlockValidateResponse {
         }
     }
 }
+
+#[cfg(any(test, feature = "testing"))]
+fn fault_injection_validation_stall(auth_token: Option<String>) {
+    if TEST_VALIDATE_STALL.get().contains(&auth_token) {
+        // Do an extra check just so we don't log EVERY time.
+        warn!("Block validation is stalled due to testing directive."; "auth_token" => ?auth_token);
+        while TEST_VALIDATE_STALL.get().contains(&auth_token) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        info!(
+            "Block validation is no longer stalled due to testing directive. Continuing..."; "auth_token" => ?auth_token
+        );
+    }
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn fault_injection_validation_stall(_auth_token: Option<String>) {}
 
 #[cfg(any(test, feature = "testing"))]
 fn fault_injection_validation_delay() {
@@ -239,13 +266,15 @@ impl NakamotoBlockProposal {
         sortdb: SortitionDB,
         mut chainstate: StacksChainState,
         receiver: Box<dyn ProposalCallbackReceiver>,
-        timeout_secs: u64,
+        connection_opts: &ConnectionOptions,
     ) -> Result<JoinHandle<()>, std::io::Error> {
+        let timeout_secs = connection_opts.block_proposal_validation_timeout_secs;
+        let auth_token = connection_opts.auth_token.clone();
         thread::Builder::new()
             .name("block-proposal".into())
             .spawn(move || {
                 let result = self
-                    .validate(&sortdb, &mut chainstate, timeout_secs)
+                    .validate(&sortdb, &mut chainstate, timeout_secs, auth_token)
                     .map_err(|reason| BlockValidateReject {
                         signer_signature_hash: self.block.header.signer_signature_hash(),
                         reason_code: reason.reason_code,
@@ -410,20 +439,9 @@ impl NakamotoBlockProposal {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
         timeout_secs: u64,
+        auth_token: Option<String>,
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
-        #[cfg(any(test, feature = "testing"))]
-        {
-            if TEST_VALIDATE_STALL.get() {
-                // Do an extra check just so we don't log EVERY time.
-                warn!("Block validation is stalled due to testing directive.");
-                while TEST_VALIDATE_STALL.get() {
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                }
-                info!(
-                    "Block validation is no longer stalled due to testing directive. Continuing..."
-                );
-            }
-        }
+        fault_injection_validation_stall(auth_token);
         let start = Instant::now();
 
         fault_injection_validation_delay();
@@ -543,6 +561,21 @@ impl NakamotoBlockProposal {
             return Err(BlockValidateRejectReason {
                 reason_code: ValidateRejectCode::InvalidTimestamp,
                 reason: "Block timestamp is too far into the future".into(),
+            });
+        }
+
+        if self.block.header.chain_length
+            != parent_stacks_header.stacks_block_height.saturating_add(1)
+        {
+            warn!(
+                "Rejected block proposal";
+                "reason" => "Block height is non-contiguous with parent",
+                "block_height" => self.block.header.chain_length,
+                "parent_block_height" => parent_stacks_header.stacks_block_height,
+            );
+            return Err(BlockValidateRejectReason {
+                reason_code: ValidateRejectCode::InvalidBlock,
+                reason: "Block height is non-contiguous with parent".into(),
             });
         }
 
@@ -1062,9 +1095,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                     sortdb,
                     chainstate,
                     receiver,
-                    network
-                        .get_connection_opts()
-                        .block_proposal_validation_timeout_secs,
+                    network.get_connection_opts(),
                 )
                 .map_err(|_e| {
                     (

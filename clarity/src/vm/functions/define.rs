@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
-    CheckErrorKind, CommonCheckErrorKind, SyntaxBindingErrorType, VmExecutionError,
+    CommonCheckErrorKind, RuntimeCheckErrorKind, SyntaxBindingErrorType, VmExecutionError,
     check_argument_count, check_arguments_at_least,
 };
 use crate::vm::eval;
@@ -95,6 +95,7 @@ pub enum DefineFunctionsParsed<'a> {
     },
 }
 
+#[derive(Debug)]
 pub enum DefineResult {
     Variable(ClarityName, Value),
     Function(ClarityName, DefinedFunction),
@@ -111,9 +112,9 @@ pub enum DefineResult {
 fn check_legal_define(
     name: &str,
     contract_context: &ContractContext,
-) -> Result<(), CheckErrorKind> {
+) -> Result<(), RuntimeCheckErrorKind> {
     if contract_context.is_name_used(name) {
-        Err(CheckErrorKind::NameAlreadyUsed(name.to_string()))
+        Err(RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()))
     } else {
         Ok(())
     }
@@ -137,17 +138,22 @@ fn handle_define_function(
     env: &mut Environment,
     define_type: DefineType,
 ) -> Result<DefineResult, VmExecutionError> {
-    let (function_symbol, arg_symbols) = signature
-        .split_first()
-        .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
+    let (function_symbol, arg_symbols) =
+        signature
+            .split_first()
+            .ok_or(RuntimeCheckErrorKind::Unreachable(
+                "Define function bad signature".to_string(),
+            ))?;
 
     let function_name = function_symbol
         .match_atom()
-        .ok_or(CheckErrorKind::ExpectedName)?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
+            "Expected name".to_string(),
+        ))?;
 
     check_legal_define(function_name, env.contract_context)?;
 
-    let arguments = parse_name_type_pairs::<_, CheckErrorKind>(
+    let arguments = parse_name_type_pairs::<_, RuntimeCheckErrorKind>(
         *env.epoch(),
         arg_symbols,
         SyntaxBindingErrorType::Eval,
@@ -220,7 +226,7 @@ fn handle_define_fungible_token(
                 Some(total_supply_int),
             ))
         } else {
-            Err(CheckErrorKind::TypeValueError(
+            Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
                 Box::new(total_supply_value),
             )
@@ -478,7 +484,7 @@ pub fn evaluate_define(
 #[cfg(test)]
 mod test {
     use clarity_types::Value;
-    use clarity_types::errors::CheckErrorKind;
+    use clarity_types::errors::RuntimeCheckErrorKind;
     use clarity_types::representations::SymbolicExpression;
     use clarity_types::types::QualifiedContractIdentifier;
     use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -532,14 +538,15 @@ mod test {
             None,
         );
 
-        let result = handle_define_function(&bad_signature, &body, &mut env, DefineType::Public);
+        let err = handle_define_function(&bad_signature, &body, &mut env, DefineType::Public)
+            .unwrap_err();
 
-        assert!(matches!(
-            result,
-            Err(VmExecutionError::Unchecked(
-                CheckErrorKind::BadSyntaxBinding(_)
-            ))
-        ));
+        assert_eq!(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
+                "Bad syntax binding: NotList(Eval, 0)".to_string()
+            )),
+            err,
+        );
     }
 
     #[apply(test_clarity_versions)]
@@ -591,13 +598,13 @@ mod test {
             None,
         );
 
-        let result = handle_define_trait(&"bad-trait".into(), &trait_body, &mut env);
+        let err = handle_define_trait(&"bad-trait".into(), &trait_body, &mut env).unwrap_err();
 
-        assert!(matches!(
-            result,
-            Err(VmExecutionError::Unchecked(
-                CheckErrorKind::TooManyFunctionParameters(found, max)
-            ))
-        ));
+        assert_eq!(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
+                "Too many function params: found 257, allowed 256".to_string()
+            )),
+            err
+        );
     }
 }

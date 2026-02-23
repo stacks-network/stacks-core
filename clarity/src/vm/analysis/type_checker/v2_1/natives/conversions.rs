@@ -110,7 +110,7 @@ pub fn check_special_to_ascii(
     };
     Ok(
         TypeSignature::new_response(result_type, TypeSignature::UIntType).map_err(|_| {
-            StaticCheckErrorKind::ExpectsRejectable(
+            StaticCheckErrorKind::Unreachable(
                 "FATAL: Legal Clarity response type marked invalid".into(),
             )
         })?,

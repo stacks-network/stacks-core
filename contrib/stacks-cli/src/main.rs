@@ -22,7 +22,8 @@ use std::io::Read;
 use std::io::prelude::*;
 use std::{env, fs, io};
 
-use clarity::vm::errors::{ClarityTypeError, VmExecutionError};
+use clarity::vm::ast::errors::ParseError;
+use clarity::vm::errors::{ClarityEvalError, ClarityTypeError, VmExecutionError};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use clarity_cli::vm_execute;
@@ -184,9 +185,11 @@ block's sqlite database.";
 
 #[derive(thiserror::Error, Debug)]
 enum CliError {
-    #[error("Clarity error: {0}")]
-    ClarityGeneralError(#[from] VmExecutionError),
-    #[error("Clarity error: {0}")]
+    #[error("Clarity execution error: {0}")]
+    ClarityExecutionError(#[from] VmExecutionError),
+    #[error("Clarity parse error: {0}")]
+    ClarityParseError(#[from] ParseError),
+    #[error("Clarity type error: {0}")]
     ClarityTypeError(#[from] ClarityTypeError),
     #[error("{0}")]
     Message(String),
@@ -234,6 +237,15 @@ impl From<stacks_common::util::HexError> for CliError {
 impl From<clarity::vm::types::serialization::SerializationError> for CliError {
     fn from(value: clarity::vm::types::serialization::SerializationError) -> Self {
         CliError::Message(format!("Failed to deserialize: {value}"))
+    }
+}
+
+impl From<ClarityEvalError> for CliError {
+    fn from(value: ClarityEvalError) -> Self {
+        match value {
+            ClarityEvalError::Vm(e) => CliError::ClarityExecutionError(e),
+            ClarityEvalError::Parse(e) => CliError::ClarityParseError(e),
+        }
     }
 }
 
@@ -1466,7 +1478,7 @@ mod test {
 
         assert!(
             format!("{}", main_handler(to_string_vec(&cc_args)).unwrap_err())
-                .contains("Clarity error")
+                .contains("Clarity execution error")
         );
 
         let cc_args = [

@@ -38,11 +38,11 @@ use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
 };
 use crate::vm::contexts::GlobalContext;
 use crate::vm::database::STXBalance;
-use crate::vm::errors::VmExecutionError;
+use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::{ClarityVersion, execute_with_parameters_and_call_in_global_context};
 
-const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
-const DEFAULT_CLARITY_VERSION: ClarityVersion = ClarityVersion::Clarity4;
+const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::latest();
+const DEFAULT_CLARITY_VERSION: ClarityVersion = ClarityVersion::latest();
 const INITIAL_BALANCE: u128 = 1_000_000_000;
 const UTF8_SNIPPET_MAX_SEGMENTS: usize = 16;
 const UTF8_SIMPLE_ESCAPES: [&str; 6] = ["\\\"", "\\\\", "\\n", "\\t", "\\r", "\\0"];
@@ -80,7 +80,7 @@ fn initialize_balances(
 
 /// Execute a Clarity code snippet in a fresh global context with default
 /// parameters, setting up initial balances.
-pub fn execute(snippet: &str) -> Result<Option<Value>, VmExecutionError> {
+pub fn execute(snippet: &str) -> Result<Option<Value>, ClarityEvalError> {
     execute_versioned(snippet, DEFAULT_CLARITY_VERSION)
 }
 
@@ -89,7 +89,7 @@ pub fn execute(snippet: &str) -> Result<Option<Value>, VmExecutionError> {
 pub fn execute_versioned(
     snippet: &str,
     version: ClarityVersion,
-) -> Result<Option<Value>, VmExecutionError> {
+) -> Result<Option<Value>, ClarityEvalError> {
     let sender_pk = StacksPrivateKey::random();
     let sender: StandardPrincipalData = (&sender_pk).into();
     let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
@@ -105,6 +105,23 @@ pub fn execute_versioned(
     )
 }
 
+pub fn execute_with_epoch(
+    snippet: &str,
+    epoch: StacksEpochId,
+) -> Result<Option<Value>, ClarityEvalError> {
+    let sender = StandardPrincipalData::transient();
+    let sender_for_init = sender.clone();
+    execute_with_parameters_and_call_in_global_context(
+        snippet,
+        ClarityVersion::latest(),
+        epoch,
+        false,
+        sender,
+        move |g| initialize_balances(g, &sender_for_init),
+        |_| Ok(()),
+    )
+}
+
 /// Execute a Clarity code snippet in a fresh global context with default
 /// parameters, setting up initial balances, returning the resulting value
 /// along with the final asset map.
@@ -112,7 +129,7 @@ pub fn execute_and_check<F>(
     snippet: &str,
     sender: StandardPrincipalData,
     check: F,
-) -> Result<Option<Value>, VmExecutionError>
+) -> Result<Option<Value>, ClarityEvalError>
 where
     F: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
 {
@@ -127,7 +144,7 @@ pub fn execute_and_check_versioned<F>(
     version: ClarityVersion,
     sender: StandardPrincipalData,
     mut check: F,
-) -> Result<Option<Value>, VmExecutionError>
+) -> Result<Option<Value>, ClarityEvalError>
 where
     F: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
 {

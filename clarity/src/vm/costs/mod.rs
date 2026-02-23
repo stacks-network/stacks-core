@@ -28,7 +28,7 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{CheckErrorKind, RuntimeError};
+use super::errors::{RuntimeCheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
 use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -216,8 +216,10 @@ impl DefaultVersion {
         r.map_err(|e| {
             let e = match e {
                 VmExecutionError::Runtime(RuntimeError::NotImplemented, _) => {
-                    CheckErrorKind::UndefinedFunction(cost_function_ref.function_name.clone())
-                        .into()
+                    RuntimeCheckErrorKind::UndefinedFunction(
+                        cost_function_ref.function_name.clone(),
+                    )
+                    .into()
                 }
                 other => other,
             };
@@ -849,7 +851,7 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => COSTS_3_NAME.to_string(),
-            StacksEpochId::Epoch33 => COSTS_4_NAME.to_string(),
+            StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => COSTS_4_NAME.to_string(),
         };
         Ok(result)
     }

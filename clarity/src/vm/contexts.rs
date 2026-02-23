@@ -19,6 +19,7 @@ use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
+use clarity_types::errors::{ParseError, ParseErrorKind};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
@@ -36,7 +37,8 @@ use crate::vm::database::{
     NonFungibleTokenMetadata,
 };
 use crate::vm::errors::{
-    CheckErrorKind, RuntimeError, StackTrace, VmExecutionError, VmInternalError,
+    ClarityEvalError, RuntimeCheckErrorKind, RuntimeError, StackTrace, VmExecutionError,
+    VmInternalError,
 };
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
@@ -48,7 +50,7 @@ use crate::vm::types::{
 use crate::vm::version::ClarityVersion;
 use crate::vm::{ast, eval, is_reserved, stx_transfer_consolidated};
 
-pub const MAX_CONTEXT_DEPTH: u16 = 256;
+pub const MAX_CONTEXT_DEPTH: u64 = 256;
 pub const MAX_EVENTS_BATCH: u64 = 50 * 1024 * 1024;
 
 // TODO:
@@ -86,7 +88,7 @@ pub enum AssetMapEntry {
 }
 
 /**
-The AssetMap is used to track which assets have been transfered from whom
+The AssetMap is used to track which assets have been transferred from whom
 during the execution of a transaction.
 */
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -259,13 +261,13 @@ pub struct LocalContext<'a> {
     pub parent: Option<&'a LocalContext<'a>>,
     pub variables: HashMap<ClarityName, Value>,
     pub callable_contracts: HashMap<ClarityName, CallableData>,
-    depth: u16,
+    depth: u64,
 }
 
 pub struct CallStack {
     stack: Vec<FunctionIdentifier>,
     set: HashSet<FunctionIdentifier>,
-    apply_depth: usize,
+    apply_depth: u64,
 }
 
 pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
@@ -557,7 +559,7 @@ impl fmt::Display for AssetMap {
         }
         for (principal, principal_map) in self.asset_map.iter() {
             for (asset, transfer) in principal_map.iter() {
-                write!(f, "{principal} transfered [")?;
+                write!(f, "{principal} transferred [")?;
                 for t in transfer {
                     write!(f, "{t}, ")?;
                 }
@@ -722,7 +724,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -737,7 +739,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         version: ClarityVersion,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -831,7 +833,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     pub fn eval_raw(
         &mut self,
         program: &str,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
             None,
@@ -844,7 +846,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         program: &str,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityEvalError> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
             None,
@@ -1014,31 +1016,8 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
-    ) -> Result<Value, VmExecutionError> {
-        let clarity_version = self.contract_context.clarity_version;
-
-        let parsed = ast::build_ast(
-            contract_identifier,
-            program,
-            self,
-            clarity_version,
-            self.global_context.epoch_id,
-        )?
-        .expressions;
-
-        if parsed.is_empty() {
-            // `TypeParseFailure` is **unreachable** in standard Clarity VM execution.
-            // - `eval_read_only` parses a raw program string into an AST.
-            // - Any empty or invalid program would be rejected at publish/deploy time or earlier parsing stages.
-            // - Therefore, `parsed.is_empty()` cannot occur for programs originating from a valid contract
-            // or transaction.
-            // - Only malformed input fed directly to this internal method (e.g., in unit tests or
-            // artificial VM invocations) can trigger this error.
-            return Err(RuntimeError::TypeParseFailure(
-                "Expected a program of at least length 1".to_string(),
-            )
-            .into());
-        }
+    ) -> Result<Value, ClarityEvalError> {
+        let parsed = self.parse_nonempty_program(contract_identifier, program)?;
 
         self.global_context.begin();
 
@@ -1062,40 +1041,19 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             );
             let local_context = LocalContext::new();
             eval(&parsed[0], &mut nested_env, &local_context)
-        };
+        }
+        .map_err(ClarityEvalError::from);
 
         self.global_context.roll_back()?;
 
         result
     }
 
-    pub fn eval_raw(&mut self, program: &str) -> Result<Value, VmExecutionError> {
-        let contract_id = QualifiedContractIdentifier::transient();
-        let clarity_version = self.contract_context.clarity_version;
-
-        let parsed = ast::build_ast(
-            &contract_id,
-            program,
-            self,
-            clarity_version,
-            self.global_context.epoch_id,
-        )?
-        .expressions;
-
-        if parsed.is_empty() {
-            // `TypeParseFailure` is **unreachable** in standard Clarity VM execution.
-            // - `eval_raw` parses a raw program string into an AST.
-            // - All programs deployed or called via the standard VM go through static parsing and validation first.
-            // - Any empty or invalid program would be rejected at publish/deploy time or earlier parsing stages.
-            // - Therefore, `parsed.is_empty()` cannot occur for a program that originates from a valid Clarity contract or transaction.
-            // Only malformed input directly fed to this internal method (e.g., in unit tests) can trigger this error.
-            return Err(RuntimeError::TypeParseFailure(
-                "Expected a program of at least length 1".to_string(),
-            )
-            .into());
-        }
+    pub fn eval_raw(&mut self, program: &str) -> Result<Value, ClarityEvalError> {
+        let parsed =
+            self.parse_nonempty_program(&QualifiedContractIdentifier::transient(), program)?;
         let local_context = LocalContext::new();
-        eval(&parsed[0], self, &local_context)
+        eval(&parsed[0], self, &local_context).map_err(ClarityEvalError::from)
     }
 
     /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
@@ -1113,6 +1071,41 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         let result = to_run(self);
         self.global_context.cost_track = original_tracker;
         result
+    }
+
+    /// Parse `program` into a **non-empty** list of `SymbolicExpression`s.
+    ///
+    /// This is a wrapper around `ast::build_ast(..)` that enforces the invariant
+    /// that a parsed program must contain at least one top-level expression.
+    ///
+    /// # Errors
+    /// - Returns `Err` if the program fails to parse/build an AST.
+    /// - Returns `Err(UnexpectedParserFailure)` if parsing succeeds but yields *zero* expressions.
+    ///
+    /// # Notes
+    /// The empty-expression case should be unreachable for normal VM execution because
+    /// published/deployed contract code and transaction programs are validated earlier.
+    /// It exists as a defensive check for malformed input in tests, fuzzing, or internal
+    /// callers that bypass normal validation paths.
+    fn parse_nonempty_program(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        program: &str,
+    ) -> Result<Vec<SymbolicExpression>, ClarityEvalError> {
+        let expressions = ast::build_ast(
+            contract_identifier,
+            program,
+            self,
+            self.contract_context.clarity_version,
+            self.global_context.epoch_id,
+        )?
+        .expressions;
+
+        if expressions.is_empty() {
+            return Err(ParseError::from(ParseErrorKind::UnexpectedParserFailure).into());
+        }
+
+        Ok(expressions)
     }
 
     /// This is the epoch of the block that this transaction is executing within.
@@ -1173,11 +1166,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
 
             let func = contract.contract_context.lookup_function(tx_name)
-                .ok_or_else(|| { CheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
+                .ok_or_else(|| { RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
             if !allow_private && !func.is_public() {
-                return Err(CheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
+                return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             } else if read_only && !func.is_read_only() {
-                return Err(CheckErrorKind::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
+                return Err(RuntimeCheckErrorKind::Unreachable(format!("Public function not read-only: {contract_identifier} {tx_name}")).into());
             }
 
             let args: Result<Vec<Value>, VmExecutionError> = args.iter()
@@ -1191,7 +1184,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                         self.epoch(),
                         &expected_type,
                         value.clone(),
-                    ).ok_or_else(|| CheckErrorKind::TypeValueError(
+                    ).ok_or_else(|| RuntimeCheckErrorKind::TypeValueError(
                             Box::new(expected_type),
                             Box::new(value.clone()),
                         )
@@ -1205,7 +1198,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
 
             let func_identifier = func.get_identifier();
             if self.call_stack.contains(&func_identifier) {
-                return Err(CheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
+                return Err(RuntimeCheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
             let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), allow_private);
@@ -1303,7 +1296,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
-    ) -> Result<(), VmExecutionError> {
+    ) -> Result<(), ClarityEvalError> {
         let clarity_version = self.contract_context.clarity_version;
 
         let contract_ast = ast::build_ast(
@@ -1319,6 +1312,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             &contract_ast,
             contract_content,
         )
+        .map_err(ClarityEvalError::from)
     }
 
     pub fn initialize_contract_from_ast(
@@ -1344,9 +1338,10 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 .database
                 .has_contract(&contract_identifier)
             {
-                return Err(
-                    CheckErrorKind::ContractAlreadyExists(contract_identifier.to_string()).into(),
-                );
+                return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                    "Contract already exists: {contract_identifier}"
+                ))
+                .into());
             }
 
             // first, store the contract _content hash_ in the data store.
@@ -1753,7 +1748,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         f: F,
     ) -> std::result::Result<A, E>
     where
-        E: From<VmExecutionError>,
+        E: From<ClarityEvalError>,
         F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
     {
         self.begin();
@@ -1772,7 +1767,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             );
             f(&mut exec_env)
         };
-        self.roll_back()?;
+        self.roll_back().map_err(ClarityEvalError::from)?;
 
         match result {
             Ok(return_value) => Ok(return_value),
@@ -1881,8 +1876,9 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 self.commit()?;
                 Ok(result)
             } else {
-                Err(CheckErrorKind::PublicFunctionMustReturnResponse(Box::new(
-                    TypeSignature::type_of(&result)?,
+                Err(RuntimeCheckErrorKind::Unreachable(format!(
+                    "Public function must return response: {}",
+                    TypeSignature::type_of(&result)?
                 ))
                 .into())
             }
@@ -1989,7 +1985,7 @@ impl<'a> LocalContext<'a> {
         }
     }
 
-    pub fn depth(&self) -> u16 {
+    pub fn depth(&self) -> u64 {
         self.depth
     }
 
@@ -2004,8 +2000,8 @@ impl<'a> LocalContext<'a> {
         if self.depth >= MAX_CONTEXT_DEPTH {
             // `MaxContextDepthReached` in this function is **unreachable** in normal Clarity execution because:
             // - Every function call in Clarity increments both the call stack depth and the local context depth.
-            // - The VM enforces `MAX_CALL_STACK_DEPTH` (currently 64) **before** `MAX_CONTEXT_DEPTH` (256).
-            // - This means no contract can create more than 64 nested function calls, preventing context depth from reaching 256.
+            // - The VM enforces the epoch-specific `MAX_CALL_STACK_DEPTH` **before** `MAX_CONTEXT_DEPTH` (256).
+            // - This means no contract can create more nested function calls than the epoch limit, preventing context depth from reaching 256.
             // - Nested expressions (`let`, `begin`, `if`, etc.) increment context depth, but the Clarity parser enforces
             //   `ExpressionStackDepthTooDeep` long before MAX_CONTEXT_DEPTH nested contexts can be written.
             // - As a result, `MaxContextDepthReached` can only occur in artificial Rust-level tests calling `LocalContext::extend()`,
@@ -2058,8 +2054,9 @@ impl CallStack {
         }
     }
 
-    pub fn depth(&self) -> usize {
-        self.stack.len() + self.apply_depth
+    pub fn depth(&self) -> u64 {
+        let stack_len = u64::try_from(self.stack.len()).unwrap_or(u64::MAX);
+        stack_len.saturating_add(self.apply_depth)
     }
 
     pub fn contains(&self, function: &FunctionIdentifier) -> bool {
@@ -2419,13 +2416,9 @@ mod test {
         // Call eval_read_only with an empty program
         let program = ""; // empty program triggers parsed.is_empty()
         let err = env.eval_raw(program).unwrap_err();
-
-        assert!(
-            matches!(
-            err,
-            VmExecutionError::Runtime(RuntimeError::TypeParseFailure(msg), _) if msg.contains("Expected a program of at least length 1")),
-            "Expected a type parse failure"
-        );
+        let expected_err =
+            ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
+        assert_eq!(err, expected_err, "Expected a type parse failure");
     }
 
     #[test]
@@ -2440,13 +2433,9 @@ mod test {
         // Call eval_read_only with an empty program
         let program = ""; // empty program triggers parsed.is_empty()
         let err = env.eval_read_only(&contract_id, program).unwrap_err();
-
-        assert!(
-            matches!(
-            err,
-            VmExecutionError::Runtime(RuntimeError::TypeParseFailure(msg), _) if msg.contains("Expected a program of at least length 1")),
-            "Expected a type parse failure"
-        );
+        let expected_err =
+            ClarityEvalError::from(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
+        assert_eq!(err, expected_err, "Expected a type parse failure");
     }
 
     #[test]
@@ -2515,9 +2504,11 @@ mod test {
             .initialize_contract_from_ast(contract_id.clone(), version, &ast, contract_src)
             .unwrap_err();
 
-        assert!(matches!(
+        assert_eq!(
             err,
-            VmExecutionError::Unchecked(CheckErrorKind::ContractAlreadyExists(_))
-        ));
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
+                "Contract already exists: S1G2081040G2081040G2081040G208105NK8PE5.dup".to_string()
+            ))
+        );
     }
 }

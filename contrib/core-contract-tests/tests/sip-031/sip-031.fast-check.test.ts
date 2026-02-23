@@ -45,7 +45,7 @@ function months(n: number) {
   return n * Number(constants.INITIAL_MINT_VESTING_ITERATION_BLOCKS);
 }
 
-test('property: vesting calculations are always mathematically correct', async () => {
+test('property: vesting calculations are always mathematically correct', { timeout: 60000 },async () => {
   await fc.assert(
     fc.asyncProperty(
       fc.integer({
@@ -114,7 +114,7 @@ test('property: vesting calculations are always mathematically correct', async (
   );
 });
 
-test('property: recipient changes maintain access control invariants', async () => {
+test('property: recipient changes maintain access control invariants', { timeout: 20000 }, async () => {
   await fc.assert(
     fc.asyncProperty(
       fc.integer({

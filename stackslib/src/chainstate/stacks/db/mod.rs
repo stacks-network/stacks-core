@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
+use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::events::*;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::TupleData;
@@ -296,7 +297,8 @@ impl DBConfig {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
         }
     }
 }
@@ -1965,9 +1967,7 @@ impl StacksChainState {
 
     /// Simultaneously begin a transaction against both the headers and blocks.
     /// Used when considering a new block to append the chain state.
-    pub fn chainstate_tx_begin(
-        &mut self,
-    ) -> Result<(ChainstateTx<'_>, &mut ClarityInstance), Error> {
+    pub fn chainstate_tx_begin(&mut self) -> (ChainstateTx<'_>, &mut ClarityInstance) {
         let config = self.config();
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;
@@ -1976,7 +1976,7 @@ impl StacksChainState {
         let chainstate_tx =
             ChainstateTx::new(inner_tx, blocks_path, self.root_path.clone(), config);
 
-        Ok((chainstate_tx, clarity_instance))
+        (chainstate_tx, clarity_instance)
     }
 
     // NOTE: used for testing in the stacks testnet code.
@@ -2051,6 +2051,7 @@ impl StacksChainState {
                     //  can be executed. any transformation is rolled back.
                     false,
                 )
+                .map_err(ClarityEvalError::from)
             },
         )?;
 
