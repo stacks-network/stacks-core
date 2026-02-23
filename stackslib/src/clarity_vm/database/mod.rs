@@ -685,8 +685,8 @@ fn get_burn_view_for_block_given_connection(
     let burn_view = get_stacks_header_column_with_conditional_name(
         conn,
         id_bhh,
-        "burn_view",
         "consensus_hash",
+        "burn_view",
         |r| String::from_row(r).expect("FATAL: incorrect burn_view type"),
     )?;
     Some(ConsensusHash::from_hex(&burn_view).expect("FATAL: malformed burn_view"))
@@ -742,8 +742,8 @@ where
 fn get_stacks_header_column_with_conditional_name<F, R>(
     conn: &DBConn,
     id_bhh: &StacksBlockId,
-    nakamoto_column_name: &str,
     pre_nakamoto_column_name: &str,
+    nakamoto_column_name: &str,
     loader: F,
 ) -> Option<R>
 where
