@@ -250,12 +250,15 @@ jobs:
   trigger-codecov-report:
     if: ${{ always() }}
     name: Trigger Codecov Report
+    runs-on: ubuntu-latest
     needs:
       - stacks-core-tests
       - bitcoin-tests
       - p2p-tests
       - epoch-tests
-      - slow-tests
-    uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
-    with:
-      run_command: "send-notifications"
+      - slow-tests      
+    steps:
+      - name: Codecov Send Notifications
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
+        with:
+          run_command: "send-notifications"
