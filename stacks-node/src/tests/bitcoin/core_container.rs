@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_start_and_stop() {
-        let mut container = BitcoinCoreContainer::new("25");
+        let mut container = BitcoinCoreContainer::new(BITCOIN_DEFAULT_IMAGE_TAG);
 
         assert!(!container.is_started());
 

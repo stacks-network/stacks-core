@@ -34,7 +34,6 @@ use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
 };
 use crate::burnchains::rpc::rpc_transport::RpcError;
-use crate::tests::bitcoin::core_container::BitcoinCoreContainer;
 
 mod utils {
     use std::env;
@@ -52,16 +51,23 @@ mod utils {
     /// This function reads the `BITCOIN_IMAGE_TAG` environment variable.
     /// If the variable is set and not empty, its value is returned.
     /// Otherwise, the default image tag (`BITCOIN_DEFAULT_IMAGE_TAG`) is used.
-    pub fn get_bitcoin_image_tag() -> String {
+    fn get_bitcoin_image_tag() -> String {
         match env::var(ENV_BITCOIN_IMAGE_TAG) {
             Ok(tag) if !tag.trim().is_empty() => tag,
             _ => BITCOIN_DEFAULT_IMAGE_TAG.to_string(),
         }
     }
 
+    /// Create a bitcoin container configured with RPC credentials
+    pub fn create_container() -> BitcoinCoreContainer {
+        let image_tag = get_bitcoin_image_tag();
+        BitcoinCoreContainer::new_with_defaults(&image_tag)
+    }
+
     /// Create a bitcoin container configured without RPC credentials
-    pub fn create_container_no_auth(image_tag: &str) -> BitcoinCoreContainer {
-        let mut result = BitcoinCoreContainer::new(image_tag);
+    pub fn create_container_no_auth() -> BitcoinCoreContainer {
+        let image_tag = get_bitcoin_image_tag();
+        let mut result = BitcoinCoreContainer::new(&image_tag);
         result
             .add_arg("-regtest=1")
             .add_arg("-server=1")
@@ -109,9 +115,7 @@ mod utils {
 #[ignore]
 #[test]
 fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_no_auth_from_container(&btc_container);
@@ -126,9 +130,7 @@ fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
 #[ignore]
 #[test]
 fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = utils::create_container_no_auth(&image_tag);
+    let mut btc_container = utils::create_container_no_auth();
     btc_container.start();
 
     let client = utils::create_client_no_auth_from_container(&btc_container);
@@ -143,9 +145,7 @@ fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
 #[ignore]
 #[test]
 fn test_get_blockchain_info_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -163,9 +163,7 @@ fn test_get_blockchain_info_ok() {
 #[ignore]
 #[test]
 fn test_wallet_listing_and_creation_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -194,9 +192,7 @@ fn test_wallet_listing_and_creation_ok() {
 #[ignore]
 #[test]
 fn test_wallet_creation_fails_if_already_exists() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -223,9 +219,7 @@ fn test_wallet_creation_fails_if_already_exists() {
 #[ignore]
 #[test]
 fn test_get_new_address_for_each_address_type() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -273,9 +267,7 @@ fn test_get_new_address_for_each_address_type() {
 #[ignore]
 #[test]
 fn test_generate_to_address_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -295,9 +287,7 @@ fn test_generate_to_address_ok() {
 #[ignore]
 #[test]
 fn test_list_unspent_empty_with_empty_wallet() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -314,9 +304,7 @@ fn test_list_unspent_empty_with_empty_wallet() {
 #[ignore]
 #[test]
 fn test_list_unspent_with_defaults() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -341,9 +329,7 @@ fn test_list_unspent_with_defaults() {
 #[ignore]
 #[test]
 fn test_list_unspent_one_address_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -390,9 +376,7 @@ fn test_list_unspent_one_address_ok() {
 #[ignore]
 #[test]
 fn test_list_unspent_two_addresses_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -465,9 +449,7 @@ fn test_list_unspent_two_addresses_ok() {
 #[ignore]
 #[test]
 fn test_generate_block_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -489,9 +471,7 @@ fn test_generate_block_ok() {
 #[ignore]
 #[test]
 fn test_get_raw_transaction_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -525,9 +505,7 @@ fn test_get_raw_transaction_ok() {
 #[ignore]
 #[test]
 fn test_get_transaction_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -559,9 +537,7 @@ fn test_get_transaction_ok() {
 #[ignore]
 #[test]
 fn test_get_descriptor_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -584,9 +560,7 @@ fn test_get_descriptor_ok() {
 #[ignore]
 #[test]
 fn test_import_descriptor_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -617,9 +591,7 @@ fn test_import_descriptor_ok() {
 #[ignore]
 #[test]
 fn test_import_descriptor_twice_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -654,9 +626,7 @@ fn test_import_descriptor_twice_ok() {
 #[ignore]
 #[test]
 fn test_stop_bitcoind_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -667,9 +637,7 @@ fn test_stop_bitcoind_ok() {
 #[ignore]
 #[test]
 fn test_invalidate_block_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -701,9 +669,7 @@ fn test_invalidate_block_ok() {
 #[ignore]
 #[test]
 fn test_get_block_hash_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
@@ -717,9 +683,7 @@ fn test_get_block_hash_ok() {
 #[ignore]
 #[test]
 fn test_send_raw_transaction_rebroadcast_ok() {
-    let image_tag = utils::get_bitcoin_image_tag();
-
-    let mut btc_container = BitcoinCoreContainer::new_with_defaults(&image_tag);
+    let mut btc_container = utils::create_container();
     btc_container.start();
 
     let client = utils::create_client_from_container(&btc_container);
