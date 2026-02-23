@@ -36,7 +36,7 @@ use crate::chainstate::burn::operations::{
     BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME};
 use crate::core::*;
 #[cfg(test)]
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
@@ -391,9 +391,12 @@ impl PoxConstants {
         v1_unlock_height: u64,
         pox_3_activation_height: u64,
         pox_4_activation_height: u64,
+        pox_5_activation_height: u64,
         burn_height: u64,
     ) -> &'static str {
-        if burn_height > pox_4_activation_height {
+        if burn_height > pox_5_activation_height {
+            POX_5_NAME
+        } else if burn_height > pox_4_activation_height {
             POX_4_NAME
         } else if burn_height > pox_3_activation_height {
             POX_3_NAME
@@ -410,6 +413,7 @@ impl PoxConstants {
             u64::from(self.v1_unlock_height),
             u64::from(self.pox_3_activation_height),
             u64::from(self.pox_4_activation_height),
+            u64::from(self.pox_5_activation_height),
             burn_height,
         )
     }

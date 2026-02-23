@@ -1950,6 +1950,7 @@ impl NakamotoChainState {
         let active_reward_set = OnChainRewardSetProvider::<DummyEventDispatcher>(None).read_reward_set_nakamoto_of_cycle(
             elected_in_cycle,
             stacks_chain_state,
+        
             sort_db,
             &next_ready_block.header.parent_block_id,
             true,

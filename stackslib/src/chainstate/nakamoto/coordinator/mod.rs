@@ -37,7 +37,7 @@ use crate::chainstate::coordinator::{
     RewardSetProvider,
 };
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::boot::{PoxVersions, RewardSet, SIGNERS_NAME};
+use crate::chainstate::stacks::boot::{RewardSet, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{
     StacksBlockHeaderTypes, StacksChainState, StacksDBConn, StacksHeaderInfo,
 };
@@ -83,15 +83,12 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     pub fn read_reward_set_nakamoto(
         &self,
         chainstate: &mut StacksChainState,
-        burnchain: &Burnchain,
         cycle: u64,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
         debug_log: bool,
     ) -> Result<RewardSet, Error> {
-        self.read_reward_set_nakamoto_of_cycle(
-            cycle, chainstate, burnchain, sortdb, block_id, debug_log,
-        )
+        self.read_reward_set_nakamoto_of_cycle(cycle, chainstate, sortdb, block_id, debug_log)
     }
 
     /// Read a reward_set written while updating .signers at a given cycle_id
@@ -102,65 +99,47 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         &self,
         cycle: u64,
         chainstate: &mut StacksChainState,
-        burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
         debug_log: bool,
     ) -> Result<RewardSet, Error> {
-        let cycle_start_height = burnchain.reward_cycle_to_block_height(cycle);
-        let pox_contract_name = burnchain
-            .pox_constants
-            .active_pox_contract(cycle_start_height);
-        let pox_version = PoxVersions::lookup_by_name(pox_contract_name)
-            .ok_or("Failed to lookup PoX contract version at tip")?;
-        if pox_version < PoxVersions::Pox4 {}
-
-        if matches!(pox_version, PoxVersions::Pox4) {
-            // figure out the block ID
-            let Some(coinbase_height_of_calculation) = chainstate
-                .eval_boot_code_read_only(
-                    sortdb,
-                    block_id,
-                    SIGNERS_NAME,
-                    &format!("(map-get? cycle-set-height u{cycle})"),
-                )?
-                .expect_optional()
-                .map_err(|_| {
-                    ChainstateError::Expects(format!(
-                        "(map-get? cycle-set-height u{cycle}) did not return an optional"
-                    ))
-                })?
-                .map(|x| {
-                    let as_u128 = x.expect_u128().map_err(|_| {
-                        ChainstateError::Expects("cycle-set-height did not return a u128".into())
-                    })?;
-                    u64::try_from(as_u128)
-                        .map_err(|_| ChainstateError::Expects("block height exceeded u64".into()))
-                })
-                .transpose()?
-            else {
-                err_or_debug!(
-                    debug_log,
-                    "The reward set was not written to .signers before it was needed by Nakamoto";
-                    "cycle_number" => cycle,
-                );
-                return Err(Error::PoXAnchorBlockRequired);
-            };
-
-            self.read_reward_set_at_calculated_block(
-                coinbase_height_of_calculation,
-                chainstate,
+        // figure out the block ID
+        let Some(coinbase_height_of_calculation) = chainstate
+            .eval_boot_code_read_only(
+                sortdb,
                 block_id,
+                SIGNERS_NAME,
+                &format!("(map-get? cycle-set-height u{cycle})"),
+            )?
+            .expect_optional()
+            .map_err(|_| {
+                ChainstateError::Expects(format!(
+                    "(map-get? cycle-set-height u{cycle}) did not return an optional"
+                ))
+            })?
+            .map(|x| {
+                let as_u128 = x.expect_u128().map_err(|_| {
+                    ChainstateError::Expects("cycle-set-height did not return a u128".into())
+                })?;
+                u64::try_from(as_u128)
+                    .map_err(|_| ChainstateError::Expects("block height exceeded u64".into()))
+            })
+            .transpose()?
+        else {
+            err_or_debug!(
                 debug_log,
-            )
-        } else if matches!(pox_version, PoxVersions::Pox5) {
-            todo!() // PLACEHOLDER (rob-stacks)
-        } else {
-            Err(
-                "Active PoX contract version at tip is Pre-PoX-4, the signer set is not fetchable"
-                    .into(),
-            )
-        }
+                "The reward set was not written to .signers before it was needed by Nakamoto";
+                "cycle_number" => cycle,
+            );
+            return Err(Error::PoXAnchorBlockRequired);
+        };
+
+        self.read_reward_set_at_calculated_block(
+            coinbase_height_of_calculation,
+            chainstate,
+            block_id,
+            debug_log,
+        )
     }
 
     pub fn get_height_of_pox_calculation(

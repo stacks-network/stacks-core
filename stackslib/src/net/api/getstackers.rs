@@ -81,10 +81,22 @@ impl GetStackersResponse {
         burnchain: &Burnchain,
         cycle_number: u64,
     ) -> Result<Self, GetStackersErrors> {
-        
+        let cycle_start_height = burnchain.reward_cycle_to_block_height(cycle_number);
+        let pox_contract_name = burnchain
+            .pox_constants
+            .active_pox_contract(cycle_start_height);
+        let pox_version = PoxVersions::lookup_by_name(pox_contract_name)
+            .ok_or("Failed to lookup PoX contract version at tip")?;
+        if !matches!(pox_version, PoxVersions::Pox4) {
+            return Err(
+                "Active PoX contract version at tip is Pre-PoX-4, the signer set is not fetchable"
+                    .into(),
+            );
+        }
+
         let provider = OnChainRewardSetProvider::new();
         let stacker_set = provider
-            .read_reward_set_nakamoto(chainstate, burnchain, cycle_number, pox_version, sortdb, tip, true)
+            .read_reward_set_nakamoto(chainstate, cycle_number, sortdb, tip, true)
             .map_err(GetStackersErrors::NotAvailableYet)?;
 
         Ok(Self { stacker_set })
