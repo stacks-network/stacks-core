@@ -55,7 +55,7 @@ jobs:
         id: codecov
         uses: stacks-network/actions/codecov@main
         with:
-          test-name: ${{ matrix.test-name }}
+          test-name: unit-tests-${{ matrix.partition }}
 
   ## Generate and upload openapi html artifact
   open-api-validation:

@@ -251,3 +251,19 @@ jobs:
       - create-cache
       - check-release
     uses: ./.github/workflows/slow-tests.yml
+
+  ## Trigger Codecov report manually once all tests are done
+  ## This is done in concert with codecov.yml having notify: manual set
+  ## See: https://docs.codecov.com/docs/notifications#preventing-notifications-until-youre-ready-to-send-notifications
+  trigger-codecov-report:
+    name: Trigger Codecov Report
+    needs:
+      - stacks-core-tests
+      - bitcoin-tests
+      - p2p-tests
+      - atlas-tests
+      - epoch-tests
+      - slow-tests
+    uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
+    with:
+      run_command: "send-notifications"
