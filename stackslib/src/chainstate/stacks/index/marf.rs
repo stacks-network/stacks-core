@@ -1677,11 +1677,13 @@ impl<T: MarfTrieId> MARF<T> {
     pub(crate) fn for_each_leaf<F>(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
-        mut handle_leaf: F,
+        handle_leaf: F,
     ) -> Result<u64, Error>
     where
-        F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
+        F: Fn(TrieHash, MARFValue) -> Result<(), Error>,
     {
+        let (original_block_hash, original_block_id) = storage.get_cur_block_and_id();
+
         storage.open_block(block_hash)?;
         let (root_node, _root_hash) = Trie::read_root(storage)?;
 
@@ -1689,11 +1691,11 @@ impl<T: MarfTrieId> MARF<T> {
         let mut stack: Vec<(TriePtr, Vec<u8>, T, Option<u32>)> = Vec::new();
 
         // Process a node: emit leaf or push children onto the stack.
-        let mut process_node = |node: TrieNodeType,
-                                prefix: Vec<u8>,
-                                block_hash: T,
-                                block_id: Option<u32>,
-                                stack: &mut Vec<(TriePtr, Vec<u8>, T, Option<u32>)>|
+        let process_node = |node: TrieNodeType,
+                            prefix: Vec<u8>,
+                            block_hash: T,
+                            block_id: Option<u32>,
+                            stack: &mut Vec<(TriePtr, Vec<u8>, T, Option<u32>)>|
          -> Result<bool, Error> {
             let mut full_prefix = prefix;
             full_prefix.extend_from_slice(node.path_bytes());
@@ -1724,7 +1726,6 @@ impl<T: MarfTrieId> MARF<T> {
             }
         };
 
-        // Seed with root.
         let (cur_block, cur_id) = storage.get_cur_block_and_id();
         if process_node(root_node, vec![], cur_block, cur_id, &mut stack)? {
             leaf_count += 1;
@@ -1755,6 +1756,18 @@ impl<T: MarfTrieId> MARF<T> {
                 leaf_count += 1;
             }
         }
+
+        storage
+            .open_block_maybe_id(&original_block_hash, original_block_id)
+            .inspect_err(|e| {
+                warn!("Failed to re-open {original_block_hash} {original_block_id:?}: {e:?}");
+            })?;
+
+        let (restored_block_hash, _) = storage.get_cur_block_and_id();
+        assert_eq!(
+            restored_block_hash, original_block_hash,
+            "for_each_leaf: open block changed after traversal"
+        );
 
         Ok(leaf_count)
     }
