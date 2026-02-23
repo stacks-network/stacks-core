@@ -256,6 +256,7 @@ jobs:
   ## This is done in concert with codecov.yml having notify: manual set
   ## See: https://docs.codecov.com/docs/notifications#preventing-notifications-until-youre-ready-to-send-notifications
   trigger-codecov-report:
+    if: ${{ always() }}
     name: Trigger Codecov Report
     needs:
       - stacks-core-tests
