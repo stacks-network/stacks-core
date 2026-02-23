@@ -2,7 +2,7 @@
 codecov:
   require_ci_to_pass: false
   notify:
-    wait_for_ci: true
+    manual_trigger: true
 coverage:
   range: 60..79
   round: down
@@ -16,7 +16,7 @@ coverage:
         threshold: 0%
 comment:
   layout: "condensed_header, diff, files, footer"
+  behavior: new
   hide_project_coverage: false
-  after_n_builds: 35
 github_checks:
   annotations: false
