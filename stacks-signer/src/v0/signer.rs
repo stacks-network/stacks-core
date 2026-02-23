@@ -797,7 +797,7 @@ impl Signer {
     fn check_block_against_state(
         &mut self,
         stacks_client: &StacksClient,
-        _sortition_state: &mut Option<SortitionsView>,
+        sortition_state: &mut Option<SortitionsView>,
         block: &NakamotoBlock,
     ) -> Option<BlockRejection> {
         // First update our global state evaluator with our local state if we have one
@@ -809,7 +809,7 @@ impl Signer {
             self.global_state_evaluator
                 .insert_update(self.stacks_address.clone(), update);
         };
-        let Some(_state_version) = self.determine_active_signer_protocol_version() else {
+        let Some(state_version) = self.determine_active_signer_protocol_version() else {
             warn!(
                 "{self}: No consensus on signer protocol version. Unable to validate block. Rejecting.";
                 "signer_signature_hash" => %block.header.signer_signature_hash(),
@@ -817,13 +817,11 @@ impl Signer {
             );
             return Some(self.create_block_rejection(RejectReason::NoSignerConsensus, block));
         };
-        // TODO REVERT THIS WHEN TESTING IS DONE
-        // if state_version.uses_global_state() {
-        //     self.check_block_against_global_state(stacks_client, block)
-        // } else {
-        //     self.check_block_against_local_state(stacks_client, sortition_state, block)
-        // }
-        self.check_block_against_global_state(stacks_client, block)
+        if state_version.uses_global_state() {
+            self.check_block_against_global_state(stacks_client, block)
+        } else {
+            self.check_block_against_local_state(stacks_client, sortition_state, block)
+        }
     }
 
     /// Check if block should be rejected based on the local view of the sortition state
