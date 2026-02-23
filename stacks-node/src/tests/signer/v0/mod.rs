@@ -1763,7 +1763,10 @@ fn block_proposal_rejection() {
     signer_test.boot_to_epoch_3();
     let short_timeout = Duration::from_secs(30);
 
+    // Wait for the first block to be mined successfully so we have the most up to date sortition view
+    signer_test.wait_for_validate_ok_response(short_timeout.as_secs());
     info!("------------------------- Send Block Proposal To Signers -------------------------");
+    test_observer::clear();
     let proposal_conf = ProposalEvalConfig {
         proposal_wait_for_parent_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
@@ -1780,6 +1783,7 @@ fn block_proposal_rejection() {
         txs: vec![],
     };
     block.header.timestamp = get_epoch_time_secs();
+    let block_1_consensus_hash = block.header.consensus_hash.clone();
 
     // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
     // the block is submitted to the node for validation.
@@ -1790,14 +1794,12 @@ fn block_proposal_rejection() {
     let block_signer_signature_hash_1 = block.header.signer_signature_hash();
     signer_test.propose_block(block.clone(), short_timeout);
 
-    // Wait for the first block to be mined successfully so we have the most up to date sortition view
-    signer_test.wait_for_validate_ok_response(short_timeout.as_secs());
-
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
     block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     block.header.chain_length = 35; // We have mined 35 blocks so far.
+    let block_2_consensus_hash = block.header.consensus_hash.clone();
 
     block
         .header
@@ -1818,6 +1820,10 @@ fn block_proposal_rejection() {
     let start_polling = Instant::now();
     let mut found_signer_signature_hash_1 = false;
     let mut found_signer_signature_hash_2 = false;
+    let block_1_rejection_reason = RejectReason::ConsensusHashMismatch {
+        expected: block_2_consensus_hash,
+        actual: block_1_consensus_hash,
+    };
     while !found_signer_signature_hash_1 && !found_signer_signature_hash_2 {
         std::thread::sleep(Duration::from_secs(1));
         let chunks = test_observer::get_stackerdb_chunks();
@@ -1837,7 +1843,7 @@ fn block_proposal_rejection() {
                 if signer_signature_hash == block_signer_signature_hash_1 {
                     found_signer_signature_hash_1 = true;
                     assert_eq!(reason_code, RejectCode::SortitionViewMismatch,);
-                    assert_eq!(response_data.reject_reason, RejectReason::InvalidBitvec);
+                    assert_eq!(response_data.reject_reason, block_1_rejection_reason);
                 } else if signer_signature_hash == block_signer_signature_hash_2 {
                     found_signer_signature_hash_2 = true;
                     assert!(matches!(
