@@ -6496,9 +6496,10 @@ fn clarity_burn_state() {
          )
      "#;
 
-    // This will be deployed once in Epoch 3.0 and once in 3.4 (Clarity 5). The old behavior should be the
-    // backwards-compatible behavior described in #6123; the old behavior should be the correct one where
-    // `burn-block-height` works correctly in `at-block`
+    // These will be deployed when Epoch 3.4 is reached, once as a Clarity 4 contract and once as a
+    // Clarity 5 contract. The old behavior should be the backwards-compatible behavior described in
+    // #6123; the new behavior should be the correct one where `burn-block-height` works correctly
+    // in `at-block`
     let at_block_contract_name_old_clarity = "test-contract-at-block-old-clarity";
     let at_block_contract_name_clarity_5 = "test-contract-at-block-clarity-5";
     let at_block_contract = r#"
@@ -6513,16 +6514,21 @@ fn clarity_burn_state() {
          )        
      "#;
 
-    let mut clarity_5_contract_deployed = false;
+    let mut at_block_contracts_deployed = false;
 
-    let deploy_contract = |name: &str, contract: &str, sender_nonce: u64| -> u64 {
-        let contract_tx = make_contract_publish(
+    let deploy_contract = |name: &str,
+                           contract: &str,
+                           clarity_version: Option<ClarityVersion>,
+                           sender_nonce: u64|
+     -> u64 {
+        let contract_tx = make_contract_publish_versioned(
             &sender_sk,
             sender_nonce,
             deploy_fee,
             naka_conf.burnchain.chain_id,
             name,
             contract,
+            clarity_version,
         );
         submit_tx(&http_origin, &contract_tx);
         sender_nonce + 1
@@ -6546,12 +6552,7 @@ fn clarity_burn_state() {
                 .expect(&format!("Read-only call for {description} failed"));
         };
 
-    sender_nonce = deploy_contract(contract_name, contract, sender_nonce);
-    sender_nonce = deploy_contract(
-        at_block_contract_name_old_clarity,
-        at_block_contract,
-        sender_nonce,
-    );
+    sender_nonce = deploy_contract(contract_name, contract, None, sender_nonce);
 
     let mut burn_block_height = 0;
 
@@ -6644,17 +6645,23 @@ fn clarity_burn_state() {
 
         let epoch34_reached = burn_block_height >= epoch_34_start as u128;
 
-        if epoch34_reached && !clarity_5_contract_deployed {
-            info!("deploying 3.4 contract");
+        if epoch34_reached && !at_block_contracts_deployed {
+            info!("deploying at-block contracts");
             sender_nonce = deploy_contract(
                 at_block_contract_name_clarity_5,
                 at_block_contract,
+                None,
                 sender_nonce,
             );
-
+            sender_nonce = deploy_contract(
+                at_block_contract_name_old_clarity,
+                at_block_contract,
+                Some(ClarityVersion::Clarity4),
+                sender_nonce,
+            );
             wait_for_sender_nonce(sender_nonce)
-                .expect("timed out waiting for the 3.4 contract to deploy");
-            clarity_5_contract_deployed = true;
+                .expect("timed out waiting for the at-block contracts to deploy");
+            at_block_contracts_deployed = true;
         }
 
         let blocks = test_observer::get_mined_nakamoto_blocks();
@@ -6700,27 +6707,26 @@ fn clarity_burn_state() {
                 "assert-height-readonly",
                 vec![&expected_height],
             );
+            if at_block_contracts_deployed {
+                for (block_id, expected_height) in expected_burn_heights.iter() {
+                    if *expected_height >= last_block.target_burn_height as u128 {
+                        continue;
+                    }
 
-            for (block_id, expected_height) in expected_burn_heights.iter() {
-                if *expected_height >= last_block.target_burn_height as u128 {
-                    continue;
-                }
+                    // The pre-clarity 5 contract should use the burn chain tip even inside `at-block`.
+                    // While that is not desirable, it's how it behaved pre-5.
+                    call_read_only_and_expect_ok(
+                        "assert height at-block with older Clarity",
+                        at_block_contract_name_old_clarity,
+                        "assert-height-at-block",
+                        vec![
+                            &Value::buff_from(block_id.as_bytes().to_vec()).unwrap(),
+                            &Value::UInt(last_block.target_burn_height as u128),
+                        ],
+                    );
 
-                // The pre-clarity 5 contract should use the burn chain tip even inside `at-block`.
-                // While that is not desirable, it's how it behaved pre-5.
-                call_read_only_and_expect_ok(
-                    "assert height at-block with older Clarity",
-                    at_block_contract_name_old_clarity,
-                    "assert-height-at-block",
-                    vec![
-                        &Value::buff_from(block_id.as_bytes().to_vec()).unwrap(),
-                        &Value::UInt(last_block.target_burn_height as u128),
-                    ],
-                );
-
-                // The clarity 5 contract should use the correct burn view height that we
-                // recorded in `expected_burn_heights`.
-                if epoch34_reached {
+                    // The clarity 5 contract should use the correct burn view height that we
+                    // recorded in `expected_burn_heights`.
                     call_read_only_and_expect_ok(
                         "assert height at-block with Clarity 5",
                         at_block_contract_name_clarity_5,
@@ -6795,7 +6801,7 @@ fn clarity_burn_state() {
             });
         }
     }
-    assert!(clarity_5_contract_deployed);
+    assert!(at_block_contracts_deployed);
     assert_eq!(expected_burn_heights.len() as u64, 4 * tenure_count);
     assert_eq!(skip_sortitions_at_heights.len(), skipped_block_commit_count);
 
