@@ -51,11 +51,6 @@ use crate::Config;
 /// Used to test that the signers will broadcast a block if it gets enough signatures
 pub static TEST_IGNORE_SIGNERS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
-#[cfg(test)]
-/// Fault injection flag to prevent the miner from notifying listeners about signer signatures across a block.
-pub static TEST_STALL_BLOCK_NOTIFICATION: LazyLock<TestFlag<bool>> =
-    LazyLock::new(TestFlag::default);
-
 /// How long should the coordinator poll on the event receiver before
 /// waking up to check timeouts?
 pub static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
@@ -430,7 +425,6 @@ impl StackerDBListener {
 
                         if block.total_weight_approved >= self.weight_threshold {
                             // Signal to anyone waiting on this block that we have enough signatures
-                            Self::fault_injection_stall_notification();
                             cvar.notify_all();
                         }
 
@@ -610,24 +604,6 @@ impl StackerDBListener {
     #[cfg(not(test))]
     fn fault_injection_ignore_signatures() -> bool {
         false
-    }
-
-    #[cfg(test)]
-    fn fault_injection_stall_notification() {
-        let mut first_stall = true;
-        while TEST_STALL_BLOCK_NOTIFICATION.get() {
-            std::thread::sleep(Duration::from_millis(100));
-            if first_stall {
-                warn!("StackerDBListener: fault injection: stalling block notification to miner");
-                first_stall = false;
-            }
-        }
-        info!("StackerDBListener: fault injection: resuming block notification to miner");
-    }
-
-    #[cfg(not(test))]
-    fn fault_injection_stall_notification() {
-        // no-op
     }
 }
 
