@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -493,6 +493,10 @@ impl EventDispatcher {
 
         for receipt in receipts {
             let tx_hash = receipt.transaction.txid();
+            if receipt.post_condition_aborted {
+                debug!("Transaction {tx_hash} aborted by post-condition, skipping events");
+                continue;
+            }
             for event in receipt.events.iter() {
                 match event {
                     StacksTransactionEvent::SmartContractEvent(event_data) => {

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -285,7 +285,14 @@ where
 
         let err = match tx_result {
             TransactionResult::Success(tx_result) => {
-                txs_receipts.push((tx_result.receipt, profiler_result));
+                if tx_result.receipt.post_condition_aborted {
+                    debug!(
+                        "Transaction {} aborted by post-condition failure",
+                        tx.txid()
+                    );
+                } else {
+                    txs_receipts.push((tx_result.receipt, profiler_result));
+                }
                 Ok(())
             }
             TransactionResult::ProcessingError(e) => {
