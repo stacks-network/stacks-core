@@ -45,15 +45,21 @@ mod utils {
     };
 
     const ENV_BITCOIN_IMAGE_TAG: &str = "BITCOIN_IMAGE_TAG";
+    const ENV_CI: &str = "CI";
 
-    /// Returns the Bitcoin Docker image tag.
+    /// Retrieves the Bitcoin Docker image tag.
     ///
-    /// This function reads the `BITCOIN_IMAGE_TAG` environment variable.
-    /// If the variable is set and not empty, its value is returned.
-    /// Otherwise, the default image tag (`BITCOIN_DEFAULT_IMAGE_TAG`) is used.
+    /// - Returns the value of [`ENV_BITCOIN_IMAGE_TAG`] if it is set and non-empty.
+    /// - If running in CI (with [`ENV_CI`] set to true`) and the variable is missing or empty, the function panics.
+    /// - Otherwise, returns the default image tag [`BITCOIN_DEFAULT_IMAGE_TAG`].
     fn get_bitcoin_image_tag() -> String {
+        let is_ci = env::var(ENV_CI).unwrap_or_default() == "true";
+
         match env::var(ENV_BITCOIN_IMAGE_TAG) {
             Ok(tag) if !tag.trim().is_empty() => tag,
+            _ if is_ci => panic!(
+                "Environment variable `{ENV_BITCOIN_IMAGE_TAG}` is required when running in CI",
+            ),
             _ => BITCOIN_DEFAULT_IMAGE_TAG.to_string(),
         }
     }
