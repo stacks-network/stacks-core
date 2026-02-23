@@ -2122,6 +2122,7 @@ fn should_reevaluate_block(block_info: &BlockInfo) -> bool {
     if let Some(reject_reason) = &block_info.reject_reason {
         match reject_reason {
             RejectReason::ValidationFailed(ValidateRejectCode::UnknownParent)
+            | RejectReason::ValidationFailed(ValidateRejectCode::NotFoundError)
             | RejectReason::NoSortitionView
             | RejectReason::ConnectivityIssues(_)
             | RejectReason::TestingDirective
