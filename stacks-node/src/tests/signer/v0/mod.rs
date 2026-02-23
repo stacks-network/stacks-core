@@ -8050,6 +8050,14 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
     )
     .unwrap();
 
+    let expected_tenure_id = signer_test.get_peer_info().pox_consensus;
+    wait_for_state_machine_update_by_miner_tenure_id(
+        30,
+        &expected_tenure_id,
+        &signer_test.signer_addresses_versions(),
+    )
+    .expect("Signers failed to update their state for the new tenure");
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let proposal = wait_for_block_proposal_block(30, height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal");
     let hash = proposal.header.signer_signature_hash();
