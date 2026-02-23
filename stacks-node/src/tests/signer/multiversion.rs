@@ -20,19 +20,19 @@ use libsigner::v0::messages::{
     SignerMessageMetadata,
 };
 use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
-use libsigner_v3_3_0_0_4::v0::messages::SignerMessage as OldSignerMessage;
-use signer_v3_3_0_0_4::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION as OldSupportedVersion;
+use libsigner_v3_3_0_0_5::v0::messages::SignerMessage as OldSignerMessage;
+use signer_v3_3_0_0_5_0::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION as OldSupportedVersion;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
-use stacks_common_v3_3_0_0_4::codec::StacksMessageCodec as OldStacksMessageCodec;
+use stacks_common_v3_3_0_0_5::codec::StacksMessageCodec as OldStacksMessageCodec;
 use stacks_signer::runloop::{RewardCycleInfo, State, StateInfo};
 use stacks_signer::v0::signer_state::{
     LocalStateMachine, SUPPORTED_SIGNER_PROTOCOL_VERSION as NewSupportedVersion,
 };
 use stacks_signer::v0::SpawnedSigner;
-use {libsigner_v3_3_0_0_4, signer_v3_3_0_0_4, stacks_common_v3_3_0_0_4, stacks_v3_3_0_0_4};
+use {libsigner_v3_3_0_0_5, signer_v3_3_0_0_5_0, stacks_common_v3_3_0_0_5, stacks_v3_3_0_0_5};
 
 use super::SpawnedSignerTrait;
 use crate::stacks_common::codec::StacksMessageCodec;
@@ -43,24 +43,24 @@ use crate::tests::{self};
 use crate::Keychain;
 
 pub enum MultiverSpawnedSigner {
-    V33004(signer_v3_3_0_0_4::v0::SpawnedSigner),
+    V33005(signer_v3_3_0_0_5_0::v0::SpawnedSigner),
     Current(SpawnedSigner),
 }
 
 pub enum ReceiveResult {
-    V33004(Result<signer_v3_3_0_0_4::runloop::SignerResult, ()>),
+    V33005(Result<signer_v3_3_0_0_5_0::runloop::SignerResult, ()>),
     Current(Result<stacks_signer::runloop::SignerResult, TryRecvError>),
 }
 
-// Helper function to convert libsigner_v3_3_0_0_4 miner state to current miner state
-pub fn miner_state_v3_3_0_0_4_to_current(
-    miner_state: &libsigner_v3_3_0_0_4::v0::signer_state::MinerState,
+// Helper function to convert libsigner_v3_3_0_0_5 miner state to current miner state
+pub fn miner_state_v3_3_0_0_5_to_current(
+    miner_state: &libsigner_v3_3_0_0_5::v0::signer_state::MinerState,
 ) -> MinerState {
     match miner_state {
-        libsigner_v3_3_0_0_4::v0::signer_state::MinerState::NoValidMiner => {
+        libsigner_v3_3_0_0_5::v0::signer_state::MinerState::NoValidMiner => {
             MinerState::NoValidMiner
         }
-        libsigner_v3_3_0_0_4::v0::signer_state::MinerState::ActiveMiner {
+        libsigner_v3_3_0_0_5::v0::signer_state::MinerState::ActiveMiner {
             current_miner_pkh,
             tenure_id,
             parent_tenure_id,
@@ -77,29 +77,29 @@ pub fn miner_state_v3_3_0_0_4_to_current(
 }
 
 // Helper function to convert from one to the other
-pub fn stacks_transaction_v3_3_0_0_4_to_current(
-    tx: &stacks_v3_3_0_0_4::chainstate::stacks::StacksTransaction,
+pub fn stacks_transaction_v3_3_0_0_5_to_current(
+    tx: &stacks_v3_3_0_0_5::chainstate::stacks::StacksTransaction,
 ) -> StacksTransaction {
     let tx_bytes = tx.serialize_to_vec();
     StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap()
 }
 
-// Helper function to convert libsigner_v3_3_0_0_4 signer state machine to current signer state machine
-pub fn signer_state_update_v3_3_0_0_4_to_current(
-    update: &signer_v3_3_0_0_4::v0::signer_state::StateMachineUpdate,
+// Helper function to convert libsigner_v3_3_0_0_5 signer state machine to current signer state machine
+pub fn signer_state_update_v3_3_0_0_5_to_current(
+    update: &signer_v3_3_0_0_5_0::v0::signer_state::StateMachineUpdate,
 ) -> stacks_signer::v0::signer_state::StateMachineUpdate {
     let serialized = serde_json::to_string(update).unwrap();
     serde_json::from_str(&serialized).unwrap()
 }
 
-// Helper function to convert libsigner_v3_3_0_0_4 signer state machine to current signer state machine
-pub fn signer_state_machine_v3_3_0_0_4_to_current(
-    machine: &libsigner_v3_3_0_0_4::v0::signer_state::SignerStateMachine,
+// Helper function to convert libsigner_v3_3_0_0_5 signer state machine to current signer state machine
+pub fn signer_state_machine_v3_3_0_0_5_to_current(
+    machine: &libsigner_v3_3_0_0_5::v0::signer_state::SignerStateMachine,
 ) -> SignerStateMachine {
     SignerStateMachine {
         burn_block: ConsensusHash(machine.burn_block.0),
         burn_block_height: machine.burn_block_height,
-        current_miner: miner_state_v3_3_0_0_4_to_current(&machine.current_miner),
+        current_miner: miner_state_v3_3_0_0_5_to_current(&machine.current_miner),
         active_signer_protocol_version: machine.active_signer_protocol_version,
         tx_replay_set: ReplayTransactionSet::new(
             machine
@@ -107,28 +107,28 @@ pub fn signer_state_machine_v3_3_0_0_4_to_current(
                 .clone()
                 .unwrap_or_default()
                 .iter()
-                .map(stacks_transaction_v3_3_0_0_4_to_current)
+                .map(stacks_transaction_v3_3_0_0_5_to_current)
                 .collect(),
         ),
     }
 }
 
-// Helper function to convert signer_v3_3_0_0_4 local state machines to current local state machines
-pub fn local_state_machine_v3_3_0_0_4_to_current(
-    state_machine: &signer_v3_3_0_0_4::v0::signer_state::LocalStateMachine,
+// Helper function to convert signer_v3_3_0_0_5_0 local state machines to current local state machines
+pub fn local_state_machine_v3_3_0_0_5_to_current(
+    state_machine: &signer_v3_3_0_0_5_0::v0::signer_state::LocalStateMachine,
 ) -> LocalStateMachine {
     match state_machine {
-        signer_v3_3_0_0_4::v0::signer_state::LocalStateMachine::Uninitialized => {
+        signer_v3_3_0_0_5_0::v0::signer_state::LocalStateMachine::Uninitialized => {
             LocalStateMachine::Uninitialized
         }
-        signer_v3_3_0_0_4::v0::signer_state::LocalStateMachine::Pending { prior, update } => {
+        signer_v3_3_0_0_5_0::v0::signer_state::LocalStateMachine::Pending { prior, update } => {
             LocalStateMachine::Pending {
-                prior: signer_state_machine_v3_3_0_0_4_to_current(prior),
-                update: signer_state_update_v3_3_0_0_4_to_current(update),
+                prior: signer_state_machine_v3_3_0_0_5_to_current(prior),
+                update: signer_state_update_v3_3_0_0_5_to_current(update),
             }
         }
-        signer_v3_3_0_0_4::v0::signer_state::LocalStateMachine::Initialized(machine) => {
-            LocalStateMachine::Initialized(signer_state_machine_v3_3_0_0_4_to_current(machine))
+        signer_v3_3_0_0_5_0::v0::signer_state::LocalStateMachine::Initialized(machine) => {
+            LocalStateMachine::Initialized(signer_state_machine_v3_3_0_0_5_to_current(machine))
         }
     }
 }
@@ -146,10 +146,10 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
             Self::Current(SpawnedSigner::new(c))
         } else {
             debug!(
-                "Spawning v3_3_0_0_4 version signer for endpoint {}",
+                "Spawning v3_3_0_0_5 version signer for endpoint {}",
                 c.endpoint
             );
-            let config = signer_v3_3_0_0_4::config::GlobalConfig {
+            let config = signer_v3_3_0_0_5_0::config::GlobalConfig {
                 node_host: c.node_host,
                 endpoint: c.endpoint,
                 stacks_private_key: serde_json::from_value(
@@ -160,7 +160,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                     serde_json::to_value(&c.stacks_address).unwrap(),
                 )
                 .unwrap(),
-                network: signer_v3_3_0_0_4::config::Network::Testnet,
+                network: signer_v3_3_0_0_5_0::config::Network::Testnet,
                 event_timeout: c.event_timeout,
                 auth_password: c.auth_password,
                 db_path: c.db_path,
@@ -183,15 +183,15 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                 supported_signer_protocol_version: c.supported_signer_protocol_version,
                 read_count_idle_timeout: c.read_count_idle_timeout,
             };
-            Self::V33004(signer_v3_3_0_0_4::v0::SpawnedSigner::new(config))
+            Self::V33005(signer_v3_3_0_0_5_0::v0::SpawnedSigner::new(config))
         }
     }
 
     fn try_recv(&self) -> Self::ReceiveResult {
         match self {
-            MultiverSpawnedSigner::V33004(spawned_signer) => {
+            MultiverSpawnedSigner::V33005(spawned_signer) => {
                 let result = spawned_signer.res_recv.try_recv().map_err(|_| ());
-                ReceiveResult::V33004(result)
+                ReceiveResult::V33005(result)
             }
             MultiverSpawnedSigner::Current(spawned_signer) => {
                 ReceiveResult::Current(spawned_signer.res_recv.try_recv())
@@ -201,7 +201,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
 
     fn stop(self) -> Option<Self::StopResult> {
         match self {
-            MultiverSpawnedSigner::V33004(spawned_signer) => spawned_signer.stop().map(|_| ()),
+            MultiverSpawnedSigner::V33005(spawned_signer) => spawned_signer.stop().map(|_| ()),
             MultiverSpawnedSigner::Current(spawned_signer) => spawned_signer.stop().map(|_| ()),
         }
     }
@@ -210,13 +210,13 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
         result: Self::ReceiveResult,
     ) -> Option<stacks_signer::runloop::StateInfo> {
         match result {
-            ReceiveResult::V33004(signer_result) => {
-                let Ok(signer_v3_3_0_0_4::runloop::SignerResult::StatusCheck(state_info)) =
+            ReceiveResult::V33005(signer_result) => {
+                let Ok(signer_v3_3_0_0_5_0::runloop::SignerResult::StatusCheck(state_info)) =
                     signer_result
                 else {
                     return None;
                 };
-                let signer_v3_3_0_0_4::runloop::StateInfo {
+                let signer_v3_3_0_0_5_0::runloop::StateInfo {
                     runloop_state,
                     reward_cycle_info,
                     running_signers,
@@ -226,11 +226,11 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                 } = state_info;
                 Some(StateInfo {
                     runloop_state: match runloop_state {
-                        signer_v3_3_0_0_4::runloop::State::Uninitialized => State::Uninitialized,
-                        signer_v3_3_0_0_4::runloop::State::NoRegisteredSigners => {
+                        signer_v3_3_0_0_5_0::runloop::State::Uninitialized => State::Uninitialized,
+                        signer_v3_3_0_0_5_0::runloop::State::NoRegisteredSigners => {
                             State::NoRegisteredSigners
                         }
-                        signer_v3_3_0_0_4::runloop::State::RegisteredSigners => {
+                        signer_v3_3_0_0_5_0::runloop::State::RegisteredSigners => {
                             State::RegisteredSigners
                         }
                     },
@@ -258,7 +258,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                                 *i,
                                 machine
                                     .as_ref()
-                                    .map(local_state_machine_v3_3_0_0_4_to_current),
+                                    .map(local_state_machine_v3_3_0_0_5_to_current),
                             )
                         })
                         .collect(),
@@ -615,7 +615,7 @@ fn mixed_signer_set_40_percent_new_60_percent_old() {
 /// Test with 80% new signers and 20% old signers that the chain still progresses
 /// with ALL signers signing the proposed blocks.
 fn mixed_signer_set_80_percent_new_20_percent_old() {
-    // We want: 80% new (current), 20% old (v3.3.0.0.4)
+    // We want: 80% new (current), 20% old (v3.3.0.0.5)
     // Let's use 10 signers total for clean percentages: 8 new, 2 old
     assert!(
         OldSupportedVersion < NewSupportedVersion,

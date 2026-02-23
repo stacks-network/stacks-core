@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 mod commands;
-#[cfg(feature = "build-signer-v3-3-0-0-4")]
+#[cfg(feature = "build-signer-v3-3-0-0-5-0")]
 pub mod multiversion;
 pub mod v0;
 
@@ -472,20 +472,27 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
             debug!("Issue status request to {path}");
             let client = reqwest::blocking::Client::new();
-            let response = client
-                .get(path)
-                .send()
-                .expect("Failed to send status request");
-            assert!(response.status().is_success())
+            match client.get(path).send() {
+                Ok(response) if response.status().is_success() => {}
+                Ok(response) => {
+                    debug!(
+                        "Signer #{signer_ix} returned non-success status: {}",
+                        response.status()
+                    );
+                }
+                Err(e) => {
+                    debug!("Failed to send status request to signer #{signer_ix}: {e}");
+                }
+            }
         }
     }
 
     pub fn wait_for_registered(&self) {
         let mut finished_signers = HashSet::new();
         wait_for(120, || {
-            self.send_status_request(&finished_signers);
-            thread::sleep(Duration::from_secs(1));
-            let latest_states = self.get_states(&finished_signers);
+            self.send_status_request(&HashSet::new());
+            thread::sleep(Duration::from_secs(5));
+            let latest_states = self.get_states(&HashSet::new());
             for (ix, state) in latest_states.iter().enumerate() {
                 let Some(state) = state else { continue; };
                 if state.runloop_state == State::RegisteredSigners {

@@ -827,8 +827,6 @@ impl Signer {
     /// Check if block should be rejected based on the local view of the sortition state
     /// Will return a BlockRejection if the block is invalid, none otherwise.
     /// This is the pre-global signer state activation path.
-    // TODO: remove this clippy allow
-    #[allow(dead_code)]
     fn check_block_against_local_state(
         &mut self,
         stacks_client: &StacksClient,

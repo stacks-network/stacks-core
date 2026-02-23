@@ -19,6 +19,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Improved the cost-tracking for `from-consensus-buff?`, effective in epoch 3.4, so that when an empty buffer is passed, users will see a `none` result, rather than a confusing runtime error.
 - Resolved several cases where a mock-miner would stop mining
 - /v2/pox endpoint now returns the `pox_ustx_threshold` stored in the reward set instead of a live computed value, which incorrectly accounts for STX locked during the prepare phase, after the reward set has been set.
+- Signer protocol version negotiation now properly handles downgrades based on majority consensus, not just upgrades
 
 ## [3.3.0.0.5]
 
