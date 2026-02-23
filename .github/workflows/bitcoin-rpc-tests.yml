@@ -53,8 +53,6 @@ jobs:
       - name: Setup Test Environment
         id: setup_tests
         uses: stacks-network/actions/stacks-core/testenv@main
-        with:
-          btc-version: "25.0" ## TODO: Remove this cache restore as no needed here?!
 
       - name: Check Docker
         run: docker version
@@ -62,7 +60,7 @@ jobs:
       - name: Pre-pull bitcoind image ${{ matrix.bitcoin_version }}
         run: docker pull bitcoin/bitcoin:${{ matrix.bitcoin_version }}
 
-      - name: Run tests on bitcoind:${{ matrix.bitcoin_version }}
+      - name: Run tests on bitcoind ${{ matrix.bitcoin_version }}
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT_MINS) }}
         env:
           BITCOIN_IMAGE_TAG: ${{ matrix.bitcoin_version }}

@@ -27,6 +27,8 @@ use testcontainers::core::WaitFor;
 use testcontainers::runners::SyncRunner;
 use testcontainers::{Container, GenericImage, ImageExt};
 
+/// Default bitcoin image tag
+pub const BITCOIN_DEFAULT_IMAGE_TAG: &str = "25";
 /// Default RPC username used by [`BitcoinCoreContainer::new_with_defaults`].
 pub const BITCOIN_RPC_USERNAME: &str = "stacksdev";
 /// Default RPC password used by [`BitcoinCoreContainer::new_with_defaults`].
@@ -73,8 +75,8 @@ impl BitcoinCoreContainer {
             .add_arg("-rpcbind=0.0.0.0")
             .add_arg("-rpcallowip=0.0.0.0/0")
             .add_arg("-rpcallowip=::/0")
-            .add_arg(format!("-rpcuser={}", BITCOIN_RPC_USERNAME))
-            .add_arg(format!("-rpcpassword={}", BITCOIN_RPC_PASSWORD))
+            .add_arg(&format!("-rpcuser={}", BITCOIN_RPC_USERNAME))
+            .add_arg(&format!("-rpcpassword={}", BITCOIN_RPC_PASSWORD))
             .add_arg("-fallbackfee=0.00001");
         result
     }
@@ -82,7 +84,7 @@ impl BitcoinCoreContainer {
     /// Add argument (like "-name=value") to be used to run bitcoind process
     ///
     /// Panics if the container has already been started.
-    pub fn add_arg(&mut self, arg: impl Into<String>) -> &mut Self {
+    pub fn add_arg(&mut self, arg: &str) -> &mut Self {
         if self.is_started() {
             panic!("the container is already started");
         }

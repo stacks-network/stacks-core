@@ -19,7 +19,7 @@
 //! `BitcoinCoreContainer`). Set `BITCOIN_IMAGE_TAG` to run the suite
 //! against a specific Bitcoin Core image tag (for example, `25` or `25.2`).
 //! If `BITCOIN_IMAGE_TAG` is not set (or is empty),
-//! tests fall back to `BITCOIN_IMAGE_TAG_FALLBACK`.
+//! tests fall back to `BITCOIN_DEFAULT_IMAGE_TAG`.
 //!
 //! CI uses this mechanism to automate checks across
 //! the relevant set of Bitcoin Core versions.
@@ -42,19 +42,24 @@ mod utils {
     use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
     use crate::burnchains::rpc::rpc_transport::RpcAuth;
     use crate::tests::bitcoin::core_container::{
-        BitcoinCoreContainer, BITCOIN_RPC_PASSWORD, BITCOIN_RPC_USERNAME,
+        BitcoinCoreContainer, BITCOIN_DEFAULT_IMAGE_TAG, BITCOIN_RPC_PASSWORD, BITCOIN_RPC_USERNAME,
     };
 
     const ENV_BITCOIN_IMAGE_TAG: &str = "BITCOIN_IMAGE_TAG";
-    const BITCOIN_IMAGE_TAG_FALLBACK: &str = "25";
 
+    /// Returns the Bitcoin Docker image tag.
+    ///
+    /// This function reads the `BITCOIN_IMAGE_TAG` environment variable.
+    /// If the variable is set and not empty, its value is returned.
+    /// Otherwise, the default image tag (`BITCOIN_DEFAULT_IMAGE_TAG`) is used.
     pub fn get_bitcoin_image_tag() -> String {
         match env::var(ENV_BITCOIN_IMAGE_TAG) {
             Ok(tag) if !tag.trim().is_empty() => tag,
-            _ => BITCOIN_IMAGE_TAG_FALLBACK.to_string(),
+            _ => BITCOIN_DEFAULT_IMAGE_TAG.to_string(),
         }
     }
 
+    /// Create a bitcoin container configured without RPC credentials
     pub fn create_container_no_auth(image_tag: &str) -> BitcoinCoreContainer {
         let mut result = BitcoinCoreContainer::new(image_tag);
         result
@@ -67,6 +72,7 @@ mod utils {
         result
     }
 
+    /// Create a bitcoin client from bitcoin container using basic auth
     pub fn create_client_from_container(container: &BitcoinCoreContainer) -> BitcoinRpcClient {
         create_client_from_container_and_auth(
             container,
@@ -77,12 +83,14 @@ mod utils {
         )
     }
 
+    /// Create a bitcoin client from bitcoin container without authentication
     pub fn create_client_no_auth_from_container(
         container: &BitcoinCoreContainer,
     ) -> BitcoinRpcClient {
         create_client_from_container_and_auth(container, RpcAuth::None)
     }
 
+    /// Creates a Bitcoin RPC client from the given container using the provided authentication method.
     fn create_client_from_container_and_auth(
         container: &BitcoinCoreContainer,
         auth: RpcAuth,
