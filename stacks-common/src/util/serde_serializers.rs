@@ -58,6 +58,42 @@ pub mod prefix_hex {
     }
 }
 
+/// This module serde encodes and decodes byte fields in RPC
+/// responses as a String where the String is a `0x` prefixed
+/// hex string.
+pub mod prefix_hex_byte_array {
+    use crate::util::hash::{hex_bytes, to_hex};
+
+    pub fn serialize<S: serde::Serializer>(val: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&format!("0x{}", to_hex(&val)))
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>, const N: usize>(
+        d: D,
+    ) -> Result<[u8; N], D::Error> {
+        let inst_str: String = serde::Deserialize::deserialize(d)?;
+        let Some(hex_str) = inst_str.get(2..) else {
+            return Err(serde::de::Error::invalid_length(
+                inst_str.len(),
+                &"at least length 2 string",
+            ));
+        };
+        if hex_str.len() != N * 2 {
+            return Err(serde::de::Error::invalid_length(
+                inst_str.len(),
+                &"expected length 2 * expected array length",
+            ));
+        }
+        let bytes = hex_bytes(hex_str).map_err(serde::de::Error::custom)?;
+        bytes.try_into().map_err(|b: Vec<u8>|
+                                 // error should be unreachable because of the length check above 
+                                 serde::de::Error::invalid_length(
+                                     b.len(),
+                                     &"expected exact array length",
+                                 ))
+    }
+}
+
 /// This module serde encode and decodes structs that
 /// implement StacksMessageCodec as a 0x-prefixed hex string.
 pub mod prefix_hex_codec {
