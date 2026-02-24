@@ -62,7 +62,7 @@ pub fn special_filter(
 
     let function_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Expected name".to_string(),
         ))?;
 
@@ -96,7 +96,7 @@ pub fn special_filter(
                 })?;
         }
         _ => {
-            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            return Err(RuntimeCheckErrorKind::Unreachable(format!(
                 "Expected sequence: {}",
                 TypeSignature::type_of(&sequence)?
             ))
@@ -117,7 +117,7 @@ pub fn special_fold(
 
     let function_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Expected name".to_string(),
         ))?;
 
@@ -142,7 +142,7 @@ pub fn special_fold(
                     context,
                 )
             }),
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Expected sequence: {}",
             TypeSignature::type_of(&sequence)?
         ))
@@ -161,7 +161,7 @@ pub fn special_map(
 
     let function_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Expected name".to_string(),
         ))?;
     let function = lookup_function(function_name, env)?;
@@ -197,7 +197,7 @@ pub fn special_map(
                 }
             }
             _ => {
-                return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                return Err(RuntimeCheckErrorKind::Unreachable(format!(
                     "Expected sequence: {}",
                     TypeSignature::type_of(&sequence)?
                 ))
@@ -264,10 +264,9 @@ pub fn special_append(
                 data,
             })))
         }
-        _ => Err(
-            RuntimeCheckErrorKind::ExpectsAcceptable("Expected list application".to_string())
-                .into(),
-        ),
+        _ => {
+            Err(RuntimeCheckErrorKind::Unreachable("Expected list application".to_string()).into())
+        }
     }
 }
 
@@ -293,7 +292,7 @@ pub fn special_concat_v200(
         (Value::Sequence(seq), Value::Sequence(other_seq)) => seq.concat(env.epoch(), other_seq)?,
         (Value::Sequence(_), other_value) => {
             // The first value is a sequence, but the second is not
-            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            return Err(RuntimeCheckErrorKind::Unreachable(format!(
                 "Expected sequence: {}",
                 TypeSignature::type_of(&other_value)?
             ))
@@ -301,7 +300,7 @@ pub fn special_concat_v200(
         }
         (value, _) => {
             // The first value is not a sequence (the other may not be as well, but just error on the first)
-            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            return Err(RuntimeCheckErrorKind::Unreachable(format!(
                 "Expected sequence: {}",
                 TypeSignature::type_of(value)?
             ))
@@ -342,7 +341,7 @@ pub fn special_concat_v205(
         }
         _ => {
             runtime_cost(ClarityCostFunction::Concat, env, 1)?;
-            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            return Err(RuntimeCheckErrorKind::Unreachable(format!(
                 "Expected sequence: {}",
                 TypeSignature::type_of(&wrapped_seq)?,
             ))
@@ -368,7 +367,7 @@ pub fn special_as_max_len(
         let sequence_len = match sequence {
             Value::Sequence(ref sequence_data) => sequence_data.len() as u128,
             _ => {
-                return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                return Err(RuntimeCheckErrorKind::Unreachable(format!(
                     "Expected sequence: {}",
                     TypeSignature::type_of(&sequence)?
                 ))
@@ -396,7 +395,7 @@ pub fn special_as_max_len(
 pub fn native_len(sequence: Value) -> Result<Value, VmExecutionError> {
     match sequence {
         Value::Sequence(sequence_data) => Ok(Value::UInt(sequence_data.len() as u128)),
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Expected sequence: {}",
             TypeSignature::type_of(&sequence)?
         ))
@@ -411,7 +410,7 @@ pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value, VmExecu
             None => Ok(Value::none()),
         }
     } else {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Expected sequence: {}",
             TypeSignature::type_of(&sequence)?
         ))
@@ -423,7 +422,7 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value, VmExecu
     let sequence_data = if let Value::Sequence(sequence_data) = sequence {
         sequence_data
     } else {
-        return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        return Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Expected sequence: {}",
             TypeSignature::type_of(&sequence)?
         ))
@@ -491,9 +490,7 @@ pub fn special_slice(
                     seq.slice(env.epoch(), left_position as usize, right_position as usize)?;
                 Ok(Value::some(seq_value)?)
             }
-            _ => {
-                Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad type construction".into()).into())
-            }
+            _ => Err(RuntimeCheckErrorKind::Unreachable("Bad type construction".into()).into()),
         }
     })();
 
@@ -522,10 +519,9 @@ pub fn special_replace_at(
     let expected_elem_type = if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
         seq_subtype.unit_type()
     } else {
-        return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
-            "Expected sequence: {seq_type}"
-        ))
-        .into());
+        return Err(
+            RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {seq_type}")).into(),
+        );
     };
     let index_val = eval(&args[1], env, context)?;
     let new_element = eval(&args[2], env, context)?;
@@ -555,10 +551,9 @@ pub fn special_replace_at(
     };
 
     let Value::Sequence(data) = seq else {
-        return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
-            "Expected sequence: {seq_type}"
-        ))
-        .into());
+        return Err(
+            RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {seq_type}")).into(),
+        );
     };
     let seq_len = data.len();
     if index >= seq_len {

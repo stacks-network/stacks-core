@@ -184,7 +184,7 @@ pub enum SignerEvent<T: SignerEventTrait> {
     SignerMessages {
         /// The signer set to which the message belongs (either 0 or 1)
         signer_set: u32,
-        /// Each message of type `T` is paired with the `StacksPublicKey` of the slot from which it was retreived
+        /// Each message of type `T` is paired with the `StacksPublicKey` of the slot from which it was retrieved
         messages: Vec<(StacksPublicKey, T)>,
         /// the time at which this event was received by the signer's event processor
         received_time: SystemTime,

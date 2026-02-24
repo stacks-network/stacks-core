@@ -1298,7 +1298,7 @@ fn contract_stx_transfer() {
                         &chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
-                    // check that 1000 stx _was_ transfered to the contract principal
+                    // check that 1000 stx _was_ transferred to the contract principal
                     assert_eq!(
                         chain_state
                             .with_read_only_clarity_tx(
@@ -1348,7 +1348,7 @@ fn contract_stx_transfer() {
                     //   the second publish _should have been rejected_
                     assert_eq!(chain_tip.block.txs.len(), 2);
 
-                    // check that 1 stx was transfered to SK_2 via the contract-call
+                    // check that 1 stx was transferred to SK_2 via the contract-call
                     let cur_tip = (
                         &chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
@@ -1589,7 +1589,7 @@ fn mine_transactions_out_of_order() {
                     assert_eq!(chain_tip.metadata.stacks_block_height, 5);
                     assert_eq!(chain_tip.block.txs.len(), 5);
 
-                    // check that 1000 stx _was_ transfered to the contract principal
+                    // check that 1000 stx _was_ transferred to the contract principal
                     let curr_tip = (
                         &chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
@@ -1883,7 +1883,7 @@ fn bad_contract_tx_rollback() {
                         &chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
-                    // check that 1000 stx _was_ transfered to the contract principal
+                    // check that 1000 stx _was_ transferred to the contract principal
                     assert_eq!(
                         chain_state
                             .with_read_only_clarity_tx(

@@ -36,7 +36,7 @@ fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>, VmExecutionError> {
             }
         }
         _ => {
-            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            return Err(RuntimeCheckErrorKind::Unreachable(format!(
                 "Expected optional or response value: {to_unwrap}"
             ))
             .into());
@@ -56,7 +56,7 @@ fn inner_unwrap_err(to_unwrap: Value) -> Result<Option<Value>, VmExecutionError>
             }
         }
         _ => {
-            return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+            return Err(RuntimeCheckErrorKind::Unreachable(format!(
                 "Expected response value: {to_unwrap}"
             ))
             .into());
@@ -112,7 +112,7 @@ pub fn native_try_ret(input: Value) -> Result<Value, VmExecutionError> {
                 Err(EarlyReturnError::UnwrapFailed(Box::new(short_return_val)).into())
             }
         }
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Expected optional or response value: {input}"
         ))
         .into()),
@@ -163,7 +163,7 @@ fn special_match_opt(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if args.len() != 3 {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Bad match option syntax: args {} != 3",
             args.len()
         )))?;
@@ -172,9 +172,7 @@ fn special_match_opt(
     let bind_name = args[0]
         .match_atom()
         .ok_or_else(|| {
-            RuntimeCheckErrorKind::ExpectsAcceptable(
-                "Bad match option syntax: expected name".to_string(),
-            )
+            RuntimeCheckErrorKind::Unreachable("Bad match option syntax: expected name".to_string())
         })?
         .clone();
     let some_branch = &args[1];
@@ -193,7 +191,7 @@ fn special_match_resp(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     if args.len() != 4 {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Bad match response syntax: args {} != 4",
             args.len()
         )))?;
@@ -202,7 +200,7 @@ fn special_match_resp(
     let ok_bind_name = args[0]
         .match_atom()
         .ok_or_else(|| {
-            RuntimeCheckErrorKind::ExpectsAcceptable(
+            RuntimeCheckErrorKind::Unreachable(
                 "Bad match response syntax: expected name".to_string(),
             )
         })?
@@ -211,7 +209,7 @@ fn special_match_resp(
     let err_bind_name = args[2]
         .match_atom()
         .ok_or_else(|| {
-            RuntimeCheckErrorKind::ExpectsAcceptable(
+            RuntimeCheckErrorKind::Unreachable(
                 "Bad match response syntax: expected name".to_string(),
             )
         })?
@@ -239,7 +237,7 @@ pub fn special_match(
     match input {
         Value::Response(data) => special_match_resp(data, &args[1..], env, context),
         Value::Optional(data) => special_match_opt(data, &args[1..], env, context),
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Bad match input: {}",
             TypeSignature::type_of(&input)?
         ))
@@ -254,7 +252,7 @@ pub fn native_some(input: Value) -> Result<Value, VmExecutionError> {
 fn is_some(input: Value) -> Result<bool, RuntimeCheckErrorKind> {
     match input {
         Value::Optional(ref data) => Ok(data.data.is_some()),
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Expected option value: {input}"
         ))),
     }
@@ -263,7 +261,7 @@ fn is_some(input: Value) -> Result<bool, RuntimeCheckErrorKind> {
 fn is_okay(input: Value) -> Result<bool, RuntimeCheckErrorKind> {
     match input {
         Value::Response(data) => Ok(data.committed),
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Expected response value: {input}"
         ))),
     }
@@ -299,9 +297,8 @@ pub fn native_default_to(default: Value, input: Value) -> Result<Value, VmExecut
             Some(data) => Ok(*data),
             None => Ok(default),
         },
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
-            "Expected option value: {input}"
-        ))
-        .into()),
+        _ => Err(
+            RuntimeCheckErrorKind::Unreachable(format!("Expected option value: {input}")).into(),
+        ),
     }
 }

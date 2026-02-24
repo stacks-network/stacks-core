@@ -858,7 +858,7 @@ impl LocalStateMachine {
         let last_approved_block_time = match current_miner {
             StateMachineUpdateMinerState::ActiveMiner { tenure_id, .. } => {
                 signerdb
-                    .get_last_globally_accepted_block_signed_self(tenure_id)
+                    .get_last_globally_accepted_approved_time(tenure_id)
                     .inspect_err(|e| {
                         warn!("Error retrieving last globally accepted block approved by this signer: {e}");
                     })

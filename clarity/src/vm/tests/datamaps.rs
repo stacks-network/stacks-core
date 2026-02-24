@@ -476,8 +476,7 @@ fn datamap_errors() {
     for program in tests.iter() {
         assert_eq!(
             execute(program).unwrap_err(),
-            RuntimeCheckErrorKind::ExpectsAcceptable("No such map: non-existent".to_string())
-                .into()
+            RuntimeCheckErrorKind::Unreachable("No such map: non-existent".to_string()).into()
         );
     }
 }
@@ -653,15 +652,15 @@ fn bad_define_maps() {
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
     let expected: Vec<ClarityEvalError> = vec![
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        RuntimeCheckErrorKind::Unreachable(format!(
             "Bad syntax binding: {}",
             SyntaxBindingError::tuple_cons_invalid_length(0)
         ))
         .into(),
-        RuntimeCheckErrorKind::ExpectsAcceptable("Unknown type name: contents".to_string()).into(),
-        RuntimeCheckErrorKind::ExpectsAcceptable("Expected name".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Unknown type name: contents".to_string()).into(),
+        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()).into(),
         RuntimeCheckErrorKind::IncorrectArgumentCount(3, 4).into(),
-        RuntimeCheckErrorKind::ExpectsAcceptable(
+        RuntimeCheckErrorKind::Unreachable(
             "Unexpected error type during runtime analysis: InvalidTypeDescription".to_string(),
         )
         .into(),
@@ -685,11 +684,11 @@ fn bad_tuples() {
     ];
     let expected = vec![
         RuntimeCheckErrorKind::NameAlreadyUsed("name".into()),
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_not_list(0))),
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_invalid_length(1))),
-        RuntimeCheckErrorKind::ExpectsAcceptable("Unexpected error type during runtime analysis: NoSuchTupleField(\"value\", TupleTypeSignature { \"name\": int,})".to_string()),
+        RuntimeCheckErrorKind::Unreachable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_not_list(0))),
+        RuntimeCheckErrorKind::Unreachable(format!("Bad syntax binding: {}", SyntaxBindingError::tuple_cons_invalid_length(1))),
+        RuntimeCheckErrorKind::Unreachable("Unexpected error type during runtime analysis: NoSuchTupleField(\"value\", TupleTypeSignature { \"name\": int,})".to_string()),
         RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3),
-        RuntimeCheckErrorKind::ExpectsAcceptable("Expected name".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()),
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
