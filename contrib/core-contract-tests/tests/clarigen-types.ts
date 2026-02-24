@@ -3907,6 +3907,33 @@ export const contracts = {
         [height: TypedAbiArg<number | bigint, 'height'>],
         bigint
       >,
+      checkPoxAddr: {
+        name: 'check-pox-addr',
+        access: 'read_only',
+        args: [
+          {
+            name: 'pox-addr',
+            type: {
+              tuple: [
+                { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                { name: 'version', type: { buffer: { length: 1 } } },
+              ],
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          poxAddr: TypedAbiArg<
+            {
+              hashbytes: Uint8Array;
+              version: Uint8Array;
+            },
+            'poxAddr'
+          >,
+        ],
+        Response<boolean, bigint>
+      >,
       checkPoxAddrHashbytes: {
         name: 'check-pox-addr-hashbytes',
         access: 'read_only',
@@ -4207,69 +4234,6 @@ export const contracts = {
       >,
     },
     variables: {
-      aDDRESS_VERSION_NATIVE_P2TR: {
-        name: 'ADDRESS_VERSION_NATIVE_P2TR',
-        type: {
-          buffer: {
-            length: 1,
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Uint8Array>,
-      aDDRESS_VERSION_NATIVE_P2WPKH: {
-        name: 'ADDRESS_VERSION_NATIVE_P2WPKH',
-        type: {
-          buffer: {
-            length: 1,
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Uint8Array>,
-      aDDRESS_VERSION_NATIVE_P2WSH: {
-        name: 'ADDRESS_VERSION_NATIVE_P2WSH',
-        type: {
-          buffer: {
-            length: 1,
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Uint8Array>,
-      aDDRESS_VERSION_P2PKH: {
-        name: 'ADDRESS_VERSION_P2PKH',
-        type: {
-          buffer: {
-            length: 1,
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Uint8Array>,
-      aDDRESS_VERSION_P2SH: {
-        name: 'ADDRESS_VERSION_P2SH',
-        type: {
-          buffer: {
-            length: 1,
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Uint8Array>,
-      aDDRESS_VERSION_P2WPKH: {
-        name: 'ADDRESS_VERSION_P2WPKH',
-        type: {
-          buffer: {
-            length: 1,
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Uint8Array>,
-      aDDRESS_VERSION_P2WSH: {
-        name: 'ADDRESS_VERSION_P2WSH',
-        type: {
-          buffer: {
-            length: 1,
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Uint8Array>,
       ERR_ALREADY_STAKED: {
         name: 'ERR_ALREADY_STAKED',
         type: {
@@ -4425,13 +4389,6 @@ export const contracts = {
       } as TypedAbiVariable<bigint>,
     },
     constants: {
-      aDDRESS_VERSION_NATIVE_P2TR: Uint8Array.from([6]),
-      aDDRESS_VERSION_NATIVE_P2WPKH: Uint8Array.from([4]),
-      aDDRESS_VERSION_NATIVE_P2WSH: Uint8Array.from([5]),
-      aDDRESS_VERSION_P2PKH: Uint8Array.from([0]),
-      aDDRESS_VERSION_P2SH: Uint8Array.from([1]),
-      aDDRESS_VERSION_P2WPKH: Uint8Array.from([2]),
-      aDDRESS_VERSION_P2WSH: Uint8Array.from([3]),
       ERR_ALREADY_STAKED: {
         isOk: false,
         value: 1n,

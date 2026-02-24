@@ -18,20 +18,10 @@
 (define-constant ERR_INVALID_AMOUNT (err u11))
 (define-constant ERR_INVALID_POX_ADDRESS (err u13))
 
-;; Valid values for burnchain address versions.
-;; These first four correspond to address hash modes in Stacks 2.1,
-;; and are defined in pox-mainnet.clar and pox-testnet.clar (so they
-;; cannot be defined here again).
-(define-constant ADDRESS_VERSION_P2PKH 0x00)
-(define-constant ADDRESS_VERSION_P2SH 0x01)
-(define-constant ADDRESS_VERSION_P2WPKH 0x02)
-(define-constant ADDRESS_VERSION_P2WSH 0x03)
-(define-constant ADDRESS_VERSION_NATIVE_P2WPKH 0x04)
-(define-constant ADDRESS_VERSION_NATIVE_P2WSH 0x05)
-(define-constant ADDRESS_VERSION_NATIVE_P2TR 0x06)
-
 ;; Values for stacks address versions
+;; #[allow(unused_const)]
 (define-constant STACKS_ADDR_VERSION_MAINNET 0x16)
+;; #[allow(unused_const)]
 (define-constant STACKS_ADDR_VERSION_TESTNET 0x1a)
 
 ;; Maximum number of cycles you can stake for
@@ -177,18 +167,8 @@
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
 
-        ;;  address version must be valid
-        (asserts! (check-pox-addr-version (get version pox-addr))
-            ERR_INVALID_POX_ADDRESS
-        )
-
-        ;;  address hashbytes must be valid for the version
-        (asserts!
-            (check-pox-addr-hashbytes (get version pox-addr)
-                (get hashbytes pox-addr)
-            )
-            ERR_INVALID_POX_ADDRESS
-        )
+        ;;  pox-addr must be valid
+        (try! (check-pox-addr pox-addr))
 
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
         ;; (asserts! (check-caller-allowed) (err ERR_STACKING_PERMISSION_DENIED))
@@ -286,6 +266,27 @@
     (and
         (>= lock-period u1)
         (<= lock-period MAX_NUM_CYCLES)
+    )
+)
+
+(define-read-only (check-pox-addr (pox-addr {
+    version: (buff 1),
+    hashbytes: (buff 32),
+}))
+    (let (
+            (version (buff-to-uint-be (get version pox-addr)))
+            (expected-len (if (<= version MAX_ADDRESS_VERSION_BUFF_20)
+                u20
+                u32
+            ))
+        )
+        (ok (asserts!
+            (and
+                (<= version MAX_ADDRESS_VERSION)
+                (is-eq (len (get hashbytes pox-addr)) expected-len)
+            )
+            ERR_INVALID_POX_ADDRESS
+        ))
     )
 )
 
