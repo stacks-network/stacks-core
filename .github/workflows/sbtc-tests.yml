@@ -29,8 +29,6 @@ jobs:
       max-parallel: 32
       matrix:
         test-name:
-          - tests::neon_integrations::test_submit_and_observe_sbtc_ops
-          - tests::signer::test_stackerdb_dkg
           - tests::stackerdb::test_stackerdb_event_observer
           - tests::stackerdb::test_stackerdb_load_store
     steps:
@@ -54,4 +52,3 @@ jobs:
         uses: stacks-network/actions/codecov@main
         with:
           test-name: ${{ matrix.test-name }}
-

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -1151,14 +1151,14 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 // IMPROVEMENT: don't store a copy of a node that was copied forward via
                 // MARF::walk_cow(). Instead, store only the new ptrs in the copied node, and store
                 // a pointer to the original node in the ancestral trie.
-                // +32 is for the hash
+                // TRIEHASH_ENCODED_SIZE accounts for the trie hash bytes written before the patch
                 trace!(
                     "Patch node {:?} for {:?} to be written at {}",
                     &patch_node,
                     &node,
                     ptr
                 );
-                let num_written = 32 + patch_node.size();
+                let num_written = TRIEHASH_ENCODED_SIZE + patch_node.size();
                 ptr += num_written as u64;
 
                 let mut num_new_nodes = 0;
@@ -3054,8 +3054,9 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         let cur_block_id = block_id;
         let mut node_hash_opt = None;
         let mut patches: Vec<(u32, TriePtr, TrieNodePatch)> = vec![];
-        // Read 1 node further than the MAX_PATCH_DEPTH allowed
-        for _ in 0..(1 + MAX_PATCH_DEPTH) {
+        // Read one node beyond `MAX_PATCH_DEPTH` to also read the first non-patched node
+        // if it isn't found earlier.
+        for _ in 0..=MAX_PATCH_DEPTH {
             match self.inner_read_persisted_nodetype(block_id, &ptr, read_hash) {
                 Ok((node, hash)) => {
                     patches.reverse();

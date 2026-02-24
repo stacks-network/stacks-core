@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@ use std::{error, fmt};
 use crate::chainstate::stacks::index::bits::{
     get_compressed_ptrs_size, get_path_byte_len, get_ptrs_byte_len, get_ptrs_byte_len_compressed,
     get_sparse_ptrs_bitmap_size, path_from_bytes, ptrs_from_bytes, write_path_to_bytes,
+    SPARSE_PTR_BITMAP_MARKER,
 };
 use crate::chainstate::stacks::index::{
     BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
@@ -148,9 +149,9 @@ fn write_ptrs_to_bytes_compressed<W: Write>(
 
     if is_sparse {
         // do a sparse write -- just write the bitmap and the non-empty trieptrs.
-        // the first byte is 0xff to indicate that this is a sparse list, since 0xff cannot be a
+        // the first byte is SPARSE_PTR_BITMAP_MARKER to indicate that this is a sparse list, since it cannot be a
         // valid trie node ID
-        w.write_all(&[0xff])?;
+        w.write_all(&[SPARSE_PTR_BITMAP_MARKER])?;
 
         // compute the bitmap
         let bitmap_size = get_sparse_ptrs_bitmap_size(id).ok_or_else(|| {

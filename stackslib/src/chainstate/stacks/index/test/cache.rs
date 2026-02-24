@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -230,7 +230,7 @@ fn test_marf_cache_128_128(#[case] marf_opts: &MARFOpenOpts, #[case] batch_size:
     );
 }
 
-/// Tests MARF cache behavior (no compression) using 15.500 inserts across 10 blocks.
+/// Tests MARF cache behavior using 15.500 inserts across 10 blocks.
 ///
 /// The batch size is intentionally set above 10.000 to force batched insertion
 /// and exercise the `eta` batching logic.
@@ -238,6 +238,7 @@ fn test_marf_cache_128_128(#[case] marf_opts: &MARFOpenOpts, #[case] batch_size:
 #[rstest]
 #[case::noop_immediate_batch_15500(&opts::OPTS_NOOP_IMM_EXT, 15500)]
 #[case::node256_deferred_batch_15500(&opts::OPTS_N256_DEF_EXT, 15500)]
+#[case::ever_deferred_compress_batch_15500(&opts::OPTS_EVER_DEF_EXT_COMP, 15500)]
 fn test_marf_cache_15500_10(#[case] marf_opts: &MARFOpenOpts, #[case] batch_size: usize) {
     let test_data = make_test_insert_data(15500, 10);
     let root_hash =

@@ -129,35 +129,39 @@ configure_validation_slices() {
 }
 
 ## setup the tmux sessions and create the logdir for storing output
-setup_validation() {
-    ## if there is an existing folder, rm it
-    if [ -d "${LOG_DIR}" ];then
-        echo "Removing logdir ${LOG_DIR}"
-        rm -rf "${LOG_DIR}"
-    fi
-    ## create LOG_DIR to store output files
-    if  [ ! -d "${LOG_DIR}" ]; then
-        echo "Creating logdir ${LOG_DIR}"
-        mkdir -p "${LOG_DIR}"
-    fi
-    ## if tmux session "${TMUX_SESSION}" exists, kill it and start anew
-    if eval "tmux list-windows -t ${TMUX_SESSION} &> /dev/null"; then
-        echo "Killing existing tmux session: ${TMUX_SESSION}"
-        eval "tmux kill-session -t ${TMUX_SESSION}  &> /dev/null"
-    fi
-    local slice_counter=0
+setup_logs() {
+	## if there is an existing folder, rm it
+	if [ -d "${LOG_DIR}" ];then
+		echo "Removing logdir ${LOG_DIR}"
+		rm -rf "${LOG_DIR}"
+	fi
+	## create LOG_DIR to store output files
+	if  [ ! -d "${LOG_DIR}" ]; then
+		echo "Creating logdir ${LOG_DIR}"
+		mkdir -p "${LOG_DIR}"
+	fi
 
-    ## create tmux session named ${TMUX_SESSION} with a window named slice0
-    tmux new-session -d -s ${TMUX_SESSION} -n slice${slice_counter} || {
-        echo "${COLRED}Error${COLRESET} creating tmux session ${COLYELLOW}${TMUX_SESSION}${COLRESET}"
-        exit 1
-    }
+}
 
-    if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
-        echo "${COLRED}Error${COLRESET}: chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
-        exit 1
-    fi
-    return 0
+setup_tmux() {
+	## if tmux session "$TMUX_SESSION" exists, kill it and start anew
+	if eval "tmux list-windows -t ${TMUX_SESSION} &> /dev/null"; then
+		echo "Killing existing tmux session: ${TMUX_SESSION}"
+		eval "tmux kill-session -t ${TMUX_SESSION}  &> /dev/null"
+	fi
+	local slice_counter=0
+
+	## create tmux session named ${TMUX_SESSION} with a window named slice0
+	tmux new-session -d -s ${TMUX_SESSION} -n slice${slice_counter} || {
+		echo "${COLRED}Error${COLRESET} creating tmux session ${COLYELLOW}${TMUX_SESSION}${COLRESET}"
+		exit 1
+	}
+
+	if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
+		echo "${COLRED}Error${COLRESET}: chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
+		exit 1
+	fi
+	return 0
 }
 
 ## run the block validation
@@ -203,7 +207,7 @@ start_validation() {
             echo "${COLRED}Error${COLRESET} retrieving total number of blocks from chainstate"
             exit 1
         fi
-        total_blocks=$(printf '%s\n' "${count_output}" | awk '/Total available entries: / {print $5}')
+        total_blocks=$(printf '%s\n' "${count_output}" | awk '/Total available entries: / {print $4}')
         if [ -z "${total_blocks}" ]; then
             echo "${COLRED}Error${COLRESET} parsing block count from stacks-inspect output"
             exit 1
@@ -528,7 +532,8 @@ tput reset
 echo "Validation Started: ${COLYELLOW}$(date)${COLRESET}"
 build_stacks_inspect        ## comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
 configure_validation_slices ## comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
-setup_validation            ## configure logdir and tmux sessions
+setup_logs                  ## configure logdir
+setup_tmux                  ## configure tmux sessions
 start_validation            ## validate pre-nakamoto blocks (2.x)
 start_validation nakamoto   ## validate nakamoto blocks
 store_results               ## store aggregated results of validation

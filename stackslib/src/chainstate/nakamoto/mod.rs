@@ -1964,7 +1964,7 @@ impl NakamotoChainState {
             );
             ChainstateError::NoSuchBlockError
         })?;
-        let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
+        let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin();
 
         // find parent header
         let Some(parent_header_info) =
@@ -4633,6 +4633,15 @@ impl NakamotoChainState {
                   "header.parent_block_id" => %block.header.parent_block_id);
             return Err(ChainstateError::InvalidStacksBlock(
                 "Parent block does not match".into(),
+            ));
+        }
+
+        if parent_chain_tip.stacks_block_height.saturating_add(1) != block.header.chain_length {
+            warn!("Error processing nakamoto block: Parent height does not agree with block chain length";
+                  "parent_chain_tip.block_height" => %parent_chain_tip.stacks_block_height,
+                  "block.header.chain_length" => &block.header.chain_length);
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Parent block height does not agree with child block".into(),
             ));
         }
 

@@ -404,16 +404,14 @@ pub fn check_special_element_at(
         ))),
         TypeSignature::SequenceType(StringType(ASCII(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(ASCII(
-                BufferLength::try_from(1u32).map_err(|_| {
-                    StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into())
-                })?,
+                BufferLength::try_from(1u32)
+                    .map_err(|_| StaticCheckErrorKind::Unreachable("Bad constructor".into()))?,
             )))),
         )),
         TypeSignature::SequenceType(StringType(UTF8(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(UTF8(
-                StringUTF8Length::try_from(1u32).map_err(|_| {
-                    StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into())
-                })?,
+                StringUTF8Length::try_from(1u32)
+                    .map_err(|_| StaticCheckErrorKind::Unreachable("Bad constructor".into()))?,
             )))),
         )),
         _ => Err(StaticCheckErrorKind::ExpectedSequence(Box::new(collection_type)).into()),

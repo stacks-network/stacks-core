@@ -305,6 +305,12 @@ fn trie_node_patch_make_ptr_diff_case7() {
 ///
 /// ## Expected behavior
 /// - No differences are produced
+///
+/// ## Note
+/// In real scenarios, a Trie node with only empty pointers won't exist,
+/// as nodes are created only when at least one child is present.
+/// This test exists purely to exercise `make_ptr_diff` with such an input,
+/// ensuring all code paths are covered and behavior is well-defined.
 #[test]
 fn trie_node_patch_make_ptr_diff_case8() {
     let old_node_ptr = TriePtr::new_backptr(TrieNodeID::Patch as u8, 0x00, 0, 1);
@@ -388,6 +394,11 @@ fn trie_node_patch_make_ptr_diff_case11() {
 ///
 /// ## Expected behavior
 /// - No differences are produced
+///
+/// ## Note
+/// In real scenarios, a Trie node has at most one pointer per `chr` value.
+/// This test exists purely to exercise `make_ptr_diff` with such an input,
+/// ensuring all code paths are covered and behavior is well-defined.
 #[test]
 fn trie_node_patch_make_ptr_diff_case12() {
     let old_node_ptr = TriePtr::new_backptr(TrieNodeID::Patch as u8, 0x00, 0, 1);

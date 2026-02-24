@@ -7,6 +7,31 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
+### Added 
+
+- Add support for tracking pending block responses for up to 3 unique untracked blocks per signer address. This improves handling of late block proposals by allowing the signer to process previously seen responses for blocks that were not being tracked.
+- Added `approved_time` column to the `blocks` database table
+
+### Changed
+
+- Database schema updated to version 19
+- Removed `signed_over` column from the `blocks` database table
+- Improved signer behaviour to ensure block proposal responses are sent more consistently, even for blocks that have already been globally accepted by the network. This increases reliability and reduces missed responses in edge cases.
+
+## [3.3.0.0.5.0]
+
+### Changed
+
+- Reduced default tenure-extend idle timer from 120 seconds to 60 seconds
+
+## [3.3.0.0.4.0]
+
+### Fixed
+
+- Correct calculation of burn-view change status using the new tip with metadata endpoint.
+
+## [3.3.0.0.3.0]
+
 ### Changed
 
 - Avoid sending duplicate block acceptance messages when additional pre-commits arrive

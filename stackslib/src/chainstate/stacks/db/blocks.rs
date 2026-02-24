@@ -190,6 +190,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _burn_block_height: u64,
         _rewards: Vec<(PoxAddress, u64)>,
         _burns: u64,
+        _pox_transactions: Vec<crate::chainstate::coordinator::PoxTransactionReward>,
         _slot_holders: Vec<PoxAddress>,
         _consensus_hash: &ConsensusHash,
         _parent_burn_block_hash: &BurnchainHeaderHash,
@@ -4022,7 +4023,11 @@ impl StacksChainState {
                         current_epoch = StacksEpochId::Epoch33;
                     }
                     StacksEpochId::Epoch33 => {
-                        panic!("No defined transition from Epoch33 forward")
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_3_4()?);
+                        current_epoch = StacksEpochId::Epoch34;
+                    }
+                    StacksEpochId::Epoch34 => {
+                        panic!("No defined transition from Epoch34 forward")
                     }
                 }
 
@@ -4868,7 +4873,8 @@ impl StacksChainState {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => {
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -4962,7 +4968,8 @@ impl StacksChainState {
                 | StacksEpochId::Epoch30
                 | StacksEpochId::Epoch31
                 | StacksEpochId::Epoch32
-                | StacksEpochId::Epoch33 => Self::handle_pox_cycle_start_pox_4(
+                | StacksEpochId::Epoch33
+                | StacksEpochId::Epoch34 => Self::handle_pox_cycle_start_pox_4(
                     clarity_tx,
                     pox_reward_cycle,
                     pox_start_cycle_info,
@@ -5988,7 +5995,7 @@ impl StacksChainState {
         dispatcher_opt: Option<&T>,
     ) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let blocks_path = self.blocks_path.clone();
-        let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
+        let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin();
 
         // this is a transaction against both the headers and staging blocks databases!
         let (next_microblocks, next_staging_block) =
@@ -11105,8 +11112,7 @@ pub mod test {
             let sortdb = peer.chain.sortdb.take().unwrap();
             {
                 let chainstate = peer.chainstate();
-                let (mut chainstate_tx, clarity_instance) =
-                    chainstate.chainstate_tx_begin().unwrap();
+                let (mut chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
                 let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops, vote_for_aggregate_key_ops) =
                     StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                         &mut chainstate_tx,
@@ -11792,8 +11798,7 @@ pub mod test {
             let sortdb = peer.chain.sortdb.take().unwrap();
             {
                 let chainstate = peer.chainstate();
-                let (mut chainstate_tx, clarity_instance) =
-                    chainstate.chainstate_tx_begin().unwrap();
+                let (mut chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
                 let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops, _) =
                     StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                         &mut chainstate_tx,

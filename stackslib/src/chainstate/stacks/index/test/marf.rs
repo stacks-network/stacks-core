@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -704,7 +704,16 @@ where
             );
         }
 
-        // check root hashes are all the same
+        if marf.borrow_storage_backend().hash_calculation_mode == TrieHashCalculationMode::Deferred
+        {
+            continue;
+        }
+
+        // check root hashes are all the same (only for Immediate mode executions)
+        // NOTE: The walk tests are bootstrapped via `make_node_path()`, which seeds synthetic node hashes
+        // directly into storage (instead of constructing them through the normal MARF
+        // insert flow). This interacts differently with the hash modes, causing the
+        // root hash computation to produce different results in Immediate vs. Deferred modes.
         let curr_root_hashes = marf
             .borrow_storage_backend()
             .read_root_to_block_table()
@@ -786,15 +795,16 @@ fn marf_invalid_ancestor() {
 
 #[test]
 fn marf_merkle_verify_backptrs() {
-    for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
-        for node_id in [
-            TrieNodeID::Node4,
-            TrieNodeID::Node16,
-            TrieNodeID::Node48,
-            TrieNodeID::Node256,
-        ]
-        .iter()
-        {
+    for node_id in [
+        TrieNodeID::Node4,
+        TrieNodeID::Node16,
+        TrieNodeID::Node48,
+        TrieNodeID::Node256,
+    ]
+    .iter()
+    {
+        let mut last_root_hashes = None;
+        for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
             let mut f_store = TrieFileStorage::new_memory(marf_opts.clone()).unwrap();
 
             let path_segments = vec![
@@ -883,6 +893,26 @@ fn marf_merkle_verify_backptrs() {
                 &[21; 40],
                 None,
             );
+
+            if marf.borrow_storage_backend().hash_calculation_mode
+                == TrieHashCalculationMode::Deferred
+            {
+                continue;
+            }
+
+            // check root hashes are all the same (only for Immediate mode executions)
+            // NOTE: This test uses `make_node_path()`, which seeds synthetic node hashes
+            // directly into storage (instead of constructing them through the normal MARF
+            // insert flow). This interacts differently with the hash modes, causing the
+            // root hash computation to produce different results in Immediate vs. Deferred modes.
+            let curr_root_hashes = marf
+                .borrow_storage_backend()
+                .read_root_to_block_table()
+                .unwrap();
+            if let Some(prev_root_hashes) = last_root_hashes.take() {
+                assert_eq!(prev_root_hashes, curr_root_hashes);
+            }
+            last_root_hashes = Some(curr_root_hashes);
         }
     }
 }

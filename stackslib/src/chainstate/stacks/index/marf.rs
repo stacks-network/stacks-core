@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -153,6 +153,24 @@ impl MARFOpenOpts {
     pub fn with_compression(mut self, compression: bool) -> Self {
         self.compress = compression;
         self
+    }
+
+    #[cfg(test)]
+    pub fn all() -> Vec<MARFOpenOpts> {
+        vec![
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false)
+                .with_compression(true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false)
+                .with_compression(true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true)
+                .with_compression(true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true)
+                .with_compression(true),
+        ]
     }
 }
 

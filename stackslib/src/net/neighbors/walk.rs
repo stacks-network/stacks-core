@@ -974,7 +974,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         Ok(true)
     }
 
-    /// Begin getting the neighors of cur_neighbor's neighbors.
+    /// Begin getting the neighbors of cur_neighbor's neighbors.
     /// ReplyHandleP2Ps should be reply handles for Handshake requests.
     pub fn neighbor_handshakes_begin(
         &mut self,

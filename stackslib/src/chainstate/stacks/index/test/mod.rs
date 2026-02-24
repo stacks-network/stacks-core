@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -388,6 +388,8 @@ pub mod opts {
         LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", true));
     pub static OPTS_EVER_DEF_EXT: LazyLock<MARFOpenOpts> =
         LazyLock::new(|| MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", true));
+    pub static OPTS_EVER_DEF_EXT_COMP: LazyLock<MARFOpenOpts> =
+        LazyLock::new(|| OPTS_EVER_DEF_EXT.clone().with_compression(true));
 
     pub static ALL_OPTS_NOOP: LazyLock<Vec<MARFOpenOpts>> = LazyLock::new(|| {
         vec![
@@ -401,16 +403,4 @@ pub mod opts {
             OPTS_NOOP_DEF_EXT_COMP.clone(),
         ]
     });
-
-    #[template]
-    #[rstest]
-    #[case::imm(&opts::OPTS_NOOP_IMM)]
-    #[case::imm_ext(&opts::OPTS_NOOP_IMM_EXT)]
-    #[case::imm_comp(&opts::OPTS_NOOP_IMM_COMP)]
-    #[case::imm_ext_comp(&opts::OPTS_NOOP_IMM_EXT_COMP)]
-    #[case::def(&opts::OPTS_NOOP_DEF)]
-    #[case::def_ext(&opts::OPTS_NOOP_DEF_EXT)]
-    #[case::def_comp(&opts::OPTS_NOOP_DEF_COMP)]
-    #[case::def_ext_comp(&opts::OPTS_NOOP_DEF_EXT_COMP)]
-    pub fn tpl_all_opts_noop(#[case] marf_opts: &MARFOpenOpts) {}
 }

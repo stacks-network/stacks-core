@@ -6,8 +6,4 @@ description: |
   (e.g. `SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info`).
   Contract names have a maximum length of 40 characters for new contracts. Legacy contracts may have names up to 128 characters.
 schema:
-  type: string
-  pattern: "^([0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})|([0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}\\.[a-zA-Z]([a-zA-Z0-9]|[-_]){0,127})$"
-  minLength: 28
-  maxLength: 170
-  example: SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info
+  $ref: '../schemas/principal.schema.yaml'

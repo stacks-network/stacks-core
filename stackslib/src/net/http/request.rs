@@ -694,6 +694,13 @@ pub trait HttpRequest: Send + HttpRequestClone {
     fn verb(&self) -> &'static str;
     /// What is the path regex that this request honors?
     fn path_regex(&self) -> Regex;
+    /// This regex matches the path structure without strict parameter validation,
+    /// allowing the API to return 405 Method Not Allowed when the path exists
+    /// but the HTTP method is not supported.
+    /// Default implementation returns the same as path_regex().
+    fn path_regex_permissive(&self) -> Regex {
+        self.path_regex()
+    }
     /// Decode a request into the contents that this request handler cares about.
     fn try_parse_request(
         &mut self,
