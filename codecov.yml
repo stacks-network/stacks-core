@@ -9,7 +9,10 @@ coverage:
   precision: 2
   status:
     changes: off
-    patch: off
+    patch:
+      default:
+        target: auto
+        threshold: 0%
     project:
       default:
         target: auto
