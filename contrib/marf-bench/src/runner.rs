@@ -39,8 +39,6 @@ const MARF_BENCH_FILES: [&str; 7] = [
 const SRC_BENCH_DIR: &str = "stackslib/benches/marf";
 const WORKTREE_PREFIX: &str = "marf-bench-";
 const WORKTREE_CACHE_DIR: &str = "marf-bench-worktrees";
-const WORKTREE_PREFIX_SEGMENT: &str = "/marf-bench-";
-const WORKTREE_CACHE_SEGMENT: &str = "/marf-bench-worktrees/";
 
 /// Environment overrides passed to marf benchmark subprocesses.
 #[derive(Debug, Clone, Default)]
@@ -475,11 +473,11 @@ impl Runner {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let needle = path.to_string_lossy();
         Ok(stdout
             .lines()
             .filter_map(|line| line.strip_prefix("worktree "))
-            .any(|p| p == needle))
+            .map(PathBuf::from)
+            .any(|candidate| candidate == path))
     }
 
     /// Return true if the path is under the keep-worktrees cache root.
@@ -667,8 +665,11 @@ fn is_marf_bench_worktree_path(path: &Path, repo_root: &Path) -> bool {
         return false;
     }
 
-    let path_text = path.to_string_lossy();
-    if path_text.contains(WORKTREE_CACHE_SEGMENT) {
+    let under_cache_dir = path
+        .ancestors()
+        .filter_map(|ancestor| ancestor.file_name().and_then(|name| name.to_str()))
+        .any(|name| name == WORKTREE_CACHE_DIR);
+    if under_cache_dir {
         return false;
     }
 
@@ -678,7 +679,14 @@ fn is_marf_bench_worktree_path(path: &Path, repo_root: &Path) -> bool {
         .map(|n| n.starts_with(WORKTREE_PREFIX))
         .unwrap_or(false);
 
-    path_text.contains(WORKTREE_PREFIX_SEGMENT) && name_matches
+    let has_prefixed_ancestor = path
+        .parent()
+        .into_iter()
+        .flat_map(Path::ancestors)
+        .filter_map(|ancestor| ancestor.file_name().and_then(|name| name.to_str()))
+        .any(|name| name.starts_with(WORKTREE_PREFIX));
+
+    name_matches && has_prefixed_ancestor
 }
 
 /// Compute per-repository keep-worktrees cache root path.
