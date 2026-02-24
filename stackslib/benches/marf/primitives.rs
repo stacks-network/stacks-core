@@ -159,6 +159,10 @@ fn make_ptr_bytes(node_id: TrieNodeID) -> Vec<u8> {
         TrieNodeID::Node48 => 48,
         TrieNodeID::Node256 => 256,
         TrieNodeID::Empty => unreachable!("Empty is not encoded as a node body"),
+        // NOTE: The TrieNodeID::Patch type was added at commit 0317850e7f042de98e7bc6a1f26f6183e7d20f98,
+        // and using exhaustive matching would prevent this benchmark from being used prior to that via
+        // marf-bench.
+        _ => unreachable!("Unsupported trie node ID for fixed-size node body benchmark"),
     };
 
     let mut bytes = vec![0u8; 1 + num_ptrs * TRIEPTR_SIZE];
