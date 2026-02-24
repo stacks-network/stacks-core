@@ -104,7 +104,7 @@ fn test_index_of() {
     ];
 
     let bad_expected = [
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        RuntimeCheckErrorKind::Unreachable(format!(
             "Expected sequence: {}",
             TypeSignature::IntType
         )),
@@ -168,7 +168,7 @@ fn test_element_at() {
     let bad = ["(element-at 3 u1)", "(element-at (list 1 2 3) 1)"];
 
     let bad_expected = [
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        RuntimeCheckErrorKind::Unreachable(format!(
             "Expected sequence: {}",
             TypeSignature::IntType
         )),
@@ -450,7 +450,7 @@ fn test_simple_map_append() {
 
     assert_eq!(
         execute("(append (append (list) 1) u2)").unwrap_err(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(IntType), Box::new(Value::UInt(2))).into()
+        RuntimeCheckErrorKind::TypeError(Box::new(IntType), Box::new(UIntType)).into()
     );
 }
 
@@ -553,8 +553,7 @@ fn test_slice_utf8() {
 
 #[test]
 fn test_slice_type_errors() {
-    let bad_type_error =
-        RuntimeCheckErrorKind::ExpectsAcceptable("Bad type construction".into()).into();
+    let bad_type_error = RuntimeCheckErrorKind::Unreachable("Bad type construction".into()).into();
     assert_eq!(execute_v2("(slice? 3 u0 u1)").unwrap_err(), bad_type_error);
 
     assert_eq!(
@@ -612,7 +611,7 @@ fn test_simple_list_concat() {
 
     assert_eq!(
         execute("(concat (list 1) 3)").unwrap_err(),
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        RuntimeCheckErrorKind::Unreachable(format!(
             "Expected sequence: {}",
             TypeSignature::IntType
         ))
@@ -653,7 +652,7 @@ fn test_simple_buff_concat() {
 
     assert_eq!(
         execute("(concat 0x31 3)").unwrap_err(),
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        RuntimeCheckErrorKind::Unreachable(format!(
             "Expected sequence: {}",
             TypeSignature::IntType
         ))
@@ -750,7 +749,7 @@ fn test_simple_list_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 0 u0 (list 0))").unwrap_err(),
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("Expected sequence: {IntType}")).into()
+        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into()
     );
 
     // The type of the index should be uint.
@@ -813,7 +812,7 @@ fn test_simple_buff_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 33 u0 0x00)").unwrap_err(),
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("Expected sequence: {IntType}")).into()
+        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into()
     );
 
     // The type of the index should be uint.
@@ -890,7 +889,7 @@ fn test_simple_string_ascii_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 33 u0 \"c\")").unwrap_err(),
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("Expected sequence: {IntType}")).into()
+        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into()
     );
 
     // The type of the index should be uint.
@@ -971,7 +970,7 @@ fn test_simple_string_utf8_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 33 u0 u\"c\")").unwrap_err(),
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("Expected sequence: {IntType}")).into()
+        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into()
     );
 
     // The type of the index should be uint.
@@ -1048,7 +1047,7 @@ fn test_simple_buff_assert_max_len() {
 
     assert_eq!(
         execute("(as-max-len? 1 u3)").unwrap_err(),
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("Expected sequence: {IntType}")).into()
+        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into()
     );
 
     assert_eq!(
@@ -1253,12 +1252,12 @@ fn test_construct_bad_list(#[case] version: ClarityVersion, #[case] epoch: Stack
 fn test_eval_func_arg_panic() {
     let test1 = "(fold (lambda (x y) (* x y)) (list 1 2 3 4) 1)";
     let e: ClarityEvalError =
-        RuntimeCheckErrorKind::ExpectsAcceptable("Expected name".to_string()).into();
+        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()).into();
     assert_eq!(e, execute(test1).unwrap_err());
 
     let test2 = "(map (lambda (x) (* x x)) (list 1 2 3 4))";
     let e: ClarityEvalError =
-        RuntimeCheckErrorKind::ExpectsAcceptable("Expected name".to_string()).into();
+        RuntimeCheckErrorKind::Unreachable("Expected name".to_string()).into();
     assert_eq!(e, execute(test2).unwrap_err());
 
     let test3 = "(map square (list 1 2 3 4) 2)";
@@ -1272,7 +1271,7 @@ fn test_eval_func_arg_panic() {
 
     let test5 = "(map + (list 1 2 3 4) 2)";
     let e: ClarityEvalError =
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("Expected sequence: {IntType}")).into();
+        RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {IntType}")).into();
     assert_eq!(e, execute(test5).unwrap_err());
 }
 
@@ -1282,6 +1281,6 @@ fn test_expected_list_application() {
     // first argument is NOT a list
     let test1 = "(append u1 u2)";
     let e: ClarityEvalError =
-        RuntimeCheckErrorKind::ExpectsAcceptable("Expected list application".to_string()).into();
+        RuntimeCheckErrorKind::Unreachable("Expected list application".to_string()).into();
     assert_eq!(e, execute(test1).unwrap_err());
 }

@@ -20,8 +20,6 @@ use std::collections::HashMap;
 use clarity::types::StacksEpochId;
 #[allow(unused_imports)]
 use clarity::vm::analysis::RuntimeCheckErrorKind;
-#[allow(unused_imports)]
-use clarity::vm::errors::RuntimeError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DEPTH};
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
 
@@ -88,8 +86,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             runtime_check_error_kind_type_signature_too_deep_cdeploy,
             runtime_check_error_kind_type_signature_too_deep_ccall
         ]),
-        ExpectsAcceptable(_) => Unreachable_ExpectLike,
-        ExpectsRejectable(_) => Unreachable_ExpectLike,
+        Unreachable(_) => Unreachable_ExpectLike,
         ListTypesMustMatch => Tested(vec![runtime_check_error_kind_list_types_must_match_cdeploy]),
         TypeError(_, _) => Tested(vec![
             runtime_check_error_kind_type_error_cdeploy,

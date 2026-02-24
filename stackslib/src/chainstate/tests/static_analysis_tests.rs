@@ -68,8 +68,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         TypeSignatureTooDeep => Tested(vec![static_check_error_type_signature_too_deep]),
         ExpectedName => Tested(vec![static_check_error_expected_name]),
         SupertypeTooLarge => Tested(vec![static_check_error_supertype_too_large]),
-        ExpectsAcceptable(_) => Unreachable_ExpectLike,
-        ExpectsRejectable(_) => Unreachable_ExpectLike,
+        Unreachable(_) => Unreachable_ExpectLike,
         BadMatchOptionSyntax(static_check_error_kind) => {
             Tested(vec![static_check_error_bad_match_option_syntax])
         }
@@ -504,7 +503,7 @@ fn static_check_error_type_signature_too_deep() {
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::SupertypeTooLarge`]
 /// Caused by: combining tuples with `buff 600000` and `buff 10` forces a supertype beyond the size limit.
-/// Outcome: block rejected.
+/// Outcome: block rejected pre-3.4, accepted 3.4+.
 #[test]
 fn static_check_error_supertype_too_large() {
     contract_deploy_consensus_test!(

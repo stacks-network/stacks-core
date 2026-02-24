@@ -755,11 +755,21 @@ macro_rules! impl_byte_array_rusqlite_only {
     };
 }
 
-// Test hepler to get the name of the current function.
+/// Test helper to get the full name of the current function.
+#[cfg(any(test, feature = "testing"))]
 #[macro_export]
 macro_rules! function_name {
     () => {
         stdext::function_name!()
+    };
+}
+
+/// Test helper to get the name of the current function (without the namespace)
+#[cfg(any(test, feature = "testing"))]
+#[macro_export]
+macro_rules! function_name_no_ns {
+    () => {
+        function_name!().split("::").last().unwrap();
     };
 }
 

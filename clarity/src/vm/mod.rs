@@ -195,10 +195,7 @@ fn lookup_variable(
                 Ok(Value::CallableContract(callable_data.clone()))
             }
         } else {
-            Err(
-                RuntimeCheckErrorKind::ExpectsAcceptable(format!("Undefined variable: {name}"))
-                    .into(),
-            )
+            Err(RuntimeCheckErrorKind::Unreachable(format!("Undefined variable: {name}")).into())
         }
     }
 }
@@ -346,31 +343,33 @@ pub fn eval(
         env.global_context.eval_hooks = Some(eval_hooks);
     }
 
-    let res =
-        match exp.expr {
-            AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
-            Atom(ref value) => lookup_variable(value, context, env),
-            List(ref children) => {
-                let (function_variable, rest) =
-                    children
-                        .split_first()
-                        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
-                            "Non functional application".to_string(),
-                        ))?;
+    let res = match exp.expr {
+        AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
+        Atom(ref value) => lookup_variable(value, context, env),
+        List(ref children) => {
+            let (function_variable, rest) =
+                children
+                    .split_first()
+                    .ok_or(RuntimeCheckErrorKind::Unreachable(
+                        "Non functional application".to_string(),
+                    ))?;
 
-                let function_name = function_variable.match_atom().ok_or(
-                    RuntimeCheckErrorKind::ExpectsAcceptable("Bad function name".to_string()),
-                )?;
-                let f = lookup_function(function_name, env)?;
-                apply(&f, rest, env, context)
-            }
-            TraitReference(_, _) | Field(_) => {
-                return Err(VmInternalError::BadSymbolicRepresentation(
-                    "Unexpected trait reference".into(),
-                )
-                .into());
-            }
-        };
+            let function_name =
+                function_variable
+                    .match_atom()
+                    .ok_or(RuntimeCheckErrorKind::Unreachable(
+                        "Bad function name".to_string(),
+                    ))?;
+            let f = lookup_function(function_name, env)?;
+            apply(&f, rest, env, context)
+        }
+        TraitReference(_, _) | Field(_) => {
+            return Err(VmInternalError::BadSymbolicRepresentation(
+                "Unexpected trait reference".into(),
+            )
+            .into());
+        }
+    };
 
     if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {

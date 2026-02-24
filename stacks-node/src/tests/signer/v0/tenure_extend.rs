@@ -2764,20 +2764,12 @@ fn burn_block_height_behavior() {
     let deployer_addr = tests::to_addr(&deployer_sk);
     let tx_fee = 10000;
     let deploy_fee = 200000;
-    let block_proposal_timeout = Duration::from_secs(20);
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
         vec![
             (sender_addr, send_amt + send_fee),
             (deployer_addr.clone(), deploy_fee + tx_fee * 3),
         ],
-        |config| {
-            // make the duration long enough that the miner will be marked as malicious
-            config.block_proposal_timeout = block_proposal_timeout;
-        },
-        |_| {},
-        None,
-        None,
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
@@ -3943,18 +3935,8 @@ fn empty_sortition_before_approval() {
     let send_amt = 100;
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let block_proposal_timeout = Duration::from_secs(20);
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
-        |config| {
-            // make the duration long enough that the miner will be marked as malicious
-            config.block_proposal_timeout = block_proposal_timeout;
-        },
-        |_| {},
-        None,
-        None,
-    );
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
     signer_test.boot_to_epoch_3();
@@ -4083,18 +4065,8 @@ fn empty_sortition_before_proposal() {
     let send_amt = 100;
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let block_proposal_timeout = Duration::from_secs(20);
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
-        |config| {
-            // make the duration long enough that the miner will be marked as malicious
-            config.block_proposal_timeout = block_proposal_timeout;
-        },
-        |_| {},
-        None,
-        None,
-    );
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
     let skip_commit_op = signer_test

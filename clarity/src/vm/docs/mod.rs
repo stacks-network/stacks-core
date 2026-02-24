@@ -2209,7 +2209,7 @@ const MINT_TOKEN: SpecialAPI = SpecialAPI {
     output_type: "(response bool uint)",
     signature: "(ft-mint? token-name amount recipient)",
     description: "`ft-mint?` is used to increase the token balance for the `recipient` principal for a token
-type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
+type defined using `define-fungible-token`. The increased token balance is _not_ transferred from another principal, but
 rather minted.
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfully mint, it
@@ -2341,7 +2341,7 @@ const BURN_TOKEN: SpecialAPI = SpecialAPI {
     output_type: "(response bool uint)",
     signature: "(ft-burn? token-name amount sender)",
     description: "`ft-burn?` is used to decrease the token balance for the `sender` principal for a token
-type defined using `define-fungible-token`. The decreased token balance is _not_ transfered to another principal, but
+type defined using `define-fungible-token`. The decreased token balance is _not_ transferred to another principal, but
 rather destroyed, reducing the circulating supply.
 
 On a successful burn, it returns `(ok true)`. The burn may fail with error code:

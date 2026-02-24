@@ -17,6 +17,7 @@ use std::collections::HashMap;
 
 use clarity_types::ClarityName;
 use clarity_types::types::{AssetIdentifier, PrincipalData, StandardPrincipalData};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
@@ -101,27 +102,26 @@ fn eval_allowance(
 ) -> Result<Allowance, VmExecutionError> {
     let list = allowance_expr
         .match_list()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Non functional application".to_string(),
         ))?;
     let (name_expr, rest) = list
         .split_first()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Non functional application".to_string(),
         ))?;
     let name = name_expr
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad function name".to_string(),
         ))?;
     let Some(ref native_function) = NativeFunctions::lookup_by_name_at_version(
         name,
         env.contract_context.get_clarity_version(),
     ) else {
-        return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
-            "Expected allowance expr: {name}"
-        ))
-        .into());
+        return Err(
+            RuntimeCheckErrorKind::Unreachable(format!("Expected allowance expr: {name}")).into(),
+        );
     };
 
     match native_function {
@@ -237,10 +237,9 @@ fn eval_allowance(
             }
             Ok(Allowance::All)
         }
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
-            "Expected allowance expr: {name}"
-        ))
-        .into()),
+        _ => Err(
+            RuntimeCheckErrorKind::Unreachable(format!("Expected allowance expr: {name}")).into(),
+        ),
     }
 }
 
@@ -259,7 +258,7 @@ pub fn special_restrict_assets(
     let asset_owner_expr = &args[0];
     let allowance_list = args[1]
         .match_list()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Expected list of allowances: for restrict-assets? as argument 2".to_string(),
         ))?;
     let body_exprs = &args[2..];
@@ -273,7 +272,7 @@ pub fn special_restrict_assets(
     runtime_cost(ClarityCostFunction::RestrictAssets, env, allowance_len)?;
 
     if allowance_len > MAX_ALLOWANCES {
-        return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        return Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Too many allowances: got {allowance_len}, allowed {MAX_ALLOWANCES}"
         ))
         .into());
@@ -286,6 +285,7 @@ pub fn special_restrict_assets(
 
     // Create a new evaluation context, so that we can rollback if the
     // post-conditions are violated
+    let epoch = *env.epoch();
     env.global_context.begin();
 
     // Evaluate the body expressions inside a closure so `?` only exits the closure
@@ -304,7 +304,7 @@ pub fn special_restrict_assets(
     // If the allowances are violated:
     // - Rollback the context
     // - Return an error with the index of the violated allowance
-    match check_allowances(&asset_owner, allowances, asset_maps) {
+    match check_allowances(&asset_owner, allowances, asset_maps, epoch) {
         Ok(None) => {}
         Ok(Some(violation_index)) => {
             env.global_context.roll_back()?;
@@ -348,7 +348,7 @@ pub fn special_as_contract(
 
     let allowance_list = args[0]
         .match_list()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Expected list of allowances: for as-contract? as argument 1".to_string(),
         ))?;
     let body_exprs = &args[1..];
@@ -376,6 +376,7 @@ pub fn special_as_contract(
         memory_use += cost_constants::AS_CONTRACT_MEMORY;
 
         let contract_principal: PrincipalData = env.contract_context.contract_identifier.clone().into();
+        let epoch = *env.epoch();
         let mut nested_env = env.nest_as_principal(contract_principal.clone());
 
         // Create a new evaluation context, so that we can rollback if the
@@ -397,7 +398,12 @@ pub fn special_as_contract(
         // If the allowances are violated:
         // - Rollback the context
         // - Return an error with the index of the violated allowance
-        match check_allowances(&contract_principal, allowances, asset_maps) {
+        match check_allowances(
+            &contract_principal,
+            allowances,
+            asset_maps,
+            epoch,
+        ) {
             Ok(None) => {}
             Ok(Some(violation_index)) => {
                 nested_env.global_context.roll_back()?;
@@ -437,11 +443,12 @@ fn check_allowances(
     owner: &PrincipalData,
     allowances: Vec<Allowance>,
     assets: &AssetMap,
+    epoch: StacksEpochId,
 ) -> Result<Option<u128>, VmExecutionError> {
     let mut earliest_violation: Option<u128> = None;
-    let mut record_violation = |candidate: u128| {
-        if earliest_violation.is_none_or(|current| candidate < current) {
-            earliest_violation = Some(candidate);
+    let record_violation = |earliest: &mut Option<u128>, candidate: u128| {
+        if earliest.is_none_or(|current| candidate < current) {
+            *earliest = Some(candidate);
         }
     };
 
@@ -487,16 +494,19 @@ fn check_allowances(
         }
     }
 
+    // Check the movement and burn of STX separately first for backward compatibility with
+    // pre-epoch 3.4 behavior. The combined check is done after all other checks.
+
     // Check STX movements
     let amount_moved = assets.get_stx(owner);
     if let Some(stx_moved) = amount_moved {
         if stx_allowances.is_empty() {
             // If there are no allowances for STX, any movement is a violation
-            record_violation(MAX_ALLOWANCES as u128);
+            record_violation(&mut earliest_violation, MAX_ALLOWANCES as u128);
         } else {
             for (index, allowance) in &stx_allowances {
                 if stx_moved > *allowance {
-                    record_violation(*index as u128);
+                    record_violation(&mut earliest_violation, *index as u128);
                     break;
                 }
             }
@@ -508,11 +518,11 @@ fn check_allowances(
     if let Some(stx_burned) = amount_burned {
         if stx_allowances.is_empty() {
             // If there are no allowances for STX, any burn is a violation
-            record_violation(MAX_ALLOWANCES as u128);
+            record_violation(&mut earliest_violation, MAX_ALLOWANCES as u128);
         } else {
             for (index, allowance) in &stx_allowances {
                 if stx_burned > *allowance {
-                    record_violation(*index as u128);
+                    record_violation(&mut earliest_violation, *index as u128);
                     break;
                 }
             }
@@ -538,13 +548,13 @@ fn check_allowances(
 
             if merged.is_empty() {
                 // No allowance for this asset, any movement is a violation
-                record_violation(MAX_ALLOWANCES as u128);
+                record_violation(&mut earliest_violation, MAX_ALLOWANCES as u128);
                 continue;
             }
 
             for (index, allowance) in merged {
                 if *amount_moved > allowance {
-                    record_violation(index as u128);
+                    record_violation(&mut earliest_violation, index as u128);
                 }
             }
         }
@@ -567,13 +577,13 @@ fn check_allowances(
 
             if merged.is_empty() {
                 // No allowance for this asset, any movement is a violation
-                record_violation(MAX_ALLOWANCES as u128);
+                record_violation(&mut earliest_violation, MAX_ALLOWANCES as u128);
                 continue;
             }
 
             for (index, allowance_vec) in merged {
                 if ids_moved.iter().any(|id| !allowance_vec.contains(id)) {
-                    record_violation(index as u128);
+                    record_violation(&mut earliest_violation, index as u128);
                 }
             }
         }
@@ -583,29 +593,33 @@ fn check_allowances(
     if let Some(stx_stacked) = assets.get_stacking(owner) {
         // If there are no allowances for stacking, any stacking is a violation
         if stacking_allowances.is_empty() {
-            record_violation(MAX_ALLOWANCES as u128);
+            record_violation(&mut earliest_violation, MAX_ALLOWANCES as u128);
         } else {
             for (index, allowance) in &stacking_allowances {
                 if stx_stacked > *allowance {
-                    record_violation(*index as u128);
+                    record_violation(&mut earliest_violation, *index as u128);
                     break;
                 }
             }
         }
     }
 
-    if earliest_violation.is_none() {
-        // Check combined STX burns and movements. If the total exceeds any allowance,
-        // emit an error that makes this transaction invalid.
-        let total_stx_change = amount_moved
-            .unwrap_or(0)
-            .checked_add(amount_burned.unwrap_or(0))
-            .ok_or(VmInternalError::Expect(
-                "STX movement and burn overflowed u128".into(),
-            ))?;
-        if total_stx_change > 0 {
-            for (_, allowance) in &stx_allowances {
-                if total_stx_change > *allowance {
+    // Check combined STX movements and burns. In epochs that don't support the combined check,
+    // this happens after all other checks to ensure that we only need to reach this rejectable
+    // error if there are no other errors already reached.
+    let total_stx_change = amount_moved
+        .unwrap_or(0)
+        .checked_add(amount_burned.unwrap_or(0))
+        .ok_or(VmInternalError::Expect(
+            "STX movement and burn overflowed u128".into(),
+        ))?;
+    if total_stx_change > 0 {
+        for (index, allowance) in &stx_allowances {
+            if total_stx_change > *allowance {
+                if epoch.handles_with_stx_combined_check() {
+                    record_violation(&mut earliest_violation, *index as u128);
+                    break;
+                } else if earliest_violation.is_none() {
                     return Err(VmExecutionError::Internal(VmInternalError::Expect(
                         "Total STX movement and burn exceeds allowance".into(),
                     )));
@@ -626,7 +640,7 @@ pub fn special_allowance(
     _env: &mut Environment,
     _context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    Err(RuntimeCheckErrorKind::ExpectsAcceptable("Allowance expr not allowed".to_string()).into())
+    Err(RuntimeCheckErrorKind::Unreachable("Allowance expr not allowed".to_string()).into())
 }
 
 #[cfg(test)]
@@ -677,7 +691,7 @@ mod test {
         let err = eval_allowance(&allowance_expr, &mut env, &context).unwrap_err();
 
         assert_eq!(
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Non functional application".to_string()
             )),
             err
