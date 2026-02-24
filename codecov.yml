@@ -8,8 +8,8 @@ coverage:
   round: down
   precision: 2
   status:
-    changes: false
-    patch: false
+    changes: off
+    patch: off
     project:
       default:
         target: auto
