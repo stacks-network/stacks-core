@@ -184,19 +184,10 @@ fn lookup_variable(
             Ok(value.clone())
         } else if let Some(value) = env.contract_context.lookup_variable(name).cloned() {
             runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
-            match value {
-                // Callables do not need sanitization and the type doesn't survive it, so treat
-                // them specially here.
-                Value::CallableContract(callable_data) => {
-                    Ok(Value::CallableContract(callable_data))
-                }
-                value => {
-                    let (value, _) =
-                        Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value)?, value)
-                            .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
-                    Ok(value)
-                }
-            }
+            let (value, _) =
+                Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value)?, value)
+                    .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+            Ok(value)
         } else if let Some(callable_data) = context.lookup_callable_contract(name) {
             if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
                 Ok(callable_data.contract_identifier.clone().into())
