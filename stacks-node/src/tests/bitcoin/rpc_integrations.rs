@@ -15,7 +15,7 @@
 
 //! Integration tests for [`BitcoinRpcClient`].
 //!
-//! These tests run against a `bitcoind` node in Docker (via
+//! These tests run against a real `bitcoind` node in Docker (via
 //! `BitcoinCoreContainer`). Set `BITCOIN_IMAGE_TAG` to run the suite
 //! against a specific Bitcoin Core image tag (for example, `25` or `25.2`).
 //! If `BITCOIN_IMAGE_TAG` is not set (or is empty),
@@ -44,16 +44,22 @@ mod utils {
         BitcoinCoreContainer, BITCOIN_DEFAULT_IMAGE_TAG, BITCOIN_RPC_PASSWORD, BITCOIN_RPC_USERNAME,
     };
 
-    /// Env variable to control bitcoin image tag.
     const ENV_BITCOIN_IMAGE_TAG: &str = "BITCOIN_IMAGE_TAG";
+    const ENV_CI: &str = "CI";
 
     /// Retrieves the Bitcoin Docker image tag.
     ///
     /// - Returns the value of [`ENV_BITCOIN_IMAGE_TAG`] if it is set and non-empty.
+    /// - If running in CI (with [`ENV_CI`] set to true`) and the variable is missing or empty, the function panics.
     /// - Otherwise, returns the default image tag [`BITCOIN_DEFAULT_IMAGE_TAG`].
     fn get_bitcoin_image_tag() -> String {
+        let is_ci = env::var(ENV_CI).unwrap_or_default() == "true";
+
         match env::var(ENV_BITCOIN_IMAGE_TAG) {
             Ok(tag) if !tag.trim().is_empty() => tag,
+            _ if is_ci => panic!(
+                "Environment variable `{ENV_BITCOIN_IMAGE_TAG}` is required when running in CI",
+            ),
             _ => BITCOIN_DEFAULT_IMAGE_TAG.to_string(),
         }
     }
