@@ -3,6 +3,8 @@ codecov:
   require_ci_to_pass: false
   notify:
     manual_trigger: true
+    wait_for_ci: false
+    notify_error: true
 coverage:
   range: 60..79
   round: down
