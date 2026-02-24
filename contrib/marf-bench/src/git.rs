@@ -13,11 +13,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 
 use crate::util::run_checked;
 
@@ -29,13 +29,11 @@ pub fn current_repo_root() -> Result<PathBuf> {
 
 /// Validate that a revision resolves to a commit object.
 pub fn verify_revision(repo_root: &Path, revision: &str) -> Result<()> {
-    let mut cmd = Command::new("git");
-    cmd.current_dir(repo_root)
-        .arg("rev-parse")
-        .arg("--verify")
-        .arg(format!("{revision}^{{commit}}"));
-
-    run_checked(cmd, &format!("invalid revision: {revision}"))
+    git_checked_in(
+        repo_root,
+        ["rev-parse", "--verify", &format!("{revision}^{{commit}}")],
+        &format!("invalid revision: {revision}"),
+    )
 }
 
 /// Resolve a user-provided base revision, including special keywords.
@@ -78,6 +76,54 @@ pub fn resolve_merge_base_revision(
     Ok((merge_base, format!("merge-base({upstream_ref})")))
 }
 
+/// Create a detached git worktree for `revision` at `path`.
+pub fn add_detached_worktree(repo_root: &Path, path: &Path, revision: &str) -> Result<()> {
+    git_checked_in(
+        repo_root,
+        [
+            OsStr::new("worktree"),
+            OsStr::new("add"),
+            OsStr::new("--detach"),
+            path.as_os_str(),
+            OsStr::new(revision),
+        ],
+        "failed to create git worktree",
+    )
+}
+
+/// List all worktree paths registered for `repo_root`.
+pub fn list_worktree_paths(repo_root: &Path) -> Result<Vec<PathBuf>> {
+    let stdout = git_capture_output_in(repo_root, ["worktree", "list", "--porcelain"])?;
+    Ok(stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .map(PathBuf::from)
+        .collect())
+}
+
+/// Remove a git worktree path using force semantics.
+pub fn remove_worktree_force(repo_root: &Path, path: &Path) -> Result<()> {
+    git_checked_in(
+        repo_root,
+        [
+            OsStr::new("worktree"),
+            OsStr::new("remove"),
+            OsStr::new("--force"),
+            path.as_os_str(),
+        ],
+        "failed to remove git worktree",
+    )
+}
+
+/// Prune stale git worktree registrations immediately.
+pub fn prune_worktrees_now(repo_root: &Path) -> Result<()> {
+    git_checked_in(
+        repo_root,
+        ["worktree", "prune", "--expire", "now"],
+        "failed to prune git worktrees",
+    )
+}
+
 /// Create an ephemeral commit that snapshots the current staged index.
 fn create_staged_snapshot_commit(repo_root: &Path) -> Result<String> {
     let tree = git_capture_output_in(repo_root, ["write-tree"])?;
@@ -88,30 +134,18 @@ fn create_staged_snapshot_commit(repo_root: &Path) -> Result<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    let mut cmd = Command::new("git");
-    cmd.current_dir(repo_root)
-        .arg("commit-tree")
-        .arg(&tree)
-        .arg("-m")
-        .arg("marf-bench staged snapshot");
+    let mut args = vec![
+        OsString::from("commit-tree"),
+        OsString::from(&tree),
+        OsString::from("-m"),
+        OsString::from("marf-bench staged snapshot"),
+    ];
     if let Some(head) = head {
-        cmd.arg("-p").arg(head);
+        args.push(OsString::from("-p"));
+        args.push(OsString::from(head));
     }
 
-    let out = cmd
-        .output()
-        .context("failed to create staged snapshot commit")?;
-    if !out.status.success() {
-        bail!(
-            "failed to create staged snapshot commit: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-
-    let commit = String::from_utf8(out.stdout)
-        .map_err(|err| anyhow!(err))?
-        .trim()
-        .to_string();
+    let commit = git_capture_output_in(repo_root, args)?.trim().to_string();
     if commit.is_empty() {
         bail!("failed to create staged snapshot commit: empty commit hash");
     }
@@ -124,10 +158,33 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    git_capture_output_at(None, args)
+}
+
+/// Run a git command in a specific repository and return stdout as UTF-8 text.
+fn git_capture_output_in<I, S>(repo_root: &Path, args: I) -> Result<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    git_capture_output_at(Some(repo_root), args)
+}
+
+/// Run a git command and return stdout as UTF-8 text.
+fn git_capture_output_at<I, S>(repo_root: Option<&Path>, args: I) -> Result<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     let mut cmd = Command::new("git");
+    if let Some(repo_root) = repo_root {
+        cmd.current_dir(repo_root);
+    }
     cmd.args(args);
 
-    let out = cmd.output().context("failed to run git command")?;
+    let out = cmd
+        .output()
+        .map_err(|e| anyhow!("failed to run git command: {e}"))?;
     if !out.status.success() {
         bail!(
             "git command failed: {}",
@@ -138,22 +195,13 @@ where
     String::from_utf8(out.stdout).map_err(|err| anyhow!(err))
 }
 
-/// Run a git command in a specific repository and return stdout as UTF-8 text.
-fn git_capture_output_in<I, S>(repo_root: &Path, args: I) -> Result<String>
+/// Run a git command in a specific repository and require success.
+fn git_checked_in<I, S>(repo_root: &Path, args: I, error_context: &str) -> Result<()>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
     let mut cmd = Command::new("git");
     cmd.current_dir(repo_root).args(args);
-
-    let out = cmd.output().context("failed to run git command")?;
-    if !out.status.success() {
-        bail!(
-            "git command failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-
-    String::from_utf8(out.stdout).map_err(|err| anyhow!(err))
+    run_checked(cmd, error_context)
 }

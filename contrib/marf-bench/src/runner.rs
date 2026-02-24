@@ -21,6 +21,9 @@ use std::process::Command;
 use anyhow::{Context as _, Result, bail};
 use tempfile::TempDir;
 
+use crate::git::{
+    add_detached_worktree, list_worktree_paths, prune_worktrees_now, remove_worktree_force,
+};
 use crate::report::SummaryRow;
 use crate::util::{
     combine_output_text, extract_summary_lines, log, print_output, run_checked, sanitize_revision,
@@ -219,14 +222,7 @@ impl Runner {
                 path.display()
             ));
 
-            let mut cmd = Command::new("git");
-            cmd.current_dir(&self.repo_root)
-                .arg("worktree")
-                .arg("add")
-                .arg("--detach")
-                .arg(&path)
-                .arg(revision);
-            run_checked(cmd, "failed to create git worktree")?;
+            add_detached_worktree(&self.repo_root, &path, revision)?;
 
             return Ok(path);
         }
@@ -248,14 +244,7 @@ impl Runner {
             path.display()
         ));
 
-        let mut cmd = Command::new("git");
-        cmd.current_dir(&self.repo_root)
-            .arg("worktree")
-            .arg("add")
-            .arg("--detach")
-            .arg(&path)
-            .arg(revision);
-        run_checked(cmd, "failed to create git worktree")?;
+        add_detached_worktree(&self.repo_root, &path, revision)?;
 
         self.worktrees.push(ManagedWorktree {
             path: path.clone(),
@@ -353,16 +342,7 @@ impl Runner {
             "[{label}] Building marf bench with 'bench' profile"
         ));
 
-        let mut cmd = Command::new("cargo");
-        cmd.current_dir(root)
-            .arg("build")
-            .arg("--profile")
-            .arg("bench")
-            .arg("-p")
-            .arg("stackslib")
-            .arg("--bench")
-            .arg("marf");
-
+        let cmd = build_stackslib_marf_profile_cmd(root);
         run_checked(cmd, "failed to build marf bench profile")
     }
 
@@ -383,56 +363,8 @@ impl Runner {
             "summary"
         };
 
-        let mut cmd = Command::new("cargo");
-        cmd.current_dir(root)
-            .arg("bench")
-            .arg("-p")
-            .arg("stackslib")
-            .arg("--bench")
-            .arg("marf")
-            .arg("--")
-            .arg(bench.as_arg())
-            .env("OUTPUT_FORMAT", marf_output_mode);
-
-        if let Some(iters) = request.env.iters {
-            cmd.env("ITERS", iters.to_string());
-        }
-        if let Some(rounds) = request.env.rounds {
-            cmd.env("ROUNDS", rounds.to_string());
-        }
-        if let Some(chain_len) = request.env.chain_len {
-            cmd.env("CHAIN_LEN", chain_len.to_string());
-        }
-        if let Some(write_depths) = &request.env.write_depths {
-            cmd.env("WRITE_DEPTHS", write_depths);
-        }
-        if let Some(key_updates) = request.env.key_updates {
-            cmd.env("KEY_UPDATES", key_updates.to_string());
-        }
-        if let Some(sqlite_wal_autocheckpoint) = request.env.sqlite_wal_autocheckpoint {
-            cmd.env(
-                "SQLITE_WAL_AUTOCHECKPOINT",
-                sqlite_wal_autocheckpoint.to_string(),
-            );
-        }
-        if let Some(sqlite_wal_checkpoint_mode) = &request.env.sqlite_wal_checkpoint_mode {
-            cmd.env("SQLITE_WAL_CHECKPOINT_MODE", sqlite_wal_checkpoint_mode);
-        }
-        if let Some(read_proofs) = request.env.read_proofs {
-            cmd.env("READ_PROOFS", if read_proofs { "1" } else { "0" });
-        }
-        if let Some(keys_per_block) = request.env.keys_per_block {
-            cmd.env("KEYS_PER_BLOCK", keys_per_block.to_string());
-        }
-        if let Some(depths) = &request.env.depths {
-            cmd.env("DEPTHS", depths);
-        }
-        if let Some(cache_strategies) = &request.env.cache_strategies {
-            cmd.env("CACHE_STRATEGIES", cache_strategies);
-        }
-        if let Some(key_search_max_tries) = request.env.key_search_max_tries {
-            cmd.env("KEY_SEARCH_MAX_TRIES", key_search_max_tries.to_string());
-        }
+        let mut cmd = run_stackslib_marf_bench_cmd(root, bench.as_arg(), marf_output_mode);
+        apply_bench_env_overrides(&mut cmd, &request.env);
 
         let output = cmd
             .output()
@@ -455,28 +387,8 @@ impl Runner {
 
     /// Check whether a path is currently registered as a git worktree.
     fn is_registered_worktree(&self, path: &Path) -> Result<bool> {
-        let mut list_cmd = Command::new("git");
-        list_cmd
-            .current_dir(&self.repo_root)
-            .arg("worktree")
-            .arg("list")
-            .arg("--porcelain");
-
-        let output = list_cmd
-            .output()
-            .context("failed to list git worktrees for cache lookup")?;
-        if !output.status.success() {
-            bail!(
-                "failed to list git worktrees for cache lookup: {}",
-                combine_output_text(&output)
-            );
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        Ok(stdout
-            .lines()
-            .filter_map(|line| line.strip_prefix("worktree "))
-            .map(PathBuf::from)
+        Ok(list_worktree_paths(&self.repo_root)?
+            .into_iter()
             .any(|candidate| candidate == path))
     }
 
@@ -497,24 +409,11 @@ impl Drop for Runner {
                 }
 
                 log(&format!("Removing worktree: {}", path.display()));
-                let mut cmd = Command::new("git");
-                cmd.current_dir(&self.repo_root)
-                    .arg("worktree")
-                    .arg("remove")
-                    .arg("--force")
-                    .arg(&path);
-                let _ = cmd.output();
+                let _ = remove_worktree_force(&self.repo_root, &path);
             }
         }
 
-        let mut prune_cmd = Command::new("git");
-        prune_cmd
-            .current_dir(&self.repo_root)
-            .arg("worktree")
-            .arg("prune")
-            .arg("--expire")
-            .arg("now");
-        let _ = prune_cmd.output();
+        let _ = prune_worktrees_now(&self.repo_root);
     }
 }
 
@@ -527,52 +426,18 @@ pub fn cleanup_stale_marf_bench_worktrees(repo_root: &Path) -> Result<()> {
             "Removing stale marf-bench worktree: {}",
             stale.display()
         ));
-        let mut remove_cmd = Command::new("git");
-        remove_cmd
-            .current_dir(repo_root)
-            .arg("worktree")
-            .arg("remove")
-            .arg("--force")
-            .arg(&stale);
-        let _ = remove_cmd.output();
+        let _ = remove_worktree_force(repo_root, &stale);
     }
 
-    let mut prune_cmd = Command::new("git");
-    prune_cmd
-        .current_dir(repo_root)
-        .arg("worktree")
-        .arg("prune")
-        .arg("--expire")
-        .arg("now");
-    let _ = prune_cmd.output();
+    let _ = prune_worktrees_now(repo_root);
 
     Ok(())
 }
 
 /// List stale marf-bench git worktree paths discovered by `git worktree list`.
 pub fn list_stale_marf_bench_worktrees(repo_root: &Path) -> Result<Vec<PathBuf>> {
-    let mut list_cmd = Command::new("git");
-    list_cmd
-        .current_dir(repo_root)
-        .arg("worktree")
-        .arg("list")
-        .arg("--porcelain");
-
-    let output = list_cmd
-        .output()
-        .context("failed to list git worktrees for cleanup")?;
-    if !output.status.success() {
-        bail!(
-            "failed to list git worktrees for cleanup: {}",
-            combine_output_text(&output)
-        );
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stale_paths: Vec<PathBuf> = stdout
-        .lines()
-        .filter_map(|line| line.strip_prefix("worktree "))
-        .map(PathBuf::from)
+    let stale_paths: Vec<PathBuf> = list_worktree_paths(repo_root)?
+        .into_iter()
         .filter(|path| is_marf_bench_worktree_path(path, repo_root))
         .collect();
 
@@ -717,4 +582,76 @@ fn copy_if_different(src: &Path, dst: &Path) -> Result<bool> {
     fs::copy(src, dst)
         .with_context(|| format!("failed to copy {} -> {}", src.display(), dst.display()))?;
     Ok(true)
+}
+
+/// Apply benchmark env override settings to a spawned cargo command.
+fn apply_bench_env_overrides(cmd: &mut Command, env: &BenchEnvOverrides) {
+    if let Some(iters) = env.iters {
+        cmd.env("ITERS", iters.to_string());
+    }
+    if let Some(rounds) = env.rounds {
+        cmd.env("ROUNDS", rounds.to_string());
+    }
+    if let Some(chain_len) = env.chain_len {
+        cmd.env("CHAIN_LEN", chain_len.to_string());
+    }
+    if let Some(write_depths) = &env.write_depths {
+        cmd.env("WRITE_DEPTHS", write_depths);
+    }
+    if let Some(key_updates) = env.key_updates {
+        cmd.env("KEY_UPDATES", key_updates.to_string());
+    }
+    if let Some(sqlite_wal_autocheckpoint) = env.sqlite_wal_autocheckpoint {
+        cmd.env(
+            "SQLITE_WAL_AUTOCHECKPOINT",
+            sqlite_wal_autocheckpoint.to_string(),
+        );
+    }
+    if let Some(sqlite_wal_checkpoint_mode) = &env.sqlite_wal_checkpoint_mode {
+        cmd.env("SQLITE_WAL_CHECKPOINT_MODE", sqlite_wal_checkpoint_mode);
+    }
+    if let Some(read_proofs) = env.read_proofs {
+        cmd.env("READ_PROOFS", if read_proofs { "1" } else { "0" });
+    }
+    if let Some(keys_per_block) = env.keys_per_block {
+        cmd.env("KEYS_PER_BLOCK", keys_per_block.to_string());
+    }
+    if let Some(depths) = &env.depths {
+        cmd.env("DEPTHS", depths);
+    }
+    if let Some(cache_strategies) = &env.cache_strategies {
+        cmd.env("CACHE_STRATEGIES", cache_strategies);
+    }
+    if let Some(key_search_max_tries) = env.key_search_max_tries {
+        cmd.env("KEY_SEARCH_MAX_TRIES", key_search_max_tries.to_string());
+    }
+}
+
+/// Build stackslib marf bench target with bench profile.
+fn build_stackslib_marf_profile_cmd(root: &Path) -> Command {
+    let mut cmd = Command::new("cargo");
+    cmd.current_dir(root)
+        .arg("build")
+        .arg("--profile")
+        .arg("bench")
+        .arg("-p")
+        .arg("stackslib")
+        .arg("--bench")
+        .arg("marf");
+    cmd
+}
+
+/// Run stackslib marf bench for a specific bench subcommand and output mode.
+fn run_stackslib_marf_bench_cmd(root: &Path, bench_arg: &str, output_mode: &str) -> Command {
+    let mut cmd = Command::new("cargo");
+    cmd.current_dir(root)
+        .arg("bench")
+        .arg("-p")
+        .arg("stackslib")
+        .arg("--bench")
+        .arg("marf")
+        .arg("--")
+        .arg(bench_arg)
+        .env("OUTPUT_FORMAT", output_mode);
+    cmd
 }
