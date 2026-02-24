@@ -91,7 +91,6 @@ profiler = ["perf-event2"]
 [[bench]]
 name = "marf"
 harness = false
-#path = "benches/marf/main.rs"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 perf-event2 = { version = "0.7.4", optional = true }

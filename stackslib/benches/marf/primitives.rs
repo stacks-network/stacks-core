@@ -21,15 +21,15 @@ use std::time::Instant;
 
 use blockstack_lib::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use blockstack_lib::chainstate::stacks::index::node::{
-    CursorError, TrieCursor, TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID,
-    TrieNodeType, TriePtr, TRIEPTR_SIZE,
+    CursorError, TrieCursor, TrieNode as _, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
+    TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
 };
 use blockstack_lib::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode,
 };
 use blockstack_lib::chainstate::stacks::index::trie::Trie;
 use blockstack_lib::chainstate::stacks::index::{
-    bits, ClarityMarfTrieId, Error as IndexError, MARFValue, TrieLeaf,
+    bits, ClarityMarfTrieId as _, Error as IndexError, MARFValue, TrieLeaf,
 };
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
 
