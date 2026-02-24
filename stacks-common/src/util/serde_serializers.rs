@@ -65,7 +65,7 @@ pub mod prefix_hex_byte_array {
     use crate::util::hash::{hex_bytes, to_hex};
 
     pub fn serialize<S: serde::Serializer>(val: &[u8], s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&format!("0x{}", to_hex(&val)))
+        s.serialize_str(&format!("0x{}", to_hex(val)))
     }
 
     pub fn deserialize<'de, D: serde::Deserializer<'de>, const N: usize>(
