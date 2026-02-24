@@ -1,26 +1,39 @@
 (impl-trait .pox-5-pool-owner-trait.pool-owner-trait)
 
 ;; default to allowing deployer to register as a pool
-(define-data-var allowed-registering-tx-sender principal tx-sender)
+(define-data-var allowed-caller principal tx-sender)
 
 ;; #[allow(unnecessary_public)]
 (define-public (validate-stake!
     ;; #[allow(unused_binding)]
-    (staker principal) (amount-ustx uint) (num-cycles uint) (unlock-bytes (buff 255)))
+    (staker principal)
+    ;; #[allow(unused_binding)]
+    (amount-ustx uint)
+    ;; #[allow(unused_binding)]
+    (num-cycles uint)
+    ;; #[allow(unused_binding)]
+    (unlock-bytes (buff 683))
+  )
   (ok true)
 )
 
 ;; #[allow(unnecessary_public)]
-(define-public (validate-registration! (registering-tx-sender principal) (signer-key (buff 33)) (pox-addr {
-  version: (buff 1),
-  hashbytes: (buff 32),
-}))
+(define-public (validate-registration!
+    (caller principal)
+    ;; #[allow(unused_binding)]
+    (signer-key (buff 33))
+    ;; #[allow(unused_binding)]
+    (pox-addr {
+      version: (buff 1),
+      hashbytes: (buff 32),
+    })
+  )
   (begin
-    (asserts! (is-eq (var-get allowed-registering-tx-sender) registering-tx-sender) (err u1000))
+    (asserts! (is-eq (var-get allowed-caller) caller) (err u1000))
     (ok true)
   )
 )
 
-(define-public (update-allowed-registering-tx-sender (new-allowed-registering-tx-sender principal))
-  (ok (var-set allowed-registering-tx-sender new-allowed-registering-tx-sender))
+(define-public (update-allowed-caller (new-allowed-caller principal))
+  (ok (var-set allowed-caller new-allowed-caller))
 )

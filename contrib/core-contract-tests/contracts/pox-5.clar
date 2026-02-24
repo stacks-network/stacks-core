@@ -1,14 +1,9 @@
 ;; The caller is already staked
 (define-constant ERR_ALREADY_STAKED (err u1))
+;; The caller is not staked
 (define-constant ERR_NOT_STAKED (err u2))
-
+;; The caller does not have sufficient STX to stake
 (define-constant ERR_INSUFFICIENT_FUNDS (err u4))
-;; The unlock height bytes are invalid
-;; (define-constant ERR_INVALID_UNLOCK_HEIGHT_BYTES_LENGTH (err u5))
-;; The unlock height is too soon
-;; (define-constant ERR_INVALID_UNLOCK_HEIGHT_TOO_SOON (err u6))
-;; The stacker is trying to unstake before their unlock height
-;; (define-constant ERR_NOT_UNLOCKED (err u7))
 ;; The `start-burn-ht` is not valid - it must be in the next reward cycle
 (define-constant ERR_INVALID_START_BURN_HEIGHT (err u8))
 ;; The `num-cycles` provided is invalid - it must be less than MAX_NUM_CYCLES
@@ -102,14 +97,16 @@
     principal
     {
         num-cycles: uint,
-        unlock-bytes: (buff 255),
-        signer-key: (buff 33),
+        unlock-bytes: (buff 683),
         amount-ustx: uint,
         first-reward-cycle: uint,
-        pox-addr: {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        },
+        pool-or-solo-info: (response principal {
+            pox-addr: {
+                version: (buff 1),
+                hashbytes: (buff 32),
+            },
+            signer-key: (buff 33),
+        }),
     }
 )
 
@@ -141,8 +138,25 @@
     (burn-height-to-reward-cycle burn-block-height)
 )
 
+;; Get the _current_ PoX staking principal information.  If the information
+;; is expired, or if there's never been such a staker, then returns none.
 (define-read-only (get-staker-info (staker principal))
-    (map-get? staking-state staker)
+    (match (map-get? staking-state staker)
+        staking-info
+        (if (<=
+                (+ (get first-reward-cycle staking-info)
+                    (get num-cycles staking-info)
+                )
+                (current-pox-reward-cycle)
+            )
+            ;; present, but lock has expired
+            none
+            ;; present, and lock has not expired
+            (some staking-info)
+        )
+        ;; no state at all
+        none
+    )
 )
 
 (define-read-only (get-pool-info (owner principal))
@@ -151,24 +165,19 @@
 
 ;;; Public functions
 
-;; #[allow(unnecessary_public)]
 (define-public (stake-pooled
         (pool-owner <pool-owner-trait>)
         (amount-ustx uint)
         (num-cycles uint)
-        (unlock-bytes (buff 255))
+        (unlock-bytes (buff 683))
         (start-burn-ht uint)
     )
-    (let (
-            (owner (contract-of pool-owner))
-            (pool-info (unwrap! (get-pool-info owner) ERR_POOL_NOT_FOUND))
-        )
+    (let ((owner (contract-of pool-owner)))
+        (asserts! (is-some (get-pool-info owner)) ERR_POOL_NOT_FOUND)
         (try! (contract-call? pool-owner validate-stake! tx-sender amount-ustx
             num-cycles unlock-bytes
         ))
-        (inner-stake amount-ustx (get pox-addr pool-info)
-            (get signer-key pool-info) num-cycles unlock-bytes start-burn-ht
-        )
+        (inner-stake amount-ustx num-cycles unlock-bytes start-burn-ht (ok owner))
     )
 )
 
@@ -188,29 +197,37 @@
         ;; #[allow(unused_binding)]
         (auth-id uint)
         (num-cycles uint)
-        (unlock-bytes (buff 255))
+        (unlock-bytes (buff 683))
     )
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (begin
         ;;;;  Validate ownership of the given signer key
         ;; (try! (consume-signer-key-authorization pox-addr (- first-reward-cycle u1) "stack-stx" lock-period signer-sig signer-key amount-ustx max-amount auth-id))
 
-        (inner-stake amount-ustx pox-addr signer-key num-cycles unlock-bytes
-            start-burn-ht
+        ;;  pox-addr must be valid
+        (try! (check-pox-addr pox-addr))
+
+        (inner-stake amount-ustx num-cycles unlock-bytes start-burn-ht
+            (err {
+                pox-addr: pox-addr,
+                signer-key: signer-key,
+            })
         )
     )
 )
 
 (define-private (inner-stake
         (amount-ustx uint)
-        (pox-addr {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        })
-        (signer-key (buff 33))
         (num-cycles uint)
-        (unlock-bytes (buff 255))
+        (unlock-bytes (buff 683))
         (start-burn-ht uint)
+        (pool-or-solo-info (response principal {
+            pox-addr: {
+                version: (buff 1),
+                hashbytes: (buff 32),
+            },
+            signer-key: (buff 33),
+        }))
     )
     (let (
             (current-cycle (current-pox-reward-cycle))
@@ -231,9 +248,6 @@
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
 
-        ;;  pox-addr must be valid
-        (try! (check-pox-addr pox-addr))
-
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
         ;; (asserts! (check-caller-allowed) (err ERR_STACKING_PERMISSION_DENIED))
 
@@ -248,28 +262,43 @@
         (try! (add-staker-to-reward-cycles tx-sender first-reward-cycle num-cycles))
 
         (map-set staking-state tx-sender {
-            signer-key: signer-key,
             amount-ustx: amount-ustx,
-            pox-addr: pox-addr,
             unlock-bytes: unlock-bytes,
             first-reward-cycle: first-reward-cycle,
             num-cycles: num-cycles,
+            pool-or-solo-info: pool-or-solo-info,
         })
 
         (ok {
             stacker: tx-sender,
-            pox-addr: pox-addr,
             unlock-burn-height: unlock-burn-height,
             unlock-bytes: unlock-bytes,
             amount-ustx: amount-ustx,
-            signer-key: signer-key,
             unlock-cycle: unlock-cycle,
             num-cycles: num-cycles,
+            pool-or-solo-info: pool-or-solo-info,
         })
     )
 )
 
-(define-public (extend-stake
+(define-public (stake-extend-pooled
+        (pool-owner <pool-owner-trait>)
+        (amount-ustx uint)
+        (num-cycles uint)
+        (unlock-bytes (buff 683))
+    )
+    (let ((owner (contract-of pool-owner)))
+        (asserts! (is-some (get-pool-info owner)) ERR_POOL_NOT_FOUND)
+        (try! (contract-call? pool-owner validate-stake! tx-sender amount-ustx
+            num-cycles unlock-bytes
+        ))
+        (inner-stake-extend amount-ustx num-cycles unlock-bytes (ok owner))
+    )
+)
+
+;; #[allow(unnecessary_public)]
+(define-public (stake-extend
+        (amount-ustx uint)
         (pox-addr {
             version: (buff 1),
             hashbytes: (buff 32),
@@ -282,7 +311,34 @@
         ;; #[allow(unused_binding)]
         (auth-id uint)
         (num-cycles uint)
-        (unlock-bytes (buff 255))
+        (unlock-bytes (buff 683))
+    )
+    (begin
+        ;; TODO: verify signer sig
+
+        ;;  pox-addr must be valid
+        (try! (check-pox-addr pox-addr))
+
+        (inner-stake-extend amount-ustx num-cycles unlock-bytes
+            (err {
+                pox-addr: pox-addr,
+                signer-key: signer-key,
+            })
+        )
+    )
+)
+
+(define-private (inner-stake-extend
+        (amount-ustx uint)
+        (num-cycles uint)
+        (unlock-bytes (buff 683))
+        (pool-or-solo-info (response principal {
+            pox-addr: {
+                version: (buff 1),
+                hashbytes: (buff 32),
+            },
+            signer-key: (buff 33),
+        }))
     )
     (let (
             (current-stacker-info (unwrap! (get-staker-info tx-sender) ERR_NOT_STAKED))
@@ -295,28 +351,43 @@
             (current-cycle (current-pox-reward-cycle))
             (unlock-cycle (+ current-cycle num-cycles))
             (unlock-burn-height (reward-cycle-to-unlock-height unlock-cycle))
+            (account-info (stx-account tx-sender))
         )
         (asserts! (is-eq prev-unlock-cycle current-cycle) ERR_CANNOT_EXTEND)
 
         (try! (add-staker-to-reward-cycles tx-sender (+ current-cycle u1) num-cycles))
 
+        ;; The caller has locked STX - we need to ensure that their locked + unlocked balance
+        ;; is sufficient
+        (asserts!
+            (>= (+ (get locked account-info) (get unlocked account-info))
+                amount-ustx
+            )
+            ERR_INSUFFICIENT_FUNDS
+        )
+
+        ;;  amount must be valid
+        (asserts! (> amount-ustx u0) ERR_INVALID_AMOUNT)
+
+        ;;  lock period must be in acceptable range.
+        (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
+
         (map-set staking-state tx-sender {
-            signer-key: signer-key,
-            amount-ustx: (get amount-ustx current-stacker-info),
-            pox-addr: pox-addr,
+            amount-ustx: amount-ustx,
             first-reward-cycle: (+ current-cycle u1),
             num-cycles: num-cycles,
             unlock-bytes: unlock-bytes,
+            pool-or-solo-info: pool-or-solo-info,
         })
+
         (ok {
             stacker: tx-sender,
-            pox-addr: pox-addr,
             unlock-burn-height: unlock-burn-height,
             unlock-bytes: unlock-bytes,
-            amount-ustx: (get amount-ustx current-stacker-info),
-            signer-key: signer-key,
+            amount-ustx: amount-ustx,
             unlock-cycle: unlock-cycle,
             num-cycles: num-cycles,
+            pool-or-solo-info: pool-or-solo-info,
         })
     )
 )
@@ -572,115 +643,4 @@
         ))
         (ok params)
     )
-)
-
-(define-public (remove-stacker-from-set-for-cycle
-        (stacker principal)
-        (cycle uint)
-    )
-    (let (
-            (node (unwrap!
-                (map-get? staker-set-ll-for-cycle {
-                    cycle: cycle,
-                    staker: stacker,
-                })
-                ERR_NOT_STAKED
-            ))
-            (prev-item (get prev node))
-            (next-item (get next node))
-        )
-        (match prev-item
-            prev-stacker
-            (let ((prev-node (unwrap-panic (map-get? staker-set-ll-for-cycle {
-                    staker: prev-stacker,
-                    cycle: cycle,
-                }))))
-                (map-set staker-set-ll-for-cycle {
-                    cycle: cycle,
-                    staker: prev-stacker,
-                } {
-                    prev: (get prev prev-node),
-                    next: next-item,
-                })
-            )
-            ;; this is the first item
-            (match next-item
-                next (map-set staker-set-ll-first-for-cycle cycle next)
-                (map-delete staker-set-ll-for-cycle {
-                    cycle: cycle,
-                    staker: stacker,
-                })
-            )
-        )
-
-        (match next-item
-            next-stacker (let ((next-node (unwrap-panic (map-get? staker-set-ll-for-cycle {
-                    staker: next-stacker,
-                    cycle: cycle,
-                }))))
-                (map-set staker-set-ll-for-cycle {
-                    cycle: cycle,
-                    staker: next-stacker,
-                } {
-                    prev: prev-item,
-                    next: (get next next-node),
-                })
-            )
-            (match prev-item
-                prev-stacker (map-set staker-set-ll-last-for-cycle cycle prev-stacker)
-                (map-delete staker-set-ll-for-cycle {
-                    cycle: cycle,
-                    staker: stacker,
-                })
-            )
-        )
-        (map-delete staker-set-ll-for-cycle {
-            cycle: cycle,
-            staker: stacker,
-        })
-        (ok true)
-    )
-)
-
-;;; Lock script helpers
-
-;; Contruct an L1 lockup script
-(define-read-only (construct-unlock-script
-        (stacker principal)
-        (unlock-burn-height (buff 3)) ;; (unlock-bytes-len (buff 2))
-        (unlock-bytes (buff 255))
-    )
-    (let (
-            (stacker-parts (unwrap-panic (principal-destruct? stacker)))
-            (stacker-bytes (concat (get version stacker-parts) (get hash-bytes stacker-parts)))
-            (unlock-bytes-len (uint-to-buff-le (len unlock-bytes)))
-        )
-        (concat 0x1605
-            (concat stacker-bytes
-                (concat 0x7503
-                    (concat unlock-burn-height
-                        (concat 0xb175 (concat unlock-bytes-len unlock-bytes))
-                    ))
-            ))
-    )
-)
-
-;; Construct the p2wsh output script for a L1 lockup address
-(define-read-only (construct-output-script
-        (stacker principal)
-        (unlock-burn-height (buff 3))
-        (unlock-bytes (buff 255))
-    )
-    (concat 0x0020
-        (sha256 (construct-unlock-script stacker unlock-burn-height unlock-bytes))
-    )
-)
-
-;; Convert a u8 to a little-endian byte buffer,
-;; ONLY FOR n < 256
-(define-read-only (uint-to-buff-le (n uint))
-    (unwrap-panic (as-max-len?
-        (unwrap-panic (slice? (unwrap-panic (to-consensus-buff? n)) u16 u17))
-        u1
-    ))
 )
