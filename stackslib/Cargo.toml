@@ -91,6 +91,10 @@ profiler = ["perf-event2"]
 name = "marf"
 harness = false
 
+[[bench]]
+name = "marf-patch"
+harness = false
+
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 perf-event2 = { version = "0.7.4", optional = true }
 

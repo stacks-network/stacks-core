@@ -456,8 +456,10 @@ pub fn print_repeated_comparison_stats(
 
     println!();
     log("Repeated comparison stats");
+    println!("baseline: {base_label}");
+    println!("comparison: {target_label}");
     println!(
-        "values: {base_label} / {target_label} / median/min/max %delta across {} repeats",
+        "values: median/min/max %delta across {} repeats",
         repeated_rows.len()
     );
 
@@ -610,8 +612,10 @@ fn print_repeat_confidence_summary(
 
     println!();
     log("Repeat confidence summary");
+    println!("baseline: {base_label}");
+    println!("comparison: {target_label}");
     println!(
-        "values: {base_label} / {target_label} / total_ms stability across {} repeats",
+        "values: total_ms stability across {} repeats",
         repeated_rows.len()
     );
     println!(

@@ -28,6 +28,8 @@ pub enum BenchTarget {
     Read(ReadArgs),
     /// Run MARF write-path benchmarks.
     Write(WriteArgs),
+    /// Run MARF patch-node compression benchmarks.
+    Patch(PatchArgs),
 }
 
 impl BenchTarget {
@@ -66,6 +68,15 @@ impl BenchTarget {
                     sqlite_wal_autocheckpoint: args.sqlite_wal_autocheckpoint,
                     sqlite_wal_checkpoint_mode: args.sqlite_wal_checkpoint_mode,
                     key_search_max_tries: args.key_search_max_tries,
+                    ..Default::default()
+                },
+            )],
+            Self::Patch(args) => vec![BenchRunRequest::new(
+                BenchKind::Patch,
+                BenchEnvOverrides {
+                    iters: args.iters,
+                    rounds: args.rounds,
+                    patch_diffs: args.patch_diffs,
                     ..Default::default()
                 },
             )],
@@ -151,4 +162,20 @@ pub struct WriteArgs {
     /// Set KEY_SEARCH_MAX_TRIES for write promotion-key search budget.
     #[arg(long)]
     key_search_max_tries: Option<usize>,
+}
+
+/// Arguments for the `patch` benchmark target.
+#[derive(Debug, Args)]
+pub struct PatchArgs {
+    /// Set ITERS for patch benchmark loop count.
+    #[arg(long)]
+    iters: Option<usize>,
+
+    /// Set ROUNDS for patch repeated case runs.
+    #[arg(long)]
+    rounds: Option<usize>,
+
+    /// Set PATCH_DIFFS as comma-separated diff sizes (for example: 1,4,16,64).
+    #[arg(long)]
+    patch_diffs: Option<String>,
 }

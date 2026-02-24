@@ -37,6 +37,10 @@ const MARF_BENCH_FILES: [&str; 7] = [
     "write.rs",
 ];
 const SRC_BENCH_DIR: &str = "stackslib/benches/marf";
+const SRC_PATCH_BENCH_DIR: &str = "stackslib/benches/marf-patch";
+const MARF_PATCH_BENCH_FILES: [&str; 1] = ["main.rs"];
+const STACKSLIB_CARGO_TOML: &str = "stackslib/Cargo.toml";
+const PATCH_SUPPORT_INTRO_COMMIT: &str = "0317850e7f042de98e7bc6a1f26f6183e7d20f98";
 const WORKTREE_PREFIX: &str = "marf-bench-";
 const WORKTREE_CACHE_DIR: &str = "marf-bench-worktrees";
 
@@ -55,6 +59,7 @@ pub struct BenchEnvOverrides {
     pub depths: Option<String>,
     pub cache_strategies: Option<String>,
     pub key_search_max_tries: Option<usize>,
+    pub patch_diffs: Option<String>,
 }
 
 /// A single benchmark invocation request.
@@ -81,10 +86,11 @@ struct ManagedWorktree {
 pub struct Runner {
     repo_root: PathBuf,
     source_bench_dir: PathBuf,
+    source_patch_bench_dir: PathBuf,
     keep_worktrees: bool,
     worktrees: Vec<ManagedWorktree>,
     worktrees_by_revision: HashMap<String, PathBuf>,
-    built_roots: HashSet<PathBuf>,
+    built_targets: HashSet<(PathBuf, String)>,
     overlay_changed_roots: HashMap<PathBuf, bool>,
 }
 
@@ -109,6 +115,14 @@ impl Runner {
             );
         }
 
+        let source_patch_bench_dir = repo_root.join(SRC_PATCH_BENCH_DIR);
+        if !source_patch_bench_dir.is_dir() {
+            bail!(
+                "source patch bench directory not found: {}",
+                source_patch_bench_dir.display()
+            );
+        }
+
         for name in MARF_BENCH_FILES {
             let path = source_bench_dir.join(name);
             if !path.is_file() {
@@ -116,13 +130,21 @@ impl Runner {
             }
         }
 
+        for name in MARF_PATCH_BENCH_FILES {
+            let path = source_patch_bench_dir.join(name);
+            if !path.is_file() {
+                bail!("missing source patch bench file: {}", path.display());
+            }
+        }
+
         Ok(Self {
             repo_root,
             source_bench_dir,
+            source_patch_bench_dir,
             keep_worktrees,
             worktrees: Vec::new(),
             worktrees_by_revision: HashMap::new(),
-            built_roots: HashSet::new(),
+            built_targets: HashSet::new(),
             overlay_changed_roots: HashMap::new(),
         })
     }
@@ -134,6 +156,8 @@ impl Runner {
         requests: &[BenchRunRequest],
         output_format: OutputFormat,
     ) -> Result<Vec<SummaryRow>> {
+        self.ensure_requests_supported(&self.repo_root, requests)?;
+
         let marf_bench_dir = self.repo_root.join(SRC_BENCH_DIR);
         if !marf_bench_dir.is_dir() {
             bail!(
@@ -142,10 +166,14 @@ impl Runner {
             );
         }
 
-        let cargo_toml = self.repo_root.join("stackslib/Cargo.toml");
+        let cargo_toml = self.repo_root.join(STACKSLIB_CARGO_TOML);
         let cargo_toml_text = fs::read_to_string(&cargo_toml)
             .with_context(|| format!("failed to read {}", cargo_toml.display()))?;
-        if !cargo_toml_text.contains("name = \"marf\"") {
+        if requests
+            .iter()
+            .any(|request| request.kind.bench_name() == "marf")
+            && !cargo_toml_text.contains("name = \"marf\"")
+        {
             bail!(
                 "current tree Cargo.toml missing marf bench target: {}",
                 cargo_toml.display()
@@ -173,8 +201,10 @@ impl Runner {
             wt
         };
 
-        let overlay_changed = self.overlay_benches(&wt)?;
-        self.ensure_bench_target(&wt.join("stackslib/Cargo.toml"))?;
+        self.ensure_requests_supported(&wt, requests)?;
+
+        let overlay_changed = self.overlay_benches(&wt, requests)?;
+        self.ensure_bench_target(&wt.join(STACKSLIB_CARGO_TOML), requests)?;
         self.overlay_changed_roots
             .entry(wt.clone())
             .and_modify(|changed| *changed |= overlay_changed)
@@ -265,32 +295,66 @@ impl Runner {
     }
 
     /// Overlay benchmark source files into a target root.
-    fn overlay_benches(&self, root: &Path) -> Result<bool> {
-        let dest = root.join(SRC_BENCH_DIR);
-        fs::create_dir_all(&dest)
-            .with_context(|| format!("failed to create {}", dest.display()))?;
-
+    fn overlay_benches(&self, root: &Path, requests: &[BenchRunRequest]) -> Result<bool> {
         let mut changed = false;
 
-        for name in MARF_BENCH_FILES {
-            let src = self.source_bench_dir.join(name);
-            let dst = dest.join(name);
-            changed |= copy_if_different(&src, &dst)?;
+        if requests
+            .iter()
+            .any(|request| request.kind.bench_name() == "marf")
+        {
+            let dest = root.join(SRC_BENCH_DIR);
+            fs::create_dir_all(&dest)
+                .with_context(|| format!("failed to create {}", dest.display()))?;
+
+            for name in MARF_BENCH_FILES {
+                let src = self.source_bench_dir.join(name);
+                let dst = dest.join(name);
+                changed |= copy_if_different(&src, &dst)?;
+            }
+        }
+
+        if requests
+            .iter()
+            .any(|request| request.kind.bench_name() == "marf-patch")
+        {
+            let dest = root.join(SRC_PATCH_BENCH_DIR);
+            fs::create_dir_all(&dest)
+                .with_context(|| format!("failed to create {}", dest.display()))?;
+
+            for name in MARF_PATCH_BENCH_FILES {
+                let src = self.source_patch_bench_dir.join(name);
+                let dst = dest.join(name);
+                changed |= copy_if_different(&src, &dst)?;
+            }
         }
 
         Ok(changed)
     }
 
     /// Ensure required benchmark target/dependencies exist in Cargo.toml.
-    fn ensure_bench_target(&self, cargo_toml: &Path) -> Result<()> {
+    fn ensure_bench_target(&self, cargo_toml: &Path, requests: &[BenchRunRequest]) -> Result<()> {
         let mut text = fs::read_to_string(cargo_toml)
             .with_context(|| format!("failed to read {}", cargo_toml.display()))?;
 
         let mut updated = false;
 
-        if !text.contains("name = \"marf\"") {
+        let wants_marf = requests
+            .iter()
+            .any(|request| request.kind.bench_name() == "marf");
+        let wants_marf_patch = requests
+            .iter()
+            .any(|request| request.kind.bench_name() == "marf-patch");
+
+        if wants_marf && !text.contains("name = \"marf\"") {
             text.push_str(
                 "\n[[bench]]\nname = \"marf\"\nharness = false\npath = \"benches/marf/main.rs\"\n",
+            );
+            updated = true;
+        }
+
+        if wants_marf_patch && !text.contains("name = \"marf-patch\"") {
+            text.push_str(
+                "\n[[bench]]\nname = \"marf-patch\"\nharness = false\npath = \"benches/marf-patch/main.rs\"\n",
             );
             updated = true;
         }
@@ -318,29 +382,36 @@ impl Runner {
         requests: &[BenchRunRequest],
         output_format: OutputFormat,
     ) -> Result<Vec<SummaryRow>> {
-        if !self.built_roots.contains(root) {
-            let overlay_changed = self
-                .overlay_changed_roots
-                .get(root)
-                .copied()
-                .unwrap_or(true);
+        self.ensure_requests_supported(root, requests)?;
 
-            let can_reuse_cached_build =
-                self.keep_worktrees && self.is_cached_worktree_path(root) && !overlay_changed;
-
-            if can_reuse_cached_build {
-                log(&format!(
-                    "[{label}] Reusing existing marf bench build artifacts (worktree unchanged)"
-                ));
-            } else {
-                self.build_bench_profile(label, root)?;
-            }
-            self.built_roots.insert(root.to_path_buf());
-        }
         log(&format!("Running marf benches for {label}"));
 
         let mut rows = Vec::new();
         for request in requests {
+            let bench_name = request.kind.bench_name();
+            let build_key = (root.to_path_buf(), bench_name.to_string());
+
+            if !self.built_targets.contains(&build_key) {
+                let overlay_changed = self
+                    .overlay_changed_roots
+                    .get(root)
+                    .copied()
+                    .unwrap_or(true);
+
+                let can_reuse_cached_build =
+                    self.keep_worktrees && self.is_cached_worktree_path(root) && !overlay_changed;
+
+                if can_reuse_cached_build {
+                    log(&format!(
+                        "[{label}] Reusing existing {bench_name} build artifacts (worktree unchanged)"
+                    ));
+                } else {
+                    self.build_bench_profile(label, root, bench_name)?;
+                }
+
+                self.built_targets.insert(build_key);
+            }
+
             rows.extend(self.run_bench_case(label, root, request, output_format)?);
         }
 
@@ -348,9 +419,9 @@ impl Runner {
     }
 
     /// Build stackslib marf benchmark with bench profile.
-    fn build_bench_profile(&self, label: &str, root: &Path) -> Result<()> {
+    fn build_bench_profile(&self, label: &str, root: &Path, bench_name: &str) -> Result<()> {
         log(&format!(
-            "[{label}] Building marf bench with 'bench' profile"
+            "[{label}] Building {bench_name} bench with 'bench' profile"
         ));
 
         let mut cmd = Command::new("cargo");
@@ -361,9 +432,9 @@ impl Runner {
             .arg("-p")
             .arg("stackslib")
             .arg("--bench")
-            .arg("marf");
+            .arg(bench_name);
 
-        run_checked(cmd, "failed to build marf bench profile")
+        run_checked(cmd, "failed to build bench profile")
     }
 
     /// Execute one benchmark case and parse summary rows from output.
@@ -375,7 +446,10 @@ impl Runner {
         output_format: OutputFormat,
     ) -> Result<Vec<SummaryRow>> {
         let bench = request.kind;
-        log(&format!("[{label}] Running {}", bench.as_arg()));
+        let bench_name = bench.bench_name();
+        let subcommand = bench.harness_subcommand();
+        let target_label = subcommand.unwrap_or(bench_name);
+        log(&format!("[{label}] Running {target_label}"));
 
         let marf_output_mode = if output_format == OutputFormat::Raw {
             "raw"
@@ -389,10 +463,13 @@ impl Runner {
             .arg("-p")
             .arg("stackslib")
             .arg("--bench")
-            .arg("marf")
+            .arg(bench_name)
             .arg("--")
-            .arg(bench.as_arg())
             .env("OUTPUT_FORMAT", marf_output_mode);
+
+        if let Some(subcommand) = subcommand {
+            cmd.arg(subcommand);
+        }
 
         if let Some(iters) = request.env.iters {
             cmd.env("ITERS", iters.to_string());
@@ -433,10 +510,13 @@ impl Runner {
         if let Some(key_search_max_tries) = request.env.key_search_max_tries {
             cmd.env("KEY_SEARCH_MAX_TRIES", key_search_max_tries.to_string());
         }
+        if let Some(patch_diffs) = &request.env.patch_diffs {
+            cmd.env("PATCH_DIFFS", patch_diffs);
+        }
 
         let output = cmd
             .output()
-            .with_context(|| format!("failed to launch cargo bench for {}", bench.as_arg()))?;
+            .with_context(|| format!("failed to launch cargo bench for {target_label}"))?;
 
         if output_format == OutputFormat::Raw {
             print_output(&output);
@@ -446,7 +526,7 @@ impl Runner {
             if output_format != OutputFormat::Raw {
                 print_output(&output);
             }
-            bail!("benchmark failed for {label} ({})", bench.as_arg());
+            bail!("benchmark failed for {label} ({target_label})");
         }
 
         let combined = combine_output_text(&output);
@@ -483,6 +563,49 @@ impl Runner {
     /// Return true if the path is under the keep-worktrees cache root.
     fn is_cached_worktree_path(&self, path: &Path) -> bool {
         path.starts_with(keep_worktrees_root(&self.repo_root))
+    }
+
+    /// Ensure requested benchmark kinds are supported by the source tree at `root`.
+    fn ensure_requests_supported(&self, root: &Path, requests: &[BenchRunRequest]) -> Result<()> {
+        if requests
+            .iter()
+            .any(|request| matches!(request.kind, BenchKind::Patch))
+            && !supports_patch_nodes(root)?
+        {
+            bail!(
+                "patch benchmark requested but revision does not support TrieNodePatch/TrieNodeID::Patch: {}",
+                root.display()
+            );
+        }
+
+        Ok(())
+    }
+}
+
+/// Return true if this checkout includes TrieNodePatch support in node definitions.
+fn supports_patch_nodes(root: &Path) -> Result<bool> {
+    let output = Command::new("git")
+        .current_dir(root)
+        .arg("merge-base")
+        .arg("--is-ancestor")
+        .arg(PATCH_SUPPORT_INTRO_COMMIT)
+        .arg("HEAD")
+        .output()
+        .with_context(|| {
+            format!(
+                "failed to check patch benchmark support ancestry in {}",
+                root.display()
+            )
+        })?;
+
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => bail!(
+            "failed to evaluate patch support ancestry at {}: {}",
+            root.display(),
+            combine_output_text(&output)
+        ),
     }
 }
 

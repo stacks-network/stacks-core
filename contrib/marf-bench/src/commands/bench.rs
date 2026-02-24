@@ -47,7 +47,7 @@ pub struct BenchArgs {
     repeats: Option<usize>,
 
     /// High-jitter threshold for repeat confidence summary spread in percentage points.
-    #[arg(long, global = true, default_value_t = 30.0)]
+    #[arg(long, global = true, default_value_t = 30.0, requires = "repeats")]
     repeat_jitter_threshold: f64,
 
     /// Keep and reuse comparison worktrees across invocations to avoid cold rebuilds.

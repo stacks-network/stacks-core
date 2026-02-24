@@ -19,6 +19,12 @@ cargo marf-bench run read
 
 # Run write-path benchmarks
 cargo marf-bench run write
+
+# Run patch-node compression benchmarks
+cargo marf-bench run patch
+
+# Repeat a single-tree patch run and emit repeat statistics
+cargo marf-bench run --repeats 5 patch --iters 100000 --rounds 10
 ```
 
 ### `bench` (base/target comparisons)
@@ -42,6 +48,9 @@ cargo marf-bench bench --base master --target v3.0.0.0.0 read
 
 # Primitive benchmark with machine-readable output
 cargo marf-bench bench --base staged --output-format tsv primitives
+
+# Patch-node benchmark across revisions
+cargo marf-bench bench --base merge-base:upstream/develop patch
 
 # Repeated comparisons with confidence stats
 cargo marf-bench bench --base merge-base:upstream/develop --repeats 5 write
@@ -86,8 +95,8 @@ cargo marf-bench clean --dry-run
 
 ## Command shape
 
-- `run`: `cargo marf-bench run [--output-format <summary|raw|tsv>] <primitives|read|write> [bench-specific options]`
-- `bench`: `cargo marf-bench bench [--base <rev|staged|merge-base:<upstream-ref>>] [--target <rev>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] [--keep-worktrees] [--output-format <summary|raw|tsv>] <primitives|read|write> [bench-specific options]`
+- `run`: `cargo marf-bench run [--output-format <summary|raw|tsv>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] <primitives|read|write|patch> [bench-specific options]`
+- `bench`: `cargo marf-bench bench [--base <rev|staged|merge-base:<upstream-ref>>] [--target <rev>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] [--keep-worktrees] [--output-format <summary|raw|tsv>] <primitives|read|write|patch> [bench-specific options]`
 - `clean`: `cargo marf-bench clean [--dry-run]`
 
 Notes:
@@ -96,7 +105,8 @@ Notes:
 - `--base` also accepts keywords: `staged`, `merge-base:<upstream-ref>`.
 - `merge-base` keyword requires an explicit upstream ref suffix (no default remote/ref).
 - `--target` requires `--base`.
-- `--repeats` requires `--base`; when set, marf-bench runs full base/target comparisons N times and appends repeat statistics.
+- For `bench`, `--repeats` requires `--base`; when set, marf-bench runs full base/target comparisons N times and appends repeat statistics.
+- `run --repeats` repeats the same current-tree run N times and reports repeat statistics relative to repeat #1.
 - `--repeat-jitter-threshold` sets the spread threshold (percentage points) for classifying high-jitter rows in repeat confidence output; default is `30`.
 - Repeat confidence classifies a row as high-jitter when total-ms repeat deltas straddle both signs (`min < 0 < max`) and spread exceeds threshold.
 - `--keep-worktrees` keeps revision worktrees under the platform temp directory (for example `/tmp/marf-bench-worktrees/...` on Linux) and reuses them across invocations (faster subsequent builds when overlays are unchanged).
@@ -118,6 +128,13 @@ Bench-specific options are accepted on the benchmark target subcommands and are 
 - `--sqlite-wal-autocheckpoint <N>` sets `SQLITE_WAL_AUTOCHECKPOINT` (read/write benchmarks; page threshold for SQLite WAL auto-checkpoint, `0` disables auto-checkpoint)
 - `--sqlite-wal-checkpoint-mode <MODE>` sets `SQLITE_WAL_CHECKPOINT_MODE` (read/write benchmarks; used for explicit post-setup checkpoint only when `SQLITE_WAL_AUTOCHECKPOINT=0`; allowed: `PASSIVE|FULL|RESTART|TRUNCATE`; default mode is `PASSIVE`)
 - `--key-search-max-tries <N>` sets `KEY_SEARCH_MAX_TRIES`
+- `--patch-diffs <CSV>` sets `PATCH_DIFFS` (patch benchmark diff-count cases, for example `1,4,16,64`)
+- `--rounds <N>` sets `ROUNDS` (read/write/patch; repeated case runs)
+
+Patch benchmark compatibility:
+
+- The patch target requires revisions that define `TrieNodePatch`/`TrieNodeID::Patch`.
+- `marf-bench` checks each compared revision via ancestry (`git merge-base --is-ancestor 0317850e7f042de98e7bc6a1f26f6183e7d20f98 HEAD`) and fails fast with a clear error when patch support is absent.
 
 Read fixture semantics:
 
