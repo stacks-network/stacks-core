@@ -17,11 +17,12 @@
 use std::collections::HashMap;
 
 use clarity::util::get_epoch_time_secs;
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::ast::errors::ParseErrorKind;
+use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::HeadersDB;
-use clarity::vm::errors::VmExecutionError;
+use clarity::vm::errors::{StaticCheckErrorKind, VmExecutionError};
 use clarity::vm::test_util::*;
 use clarity::vm::tests::{test_clarity_versions, BurnStateDB};
 use clarity::vm::types::{
@@ -29,7 +30,7 @@ use clarity::vm::types::{
     Value,
 };
 use clarity::vm::version::ClarityVersion;
-use clarity::vm::{ast, ContractContext, MAX_CALL_STACK_DEPTH};
+use clarity::vm::{ast, ContractContext};
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -1182,9 +1183,6 @@ fn test_deep_tuples() {
             block.set_epoch(StacksEpochId::Epoch2_05);
         }
 
-        let stack_limit =
-            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
-
         let meets_stack_depth_tuple = format!("{}u1 {}", "{ a : ".repeat(31), "} ".repeat(31));
         let exceeds_stack_depth_tuple = format!("{}u1 {}", "{ a : ".repeat(32), "} ".repeat(32));
 
@@ -1260,7 +1258,7 @@ fn test_deep_tuples_ast_precheck() {
         }
 
         let stack_limit =
-            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+            StackDepthLimits::for_epoch(block.get_epoch()).max_nesting_depth() as usize;
 
         // absurdly deep tuple depth
         let exceeds_stack_depth_tuple = format!(
@@ -1286,12 +1284,17 @@ fn test_deep_tuples_ast_precheck() {
         });
 
         match error {
-            ClarityError::Interpreter(VmExecutionError::Runtime(r_e, _)) => {
-                eprintln!("Runtime error: {:?}", r_e);
+            ClarityError::Parse(ref parse_error) => {
+                assert!(
+                    matches!(
+                        *parse_error.err,
+                        ParseErrorKind::ExpressionStackDepthTooDeep { .. }
+                            | ParseErrorKind::VaryExpressionStackDepthTooDeep { .. }
+                    ),
+                    "Expected a stack depth parse error, got: {error:?}"
+                );
             }
-            other => {
-                eprintln!("Other error: {:?}", other);
-            }
+            other => panic!("Expected a parse error, got: {other:?}"),
         }
 
         block.rollback_block();
@@ -1327,8 +1330,6 @@ fn test_deep_type_nesting() {
             block.set_epoch(StacksEpochId::Epoch2_05);
         }
 
-        let stack_limit =
-            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
         let mut parts = vec!["(a0 { a0 : u1 })".to_string()];
         for i in 1..1024 {
             parts.push(format!("(a{} {{ a{} : (print a{}) }})", i, i, i - 1));
@@ -1357,12 +1358,16 @@ fn test_deep_type_nesting() {
         });
 
         match error {
-            ClarityError::Interpreter(VmExecutionError::Runtime(r_e, _)) => {
-                eprintln!("Runtime error: {:?}", r_e);
+            ClarityError::StaticCheck(ref check_error) => {
+                assert!(
+                    matches!(
+                        *check_error.err,
+                        StaticCheckErrorKind::BadTupleConstruction { .. }
+                    ),
+                    "Expected a bad tuple construction error, got: {error:?}"
+                );
             }
-            other => {
-                eprintln!("Other error: {:?}", other);
-            }
+            other => panic!("Expected a static check error, got: {other:?}"),
         }
         block.rollback_block();
     }

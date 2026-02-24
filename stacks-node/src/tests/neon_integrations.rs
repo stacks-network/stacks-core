@@ -5,13 +5,12 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{cmp, env, fs, io, thread};
 
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{
     execute_with_parameters as execute, ClarityName, ClarityVersion, ContractName, Value,
-    MAX_CALL_STACK_DEPTH,
 };
 use rusqlite::params;
 use serde::Deserialize;
@@ -1606,13 +1605,6 @@ fn deep_contract() {
         return;
     }
 
-    let stack_limit = (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
-    let exceeds_stack_depth_list = format!(
-        "{}u1 {}",
-        "(list ".repeat(stack_limit + 1),
-        ")".repeat(stack_limit + 1)
-    );
-
     let spender_sk = StacksPrivateKey::random();
     let spender_addr = to_addr(&spender_sk);
     let spender_princ: PrincipalData = spender_addr.clone().into();
@@ -1628,6 +1620,14 @@ fn deep_contract() {
         address: spender_princ,
         amount: spender_bal,
     });
+
+    let epoch = conf.burnchain.get_epoch_list().last().unwrap().epoch_id;
+    let stack_limit = StackDepthLimits::for_epoch(epoch).max_nesting_depth() as usize + 1;
+    let exceeds_stack_depth_list = format!(
+        "{}u1 {}",
+        "(list ".repeat(stack_limit + 1),
+        ")".repeat(stack_limit + 1)
+    );
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
@@ -7837,7 +7837,8 @@ fn test_problematic_txs_are_not_stored() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     // something at the limit of the expression depth (will get mined and processed)
-    let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
+    let edge_repeat_factor =
+        StackDepthLimits::for_epoch(StacksEpochId::Epoch2_05).max_nesting_depth() - 1;
     let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
     let tx_edge_body_end = "} ".repeat(edge_repeat_factor as usize);
     let tx_edge_body = format!("{tx_edge_body_start}u1 {tx_edge_body_end}");

@@ -2459,7 +2459,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         }
         let block_id = StacksBlockId(sn.winning_stacks_block_hash.0);
 
-        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
         let sort_db_tx = sort_db.tx_begin_at_tip();
 
         let stx_balance = clarity_instance
@@ -2525,7 +2525,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     {
         let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.chain.sortdb.as_mut().unwrap();
-        let (mut chainstate_tx, _) = chainstate.chainstate_tx_begin().unwrap();
+        let (mut chainstate_tx, _) = chainstate.chainstate_tx_begin();
         for i in 0..24 {
             let matured_reward_opt = NakamotoChainState::get_matured_miner_reward_schedules(
                 &mut chainstate_tx,
@@ -3202,7 +3202,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         }
         let block_id = StacksBlockId(sn.winning_stacks_block_hash.0);
 
-        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
         let sort_db_tx = sort_db.tx_begin_at_tip();
 
         let stx_balance = clarity_instance
@@ -3927,7 +3927,7 @@ fn process_next_nakamoto_block_deadlock() {
 
     // Lock the chainstate db
     info!("  -------------------------------   TRYING TO LOCK THE CHAINSTATE");
-    let chainstate_tx = chainstate.chainstate_tx_begin().unwrap();
+    let chainstate_tx = chainstate.chainstate_tx_begin();
 
     info!("  -------------------------------   SORTDB AND CHAINSTATE LOCKED");
     drop(chainstate_tx);

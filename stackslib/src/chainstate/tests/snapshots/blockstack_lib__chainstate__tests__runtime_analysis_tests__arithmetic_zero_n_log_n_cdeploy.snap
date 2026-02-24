@@ -1,5 +1,5 @@
 ---
-source: stackslib/src/chainstate/tests/runtime_tests.rs
+source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
 expression: result
 ---
 [
@@ -514,24 +514,22 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "70257db481096cb526b7dda4f1f7a066242e72d2329d3156f89c192f6f42c423",
+    marf_hash: "02ff84a535a5469b88a3511ee5ccb6298fed95ab57cb40d398e8746496a4f2f2",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: zero-n-log-n-deploy-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
+          committed: true,
+          data: Bool(true),
         )),
         cost: ExecutionCost(
           write_length: 65,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10231,
+          runtime: 10632,
         ),
       ),
     ],
@@ -540,7 +538,7 @@ expression: result
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10231,
+      runtime: 10632,
     ),
   )),
 ]

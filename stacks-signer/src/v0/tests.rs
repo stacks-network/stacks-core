@@ -17,6 +17,9 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+use blockstack_lib::chainstate::stacks::StacksTransaction;
+use clarity::types::chainstate::{ConsensusHash, StacksAddress, StacksBlockId};
+use clarity::util::hash::Sha512Trunc256Sum;
 use libsigner::v0::messages::{BlockRejection, BlockResponse, RejectReason};
 use libsigner::BlockProposal;
 use stacks_common::types::chainstate::StacksPublicKey;
@@ -60,6 +63,24 @@ pub static TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST: LazyLock<TestFlag<Vec<Sta
 /// A global variable that can be used to stall the block response broadcast
 pub static TEST_STALL_BLOCK_RESPONSE: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
+/// A global variable that can be used to ignore all block responses from other signers if the signer's public key is in the provided list
+pub static TEST_SIGNERS_IGNORE_BLOCK_RESPONSES: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
+
+/// A global variable that can be used to ignore all block pre-commits from other signers if the signer's public key is in the provided list
+pub static TEST_SIGNERS_IGNORE_PRE_COMMITS: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
+
+/// A global variable that can be used to ignore all block announcements if the signer's public key is in the provided list
+pub static TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT: LazyLock<TestFlag<Vec<StacksPublicKey>>> =
+    LazyLock::new(TestFlag::default);
+
+/// A global variable that can be used to insert a block proposal into the signer db without processing it if the signer's public key is in the provided list
+/// Used to simluate a case where a signer may have crashed after accepting a block proposal but before processing it (should not really happen under any other circumstance)
+pub static TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING: LazyLock<
+    TestFlag<Vec<StacksPublicKey>>,
+> = LazyLock::new(TestFlag::default);
+
 impl Signer {
     /// Skip the block broadcast if the TEST_SKIP_BLOCK_BROADCAST flag is set
     pub fn test_skip_block_broadcast(&self, block: &NakamotoBlock) -> bool {
@@ -99,10 +120,13 @@ impl Signer {
                 "height" => block_proposal.block.header.chain_length,
                 "consensus_hash" => %block_proposal.block.header.consensus_hash
             );
+
+            info!("{self}: HERE WE GO TEST");
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {
                     warn!("{self}: Failed to mark block as locally rejected: {e:?}");
                 }
+                block_info.valid = Some(false);
             };
 
             block_info.reject_reason = Some(RejectReason::TestingDirective);
@@ -120,19 +144,19 @@ impl Signer {
     }
 
     /// Pause the block broadcast if the TEST_PAUSE_BLOCK_BROADCAST flag is set
-    pub fn test_pause_block_broadcast(&self, block_info: &BlockInfo) {
+    pub fn test_pause_block_broadcast(&self, block: &NakamotoBlock) {
         if TEST_PAUSE_BLOCK_BROADCAST.get() {
             // Do an extra check just so we don't log EVERY time.
             warn!("{self}: Block broadcast is stalled due to testing directive.";
-                "block_id" => %block_info.block.block_id(),
-                "height" => block_info.block.header.chain_length,
+                "block_id" => %block.block_id(),
+                "height" => block.header.chain_length,
             );
             while TEST_PAUSE_BLOCK_BROADCAST.get() {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
             info!("{self}: Block validation is no longer stalled due to testing directive.";
-                "block_id" => %block_info.block.block_id(),
-                "height" => block_info.block.header.chain_length,
+                "block_id" => %block.block_id(),
+                "height" => block.header.chain_length,
             );
         }
     }
@@ -206,5 +230,88 @@ impl Signer {
             }
             warn!("{self}: Block response is no longer stalled due to testing directive. Continuing...");
         }
+    }
+
+    /// Ignore block responses if the TEST_SIGNERS_IGNORE_BLOCK_RESPONSES flag is set for the signer's public key
+    pub fn test_ignore_all_block_responses(&self, block_response: &BlockResponse) -> bool {
+        let public_keys = TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.get();
+        if public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!("{self}: Ignoring block response due to testing directive";
+                "block_response" => %block_response,
+            );
+            return true;
+        }
+        false
+    }
+
+    /// Ignore block responses if the TEST_SIGNERS_IGNORE_PRE_COMMITS flag is set for the signer's public key
+    pub fn test_ignore_all_pre_commits(
+        &self,
+        signer_address: &StacksAddress,
+        pre_commit: &Sha512Trunc256Sum,
+    ) -> bool {
+        let public_keys = TEST_SIGNERS_IGNORE_PRE_COMMITS.get();
+        if public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!("{self}: Ignoring block pre-commit due to testing directive";
+                "pre_commit" => %pre_commit,
+                "signer_address" => %signer_address,
+            );
+            return true;
+        }
+        false
+    }
+
+    /// Ignore block announcements if the TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT flag is set for the signer's public key
+    pub fn test_ignore_all_block_announcements(
+        &self,
+        block_height: u64,
+        block_id: &StacksBlockId,
+        consensus_hash: &ConsensusHash,
+        signer_sighash: &Option<Sha512Trunc256Sum>,
+        transactions: &[StacksTransaction],
+    ) -> bool {
+        let public_keys = TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT.get();
+        if public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!("{self}: Ignoring block announcement due to testing directive";
+                "block_id" => %block_id,
+                "height" => block_height,
+                "consensus_hash" => %consensus_hash,
+                "signer_sighash" => ?signer_sighash,
+                "nmb_transactions" => transactions.len()
+            );
+            return true;
+        }
+        false
+    }
+
+    /// Accept the block proposal without processing it if the TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING flag is set for the signer's public key
+    pub fn test_insert_block_proposal_without_processing(
+        &mut self,
+        block_proposal: &BlockProposal,
+    ) -> bool {
+        let public_keys = TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING.get();
+        if public_keys.contains(
+            &stacks_common::types::chainstate::StacksPublicKey::from_private(&self.private_key),
+        ) {
+            warn!("{self}: Accepting block proposal without processing due to testing directive";
+                "block_id" => %block_proposal.block.header.block_id(),
+                "height" => block_proposal.block.header.chain_length,
+                "consensus_hash" => %block_proposal.block.header.consensus_hash,
+                "signer_sighash" => ?block_proposal.block.header.signer_signature_hash(),
+                "nmb_transactions" => block_proposal.block.txs.len(),
+            );
+            let block_info = BlockInfo::from(block_proposal.clone());
+            self.signer_db
+                .insert_block(&block_info)
+                .unwrap_or_else(|e| self.handle_insert_block_error(e));
+            return true;
+        }
+        false
     }
 }

@@ -37,6 +37,7 @@ mutants = "0.0.3"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rstest = { version = "0.17.0" }
 rstest_reuse = { version = "0.5.0" }
+stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false, features = ["testing"] }
 
 # a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
@@ -50,7 +51,7 @@ default = ["rusqlite"]
 developer-mode = ["stacks_common/developer-mode", "clarity-types/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
 rusqlite = ["stacks_common/rusqlite", "clarity-types/rusqlite", "dep:rusqlite"]
-testing = ["rusqlite", "rstest", "rstest_reuse", "clarity-types/testing"]
+testing = ["rusqlite", "rstest", "rstest_reuse", "clarity-types/testing", "stacks_common/testing"]
 devtools = []
 rollback_value_check = []
 disable-costs = []

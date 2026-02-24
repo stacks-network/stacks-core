@@ -1443,7 +1443,7 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
 /// - Trigger a Bitcoin fork
 /// - Verify that signers stay into tx replay state [Tx1]
 /// - In the end, let the miner solve the Tx Replay Set
-fn tx_replay_with_fork_occured_before_starting_replaying_txs() {
+fn tx_replay_with_fork_occurred_before_starting_replaying_txs() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }

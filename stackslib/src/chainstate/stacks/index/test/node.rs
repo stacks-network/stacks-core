@@ -14,9 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
-
 use std::io::Cursor;
 
 use super::*;
@@ -5042,4 +5039,28 @@ fn trie_cursor_walk_32() {
     assert!(c.eonp(&c.node().unwrap()));
 
     dump_trie(&mut trie_io);
+}
+
+#[test]
+fn trie_ptr_compressed_size_for_id() {
+    let normal_node_id = TrieNodeID::Node4 as u8;
+    assert_eq!(
+        TRIEPTR_SIZE_COMPRESSED,
+        TriePtr::compressed_size_for_id(normal_node_id)
+    );
+
+    let backptr_node_id = set_backptr(normal_node_id);
+    assert_eq!(
+        TRIEPTR_SIZE,
+        TriePtr::compressed_size_for_id(backptr_node_id)
+    );
+}
+
+#[test]
+fn trie_ptr_compressed_size() {
+    let normal_node = TriePtr::new(TrieNodeID::Node4 as u8, 0x00, 0);
+    assert_eq!(TRIEPTR_SIZE_COMPRESSED, normal_node.compressed_size());
+
+    let backptr_node = TriePtr::new_backptr(TrieNodeID::Node4 as u8, 0x00, 0, 1);
+    assert_eq!(TRIEPTR_SIZE, backptr_node.compressed_size());
 }

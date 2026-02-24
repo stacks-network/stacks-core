@@ -273,7 +273,7 @@ impl StacksMessageCodec for SignerMessage {
     }
 }
 
-/// Work around for the fact that a lot of the structs being desierialized are not defined in messages.rs
+/// Work around for the fact that a lot of the structs being deserialized are not defined in messages.rs
 pub trait StacksMessageCodecExtensions: Sized {
     /// Serialize the struct to the provided writer
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError>;
@@ -326,7 +326,7 @@ impl StacksMessageCodec for PeerInfo {
         // must encode a valid string
         let server_version = String::from_utf8(bytes).map_err(|_e| {
             CodecError::DeserializeError(
-                "Failed to parse server version name: could not contruct from utf8".to_string(),
+                "Failed to parse server version name: could not construct from utf8".to_string(),
             )
         })?;
         let pox_consensus = read_next::<ConsensusHash, _>(fd)?;
