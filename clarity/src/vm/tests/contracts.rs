@@ -1421,74 +1421,12 @@ fn test_contract_hash_pre_clarity4(
     );
 }
 
-#[apply(test_epochs)]
-fn test_contract_call_with_constant(
-    epoch: StacksEpochId,
-    mut env_factory: MemoryEnvironmentGenerator,
-) {
-    let mut owned_env = env_factory.get_env(epoch);
-
-    let contract_a = "(define-public (foo) (ok true))";
-    let contract_b = "(define-constant MY_CONTRACT .contract-a)
-        (define-public (call-foo)
-            (contract-call? MY_CONTRACT foo)
-        )
-        ";
-
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let placeholder_context = ContractContext::new(
-        QualifiedContractIdentifier::transient(),
-        ClarityVersion::default_for_epoch(epoch),
-    );
-
-    {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("contract-a").unwrap(),
-            contract_a,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("contract-b").unwrap(),
-            contract_b,
-        )
-        .unwrap();
-    }
-
-    {
-        let mut env = owned_env.get_exec_environment(
-            Some(p1.clone().expect_principal().unwrap()),
-            None,
-            &placeholder_context,
-        );
-        let call_result = env.execute_contract(
-            &QualifiedContractIdentifier::local("contract-b").unwrap(),
-            "call-foo",
-            &[],
-            false,
-        );
-
-        if epoch.supports_call_with_constant() {
-            assert_eq!(call_result.unwrap(), Value::okay_true());
-        } else {
-            assert_eq!(
-                call_result.unwrap_err(),
-                VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ContractCallExpectName)
-            );
-        }
-    }
-}
-
 #[apply(test_clarity_versions)]
-fn test_contract_call_with_constant_clarity_version_gate(
+fn test_contract_call_with_constant(
     version: ClarityVersion,
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
-    if epoch != StacksEpochId::Epoch34 {
-        return;
-    }
-
     let mut owned_env = env_factory.get_env(epoch);
 
     let contract_a = "(define-public (foo) (ok true))";
@@ -1528,7 +1466,7 @@ fn test_contract_call_with_constant_clarity_version_gate(
         false,
     );
 
-    if version.supports_callables() {
+    if epoch.supports_call_with_constant() && version.supports_callables() {
         assert_eq!(call_result.unwrap(), Value::okay_true());
     } else {
         assert_eq!(
@@ -1536,4 +1474,56 @@ fn test_contract_call_with_constant_clarity_version_gate(
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ContractCallExpectName)
         );
     }
+}
+
+#[apply(test_clarity_versions)]
+fn test_constant_to_trait(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
+
+    let contract_a = "(define-public (foo) (ok true))";
+    let contract_b = "(define-constant MY_CONTRACT .contract-a)
+        (define-trait my-trait (
+            (foo () (response bool bool))
+        ))
+        (define-private (inner-call-foo (contract <my-trait>))
+            (contract-call? contract foo))
+        (define-public (call-foo)
+            (inner-call-foo MY_CONTRACT))
+        ";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    {
+        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        env.initialize_contract(
+            QualifiedContractIdentifier::local("contract-a").unwrap(),
+            contract_a,
+        )
+        .unwrap();
+        env.initialize_contract(
+            QualifiedContractIdentifier::local("contract-b").unwrap(),
+            contract_b,
+        )
+        .unwrap();
+    }
+
+    let mut env = owned_env.get_exec_environment(
+        Some(p1.clone().expect_principal().unwrap()),
+        None,
+        &placeholder_context,
+    );
+    let call_result = env.execute_contract(
+        &QualifiedContractIdentifier::local("contract-b").unwrap(),
+        "call-foo",
+        &[],
+        false,
+    );
+
+    assert_eq!(call_result.unwrap(), Value::okay_true());
 }
