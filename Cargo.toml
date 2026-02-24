@@ -41,7 +41,6 @@ anyhow = { version = "1.0.102", default-features = false, features = ["std"] }
 clap = { version = "4.5.60", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
 ctrlc = { version = "3.5.1", default-features = false } # 3.5.2+ conflicts with tempfile's libc version
 tempfile = { version = "3.26.0", default-features = false, features = ["getrandom"] }
-criterion = { version = "0.8.2", default-features = false, features = ["rayon", "plotters", "cargo_bench_support"] }
 
 # Use a bit more than default optimization for
 # dev builds to speed up test execution

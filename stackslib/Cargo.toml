@@ -75,7 +75,6 @@ rlimit = "0.10.2"
 chrono = "0.4.19"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 insta = { version = "1.37.0", features = ["ron"] }
-criterion = { workspace = true }
 tempfile = { workspace = true}
 
 [features]
