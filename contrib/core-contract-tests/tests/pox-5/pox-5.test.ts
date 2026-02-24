@@ -8,9 +8,20 @@ import {
 } from '../test-helpers';
 import { hex } from '@scure/base';
 import * as BTC from '@scure/btc-signer';
-import { serializeLockupScript, pox5, errorCodes } from './pox-5-helpers';
+import {
+  serializeLockupScript,
+  pox5,
+  errorCodes,
+  testPool,
+} from './pox-5-helpers';
 import { randomBytes } from '@stacks/transactions';
 import { inspect } from 'node:util';
+
+const deployer = accounts.deployer.address;
+const alice = accounts.wallet_1.address;
+// const bob = accounts.wallet_2.address;
+// const charlie = accounts.wallet_3.address;
+// const dave = accounts.wallet_4.address;
 
 function getAllStackers() {
   const nextCycle = rov(pox5.currentPoxRewardCycle()) + 1n;
@@ -45,11 +56,11 @@ describe('staking', () => {
         rewardCycleLength: 100n,
         beginPox5RewardCycle: 0n,
       }),
-      accounts.deployer.address,
+      deployer,
     );
   });
   test('staking adds a stacker to the linked list', () => {
-    const stacker = accounts.wallet_1.address;
+    const stacker = alice;
     const numCycles = 4;
     const unlockBytes = randomBytes(255);
     const signerKey = randomBytes(33);
@@ -91,7 +102,7 @@ describe('staking', () => {
   });
 
   test(`can stake for ${pox5.constants.MAX_NUM_CYCLES} cycles`, () => {
-    const staker = accounts.wallet_1.address;
+    const staker = alice;
     const maxCycles = pox5.constants.MAX_NUM_CYCLES;
     const numCycles = maxCycles;
     const result = txOk(
@@ -129,7 +140,7 @@ describe('staking', () => {
   });
 
   test(`cannot stake for ${pox5.constants.MAX_NUM_CYCLES + 1n} cycles`, () => {
-    const staker = accounts.wallet_1.address;
+    const staker = alice;
     const numCycles = pox5.constants.MAX_NUM_CYCLES + 1n;
     const result = txErr(
       pox5.stake({
@@ -150,8 +161,7 @@ describe('staking', () => {
 
   describe('extending stake', () => {
     test('can extend stake with longer unlock height', () => {
-      const stacker = accounts.wallet_1.address;
-      const secondUnlock = 250n;
+      const stacker = alice;
       const poxAddr = randomPoxAddress();
       const signerKey = randomBytes(33);
       const signerSig = randomBytes(65);
@@ -196,6 +206,31 @@ describe('staking', () => {
       expect(stakerInfo.numCycles).toBe(1n);
     });
   });
+
+  describe('pool-based staking', () => {
+    test('can register a pool', () => {
+      const owner = accounts.deployer.address;
+      const signerKey = randomBytes(33);
+      const poxAddr = randomPoxAddress();
+      const result = txOk(
+        pox5.registerPool({
+          poolOwner: testPool.identifier,
+          signerKey,
+          poxAddr,
+          signerSig: randomBytes(65),
+          authId: 0,
+        }),
+        owner,
+      );
+      expect(result.value.owner).toBe(testPool.identifier);
+      expect(result.value.signerKey).toStrictEqual(signerKey);
+      expect(result.value.poxAddr).toStrictEqual(poxAddr);
+      const pool = rov(pox5.getPoolInfo(testPool.identifier));
+      expect(pool).toBeDefined();
+      expect(pool?.signerKey).toStrictEqual(signerKey);
+      expect(pool?.poxAddr).toStrictEqual(poxAddr);
+    });
+  });
 });
 
 describe('cycle-based linked list', () => {
@@ -210,10 +245,7 @@ describe('cycle-based linked list', () => {
 
   test('can add multiple stackers to the linked list', () => {
     for (const stacker of stackers) {
-      txOk(
-        pox5.addStakerToSetForCycle(stacker, cycle),
-        accounts.deployer.address,
-      );
+      txOk(pox5.addStakerToSetForCycle(stacker, cycle), deployer);
     }
     const lastItem = rov(pox5.getStakerSetLastItemForCycle(cycle));
     expect(lastItem).toBe(stackers.at(-1));
@@ -224,16 +256,10 @@ describe('cycle-based linked list', () => {
 
   test('can remove a non-last item from the linked list', () => {
     for (const stacker of stackers) {
-      txOk(
-        pox5.addStakerToSetForCycle(stacker, cycle),
-        accounts.deployer.address,
-      );
+      txOk(pox5.addStakerToSetForCycle(stacker, cycle), deployer);
     }
     const toRemove = stackers[1]!;
-    txOk(
-      pox5.removeStackerFromSetForCycle(toRemove, cycle),
-      accounts.deployer.address,
-    );
+    txOk(pox5.removeStackerFromSetForCycle(toRemove, cycle), deployer);
     const allStackers = getAllStackersForCycle(cycle);
     expect(allStackers).toEqual(stackers.filter((s) => s !== toRemove));
     expect(rov(pox5.getStakerSetNextItemForCycle(stackers[0]!, cycle))).toBe(
@@ -251,17 +277,11 @@ describe('cycle-based linked list', () => {
 
   test('can remove the last item from the linked list', () => {
     for (const stacker of stackers) {
-      txOk(
-        pox5.addStakerToSetForCycle(stacker, cycle),
-        accounts.deployer.address,
-      );
+      txOk(pox5.addStakerToSetForCycle(stacker, cycle), deployer);
     }
     const toRemove = stackers.at(-1)!;
     const newLast = stackers.at(-2)!;
-    txOk(
-      pox5.removeStackerFromSetForCycle(toRemove, cycle),
-      accounts.deployer.address,
-    );
+    txOk(pox5.removeStackerFromSetForCycle(toRemove, cycle), deployer);
     const allStackers = getAllStackersForCycle(cycle);
     expect(allStackers).toEqual(stackers.filter((s) => s !== toRemove));
     expect(rov(pox5.getStakerSetLastItemForCycle(cycle))).toBe(newLast);
@@ -276,17 +296,11 @@ describe('cycle-based linked list', () => {
 
   test('can remove the first item from the linked list', () => {
     for (const stacker of stackers) {
-      txOk(
-        pox5.addStakerToSetForCycle(stacker, cycle),
-        accounts.deployer.address,
-      );
+      txOk(pox5.addStakerToSetForCycle(stacker, cycle), deployer);
     }
     const toRemove = stackers[0]!;
     const newFirst = stackers[1]!;
-    txOk(
-      pox5.removeStackerFromSetForCycle(toRemove, cycle),
-      accounts.deployer.address,
-    );
+    txOk(pox5.removeStackerFromSetForCycle(toRemove, cycle), deployer);
     const allStackers = getAllStackersForCycle(cycle);
     expect(allStackers).toEqual(stackers.filter((s) => s !== toRemove));
     expect(rov(pox5.getStakerSetFirstItemForCycle(cycle))).toBe(newFirst);
@@ -302,13 +316,10 @@ describe('cycle-based linked list', () => {
   });
 
   test('cannot add a stacker that is already in the linked list', () => {
-    txOk(
-      pox5.addStakerToSetForCycle(stackers[0]!, cycle),
-      accounts.deployer.address,
-    );
+    txOk(pox5.addStakerToSetForCycle(stackers[0]!, cycle), deployer);
     const result = txErr(
       pox5.addStakerToSetForCycle(stackers[0]!, cycle),
-      accounts.deployer.address,
+      deployer,
     );
     expect(result.value).toEqual(errorCodes.ERR_ALREADY_STAKED);
   });
@@ -316,7 +327,7 @@ describe('cycle-based linked list', () => {
   test('cannot remove a stacker that is not in the linked list', () => {
     const result = txErr(
       pox5.removeStackerFromSetForCycle(stackers[0]!, cycle),
-      accounts.deployer.address,
+      deployer,
     );
     expect(result.value).toEqual(errorCodes.ERR_NOT_STAKED);
   });
@@ -361,7 +372,7 @@ describe('calculating l1 unlock height', () => {
         rewardCycleLength: 100n,
         beginPox5RewardCycle: 0n,
       }),
-      accounts.deployer.address,
+      deployer,
     );
     expect(rov(pox5.rewardCycleToUnlockHeight(1n))).toBe(150n);
   });
@@ -374,7 +385,7 @@ describe('calculating l1 unlock height', () => {
         rewardCycleLength: 2100n,
         beginPox5RewardCycle: 0n,
       }),
-      accounts.deployer.address,
+      deployer,
     );
     expect(rov(pox5.rewardCycleToUnlockHeight(2))).toBe(5250n);
   });

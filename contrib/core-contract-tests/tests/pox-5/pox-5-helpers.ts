@@ -8,6 +8,7 @@ import { rov } from '@clarigen/test';
 const contracts = projectFactory(project, 'simnet');
 export const pox5 = contracts.pox5;
 export const errorCodes = projectErrors(project).pox5;
+export const testPool = contracts.testPox5Pool;
 
 export function toWitnessOutput(script: Uint8Array) {
   return BTC.OutScript.encode(

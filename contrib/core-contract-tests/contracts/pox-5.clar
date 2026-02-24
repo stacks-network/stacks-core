@@ -17,6 +17,9 @@
 (define-constant ERR_CANNOT_EXTEND (err u10))
 (define-constant ERR_INVALID_AMOUNT (err u11))
 (define-constant ERR_INVALID_POX_ADDRESS (err u13))
+(define-constant ERR_POOL_NOT_FOUND (err u14))
+
+(use-trait pool-owner-trait .pox-5-pool-owner-trait.pool-owner-trait)
 
 ;; Values for stacks address versions
 ;; #[allow(unused_const)]
@@ -81,6 +84,20 @@
     )
 )
 
+;; Users can stake to a pool, where the pool owner
+;; (which is the key of this map) is able to manage
+;; the signer key and pox address for the pool.
+(define-map pools
+    principal
+    {
+        signer-key: (buff 33),
+        pox-addr: {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        },
+    }
+)
+
 (define-map staking-state
     principal
     {
@@ -128,8 +145,34 @@
     (map-get? staking-state staker)
 )
 
+(define-read-only (get-pool-info (owner principal))
+    (map-get? pools owner)
+)
+
 ;;; Public functions
 
+;; #[allow(unnecessary_public)]
+(define-public (stake-pooled
+        (pool-owner <pool-owner-trait>)
+        (amount-ustx uint)
+        (num-cycles uint)
+        (unlock-bytes (buff 255))
+        (start-burn-ht uint)
+    )
+    (let (
+            (owner (contract-of pool-owner))
+            (pool-info (unwrap! (get-pool-info owner) ERR_POOL_NOT_FOUND))
+        )
+        (try! (contract-call? pool-owner validate-stake! tx-sender amount-ustx
+            num-cycles unlock-bytes
+        ))
+        (inner-stake amount-ustx (get pox-addr pool-info)
+            (get signer-key pool-info) num-cycles unlock-bytes start-burn-ht
+        )
+    )
+)
+
+;; #[allow(unnecessary_public)]
 (define-public (stake
         (amount-ustx uint)
         (pox-addr {
@@ -148,6 +191,27 @@
         (unlock-bytes (buff 255))
     )
     ;; this stacker's first reward cycle is the _next_ reward cycle
+    (begin
+        ;;;;  Validate ownership of the given signer key
+        ;; (try! (consume-signer-key-authorization pox-addr (- first-reward-cycle u1) "stack-stx" lock-period signer-sig signer-key amount-ustx max-amount auth-id))
+
+        (inner-stake amount-ustx pox-addr signer-key num-cycles unlock-bytes
+            start-burn-ht
+        )
+    )
+)
+
+(define-private (inner-stake
+        (amount-ustx uint)
+        (pox-addr {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        })
+        (signer-key (buff 33))
+        (num-cycles uint)
+        (unlock-bytes (buff 255))
+        (start-burn-ht uint)
+    )
     (let (
             (current-cycle (current-pox-reward-cycle))
             (first-reward-cycle (+ u1 current-cycle))
@@ -180,9 +244,6 @@
         (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
             ERR_INSUFFICIENT_FUNDS
         )
-
-        ;;;;  Validate ownership of the given signer key
-        ;; (try! (consume-signer-key-authorization pox-addr (- first-reward-cycle u1) "stack-stx" lock-period signer-sig signer-key amount-ustx max-amount auth-id))
 
         (try! (add-staker-to-reward-cycles tx-sender first-reward-cycle num-cycles))
 
@@ -256,6 +317,37 @@
             signer-key: signer-key,
             unlock-cycle: unlock-cycle,
             num-cycles: num-cycles,
+        })
+    )
+)
+
+(define-public (register-pool
+        (pool-owner <pool-owner-trait>)
+        (signer-key (buff 33))
+        (pox-addr {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        })
+        ;; #[allow(unused_binding)]
+        (signer-sig (buff 65))
+        ;; #[allow(unused_binding)]
+        (auth-id uint)
+    )
+    (let ((owner (contract-of pool-owner)))
+        ;; TODO: verify signer sig
+
+        (try! (contract-call? pool-owner validate-registration! tx-sender signer-key
+            pox-addr
+        ))
+
+        (map-set pools owner {
+            signer-key: signer-key,
+            pox-addr: pox-addr,
+        })
+        (ok {
+            owner: owner,
+            signer-key: signer-key,
+            pox-addr: pox-addr,
         })
     )
 )
