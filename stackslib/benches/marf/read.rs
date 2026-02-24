@@ -21,7 +21,7 @@ use std::hint::black_box;
 
 use blockstack_lib::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use blockstack_lib::chainstate::stacks::index::storage::TrieHashCalculationMode;
-use blockstack_lib::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
+use blockstack_lib::chainstate::stacks::index::{ClarityMarfTrieId as _, MARFValue};
 use stacks_common::types::chainstate::StacksBlockId;
 use tempfile::TempDir;
 

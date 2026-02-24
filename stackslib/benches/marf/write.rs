@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use blockstack_lib::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use blockstack_lib::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use blockstack_lib::chainstate::stacks::index::{
-    ClarityMarfTrieId, Error as IndexError, MARFValue,
+    ClarityMarfTrieId as _, Error as IndexError, MARFValue,
 };
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use tempfile::TempDir;
