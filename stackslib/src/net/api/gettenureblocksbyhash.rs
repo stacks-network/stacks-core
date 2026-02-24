@@ -20,8 +20,8 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::net::api::gettenureblocks::{
-    build_tenure_from_header_else_snapshot, encode_tenure_reply,
-    get_prior_last_sortition_consensus_hash, handle_optional_db_result, RPCTenure,
+    encode_tenure_reply, get_prior_last_sortition_consensus_hash, RPCTenure, TenureReply,
+    ToHttpResponseResult,
 };
 use crate::net::http::{
     parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
@@ -37,15 +37,15 @@ pub fn get_block_snapshot_by_burnchain_block_hash(
     preamble: &HttpRequestPreamble,
 ) -> Result<BlockSnapshot, StacksHttpResponse> {
     let handle = sortdb.index_handle_at_tip();
-    let sort_id = handle_optional_db_result(
-        handle.get_sortition_id_for_bhh(burn_header_hash),
-        preamble,
-        format!("No sortition id found for burn block hash '{burn_header_hash}'"),
-        format!("Failed to get sortition id for burn block hash '{burn_header_hash}'"),
-    )?;
+    let sort_id = handle
+        .get_sortition_id_for_bhh(burn_header_hash)
+        .to_http_response(
+            preamble,
+            format!("No sortition id found for burn block hash '{burn_header_hash}'"),
+            format!("Failed to get sortition id for burn block hash '{burn_header_hash}'"),
+        )?;
     // load snapshot
-    handle_optional_db_result(
-        SortitionDB::get_block_snapshot(handle.conn(), &sort_id),
+    SortitionDB::get_block_snapshot(handle.conn(), &sort_id).to_http_response(
         preamble,
         format!("No block snapshot found for burn block hash '{burn_header_hash}'"),
         format!("Failed to get block snapshot for burn block hash '{burn_header_hash}'"),
@@ -131,7 +131,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHashRequestHandler {
                 &preamble,
                 &network.stacks_tip.block_id(),
             )?;
-            build_tenure_from_header_else_snapshot(
+            TenureReply::try_from_header_or_snapshot(
                 chainstate,
                 &snapshot,
                 last_sortition_ch,

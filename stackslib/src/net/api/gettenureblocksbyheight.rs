@@ -19,8 +19,8 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::net::api::gettenureblocks::{
-    build_tenure_from_header_else_snapshot, encode_tenure_reply,
-    get_prior_last_sortition_consensus_hash, handle_optional_db_result, RPCTenure,
+    encode_tenure_reply, get_prior_last_sortition_consensus_hash, RPCTenure, TenureReply,
+    ToHttpResponseResult,
 };
 use crate::net::http::{
     parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
@@ -36,12 +36,13 @@ pub fn get_block_snapshot_by_burnchain_block_height(
     preamble: &HttpRequestPreamble,
 ) -> Result<BlockSnapshot, StacksHttpResponse> {
     let handle = sortdb.index_handle_at_tip();
-    handle_optional_db_result(
-        handle.get_block_snapshot_by_height(burn_block_height),
-        preamble,
-        format!("No block snapshot found for burn block height '{burn_block_height}'"),
-        format!("Failed to get block snapshot for burn block height '{burn_block_height}'"),
-    )
+    handle
+        .get_block_snapshot_by_height(burn_block_height)
+        .to_http_response(
+            preamble,
+            format!("No block snapshot found for burn block height '{burn_block_height}'"),
+            format!("Failed to get block snapshot for burn block height '{burn_block_height}'"),
+        )
 }
 
 #[derive(Clone)]
@@ -124,7 +125,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHeightRequestHandler {
                 &preamble,
                 &network.stacks_tip.block_id(),
             )?;
-            build_tenure_from_header_else_snapshot(
+            TenureReply::try_from_header_or_snapshot(
                 chainstate,
                 &snapshot,
                 last_sortition_ch,
