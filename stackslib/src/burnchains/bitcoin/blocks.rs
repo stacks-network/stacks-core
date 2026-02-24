@@ -476,7 +476,7 @@ impl BitcoinBlockParser {
         }
 
         // Extract transactions with P2WSH outputs
-        let mut watched_txs = vec![];
+        let mut watched_outputs = vec![];
         for tx in block.txdata.iter() {
             for (vout_index, output) in tx.output.iter().enumerate() {
                 let Some(parsed_output) =
@@ -491,7 +491,7 @@ impl BitcoinBlockParser {
                 else {
                     continue;
                 };
-                watched_txs.push(WatchedOutput {
+                watched_outputs.push(WatchedOutput {
                     witness_script_hash: WitnessScriptHash(witness_script_hash),
                     amount: parsed_output.units,
                     txid: Txid::from_bitcoin_tx_hash(&tx.txid()),
@@ -508,7 +508,7 @@ impl BitcoinBlockParser {
             parent_block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.header.prev_blockhash),
             txs: accepted_txs,
             timestamp: block.header.time as u64,
-            watched_outputs: watched_txs,
+            watched_outputs,
         }
     }
 

@@ -1122,7 +1122,11 @@ fn burnchain_db_migration_v2() -> Result<(), BurnchainError> {
         .filter_map(|v| v.parse::<u32>().ok())
         .max()
         .expect("Expected db_config to have a version");
-    assert_eq!(version, BurnchainDB::SCHEMA_VERSION, "Database version should be current after migration");
+    assert_eq!(
+        version,
+        BurnchainDB::SCHEMA_VERSION,
+        "Database version should be current after migration"
+    );
 
     // Verify affirmation_maps table is dropped
     assert!(
@@ -1218,7 +1222,11 @@ fn burnchain_db_migration_v3() -> Result<(), BurnchainError> {
         .filter_map(|v| v.parse::<u32>().ok())
         .max()
         .expect("Expected db_config to have a version");
-    assert_eq!(version, BurnchainDB::SCHEMA_VERSION, "Database version should be current after migration");
+    assert_eq!(
+        version,
+        BurnchainDB::SCHEMA_VERSION,
+        "Database version should be current after migration"
+    );
 
     // Verify affirmation_maps table is dropped
     assert!(
@@ -1302,7 +1310,10 @@ fn witness_script_hash_from_sql_errors() {
     // Valid 32-byte hex string parses correctly.
     let valid_hex = "ab".repeat(32);
     let result = WitnessScriptHash::column_result(ValueRef::Text(valid_hex.as_bytes()));
-    assert!(result.is_ok(), "Valid 32-byte hex should parse successfully");
+    assert!(
+        result.is_ok(),
+        "Valid 32-byte hex should parse successfully"
+    );
     assert_eq!(result.unwrap().0, [0xabu8; 32]);
 
     // Non-hex characters must be rejected.
