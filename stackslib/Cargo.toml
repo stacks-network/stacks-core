@@ -51,6 +51,10 @@ winapi = { version = "0.3", features = ["consoleapi", "handleapi", "synchapi", "
 [target.'cfg(windows)'.dev-dependencies]
 winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
 
+# Included for profiling/benchmark entrypoints
+[target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dev-dependencies]
+tikv-jemallocator = { workspace = true }
+
 [dependencies.serde_json]
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
@@ -69,9 +73,10 @@ rstest_reuse = "0.5.0"
 mutants = "0.0.3"
 rlimit = "0.10.2"
 chrono = "0.4.19"
-tempfile = "3.3"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 insta = { version = "1.37.0", features = ["ron"] }
+criterion = { workspace = true }
+tempfile = { workspace = true}
 
 [features]
 default = []
@@ -82,6 +87,11 @@ monitoring_prom = ["prometheus"]
 slog_json = ["stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
 testing = ["chrono", "stacks-common/testing", "clarity/testing"]
 profiler = ["perf-event2"]
+
+[[bench]]
+name = "marf"
+harness = false
+#path = "benches/marf/main.rs"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 perf-event2 = { version = "0.7.4", optional = true }

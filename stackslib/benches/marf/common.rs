@@ -1,0 +1,145 @@
+// Copyright (C) 2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use std::hint::black_box;
+use std::time::Instant;
+
+use rusqlite::Connection;
+
+use crate::allocator::{reset_stats, snapshot, Snapshot};
+
+/// SQLite WAL checkpoint mode accepted by benchmark configuration.
+#[derive(Clone, Copy, Debug)]
+pub enum WalCheckpointMode {
+    /// Non-blocking checkpoint work.
+    Passive,
+    /// Full checkpoint mode.
+    Full,
+    /// Restart WAL after checkpointing.
+    Restart,
+    /// Truncate WAL after checkpointing.
+    Truncate,
+}
+
+impl WalCheckpointMode {
+    /// Parse mode from a case-insensitive string value.
+    pub fn parse(raw: &str) -> Option<Self> {
+        if raw.eq_ignore_ascii_case("passive") {
+            Some(Self::Passive)
+        } else if raw.eq_ignore_ascii_case("full") {
+            Some(Self::Full)
+        } else if raw.eq_ignore_ascii_case("restart") {
+            Some(Self::Restart)
+        } else if raw.eq_ignore_ascii_case("truncate") {
+            Some(Self::Truncate)
+        } else {
+            None
+        }
+    }
+
+    /// Return SQL token used in `PRAGMA wal_checkpoint(...)`.
+    pub fn as_sql(self) -> &'static str {
+        match self {
+            Self::Passive => "PASSIVE",
+            Self::Full => "FULL",
+            Self::Restart => "RESTART",
+            Self::Truncate => "TRUNCATE",
+        }
+    }
+}
+
+/// Parse optional WAL auto-checkpoint page threshold from env.
+pub fn parse_optional_wal_autocheckpoint_pages() -> Option<i64> {
+    std::env::var("SQLITE_WAL_AUTOCHECKPOINT").ok().map(|raw| {
+        raw.parse::<i64>()
+            .unwrap_or_else(|_| panic!("SQLITE_WAL_AUTOCHECKPOINT must be an integer, got '{raw}'"))
+    })
+}
+
+/// Parse optional WAL checkpoint mode from env.
+pub fn parse_optional_wal_checkpoint_mode() -> Option<WalCheckpointMode> {
+    std::env::var("SQLITE_WAL_CHECKPOINT_MODE")
+        .ok()
+        .map(|raw| {
+            WalCheckpointMode::parse(&raw).unwrap_or_else(|| {
+                panic!(
+                    "SQLITE_WAL_CHECKPOINT_MODE must be one of PASSIVE|FULL|RESTART|TRUNCATE, got '{raw}'"
+                )
+            })
+        })
+}
+
+/// Apply optional WAL auto-checkpoint setting to a SQLite connection.
+pub fn apply_optional_wal_autocheckpoint(
+    conn: &Connection,
+    wal_autocheckpoint_pages: Option<i64>,
+) -> rusqlite::Result<()> {
+    if let Some(pages) = wal_autocheckpoint_pages {
+        let sql = format!("PRAGMA wal_autocheckpoint={pages}");
+        conn.execute_batch(&sql)?;
+    }
+    Ok(())
+}
+
+/// Run post-setup checkpoint only when WAL auto-checkpoint is disabled.
+pub fn maybe_run_post_setup_wal_checkpoint(
+    conn: &Connection,
+    wal_autocheckpoint_pages: Option<i64>,
+    wal_checkpoint_mode: Option<WalCheckpointMode>,
+) -> rusqlite::Result<bool> {
+    if wal_autocheckpoint_pages != Some(0) {
+        return Ok(false);
+    }
+
+    let checkpoint_mode = wal_checkpoint_mode.unwrap_or(WalCheckpointMode::Passive);
+    let sql = format!("PRAGMA wal_checkpoint({})", checkpoint_mode.as_sql());
+    conn.execute_batch(&sql)?;
+    Ok(true)
+}
+
+/// Elapsed time and allocation counters for one measured operation.
+#[derive(Clone, Copy)]
+pub struct BenchMeasurement {
+    pub elapsed_ms: f64,
+    pub snapshot: Snapshot,
+}
+
+/// Measure a successful closure while capturing allocation statistics.
+pub fn measure_with_allocs<R, F>(f: F) -> BenchMeasurement
+where
+    F: FnOnce() -> R,
+{
+    reset_stats();
+    let start = Instant::now();
+    black_box(f());
+    BenchMeasurement {
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        snapshot: snapshot(),
+    }
+}
+
+/// Measure a fallible closure while capturing allocation statistics.
+pub fn measure_result_with_allocs<R, E, F>(f: F) -> Result<BenchMeasurement, E>
+where
+    F: FnOnce() -> Result<R, E>,
+{
+    reset_stats();
+    let start = Instant::now();
+    black_box(f()?);
+    Ok(BenchMeasurement {
+        elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
+        snapshot: snapshot(),
+    })
+}
