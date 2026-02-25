@@ -333,7 +333,9 @@ describe('staking', () => {
       expect(stakerInfo.numCycles).toBe(2n);
       expect(stakerInfo.unlockBytes).toStrictEqual(nextUnlockBytes);
       assertErr(stakerInfo.poolOrSoloInfo);
-      expect(stakerInfo.poolOrSoloInfo.value.poxAddr).toStrictEqual(nextPoxAddr);
+      expect(stakerInfo.poolOrSoloInfo.value.poxAddr).toStrictEqual(
+        nextPoxAddr,
+      );
       expect(stakerInfo.poolOrSoloInfo.value.signerKey).toStrictEqual(
         nextSignerKey,
       );
@@ -367,13 +369,16 @@ describe('staking', () => {
           signerKey: nextSignerKey,
           signerSig: randomBytes(65),
           authId: 1,
+          maxAmount: 1000000,
         }),
         alice,
       );
 
       expect(receipt.value.amountUstx).toBe(1250000n);
       assertErr(receipt.value.poolOrSoloInfo);
-      expect(receipt.value.poolOrSoloInfo.value.poxAddr).toStrictEqual(nextPoxAddr);
+      expect(receipt.value.poolOrSoloInfo.value.poxAddr).toStrictEqual(
+        nextPoxAddr,
+      );
       expect(receipt.value.poolOrSoloInfo.value.signerKey).toStrictEqual(
         nextSignerKey,
       );
@@ -384,8 +389,12 @@ describe('staking', () => {
       expect(stakerInfo.numCycles).toBe(2n);
       expect(stakerInfo.unlockBytes).toStrictEqual(initialUnlockBytes);
       assertErr(stakerInfo.poolOrSoloInfo);
-      expect(stakerInfo.poolOrSoloInfo.value.poxAddr).toStrictEqual(nextPoxAddr);
-      expect(stakerInfo.poolOrSoloInfo.value.signerKey).toStrictEqual(nextSignerKey);
+      expect(stakerInfo.poolOrSoloInfo.value.poxAddr).toStrictEqual(
+        nextPoxAddr,
+      );
+      expect(stakerInfo.poolOrSoloInfo.value.signerKey).toStrictEqual(
+        nextSignerKey,
+      );
     });
 
     test('can switch from solo to pooled via stake-update-pooled', () => {
@@ -467,13 +476,16 @@ describe('staking', () => {
           signerKey: nextSignerKey,
           signerSig: randomBytes(65),
           authId: 1,
+          maxAmount: 1000000,
         }),
         alice,
       );
 
       expect(receipt.value.amountUstx).toBe(1250000n);
       assertErr(receipt.value.poolOrSoloInfo);
-      expect(receipt.value.poolOrSoloInfo.value.poxAddr).toStrictEqual(nextPoxAddr);
+      expect(receipt.value.poolOrSoloInfo.value.poxAddr).toStrictEqual(
+        nextPoxAddr,
+      );
       expect(receipt.value.poolOrSoloInfo.value.signerKey).toStrictEqual(
         nextSignerKey,
       );
@@ -481,8 +493,12 @@ describe('staking', () => {
       const stakerInfo = rov(pox5.getStakerInfo(alice))!;
       expect(stakerInfo.amountUstx).toBe(1250000n);
       assertErr(stakerInfo.poolOrSoloInfo);
-      expect(stakerInfo.poolOrSoloInfo.value.poxAddr).toStrictEqual(nextPoxAddr);
-      expect(stakerInfo.poolOrSoloInfo.value.signerKey).toStrictEqual(nextSignerKey);
+      expect(stakerInfo.poolOrSoloInfo.value.poxAddr).toStrictEqual(
+        nextPoxAddr,
+      );
+      expect(stakerInfo.poolOrSoloInfo.value.signerKey).toStrictEqual(
+        nextSignerKey,
+      );
     });
 
     test('cannot call stake-update with zero increase', () => {
@@ -508,6 +524,7 @@ describe('staking', () => {
           signerKey: randomBytes(33),
           signerSig: randomBytes(65),
           authId: 1,
+          maxAmount: 1000000,
         }),
         alice,
       );
@@ -565,6 +582,7 @@ describe('staking', () => {
           signerKey: randomBytes(33),
           signerSig: randomBytes(65),
           authId: 1,
+          maxAmount: 1000000,
         }),
         alice,
       );

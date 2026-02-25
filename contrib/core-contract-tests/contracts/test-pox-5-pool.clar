@@ -18,7 +18,7 @@
 )
 
 ;; #[allow(unnecessary_public)]
-(define-public (validate-registration!
+(define-public (validate-management!
     (caller principal)
     ;; #[allow(unused_binding)]
     (signer-key (buff 33))

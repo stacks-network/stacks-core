@@ -70,6 +70,5 @@ clarity_version = 4
 epoch = 3.3
 
 [repl.analysis.lints]
-# noop = "warn"
 unused_const = "warn"
 unused_data_var = "warn"

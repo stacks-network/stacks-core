@@ -4563,6 +4563,7 @@ export const contracts = {
             name: 'signer-sig',
             type: { optional: { buffer: { length: 65 } } },
           },
+          { name: 'max-amount', type: 'uint128' },
           { name: 'auth-id', type: 'uint128' },
         ],
         outputs: {
@@ -4628,6 +4629,7 @@ export const contracts = {
           >,
           signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
           signerSig: TypedAbiArg<Uint8Array | null, 'signerSig'>,
+          maxAmount: TypedAbiArg<number | bigint, 'maxAmount'>,
           authId: TypedAbiArg<number | bigint, 'authId'>,
         ],
         Response<
@@ -6595,8 +6597,8 @@ export const contracts = {
         [newAllowedCaller: TypedAbiArg<string, 'newAllowedCaller'>],
         Response<boolean, null>
       >,
-      validateRegistration_x: {
-        name: 'validate-registration!',
+      validateManagement_x: {
+        name: 'validate-management!',
         access: 'public',
         args: [
           { name: 'caller', type: 'principal' },

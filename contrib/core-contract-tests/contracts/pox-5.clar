@@ -409,7 +409,7 @@
 
         (try! (check-pox-addr pox-addr))
 
-        (try! (contract-call? pool-owner validate-registration! tx-sender signer-key
+        (try! (contract-call? pool-owner validate-management! tx-sender signer-key
             pox-addr
         ))
 
@@ -456,6 +456,8 @@
         (signer-key (buff 33))
         ;; #[allow(unused_binding)]
         (signer-sig (optional (buff 65)))
+        ;; #[allow(unused_binding)]
+        (max-amount uint)
         ;; #[allow(unused_binding)]
         (auth-id uint)
     )
