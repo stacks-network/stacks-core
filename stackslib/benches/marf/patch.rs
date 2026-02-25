@@ -462,6 +462,8 @@ pub fn run(args: &[String], output_mode: OutputMode) -> Option<Summary> {
                 );
 
                 // Measure consensus serialization throughput/cost.
+                let encoded_size = patch.size();
+                let mut out = Vec::with_capacity(encoded_size);
                 record_case_with_rounds(
                     &mut summary,
                     &format!("patch_serialize_{node_label}_{ptr_state_label}_diff={diff_count}"),
@@ -469,7 +471,7 @@ pub fn run(args: &[String], output_mode: OutputMode) -> Option<Summary> {
                     rounds,
                     || {
                         for _ in 0..iters {
-                            let mut out = Vec::with_capacity(patch.size());
+                            out.clear();
                             patch
                                 .consensus_serialize(&mut out)
                                 .expect("serialize patch in benchmark");

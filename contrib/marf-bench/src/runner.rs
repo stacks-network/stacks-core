@@ -466,15 +466,31 @@ fn supports_patch_nodes(root: &Path) -> Result<bool> {
             )
         })?;
 
+    let fallback_supported = supports_patch_nodes_via_source_scan(root)?;
+
     match output.status.code() {
         Some(0) => Ok(true),
         Some(1) => Ok(false),
+        _ if fallback_supported => Ok(true),
         _ => bail!(
-            "failed to evaluate patch support ancestry at {}: {}",
+            "failed to evaluate patch support ancestry at {} (this can happen in shallow or history-rewritten clones), and source fallback did not detect patch support: {}",
             root.display(),
             combine_output_text(&output)
         ),
     }
+}
+
+/// Return true if node definitions in this checkout include patch-node symbols.
+fn supports_patch_nodes_via_source_scan(root: &Path) -> Result<bool> {
+    let node_rs_path = root.join("stackslib/src/chainstate/stacks/index/node.rs");
+    if !node_rs_path.is_file() {
+        return Ok(false);
+    }
+
+    let contents = fs::read_to_string(&node_rs_path)
+        .with_context(|| format!("failed to read {}", node_rs_path.display()))?;
+
+    Ok(contents.contains("TrieNodePatch") && contents.contains("TrieNodeID::Patch"))
 }
 
 impl Drop for Runner {
