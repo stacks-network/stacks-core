@@ -15,9 +15,7 @@
 
 //! Allocation/timing micro-benchmarks for `TrieNodePatch` creation/application/codec paths.
 //!
-//! This harness focuses on the parts of Patch-node behavior that matter most in a hot MARF:
-//! frequent short-diff construction, compact encoding/decoding, and fast application back onto
-//! `TrieNode256` state during read/write-heavy flows.
+//! This harness focuses on the parts of Patch-node behavior which have most meaning in hot loops.
 //!
 //! What is measured (for each configured diff size):
 //! - `patch_from_node{4|16|48|256}_diff=*`: cost to build a patch from old/new node snapshots.
@@ -26,21 +24,12 @@
 //! - `patch_deserialize_diff=*`: consensus-decoding throughput and allocator pressure.
 //! - `patch_apply_node{4|16|48|256}_diff=*`: cost to materialize updated node state from a patch.
 //! - `patch_try_from_patch_node{4|16|48|256}_diff=*`: incremental patch-from-patch transition cost.
-//!
-//! Why this maps to production behavior:
-//! - Patch nodes are a compression/diff representation, so performance scales primarily with
-//!   pointer-diff cardinality (`PATCH_DIFFS`), not full-node width.
-//! - `NODE_TYPES` allows explicit coverage across `Node4/Node16/Node48/Node256` fanout regimes.
-//! - Real MARF workloads repeatedly exercise create/encode/decode/apply loops under cache misses,
-//!   proof construction, and commit paths; these microbench cases isolate those costs.
-//! - Reported allocation counters plus elapsed time help to detect regressions in both
-//!   latency and memory churn caused by Patch-nodes.
 
 use std::hint::black_box;
 use std::time::Instant;
 
 use blockstack_lib::chainstate::stacks::index::node::{
-    is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID,
+    is_backptr, set_backptr, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID,
     TrieNodePatch, TrieNodeType, TriePtr,
 };
 use blockstack_lib::codec::StacksMessageCodec;
@@ -176,6 +165,29 @@ impl NodeBenchType {
     }
 }
 
+#[rustfmt::skip]
+/// Print CLI/env usage help for the patch harness.
+fn print_usage() {
+    println!("marf-patch: TrieNodePatch compression microbench");
+    println!();
+    println!("Usage:");
+    println!("  cargo bench -p stackslib --bench marf-patch -- [--help]");
+    println!();
+    println!("Environment Variables:");
+    println!("  ITERS           Iterations per measured case [default: {DEFAULT_ITERS}]");
+    println!("  ROUNDS          Independent repetitions per case [default: {DEFAULT_ROUNDS}]");
+    println!("  NODE_TYPES      Comma-separated node types [default: all]");
+    println!("                  Allowed: all,node4,node16,node48,node256");
+    println!("  PATCH_DIFFS     Comma-separated patch diff sizes [default: 1,4,16,64]");
+    println!("                  Must be in range 1..=255 and unique");
+    println!("  OUTPUT_FORMAT   Output mode [default: summary]");
+    println!("                  'summary': unified summary lines only");
+    println!("                  'raw': detailed per-case lines + unified summary lines");
+    println!();
+    println!("Output Lines:");
+    println!("  summary         Unified summary lines emitted by marf-patch main");
+}
+
 /// Parse `OUTPUT_FORMAT` and choose summary-only vs raw output.
 fn parse_output_mode() -> OutputMode {
     match std::env::var("OUTPUT_FORMAT").ok().as_deref() {
@@ -256,29 +268,6 @@ fn parse_node_types() -> Vec<NodeBenchType> {
         "NODE_TYPES must contain at least one valid node type"
     );
     parsed
-}
-
-#[rustfmt::skip]
-/// Print CLI/env usage help for the patch harness.
-fn print_usage() {
-    println!("marf-patch: TrieNodePatch compression microbench");
-    println!();
-    println!("Usage:");
-    println!("  cargo bench -p stackslib --bench marf-patch -- [--help]");
-    println!();
-    println!("Environment Variables:");
-    println!("  ITERS           Iterations per measured case [default: {DEFAULT_ITERS}]");
-    println!("  ROUNDS          Independent repetitions per case [default: {DEFAULT_ROUNDS}]");
-    println!("  NODE_TYPES      Comma-separated node types [default: all]");
-    println!("                  Allowed: all,node4,node16,node48,node256");
-    println!("  PATCH_DIFFS     Comma-separated patch diff sizes [default: 1,4,16,64]");
-    println!("                  Must be in range 1..=255 and unique");
-    println!("  OUTPUT_FORMAT   Output mode [default: summary]");
-    println!("                  'summary': unified summary lines only");
-    println!("                  'raw': detailed per-case lines + unified summary lines");
-    println!();
-    println!("Output Lines:");
-    println!("  summary         Unified summary lines emitted by marf-patch main");
 }
 
 /// Measure one benchmark case and return allocator/time stats.
@@ -382,65 +371,23 @@ fn patch_old_ptr_for(node_type: NodeBenchType) -> TriePtr {
 
 /// Normalize non-empty child pointers to backptr mode for fixture compatibility.
 fn normalize_node_ptrs_to_backptr(node: &mut TrieNodeType, old_back_block: u32) {
-    match node {
-        TrieNodeType::Node4(node) => {
-            for ptr in node.ptrs.iter_mut() {
-                if ptr.id() == TrieNodeID::Empty as u8 {
-                    continue;
-                }
-                if !is_backptr(ptr.id()) {
-                    ptr.id = set_backptr(ptr.id());
-                    ptr.back_block = old_back_block;
-                }
-            }
+    for ptr in node.ptrs_mut().iter_mut() {
+        if ptr.id() == TrieNodeID::Empty as u8 {
+            continue;
         }
-        TrieNodeType::Node16(node) => {
-            for ptr in node.ptrs.iter_mut() {
-                if ptr.id() == TrieNodeID::Empty as u8 {
-                    continue;
-                }
-                if !is_backptr(ptr.id()) {
-                    ptr.id = set_backptr(ptr.id());
-                    ptr.back_block = old_back_block;
-                }
-            }
+        if !is_backptr(ptr.id()) {
+            ptr.id = set_backptr(ptr.id());
+            ptr.back_block = old_back_block;
         }
-        TrieNodeType::Node48(node) => {
-            for ptr in node.ptrs.iter_mut() {
-                if ptr.id() == TrieNodeID::Empty as u8 {
-                    continue;
-                }
-                if !is_backptr(ptr.id()) {
-                    ptr.id = set_backptr(ptr.id());
-                    ptr.back_block = old_back_block;
-                }
-            }
-        }
-        TrieNodeType::Node256(node) => {
-            for ptr in node.ptrs.iter_mut() {
-                if ptr.id() == TrieNodeID::Empty as u8 {
-                    continue;
-                }
-                if !is_backptr(ptr.id()) {
-                    ptr.id = set_backptr(ptr.id());
-                    ptr.back_block = old_back_block;
-                }
-            }
-        }
-        TrieNodeType::Leaf(_) => panic!("NODE_TYPES does not support leaves"),
     }
 }
 
 /// Insert a pointer into any supported node variant.
 fn insert_ptr(node: &mut TrieNodeType, ptr: TriePtr) {
-    let inserted = match node {
-        TrieNodeType::Node4(node) => node.insert(&ptr),
-        TrieNodeType::Node16(node) => node.insert(&ptr),
-        TrieNodeType::Node48(node) => node.insert(&ptr),
-        TrieNodeType::Node256(node) => node.insert(&ptr),
-        TrieNodeType::Leaf(_) => false,
-    };
-    assert!(inserted, "failed to insert ptr into benchmark node");
+    assert!(
+        node.insert(&ptr),
+        "failed to insert ptr into benchmark node"
+    );
 }
 
 /// Construct an empty base node for the selected node type and path.

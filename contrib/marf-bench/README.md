@@ -105,7 +105,7 @@ Notes:
 - `--base` also accepts keywords: `staged`, `merge-base:<upstream-ref>`.
 - `merge-base` keyword requires an explicit upstream ref suffix (no default remote/ref).
 - `--target` requires `--base`.
-- For `bench`, For `bench`, `--repeats` requires `--base`; when set, marf-bench runs full base/target comparisons N times and appends repeat statistics.
+- For `bench`, `--repeats` requires `--base`; when set, marf-bench runs full base/target comparisons N times and appends repeat statistics.
 - `run --repeats` repeats the same current-tree run N times and reports baseline-free repeat statistics (`total_ms` median/min/max, plus median alloc metrics).
 - `--repeat-jitter-threshold` sets the high-jitter threshold; default is `30`.
 - In `run` repeat confidence, a row is high-jitter when `spread/median(total_ms)` exceeds the threshold percentage.
