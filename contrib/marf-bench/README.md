@@ -129,7 +129,7 @@ Bench-specific options are accepted on the benchmark target subcommands and are 
 - `--sqlite-wal-checkpoint-mode <MODE>` sets `SQLITE_WAL_CHECKPOINT_MODE` (read/write benchmarks; used for explicit post-setup checkpoint only when `SQLITE_WAL_AUTOCHECKPOINT=0`; allowed: `PASSIVE|FULL|RESTART|TRUNCATE`; default mode is `PASSIVE`)
 - `--key-search-max-tries <N>` sets `KEY_SEARCH_MAX_TRIES`
 - `--patch-diffs <CSV>` sets `PATCH_DIFFS` (patch benchmark diff-count cases, for example `1,4,16,64`)
-- `--rounds <N>` sets `ROUNDS` (read/write/patch; repeated case runs)
+- `--node-types <CSV>` sets `NODE_TYPES` (patch benchmark node types, for example `node4,node16,node48,node256` or `all`)
 
 Patch benchmark compatibility:
 

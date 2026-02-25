@@ -76,6 +76,7 @@ impl BenchTarget {
                 BenchEnvOverrides {
                     iters: args.iters,
                     rounds: args.rounds,
+                    node_types: args.node_types,
                     patch_diffs: args.patch_diffs,
                     ..Default::default()
                 },
@@ -174,6 +175,10 @@ pub struct PatchArgs {
     /// Set ROUNDS for patch repeated case runs.
     #[arg(long)]
     rounds: Option<usize>,
+
+    /// Set NODE_TYPES as comma-separated values (for example: node4,node16,node48,node256 or all).
+    #[arg(long)]
+    node_types: Option<String>,
 
     /// Set PATCH_DIFFS as comma-separated diff sizes (for example: 1,4,16,64).
     #[arg(long)]
