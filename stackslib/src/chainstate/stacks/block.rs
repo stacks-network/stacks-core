@@ -569,12 +569,12 @@ impl StacksBlock {
         epoch_id: StacksEpochId,
     ) -> bool {
         if tx.post_condition_mode == TransactionPostConditionMode::Originator
-            && !epoch_id.supports_post_condition_enhancements()
+            && !epoch_id.supports_sip040_post_conditions()
         {
             error!("Originator post-condition mode is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
             return false;
         }
-        if !epoch_id.supports_post_condition_enhancements() {
+        if !epoch_id.supports_sip040_post_conditions() {
             for post_condition in tx.post_conditions.iter() {
                 if let TransactionPostCondition::Nonfungible(_, _, _, condition_code) =
                     post_condition

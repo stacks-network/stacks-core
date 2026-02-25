@@ -701,7 +701,7 @@ impl StacksEpochId {
 
     /// Does this epoch support the post-condition enhancements from SIP-040?
     /// This includes support for `Originator` mode and the `MaySend` NFT condition.
-    pub fn supports_post_condition_enhancements(&self) -> bool {
+    pub fn supports_sip040_post_conditions(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
 
