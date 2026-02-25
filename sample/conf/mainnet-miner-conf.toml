@@ -1,22 +1,430 @@
-[node]
-# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
-rpc_bind = "127.0.0.1:20443"
-p2p_bind = "127.0.0.1:20444"
-prometheus_bind = "127.0.0.1:9153"
-seed = "<YOUR_SEED>"
-miner = true
-mine_microblocks = false # Disable microblocks (ref: https://github.com/stacks-network/stacks-core/pull/4561 )
+# ============================================================
+# STACKS MINER - MAINNET REFERENCE CONFIGURATION
+# ============================================================
+#
+# This is a comprehensive reference configuration for running a
+# Stacks miner on mainnet. All settings are documented with their
+# default values. Required settings are marked as REQUIRED.
+#
+# To use: copy this file, uncomment and customize the settings you
+# need, and remove the rest. At minimum, you must set:
+#   - [node] seed
+#   - [burnchain] username + password (Bitcoin RPC credentials)
+#   - [connection_options] auth_token (must match signer's auth_password)
+#   - [[events_observer]] endpoint (must match signer's endpoint)
+#
+# Lines with "# key = value" show the default; uncomment to override.
+# Lines with "key = ..." are REQUIRED or recommended to set explicitly.
 
+# ============================================================
+# [node] - Core Node Settings
+# ============================================================
+[node]
+
+# REQUIRED: The seed (private key) for the miner's Bitcoin wallet.
+# This is the hex-encoded private key used for burnchain operations.
+seed = "<YOUR_SEED_HEX>"
+
+# Enable mining. Must be true for a miner node.
+miner = true
+
+# Enable stacker support (StackerDB replication).
+# Should be true when running with a signer.
+# Default: false
+stacker = true
+
+# HTTP RPC server bind address.
+# Default: "0.0.0.0:20443"
+rpc_bind = "0.0.0.0:20443"
+
+# P2P networking bind address.
+# Default: "0.0.0.0:20444"
+p2p_bind = "0.0.0.0:20444"
+
+# Data directory for chainstate, burnchain databases, etc.
+# Default: /tmp/stacks-node-<timestamp>
+# Can also be set via the STACKS_WORKING_DIR environment variable.
+# working_dir = "/var/lib/stacks-node"
+
+# Prometheus metrics endpoint. Uncomment to enable metrics.
+# prometheus_bind = "0.0.0.0:9153"
+
+# Bootstrap peer(s) for initial sync. Format: "PUBKEY@HOST:PORT"
+# For mainnet, the node will use built-in seed nodes if omitted.
+# bootstrap_node = "02e...@seed.mainnet.hiro.so:20444"
+
+# Human-readable node name (used in logging).
+# Default: "helium-node"
+# name = "my-stacks-miner"
+
+# Disable microblocks (not used in Nakamoto / Epoch 3.0+).
+mine_microblocks = false
+
+# Enable transaction indexing for API queries.
+# Default: false
+# txindex = true
+
+# Chain liveness watchdog poll interval.
+# Default: 300
+# Units: seconds
+# chain_liveness_poll_time_secs = 300
+
+
+# ============================================================
+# [burnchain] - Bitcoin Connection & Mining Fee Settings
+# ============================================================
 [burnchain]
+
+# Network mode. Must be "mainnet" for mainnet operation.
 mode = "mainnet"
+
+# Bitcoin node RPC hostname.
+# Default: "0.0.0.0"
 peer_host = "127.0.0.1"
-username = "<Bitcoin RPC username>"
-password = "<Bitcoin RPC password>"
-# Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
+
+# Bitcoin node RPC port.
+# Default: 8332
+# rpc_port = 8332
+
+# Bitcoin node P2P port.
+# Default: 8333
+# peer_port = 8333
+
+# REQUIRED: Bitcoin RPC credentials.
+username = "<BITCOIN_RPC_USERNAME>"
+password = "<BITCOIN_RPC_PASSWORD>"
+
+# Use SSL for Bitcoin RPC connection.
+# Default: false
+# rpc_ssl = false
+
+# Maximum amount (in sats) of "burn commitment" to broadcast for
+# the next block's leader election.
+# Default: 20_000
+# Units: satoshis
 burn_fee_cap = 20000
-# Amount (in sats) per byte - Used to calculate the transaction fees
+
+# Fee rate for Bitcoin transactions.
+# Default: 50
+# Units: satoshis per virtual byte (sats/vB)
 satoshis_per_byte = 25
-# Amount of sats to add when RBF'ing bitcoin tx  (default: 5)
+
+# Amount of sats/vB to add when RBF'ing a Bitcoin transaction.
+# Default: 5
+# Units: satoshis per virtual byte
 rbf_fee_increment = 5
-# Maximum percentage to RBF bitcoin tx (default: 150% of satsv/B)
+
+# Maximum percentage to increase fee rate when RBF'ing.
+# For example, 150 means the fee can increase up to 150% of the
+# original sats/vB rate.
+# Default: 150
+# Units: percentage
 max_rbf = 150
+
+# Bitcoin RPC request timeout.
+# Default: 300
+# Units: seconds
+# timeout = 300
+
+# Bitcoin socket operation timeout.
+# Default: 30
+# Units: seconds
+# socket_timeout = 30
+
+# Bitcoin poll interval. How often to check for new Bitcoin blocks.
+# Default: 10
+# Units: seconds
+# poll_time_secs = 10
+
+# Bitcoin wallet name (if using multi-wallet Bitcoin Core).
+# Default: "" (default wallet)
+# wallet_name = ""
+
+# Wait time before attempting to build a block after a burnchain event.
+# Default: 5_000
+# Units: milliseconds
+# commit_anchor_block_within = 5000
+
+
+# ============================================================
+# [miner] - Nakamoto Mining Settings
+# ============================================================
+#
+# This section controls block production, signer coordination,
+# tenure management, and mempool behavior for Nakamoto mining.
+#
+[miner]
+
+# The private key used for signing Stacks blocks.
+# If omitted, derived from the [node] seed.
+# Format: hex-encoded secp256k1 private key
+# mining_key = "<HEX_PRIVATE_KEY>"
+
+# Whether to use a segwit (p2wpkh) Bitcoin address for mining.
+# Default: false
+# segwit = false
+
+# Path to a file containing an already-activated VRF key.
+# If set, the miner will skip the VRF key registration step.
+# activated_vrf_key_path = "/path/to/vrf_key.json"
+
+# Override the coinbase reward recipient address.
+# If set, block rewards are sent to this address instead of the miner's.
+# Format: a standard Stacks principal (e.g., "SP1EXAMPLE...")
+# Default: None (rewards go to the miner)
+# block_reward_recipient = "SP1EXAMPLE..."
+
+# --- Block Timing ---
+
+# Time limit for assembling a Nakamoto block (transaction selection).
+# Default: 5_000
+# Units: milliseconds
+# nakamoto_attempt_time_ms = 5000
+
+# Minimum time between consecutive Stacks blocks. The miner will not
+# propose a block until this much time has passed since the parent.
+#
+# WARNING: Must be >= 1000. Blocks with same-second timestamps as their
+# parent are rejected network-wide. The miner enforces this locally, but
+# even if bypassed, signers would also reject such blocks.
+#
+# Default: 1_000
+# Units: milliseconds
+# min_time_between_blocks_ms = 1000
+
+# Sleep time when the mempool is empty (before checking again).
+# Default: 2_500
+# Units: milliseconds
+# empty_mempool_sleep_ms = 2500
+
+# Delay before broadcasting a block-commit transaction after winning
+# a sortition, to allow late-arriving Bitcoin blocks to be processed.
+# Default: 40_000
+# Units: milliseconds
+# block_commit_delay_ms = 40000
+
+# --- Signer Coordination ---
+
+# How long to wait for the new sortition winner to produce a block before
+# the miner attempts to extend its own tenure.
+#
+# When a new sortition happens and a different miner wins, the current miner
+# gives the winner this much time to produce a block. If the winner is
+# unresponsive, the current miner sends a TenureChange::Extended block.
+#
+# WARNING: Interacts with signer's `block_proposal_timeout_ms` (default 120_000ms).
+# The signer independently waits `block_proposal_timeout_ms` before marking
+# the new sortition winner as inactive. The signer will reject tenure extends
+# from the previous miner until it has timed out the new winner.
+#
+# If this value < signer's `block_proposal_timeout_ms`:
+#   Miner extends BEFORE signer times out the new winner -> REJECTED
+# If this value >= signer's `block_proposal_timeout_ms`:
+#   Signer times out new winner first, then accepts the extend -> OK
+#
+# Additionally, the signer requires `tenure_idle_timeout + buffer` (default
+# 122s) to have passed since the last block before accepting any extend.
+# Both conditions must be met on the signer side.
+#
+# Default: 120_000
+# Units: milliseconds
+# tenure_extend_wait_timeout_ms = 120000
+
+# Maximum time a miner holds a tenure before issuing a time-based
+# tenure extend (even if the miner itself won the sortition).
+#
+# This is checked alongside the signer-provided `tenure_extend_timestamp`
+# (which is computed from `tenure_idle_timeout + buffer`). The miner
+# will only extend when BOTH this timeout has elapsed AND the signer's
+# timestamp allows it.
+#
+# WARNING: Should be greater than `tenure_extend_wait_timeout_ms` and
+# greater than signer's `tenure_idle_timeout + buffer` (default 122s).
+#
+# Default: 180
+# Units: seconds
+# tenure_timeout_secs = 180
+
+# Pause duration after the first block rejection from signers.
+# Default: 5_000
+# Units: milliseconds
+# first_rejection_pause_ms = 5000
+
+# Pause duration after subsequent (2nd, 3rd, ...) block rejections.
+# Default: 10_000
+# Units: milliseconds
+# subsequent_rejection_pause_ms = 10000
+
+# Adaptive timeout steps based on signer rejection weight. Keys are
+# percentages of total signer weight that has rejected; values are
+# timeout durations (in seconds) to wait before abandoning the proposal.
+#
+# The miner tracks accumulated rejection weight as signers reject.
+# It looks up the highest percentage key <= current rejection weight %
+# and uses that timeout. When the timeout expires without reaching
+# approval threshold, the miner abandons the proposal and retries.
+#
+# WARNING: Directly affects when the miner gives up on a block proposal.
+# Lower timeouts at higher rejection percentages cause faster retries.
+# At "30" = 0, the miner gives up immediately when 30% of signer weight
+# has rejected.
+#
+# Default:
+#   "0" = 180  (0% rejected: wait up to 180s for signatures)
+#   "10" = 90  (10%+ signer weight rejected: reduce wait to 90s)
+#   "20" = 45  (20%+ signer weight rejected: reduce wait to 45s)
+#   "30" = 0   (30%+ signer weight rejected: give up immediately)
+#
+# Units: keys = percentage (0-100), values = seconds
+# [miner.block_rejection_timeout_steps]
+# "0" = 180
+# "10" = 90
+# "20" = 45
+# "30" = 0
+
+# --- Cost & Budget Limits ---
+
+# Percentage of the total tenure execution budget that a single block
+# can consume. Prevents one block from using the entire tenure budget.
+# Valid range: 1 - 100
+# Default: 25
+# Units: percentage of tenure budget
+# tenure_cost_limit_per_block_percentage = 25
+
+# When a block's execution cost reaches this percentage of the budget,
+# non-boot contract calls are excluded from further inclusion.
+# Reserves remaining capacity for critical system operations.
+# Valid range: 0 - 100
+# Default: 95
+# Units: percentage of block budget
+# contract_cost_limit_percentage = 95
+
+# Maximum execution time allowed for a single transaction.
+# Default: 30
+# Units: seconds
+# max_execution_time_secs = 30
+
+# Tenure execution budget percentage that triggers a cost-based
+# tenure extend.
+# Default: 50
+# Units: percentage (0-100)
+# tenure_extend_cost_threshold = 50
+
+# Maximum total size of all blocks in a tenure.
+# Default: 10_485_760 (10 MB)
+# Units: bytes
+# max_tenure_bytes = 10485760
+
+# --- Mempool ---
+
+# Strategy for selecting transactions from the mempool during block building.
+# Valid values:
+#   "GlobalFeeRate" - Select transactions with the highest global fee rate
+#   "NextNonceWithHighestFeeRate" - Select transactions with the next expected
+#     nonce for each origin/sponsor, preferring highest fee rate
+# Default: "NextNonceWithHighestFeeRate"
+# mempool_walk_strategy = "NextNonceWithHighestFeeRate"
+
+# Comma-separated list of transaction types to consider for inclusion.
+# Valid types: "TokenTransfer", "SmartContract", "ContractCall"
+# Default: all types
+# txs_to_consider = "TokenTransfer,SmartContract,ContractCall"
+
+# Comma-separated list of Stacks addresses to whitelist.
+# Only transactions from these origins will be included in blocks.
+# Default: empty (all origins accepted)
+# filter_origins = ""
+
+# Probability (0-100) of selecting a transaction with no fee estimate.
+# Default: 25
+# probability_pick_no_estimate_tx = 25
+
+# Size of the nonce cache used during mempool walks.
+# Default: 1_048_576
+# Units: bytes
+# nonce_cache_size = 1048576
+
+# --- Tenure Extension Polling ---
+
+# How often the miner checks whether a tenure extend is needed.
+# Default: 1
+# Units: seconds
+# tenure_extend_poll_secs = 1
+
+# --- Advanced / Debugging ---
+
+# Replay expected transactions during block building (experimental).
+# Default: false
+# replay_transactions = false
+
+# StackerDB socket timeout for miner operations.
+# Default: 120
+# Units: seconds
+# stackerdb_timeout_secs = 120
+
+# Log transactions that are skipped during mempool walk.
+# Default: false
+# log_skipped_transactions = false
+
+
+# ============================================================
+# [connection_options] - Network & Authentication
+# ============================================================
+[connection_options]
+
+# REQUIRED: Authentication token for the block proposal HTTP endpoint.
+#
+# WARNING: This must match the `auth_password` in your signer's config.
+# If these do not match, the signer cannot communicate with the node
+# and block proposals will fail silently.
+auth_token = "<YOUR_AUTH_TOKEN>"
+
+# Maximum age of block proposals accepted by this node.
+# Default: 600
+# Units: seconds
+# block_proposal_max_age_secs = 600
+
+# Timeout for validating block proposals from miners.
+# Default: 60
+# Units: seconds
+# block_proposal_validation_timeout_secs = 60
+
+# Maximum number of concurrent HTTP connections.
+# Default: 1_000
+# max_http_clients = 1000
+
+# Target number of P2P neighbor connections.
+# Default: 32
+# num_neighbors = 32
+
+# Maximum number of inbound P2P connections.
+# Default: 750
+# num_clients = 750
+
+# Allow connections from private IP ranges (e.g., 10.x, 192.168.x).
+# Default: false
+# private_neighbors = false
+
+# Override the publicly advertised IP:port for this node.
+# Default: auto-detected
+# public_ip_address = "1.2.3.4:20444"
+
+
+# ============================================================
+# [[events_observer]] - Event Subscriptions
+# ============================================================
+
+# Signer event observer (REQUIRED for signer integration).
+#
+# WARNING: The `endpoint` must match your signer's `endpoint` config.
+# The `events_keys` must include "stackerdb", "block_proposal", and
+# "burn_blocks" for proper signer operation.
+[[events_observer]]
+endpoint = "127.0.0.1:30000"
+events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
+
+# Optional: API event observer for stacks-blockchain-api service.
+# [[events_observer]]
+# endpoint = "localhost:3700"
+# events_keys = ["*"]
+# timeout_ms = 60_000
