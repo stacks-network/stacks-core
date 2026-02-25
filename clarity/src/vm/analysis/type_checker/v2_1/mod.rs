@@ -219,7 +219,7 @@ impl FunctionType {
                     (cost, return_type)
                 } else {
                     let return_type = accumulated_type
-                        .ok_or_else(|| StaticCheckErrorKind::ExpectsRejectable("Failed to set accumulated type for arg indices >= 1 in variadic arithmetic".into()).into());
+                        .ok_or_else(|| StaticCheckErrorKind::Unreachable("Failed to set accumulated type for arg indices >= 1 in variadic arithmetic".into()).into());
                     let check_result = return_type.and_then(|return_type| {
                         if arg_type != return_type {
                             Err(StaticCheckErrorKind::TypeError(
@@ -568,10 +568,9 @@ impl FunctionType {
         let (expected_args, returns) = match self {
             FunctionType::Fixed(FixedFunction { args, returns }) => (args, returns),
             _ => {
-                return Err(StaticCheckErrorKind::ExpectsRejectable(
-                    "Unexpected function type".into(),
-                )
-                .into());
+                return Err(
+                    StaticCheckErrorKind::Unreachable("Unexpected function type".into()).into(),
+                );
             }
         };
         check_argument_count(expected_args.len(), func_args)?;
@@ -595,9 +594,7 @@ impl FunctionType {
                                 &StacksEpochId::Epoch21,
                             )
                             .map_err(|_| {
-                                StaticCheckErrorKind::ExpectsRejectable(
-                                    "Failed to get trait".into(),
-                                )
+                                StaticCheckErrorKind::Unreachable("Failed to get trait".into())
                             })?
                             .ok_or(StaticCheckErrorKind::NoSuchContract(
                                 trait_id.contract_identifier.to_string(),
@@ -1026,14 +1023,14 @@ fn type_reserved_variable(
         let var_type = match variable {
             TxSender => TypeSignature::PrincipalType,
             TxSponsor => TypeSignature::new_option(TypeSignature::PrincipalType)
-                .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad construction".into()))?,
+                .map_err(|_| StaticCheckErrorKind::Unreachable("Bad construction".into()))?,
             ContractCaller => TypeSignature::PrincipalType,
             BlockHeight => TypeSignature::UIntType,
             StacksBlockHeight => TypeSignature::UIntType,
             TenureHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,
             NativeNone => TypeSignature::new_option(no_type())
-                .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad construction".into()))?,
+                .map_err(|_| StaticCheckErrorKind::Unreachable("Bad construction".into()))?,
             NativeTrue => TypeSignature::BoolType,
             NativeFalse => TypeSignature::BoolType,
             TotalLiquidMicroSTX => TypeSignature::UIntType,
@@ -1133,9 +1130,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 }
                 Err(e) => Err(e),
             })?
-            .ok_or_else(|| {
-                StaticCheckErrorKind::ExpectsRejectable("Expected a depth result".into())
-            })?;
+            .ok_or_else(|| StaticCheckErrorKind::Unreachable("Expected a depth result".into()))?;
         }
 
         runtime_cost(ClarityCostFunction::AnalysisStorage, self, size)?;
@@ -1341,7 +1336,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         )?;
 
         if self.function_return_tracker.is_some() {
-            return Err(StaticCheckErrorKind::ExpectsRejectable(
+            return Err(StaticCheckErrorKind::Unreachable(
                 "Interpreter error: Previous function define left dirty typecheck state.".into(),
             )
             .into());
