@@ -293,7 +293,7 @@ fn test_process_block_ops() {
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
         .unwrap(),
-        index_root: TrieHash::from_empty_data(), // TBD
+        index_root: TrieHash::EMPTY, // TBD
         num_sortitions: 0,
         stacks_block_accepted: false,
         stacks_block_height: 0,
@@ -342,7 +342,7 @@ fn test_process_block_ops() {
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
         .unwrap(),
-        index_root: TrieHash::from_empty_data(), // TBD
+        index_root: TrieHash::EMPTY, // TBD
         num_sortitions: 0,
         stacks_block_accepted: false,
         stacks_block_height: 0,
@@ -395,7 +395,7 @@ fn test_process_block_ops() {
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
         .unwrap(),
-        index_root: TrieHash::from_empty_data(), // TBD
+        index_root: TrieHash::EMPTY, // TBD
         num_sortitions: 0,
         stacks_block_accepted: false,
         stacks_block_height: 0,
@@ -586,7 +586,7 @@ fn test_process_block_ops() {
                 .mix_burn_header(&block_124_hash),
             winning_block_txid: block_124_winners[scenario_idx].txid.clone(),
             winning_stacks_block_hash: block_124_winners[scenario_idx].block_header_hash.clone(),
-            index_root: TrieHash::from_empty_data(), // TDB
+            index_root: TrieHash::EMPTY, // TDB
             num_sortitions: if next_sortition { 1 } else { 0 },
             stacks_block_accepted: false,
             stacks_block_height: 0,

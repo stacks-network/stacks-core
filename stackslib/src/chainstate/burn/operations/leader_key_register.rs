@@ -573,7 +573,7 @@ pub mod tests {
                         "0000000000000000000000000000000000000000000000000000000000000000",
                     )
                     .unwrap(),
-                    index_root: TrieHash::from_empty_data(),
+                    index_root: TrieHash::EMPTY,
                     num_sortitions: i + 1,
                     stacks_block_accepted: false,
                     stacks_block_height: 0,
