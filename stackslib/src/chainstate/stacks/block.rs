@@ -273,7 +273,12 @@ impl StacksBlockHeader {
         };
 
         if !valid {
-            let msg = format!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}", self.block_hash(), leader_key.public_key.to_hex(), burn_chain_tip.sortition_hash);
+            let msg = format!(
+                "Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}",
+                self.block_hash(),
+                leader_key.public_key.to_hex(),
+                burn_chain_tip.sortition_hash
+            );
             warn!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
         }
@@ -954,6 +959,7 @@ impl StacksMicroblock {
 #[cfg(test)]
 mod test {
     use clarity::types::PublicKey;
+    use rstest::rstest;
     use stacks_common::address::*;
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::*;
@@ -2132,8 +2138,16 @@ mod test {
         ));
     }
 
-    #[test]
-    fn test_validate_transaction_static_epoch_originator_mode_gated_to_epoch34() {
+    #[rstest]
+    #[case(StacksEpochId::Epoch30, false)]
+    #[case(StacksEpochId::Epoch31, false)]
+    #[case(StacksEpochId::Epoch32, false)]
+    #[case(StacksEpochId::Epoch33, false)]
+    #[case(StacksEpochId::Epoch34, true)]
+    fn test_validate_transaction_static_epoch_originator_mode_gated_to_epoch34(
+        #[case] epoch_id: StacksEpochId,
+        #[case] expected: bool,
+    ) {
         let privk = StacksPrivateKey::random();
         let origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -2153,18 +2167,22 @@ mod test {
         );
         tx.post_condition_mode = TransactionPostConditionMode::Originator;
 
-        assert!(!StacksBlock::validate_transaction_static_epoch(
-            &tx,
-            StacksEpochId::Epoch33
-        ));
-        assert!(StacksBlock::validate_transaction_static_epoch(
-            &tx,
-            StacksEpochId::Epoch34
-        ));
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id),
+            expected
+        );
     }
 
-    #[test]
-    fn test_validate_transaction_static_epoch_nft_maybesent_gated_to_epoch34() {
+    #[rstest]
+    #[case(StacksEpochId::Epoch30, false)]
+    #[case(StacksEpochId::Epoch31, false)]
+    #[case(StacksEpochId::Epoch32, false)]
+    #[case(StacksEpochId::Epoch33, false)]
+    #[case(StacksEpochId::Epoch34, true)]
+    fn test_validate_transaction_static_epoch_nft_maybesent_gated_to_epoch34(
+        #[case] epoch_id: StacksEpochId,
+        #[case] expected: bool,
+    ) {
         let privk = StacksPrivateKey::random();
         let origin_auth = TransactionAuth::Standard(
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
@@ -2195,14 +2213,10 @@ mod test {
                 NonfungibleConditionCode::MaybeSent,
             ));
 
-        assert!(!StacksBlock::validate_transaction_static_epoch(
-            &tx,
-            StacksEpochId::Epoch33
-        ));
-        assert!(StacksBlock::validate_transaction_static_epoch(
-            &tx,
-            StacksEpochId::Epoch34
-        ));
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id),
+            expected
+        );
     }
 
     // TODO:
