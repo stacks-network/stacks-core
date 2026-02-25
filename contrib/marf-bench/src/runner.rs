@@ -30,9 +30,10 @@ use crate::util::{
 };
 use crate::{BenchKind, OutputFormat, TempBuilder};
 
-const MARF_BENCH_FILES: [&str; 7] = [
+const MARF_BENCH_FILES: [&str; 8] = [
     "allocator.rs",
     "primitives.rs",
+    "patch.rs",
     "common.rs",
     "main.rs",
     "read.rs",
@@ -40,8 +41,6 @@ const MARF_BENCH_FILES: [&str; 7] = [
     "write.rs",
 ];
 const SRC_BENCH_DIR: &str = "stackslib/benches/marf";
-const SRC_PATCH_BENCH_DIR: &str = "stackslib/benches/marf-patch";
-const MARF_PATCH_BENCH_FILES: [&str; 1] = ["main.rs"];
 const STACKSLIB_CARGO_TOML: &str = "stackslib/Cargo.toml";
 const PATCH_SUPPORT_INTRO_COMMIT: &str = "0317850e7f042de98e7bc6a1f26f6183e7d20f98";
 const WORKTREE_PREFIX: &str = "marf-bench-";
@@ -63,6 +62,7 @@ pub struct BenchEnvOverrides {
     pub cache_strategies: Option<String>,
     pub key_search_max_tries: Option<usize>,
     pub node_types: Option<String>,
+    pub ptr_states: Option<String>,
     pub patch_diffs: Option<String>,
 }
 
@@ -90,7 +90,6 @@ struct ManagedWorktree {
 pub struct Runner {
     repo_root: PathBuf,
     source_bench_dir: PathBuf,
-    source_patch_bench_dir: PathBuf,
     keep_worktrees: bool,
     worktrees: Vec<ManagedWorktree>,
     worktrees_by_revision: HashMap<String, PathBuf>,
@@ -119,14 +118,6 @@ impl Runner {
             );
         }
 
-        let source_patch_bench_dir = repo_root.join(SRC_PATCH_BENCH_DIR);
-        if !source_patch_bench_dir.is_dir() {
-            bail!(
-                "source patch bench directory not found: {}",
-                source_patch_bench_dir.display()
-            );
-        }
-
         for name in MARF_BENCH_FILES {
             let path = source_bench_dir.join(name);
             if !path.is_file() {
@@ -134,17 +125,9 @@ impl Runner {
             }
         }
 
-        for name in MARF_PATCH_BENCH_FILES {
-            let path = source_patch_bench_dir.join(name);
-            if !path.is_file() {
-                bail!("missing source patch bench file: {}", path.display());
-            }
-        }
-
         Ok(Self {
             repo_root,
             source_bench_dir,
-            source_patch_bench_dir,
             keep_worktrees,
             worktrees: Vec::new(),
             worktrees_by_revision: HashMap::new(),
@@ -303,21 +286,6 @@ impl Runner {
             }
         }
 
-        if requests
-            .iter()
-            .any(|request| request.kind.bench_name() == "marf-patch")
-        {
-            let dest = root.join(SRC_PATCH_BENCH_DIR);
-            fs::create_dir_all(&dest)
-                .with_context(|| format!("failed to create {}", dest.display()))?;
-
-            for name in MARF_PATCH_BENCH_FILES {
-                let src = self.source_patch_bench_dir.join(name);
-                let dst = dest.join(name);
-                changed |= copy_if_different(&src, &dst)?;
-            }
-        }
-
         Ok(changed)
     }
 
@@ -331,20 +299,9 @@ impl Runner {
         let wants_marf = requests
             .iter()
             .any(|request| request.kind.bench_name() == "marf");
-        let wants_marf_patch = requests
-            .iter()
-            .any(|request| request.kind.bench_name() == "marf-patch");
-
         if wants_marf && !text.contains("name = \"marf\"") {
             text.push_str(
                 "\n[[bench]]\nname = \"marf\"\nharness = false\npath = \"benches/marf/main.rs\"\n",
-            );
-            updated = true;
-        }
-
-        if wants_marf_patch && !text.contains("name = \"marf-patch\"") {
-            text.push_str(
-                "\n[[bench]]\nname = \"marf-patch\"\nharness = false\npath = \"benches/marf-patch/main.rs\"\n",
             );
             updated = true;
         }
@@ -749,6 +706,9 @@ fn apply_bench_env_overrides(cmd: &mut Command, env: &BenchEnvOverrides) {
     }
     if let Some(node_types) = &env.node_types {
         cmd.env("NODE_TYPES", node_types);
+    }
+    if let Some(ptr_states) = &env.ptr_states {
+        cmd.env("PTR_STATES", ptr_states);
     }
     if let Some(patch_diffs) = &env.patch_diffs {
         cmd.env("PATCH_DIFFS", patch_diffs);

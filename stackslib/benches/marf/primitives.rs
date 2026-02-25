@@ -17,7 +17,6 @@
 
 use std::hint::black_box;
 use std::io::Cursor;
-use std::time::Instant;
 
 use blockstack_lib::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use blockstack_lib::chainstate::stacks::index::node::{
@@ -33,7 +32,7 @@ use blockstack_lib::chainstate::stacks::index::{
 };
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
 
-use crate::allocator::{reset_stats, snapshot};
+use crate::common::record_case_with_rounds;
 use crate::utils::{
     block_id, has_help_flag, missing_path_hash, parse_usize_env, path_from_seed, trie_insert,
     walk_to_insertion_point,
@@ -42,14 +41,8 @@ use crate::{OutputMode, Summary};
 
 /// Default iterations per primitive case.
 const DEFAULT_ITERS: usize = 200_000;
-
-/// Allocation/timing result for one primitive case.
-#[derive(Clone, Copy)]
-struct CaseStats {
-    alloc_calls: u64,
-    alloc_bytes: u64,
-    elapsed_ms: f64,
-}
+/// Default independent repetitions per case.
+const DEFAULT_ROUNDS: usize = 1;
 
 #[rustfmt::skip]
 fn print_usage(args: &[String]) {
@@ -60,6 +53,8 @@ fn print_usage(args: &[String]) {
         println!("  ITERS Iterations per measured case [default: {DEFAULT_ITERS}]");
         println!("              Higher values reduce timer noise but increase runtime linearly");
         println!("              Allocation counters are total counts/bytes across all iterations");
+        println!("  ROUNDS      Independent repetitions per case [default: {DEFAULT_ROUNDS}]");
+        println!("              Higher values improve stability estimates in summary totals");
         println!("  OUTPUT_FORMAT");
         println!("              Output mode [default: summary]");
         println!("              'summary': unified summary lines only");
@@ -71,41 +66,13 @@ fn print_usage(args: &[String]) {
     }
 }
 
-/// Run one measured primitive case and capture allocator counters.
-fn run_case<F>(name: &str, mode: OutputMode, mut f: F) -> CaseStats
-where
-    F: FnMut(),
-{
-    reset_stats();
-    let start = Instant::now();
-    f();
-    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    let stats = snapshot();
-    if mode.is_raw() {
-        println!(
-            "{name}\talloc_calls={}\talloc_bytes={}\trealloc_calls={}\tdealloc_calls={}\tdealloc_bytes={}\telapsed_ms={:.2}",
-            stats.alloc_calls,
-            stats.alloc_bytes,
-            stats.realloc_calls,
-            stats.dealloc_calls,
-            stats.dealloc_bytes,
-            elapsed_ms
-        );
-    }
-    CaseStats {
-        alloc_calls: stats.alloc_calls,
-        alloc_bytes: stats.alloc_bytes,
-        elapsed_ms,
-    }
-}
-
 /// Measure and append one primitive case to summary output.
 fn record_case<F>(summary: &mut Summary, name: &str, mode: OutputMode, f: F)
 where
     F: FnMut(),
 {
-    let stats = run_case(name, mode, f);
-    summary.push_line(name, stats.elapsed_ms, stats.alloc_calls, stats.alloc_bytes);
+    let rounds = parse_usize_env("ROUNDS", DEFAULT_ROUNDS);
+    record_case_with_rounds(summary, name, mode, rounds, f);
 }
 
 /// Return a deterministic full-length trie path byte array.
@@ -279,7 +246,9 @@ pub fn run(args: &[String], output_mode: OutputMode) -> Option<Summary> {
     }
 
     let iters = parse_usize_env("ITERS", DEFAULT_ITERS);
+    let rounds = parse_usize_env("ROUNDS", DEFAULT_ROUNDS);
     assert!(iters > 0, "ITERS must be > 0");
+    assert!(rounds > 0, "ROUNDS must be > 0");
 
     let path = sample_path();
     let leaf_data = [0x11u8; 40];
@@ -340,7 +309,7 @@ pub fn run(args: &[String], output_mode: OutputMode) -> Option<Summary> {
     max_len_path_bytes.extend_from_slice(&path);
 
     if output_mode.is_raw() {
-        println!("iters={iters}");
+        println!("iters={iters}\trounds={rounds}");
     }
 
     let mut summary = Summary::new("primitives", 64);

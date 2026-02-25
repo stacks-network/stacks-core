@@ -54,8 +54,7 @@ impl BenchKind {
     /// Return Cargo bench target name for this benchmark kind.
     fn bench_name(self) -> &'static str {
         match self {
-            Self::Primitives | Self::Read | Self::Write => "marf",
-            Self::Patch => "marf-patch",
+            Self::Primitives | Self::Read | Self::Write | Self::Patch => "marf",
         }
     }
 
@@ -65,7 +64,7 @@ impl BenchKind {
             Self::Primitives => Some("primitives"),
             Self::Read => Some("read"),
             Self::Write => Some("write"),
-            Self::Patch => None,
+            Self::Patch => Some("patch"),
         }
     }
 }

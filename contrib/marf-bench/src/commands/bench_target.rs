@@ -40,6 +40,7 @@ impl BenchTarget {
                 BenchKind::Primitives,
                 BenchEnvOverrides {
                     iters: args.iters,
+                    rounds: args.rounds,
                     ..Default::default()
                 },
             )],
@@ -77,6 +78,7 @@ impl BenchTarget {
                     iters: args.iters,
                     rounds: args.rounds,
                     node_types: args.node_types,
+                    ptr_states: args.ptr_states,
                     patch_diffs: args.patch_diffs,
                     ..Default::default()
                 },
@@ -91,6 +93,10 @@ pub struct PrimitivesArgs {
     /// Set ITERS for primitives case loop count.
     #[arg(long)]
     iters: Option<usize>,
+
+    /// Set ROUNDS for primitives repeated case runs.
+    #[arg(long)]
+    rounds: Option<usize>,
 }
 
 /// Arguments for the `read` benchmark target.
@@ -179,6 +185,10 @@ pub struct PatchArgs {
     /// Set NODE_TYPES as comma-separated values (for example: node4,node16,node48,node256 or all).
     #[arg(long)]
     node_types: Option<String>,
+
+    /// Set PTR_STATES as comma-separated values (for example: backptr,plain or all).
+    #[arg(long)]
+    ptr_states: Option<String>,
 
     /// Set PATCH_DIFFS as comma-separated diff sizes (for example: 1,4,16,64).
     #[arg(long)]

@@ -118,7 +118,7 @@ Notes:
 Bench-specific options are accepted on the benchmark target subcommands and are forwarded to benchmark subprocess env vars:
 
 - `--iters <N>` sets `ITERS`
-- `--rounds <N>` sets `ROUNDS`
+- `--rounds <N>` sets `ROUNDS` (primitives/read/write/patch)
 - `--chain-len <N>` sets `CHAIN_LEN`
 - `--proofs` sets `READ_PROOFS=1` (uses `MARF::get_with_proof`)
 - `--keys-per-block <N>` sets `KEYS_PER_BLOCK` (additional noise/bulk keys per fixture block)
@@ -131,6 +131,7 @@ Bench-specific options are accepted on the benchmark target subcommands and are 
 - `--key-search-max-tries <N>` sets `KEY_SEARCH_MAX_TRIES`
 - `--patch-diffs <CSV>` sets `PATCH_DIFFS` (patch benchmark diff-count cases, for example `1,4,16,64`)
 - `--node-types <CSV>` sets `NODE_TYPES` (patch benchmark node types, for example `node4,node16,node48,node256` or `all`)
+- `--ptr-states <CSV>` sets `PTR_STATES` (patch benchmark pointer-state regimes, for example `backptr,plain` or `all`)
 
 Patch benchmark compatibility:
 

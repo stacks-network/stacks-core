@@ -19,6 +19,7 @@ use std::time::Instant;
 use rusqlite::Connection;
 
 use crate::allocator::{reset_stats, snapshot, Snapshot};
+use crate::{OutputMode, Summary};
 
 /// SQLite WAL checkpoint mode accepted by benchmark configuration.
 #[derive(Clone, Copy, Debug)]
@@ -142,4 +143,56 @@ where
         elapsed_ms: start.elapsed().as_secs_f64() * 1000.0,
         snapshot: snapshot(),
     })
+}
+
+/// Measure one benchmark case and optionally emit a detailed raw-output line.
+pub fn run_case_with_allocs<F>(name: &str, mode: OutputMode, mut f: F) -> BenchMeasurement
+where
+    F: FnMut(),
+{
+    let measurement = measure_with_allocs(|| f());
+    if mode.is_raw() {
+        println!(
+            "{name}\talloc_calls={}\talloc_bytes={}\trealloc_calls={}\tdealloc_calls={}\tdealloc_bytes={}\telapsed_ms={:.2}",
+            measurement.snapshot.alloc_calls,
+            measurement.snapshot.alloc_bytes,
+            measurement.snapshot.realloc_calls,
+            measurement.snapshot.dealloc_calls,
+            measurement.snapshot.dealloc_bytes,
+            measurement.elapsed_ms
+        );
+    }
+    measurement
+}
+
+/// Execute a benchmark case for one or more rounds and append aggregate totals.
+pub fn record_case_with_rounds<F>(
+    summary: &mut Summary,
+    name: &str,
+    mode: OutputMode,
+    rounds: usize,
+    mut f: F,
+) where
+    F: FnMut(),
+{
+    let mut total_ms = 0.0;
+    let mut total_alloc_calls = 0u64;
+    let mut total_alloc_bytes = 0u64;
+
+    for round in 0..rounds {
+        let round_name;
+        let case_name = if rounds > 1 {
+            round_name = format!("{name}#round={}", round + 1);
+            round_name.as_str()
+        } else {
+            name
+        };
+
+        let measurement = run_case_with_allocs(case_name, mode, &mut f);
+        total_ms += measurement.elapsed_ms;
+        total_alloc_calls = total_alloc_calls.saturating_add(measurement.snapshot.alloc_calls);
+        total_alloc_bytes = total_alloc_bytes.saturating_add(measurement.snapshot.alloc_bytes);
+    }
+
+    summary.push_line(name, total_ms, total_alloc_calls, total_alloc_bytes);
 }
