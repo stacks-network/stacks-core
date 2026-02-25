@@ -46,25 +46,22 @@ const DEFAULT_ITERS: usize = 200_000;
 const DEFAULT_ROUNDS: usize = 1;
 
 #[rustfmt::skip]
-fn print_usage(args: &[String]) {
-    if has_help_flag(args) {
-        println!("primitives: Allocation profiling micro-benchmark for primitives (codec + trie/storage)");
-        println!();
-        println!("Environment Variables:");
-        println!("  ITERS Iterations per measured case [default: {DEFAULT_ITERS}]");
-        println!("              Higher values reduce timer noise but increase runtime linearly");
-        println!("              Allocation counters are total counts/bytes across all iterations");
-        println!("  ROUNDS      Independent repetitions per case [default: {DEFAULT_ROUNDS}]");
-        println!("              Higher values improve stability estimates in summary totals");
-        println!("  OUTPUT_FORMAT");
-        println!("              Output mode [default: summary]");
-        println!("              'summary': unified summary lines only");
-        println!("              'raw': detailed per-case lines + unified summary lines");
-        println!();
-        println!("Output Lines:");
-        println!("  summary     Unified summary lines emitted by marf bench main");
-        return;
-    }
+fn print_usage() {
+    println!("primitives: Allocation profiling micro-benchmark for primitives (codec + trie/storage)");
+    println!();
+    println!("Environment Variables:");
+    println!("  ITERS Iterations per measured case [default: {DEFAULT_ITERS}]");
+    println!("              Higher values reduce timer noise but increase runtime linearly");
+    println!("              Allocation counters are total counts/bytes across all iterations");
+    println!("  ROUNDS      Independent repetitions per case [default: {DEFAULT_ROUNDS}]");
+    println!("              Higher values improve stability estimates in summary totals");
+    println!("  OUTPUT_FORMAT");
+    println!("              Output mode [default: summary]");
+    println!("              'summary': unified summary lines only");
+    println!("              'raw': detailed per-case lines + unified summary lines");
+    println!();
+    println!("Output Lines:");
+    println!("  summary     Unified summary lines emitted by marf bench main");
 }
 
 /// Measure and append one primitive case to summary output.
@@ -251,7 +248,7 @@ fn make_storage_fixture(cache_strategy: &str) -> StorageFixture {
 /// Run primitive benchmark subcommand and return summary rows.
 pub fn run(args: &[String], output_mode: OutputMode) -> Option<Summary> {
     if has_help_flag(args) {
-        print_usage(args);
+        print_usage();
         return None;
     }
 

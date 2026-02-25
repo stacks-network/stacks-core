@@ -120,41 +120,38 @@ struct ParentChainInfo {
 }
 
 #[rustfmt::skip]
-fn print_usage(args: &[String]) {
-    if has_help_flag(args) {
-        println!("write: Step-wise MARF write workflow profiler");
-        println!();
-        println!("Environment Variables:");
-        println!("  ITERS       Inserted keys per workflow round [default {REQUIRED_BRANCHES}]");
-        println!("              Higher values increase write/rehash/seal work");
-        println!("  WRITE_DEPTHS");
-        println!("              Comma-separated parent-chain depths [default: 1]");
-        println!("              Example: WRITE_DEPTHS=1,64,1024");
-        println!("  KEY_UPDATES");
-        println!("              Percent (0-100) of writes that are key updates [default {DEFAULT_KEY_UPDATES_PERCENT}]");
-        println!("              Updates target existing keys from prior tries (excluding first parent/genesis trie)");
-        println!("  SQLITE_WAL_AUTOCHECKPOINT");
-        println!("              Optional SQLite WAL auto-checkpoint page threshold");
-        println!("              Example: SQLITE_WAL_AUTOCHECKPOINT=0 (disable auto-checkpoint)");
-        println!("  SQLITE_WAL_CHECKPOINT_MODE");
-        println!("              WAL checkpoint mode for explicit post-setup checkpoint when auto-checkpoint is disabled");
-        println!("              Post-setup checkpoint runs only when SQLITE_WAL_AUTOCHECKPOINT=0");
-        println!("              Allowed: PASSIVE, FULL, RESTART, TRUNCATE [default: PASSIVE]");
-        println!("  ROUNDS      Independent rounds per strategy [default {DEFAULT_WRITE_ROUNDS}]");
-        println!("  KEY_SEARCH_MAX_TRIES");
-        println!("              Max key candidates when searching for promotion-driving keys [default {DEFAULT_KEY_SEARCH_MAX_TRIES}]");
-        println!("  OUTPUT_FORMAT");
-        println!("              Output mode [default: summary]");
-        println!("              'summary': unified summary lines only");
-        println!("              'raw': config/result lines + unified summary lines");
-        println!();
-        println!("Output Lines:");
-        println!("  config      Effective configuration");
-        println!("  keys        Metadata about generated key set used to drive node promotions");
-        println!("  result      Per-round/per-step elapsed time and allocation totals + per-item rates");
-        println!("  summary     Unified summary lines emitted by marf bench main");
-        return;
-    }
+fn print_usage() {
+    println!("write: Step-wise MARF write workflow profiler");
+    println!();
+    println!("Environment Variables:");
+    println!("  ITERS       Inserted keys per workflow round [default {REQUIRED_BRANCHES}]");
+    println!("              Higher values increase write/rehash/seal work");
+    println!("  WRITE_DEPTHS");
+    println!("              Comma-separated parent-chain depths [default: 1]");
+    println!("              Example: WRITE_DEPTHS=1,64,1024");
+    println!("  KEY_UPDATES");
+    println!("              Percent (0-100) of writes that are key updates [default {DEFAULT_KEY_UPDATES_PERCENT}]");
+    println!("              Updates target existing keys from prior tries (excluding first parent/genesis trie)");
+    println!("  SQLITE_WAL_AUTOCHECKPOINT");
+    println!("              Optional SQLite WAL auto-checkpoint page threshold");
+    println!("              Example: SQLITE_WAL_AUTOCHECKPOINT=0 (disable auto-checkpoint)");
+    println!("  SQLITE_WAL_CHECKPOINT_MODE");
+    println!("              WAL checkpoint mode for explicit post-setup checkpoint when auto-checkpoint is disabled");
+    println!("              Post-setup checkpoint runs only when SQLITE_WAL_AUTOCHECKPOINT=0");
+    println!("              Allowed: PASSIVE, FULL, RESTART, TRUNCATE [default: PASSIVE]");
+    println!("  ROUNDS      Independent rounds per strategy [default {DEFAULT_WRITE_ROUNDS}]");
+    println!("  KEY_SEARCH_MAX_TRIES");
+    println!("              Max key candidates when searching for promotion-driving keys [default {DEFAULT_KEY_SEARCH_MAX_TRIES}]");
+    println!("  OUTPUT_FORMAT");
+    println!("              Output mode [default: summary]");
+    println!("              'summary': unified summary lines only");
+    println!("              'raw': config/result lines + unified summary lines");
+    println!();
+    println!("Output Lines:");
+    println!("  config      Effective configuration");
+    println!("  keys        Metadata about generated key set used to drive node promotions");
+    println!("  result      Per-round/per-step elapsed time and allocation totals + per-item rates");
+    println!("  summary     Unified summary lines emitted by marf bench main");
 }
 
 /// Measure a fallible write step with allocation counters.
@@ -538,7 +535,7 @@ fn emit_result_and_store(
 /// Run the write benchmark subcommand.
 pub fn run(args: &[String], output_mode: OutputMode) -> Option<Summary> {
     if has_help_flag(args) {
-        print_usage(args);
+        print_usage();
         return None;
     }
     Some(run_workflow(output_mode).expect("marf_write_profile failed"))

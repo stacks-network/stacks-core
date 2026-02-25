@@ -85,66 +85,63 @@ struct MarfReadFixture {
 }
 
 #[rustfmt::skip]
-fn print_usage(args: &[String]) {
-    if has_help_flag(args) {
-        let default_depths = DEFAULT_DEPTHS
-            .iter()
-            .map(|d| d.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        let default_max_depth = *DEFAULT_DEPTHS
-            .iter()
-            .max()
-            .expect("DEFAULT_DEPTHS must not be empty");
-        let default_chain_len = default_max_depth + DEFAULT_CHAIN_LEN_DEPTH_SLACK;
-        let default_cache_strategies = DEFAULT_CACHE_STRATEGIES.join(",");
-        let default_keys_per_block = DEFAULT_KEYS_PER_BLOCK;
-        let default_total_fixture_keys = default_keys_per_block + 1;
+fn print_usage() {
+    let default_depths = DEFAULT_DEPTHS
+        .iter()
+        .map(|d| d.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let default_max_depth = *DEFAULT_DEPTHS
+        .iter()
+        .max()
+        .expect("DEFAULT_DEPTHS must not be empty");
+    let default_chain_len = default_max_depth + DEFAULT_CHAIN_LEN_DEPTH_SLACK;
+    let default_cache_strategies = DEFAULT_CACHE_STRATEGIES.join(",");
+    let default_keys_per_block = DEFAULT_KEYS_PER_BLOCK;
+    let default_total_fixture_keys = default_keys_per_block + 1;
 
-        println!("read: MARF::get benchmark");
-        println!();
-        println!("CLI Args:");
-        println!("  --proofs     Use MARF::get_with_proof instead of MARF::get [default: false]");
-        println!();
-        println!("Environment Variables:");
-        println!("  ITERS       Reads per measured case [default: {DEFAULT_READ_ITERS}]");
-        println!("              Higher values reduce measurement noise but increase runtime linearly");
-        println!("              Affects elapsed_ms/alloc totals directly; per-op metrics remain normalized");
-        println!("  ROUNDS      Independent repetitions per case [default: {DEFAULT_READ_ROUNDS}]");
-        println!("              Higher values improve stability estimates (summary min/max)");
-        println!("  CHAIN_LEN   Number of sequential blocks/tries created [default: max(DEPTHS)+{DEFAULT_CHAIN_LEN_DEPTH_SLACK}; with defaults: {default_chain_len}]");
-        println!("              Must be greater than the maximum `DEPTHS` value.");
-        println!("              Higher values increase fixture construction time and temporary DB size");
-        println!("  DEPTHS      Comma-separated depths [default: {default_depths}]");
-        println!("              Must be less than CHAIN_LEN");
-        println!("              Example: DEPTHS=16,64,255");
-        println!("  KEYS_PER_BLOCK");
-        println!("              Additional noise/bulk keys inserted per fixture block [default: {default_keys_per_block}]");
-        println!("              Must be >= 0; fixture keys per block = 1 measured depth key + KEYS_PER_BLOCK (total default: {default_total_fixture_keys})");
-        println!("              Read measurements always target the single measured depth key");
-        println!("  READ_PROOFS");
-        println!("              Set to true/false to steer proofed reads [default: false]");
-        println!("  CACHE_STRATEGIES");
-        println!("              Comma-separated MARF cache strategies [default: {default_cache_strategies}]");
-        println!("              Example: CACHE_STRATEGIES=noop,node256,everything");
-        println!("  SQLITE_WAL_AUTOCHECKPOINT");
-        println!("              Optional SQLite WAL auto-checkpoint page threshold");
-        println!("              Example: SQLITE_WAL_AUTOCHECKPOINT=0 (disable auto-checkpoint)");
-        println!("  SQLITE_WAL_CHECKPOINT_MODE");
-        println!("              WAL checkpoint mode for explicit post-setup checkpoint when auto-checkpoint is disabled");
-        println!("              Post-setup checkpoint runs only when SQLITE_WAL_AUTOCHECKPOINT=0");
-        println!("              Allowed: PASSIVE, FULL, RESTART, TRUNCATE [default: PASSIVE]");
-        println!("  OUTPUT_FORMAT");
-        println!("              Output mode [default: summary]");
-        println!("              'summary': unified summary lines only");
-        println!("              'raw': config/result lines + unified summary lines");
-        println!();
-        println!("Output Lines:");
-        println!("  config      Effective benchmark settings");
-        println!("  result      Per-round measurement: strategy/depth/time + alloc totals + per-op metrics");
-        println!("  summary     Unified summary lines emitted by marf bench main");
-        return;
-    }
+    println!("read: MARF::get benchmark");
+    println!();
+    println!("CLI Args:");
+    println!("  --proofs     Use MARF::get_with_proof instead of MARF::get [default: false]");
+    println!();
+    println!("Environment Variables:");
+    println!("  ITERS       Reads per measured case [default: {DEFAULT_READ_ITERS}]");
+    println!("              Higher values reduce measurement noise but increase runtime linearly");
+    println!("              Affects elapsed_ms/alloc totals directly; per-op metrics remain normalized");
+    println!("  ROUNDS      Independent repetitions per case [default: {DEFAULT_READ_ROUNDS}]");
+    println!("              Higher values improve stability estimates (summary min/max)");
+    println!("  CHAIN_LEN   Number of sequential blocks/tries created [default: max(DEPTHS)+{DEFAULT_CHAIN_LEN_DEPTH_SLACK}; with defaults: {default_chain_len}]");
+    println!("              Must be greater than the maximum `DEPTHS` value.");
+    println!("              Higher values increase fixture construction time and temporary DB size");
+    println!("  DEPTHS      Comma-separated depths [default: {default_depths}]");
+    println!("              Must be less than CHAIN_LEN");
+    println!("              Example: DEPTHS=16,64,255");
+    println!("  KEYS_PER_BLOCK");
+    println!("              Additional noise/bulk keys inserted per fixture block [default: {default_keys_per_block}]");
+    println!("              Must be >= 0; fixture keys per block = 1 measured depth key + KEYS_PER_BLOCK (total default: {default_total_fixture_keys})");
+    println!("              Read measurements always target the single measured depth key");
+    println!("  READ_PROOFS");
+    println!("              Set to true/false to steer proofed reads [default: false]");
+    println!("  CACHE_STRATEGIES");
+    println!("              Comma-separated MARF cache strategies [default: {default_cache_strategies}]");
+    println!("              Example: CACHE_STRATEGIES=noop,node256,everything");
+    println!("  SQLITE_WAL_AUTOCHECKPOINT");
+    println!("              Optional SQLite WAL auto-checkpoint page threshold");
+    println!("              Example: SQLITE_WAL_AUTOCHECKPOINT=0 (disable auto-checkpoint)");
+    println!("  SQLITE_WAL_CHECKPOINT_MODE");
+    println!("              WAL checkpoint mode for explicit post-setup checkpoint when auto-checkpoint is disabled");
+    println!("              Post-setup checkpoint runs only when SQLITE_WAL_AUTOCHECKPOINT=0");
+    println!("              Allowed: PASSIVE, FULL, RESTART, TRUNCATE [default: PASSIVE]");
+    println!("  OUTPUT_FORMAT");
+    println!("              Output mode [default: summary]");
+    println!("              'summary': unified summary lines only");
+    println!("              'raw': config/result lines + unified summary lines");
+    println!();
+    println!("Output Lines:");
+    println!("  config      Effective benchmark settings");
+    println!("  result      Per-round measurement: strategy/depth/time + alloc totals + per-op metrics");
+    println!("  summary     Unified summary lines emitted by marf bench main");
 }
 
 /// Build fixture key for a block height.
@@ -298,7 +295,7 @@ fn run_with_variants(
     variants: &[ReadVariant],
 ) -> Option<Summary> {
     if has_help_flag(args) {
-        print_usage(args);
+        print_usage();
         return None;
     }
 
