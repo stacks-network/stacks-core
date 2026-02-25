@@ -31,7 +31,7 @@ pub mod utils {
 
     use crate::nakamoto_node::miner::{fault_injection_stall_miner, fault_injection_unstall_miner};
     use crate::tests::nakamoto_integrations::wait_for;
-    use crate::tests::neon_integrations::{get_account, test_observer};
+    use crate::tests::neon_integrations::get_account;
     use crate::tests::signer::SignerTest;
     use crate::tests::{self};
 
@@ -96,7 +96,7 @@ pub mod utils {
             num_signers,
             initial_balances,
             |_| {},
-            |conf| {
+            |conf, _| {
                 conf.miner.mempool_walk_strategy = strategy;
             },
             None,
@@ -274,8 +274,12 @@ pub mod utils {
 
         info!("Sending transfers took {:?}", timer.elapsed());
 
-        let proposed_blocks_before = test_observer::get_mined_nakamoto_blocks().len();
-        let blocks_before = test_observer::get_blocks().len();
+        let proposed_blocks_before = signer_test
+            .running_nodes
+            .test_observer
+            .get_mined_nakamoto_blocks()
+            .len();
+        let blocks_before = signer_test.running_nodes.test_observer.get_blocks().len();
 
         info!("Mining transfers...");
 
@@ -284,12 +288,19 @@ pub mod utils {
 
         // Wait for the first block to be proposed.
         wait_for(30, || {
-            let proposed_blocks = test_observer::get_mined_nakamoto_blocks().len();
+            let proposed_blocks = signer_test
+                .running_nodes
+                .test_observer
+                .get_mined_nakamoto_blocks()
+                .len();
             Ok(proposed_blocks > proposed_blocks_before)
         })
         .expect("Timed out waiting for first block to be mined");
 
-        let blocks = test_observer::get_mined_nakamoto_blocks();
+        let blocks = signer_test
+            .running_nodes
+            .test_observer
+            .get_mined_nakamoto_blocks();
         let last_block = blocks.last().unwrap();
         info!(
             "First block contains {} transactions",
@@ -301,7 +312,7 @@ pub mod utils {
 
         // Wait for the first block to be accepted.
         wait_for(60, || {
-            let blocks = test_observer::get_blocks().len();
+            let blocks = signer_test.running_nodes.test_observer.get_blocks().len();
             Ok(blocks > blocks_before)
         })
         .expect("Timed out waiting for first block to be mined");
