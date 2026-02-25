@@ -18744,7 +18744,7 @@ fn tenure_extend_no_commits() {
 #[test]
 #[ignore]
 #[serial]
-fn test_pox_5q_activation() {
+fn test_pox_5_activation() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
