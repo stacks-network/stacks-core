@@ -68,8 +68,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         TypeSignatureTooDeep => Tested(vec![static_check_error_type_signature_too_deep]),
         ExpectedName => Tested(vec![static_check_error_expected_name]),
         SupertypeTooLarge => Tested(vec![static_check_error_supertype_too_large]),
-        ExpectsAcceptable(_) => Unreachable_ExpectLike,
-        ExpectsRejectable(_) => Unreachable_ExpectLike,
+        Unreachable(_) => Unreachable_ExpectLike,
         BadMatchOptionSyntax(static_check_error_kind) => {
             Tested(vec![static_check_error_bad_match_option_syntax])
         }

@@ -249,13 +249,8 @@ pub enum StaticCheckErrorKind {
     /// Supertype (i.e. common denominator between two types) exceeds the maximum allowed size or complexity.
     SupertypeTooLarge,
 
-    // Unexpected interpreter behavior
     /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    ExpectsRejectable(String),
-    // Unexpected interpreter behavior
-    /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    /// This error does NOT indicate a transaction would invalidate a block if included.
-    ExpectsAcceptable(String),
+    Unreachable(String),
 
     // Match expression errors
     /// Invalid syntax in an `option` match expression.
@@ -660,7 +655,7 @@ impl StaticCheckErrorKind {
     pub fn rejectable_in_epoch(&self, epoch: StacksEpochId) -> bool {
         match self {
             StaticCheckErrorKind::SupertypeTooLarge => epoch.rejects_supertype_too_large(),
-            StaticCheckErrorKind::ExpectsRejectable(_) => true,
+            StaticCheckErrorKind::Unreachable(_) => true,
             _ => false,
         }
     }
@@ -724,11 +719,9 @@ impl From<ClarityTypeError> for StaticCheckErrorKind {
             | ClarityTypeError::TypeMismatchValue(_, _)
             | ClarityTypeError::ResponseTypeMismatch { .. }
             | ClarityTypeError::InvalidAsciiCharacter(_)
-            | ClarityTypeError::InvalidUtf8Encoding => Self::ExpectsAcceptable(format!(
-                "Unexpected error type during static analysis: {err}"
-            )),
-            ClarityTypeError::InvariantViolation(_)
-            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::ExpectsRejectable(format!(
+            | ClarityTypeError::InvalidUtf8Encoding
+            | ClarityTypeError::InvariantViolation(_)
+            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::Unreachable(format!(
                 "Unexpected error type during static analysis: {err}"
             )),
             ClarityTypeError::CouldNotDetermineSerializationType => {
@@ -736,10 +729,10 @@ impl From<ClarityTypeError> for StaticCheckErrorKind {
             }
             ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
             ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
-                Self::ExpectsRejectable(format!("{ty} should not be used in {epoch}"))
+                Self::Unreachable(format!("{ty} should not be used in {epoch}"))
             }
             ClarityTypeError::UnsupportedEpoch(epoch) => {
-                Self::ExpectsRejectable(format!("{epoch} is not supported"))
+                Self::Unreachable(format!("{epoch} is not supported"))
             }
         }
     }
@@ -875,10 +868,10 @@ impl From<CostErrors> for StaticCheckErrorKind {
             CostErrors::CostContractLoadFailure => {
                 StaticCheckErrorKind::CostComputationFailed("Failed to load cost contract".into())
             }
-            CostErrors::InterpreterFailure => StaticCheckErrorKind::ExpectsRejectable(
+            CostErrors::InterpreterFailure => StaticCheckErrorKind::Unreachable(
                 "Unexpected interpreter failure in cost computation".into(),
             ),
-            CostErrors::Expect(s) => StaticCheckErrorKind::ExpectsRejectable(s),
+            CostErrors::Expect(s) => StaticCheckErrorKind::Unreachable(s),
             CostErrors::ExecutionTimeExpired => StaticCheckErrorKind::ExecutionTimeExpired,
         }
     }
@@ -1101,8 +1094,7 @@ impl DiagnosableError for StaticCheckErrorKind {
     fn message(&self) -> String {
         match &self {
             StaticCheckErrorKind::SupertypeTooLarge => "supertype of two types is too large".into(),
-            StaticCheckErrorKind::ExpectsRejectable(s) => format!("unexpected and unacceptable interpreter behavior: {s}"),
-            StaticCheckErrorKind::ExpectsAcceptable(s) => format!("unexpected but acceptable interpreter behaviour: {s}"),
+            StaticCheckErrorKind::Unreachable(s) => format!("unexpected and unacceptable interpreter behavior: {s}"),
             StaticCheckErrorKind::BadMatchOptionSyntax(source) =>
                 format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
                         source.message()),

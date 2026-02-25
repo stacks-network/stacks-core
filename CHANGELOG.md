@@ -17,10 +17,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Fixed
 
 - Improved the cost-tracking for `from-consensus-buff?`, effective in epoch 3.4, so that when an empty buffer is passed, users will see a `none` result, rather than a confusing runtime error.
-
-### Fixed
-
 - Resolved several cases where a mock-miner would stop mining
+- /v2/pox endpoint now returns the `pox_ustx_threshold` stored in the reward set instead of a live computed value, which incorrectly accounts for STX locked during the prepare phase, after the reward set has been set.
 
 ## [3.3.0.0.5]
 
