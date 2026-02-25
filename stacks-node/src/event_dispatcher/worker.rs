@@ -251,8 +251,12 @@ impl EventDispatcherWorker {
 
             debug!("Event Dispatcher Worker: doing payload {id}");
 
-            // This will block forever if we were passed a non-existing ID. Don't do that.
-            let mut payload = conn.get_payload_with_retry(id);
+            // This should never happen -- we should only receive tasks for payloads that exist. If we don't,
+            // that's inconsistent application state and warrants panicking the worker thread and thus shutting
+            // down the node.
+            let mut payload = conn
+                .get_payload_with_retry(id)
+                .expect("Event dispatcher cannot dispatch non-existent payload. This is a bug.");
 
             // Deliberately not handling the error case of `duration_since()` -- if the `timestamp`
             // is *after* `now` (which should be extremely rare), the most likely reason is a *slight*
@@ -393,5 +397,74 @@ impl EventDispatcherWorker {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::panic;
+    use std::sync::mpsc::RecvTimeoutError;
+
+    use serial_test::serial;
+    use tempfile::tempdir;
+
+    use crate::event_dispatcher::*;
+
+    #[test]
+    #[serial]
+    fn test_worker_dies_if_sent_non_existing_id() {
+        let dir = tempdir().unwrap();
+        let dispatcher =
+            EventDispatcher::new_with_custom_queue_size(dir.path().to_path_buf(), 1000);
+
+        // Set up a panic hook that sends us error messages -- we're asserting that a panic occurs
+        // in a background thread, hence this detour. This is important because event dispatching is
+        // often a fire-and-forget operation and thus errors aren't necessarily propagated as usual.
+        let old_hook = panic::take_hook();
+        let (tx, rx) = channel();
+        panic::set_hook(Box::new(move |info| {
+            let error = info
+                .payload_as_str()
+                .unwrap_or("NO ERROR MESSAGE")
+                .to_string();
+            let _ = tx.send(error);
+            old_hook(info);
+        }));
+
+        info!("Sending id to worker for which there is no payload. Expecting dispatcher thread to panic.");
+
+        // The DB is empty, so payload 42 certainly doesn't exist. This should make the worker thread
+        // panic. Calling .recv() on the result's receiver will therefore be an error. Before the change
+        // that this test is accompanying, the worker thread would instead block forever in such a case.
+        // That's the reason we have the explicit timeout handling here -- a timeout would *not* be a
+        // correct result (anymore).
+        let result = dispatcher.worker.initiate_send(42, false, None).unwrap();
+        let recv_result = result
+            .receiver
+            .unwrap()
+            .recv_timeout(Duration::from_secs(20));
+
+        match recv_result {
+            Ok(_) => {
+                panic!("receiving from the event dispatcher result receiver should yield an error")
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("timeout while waiting for the worker thread to die")
+            }
+            Err(RecvTimeoutError::Disconnected) => { /* this is the expected case --  */ }
+        };
+
+        // An identical call to `initiate_send` should now be an error because the worker has died.
+        assert!(
+            dispatcher.worker.initiate_send(42, false, None).is_err(),
+            "second event dispatcher result should be an error"
+        );
+
+        // The panic hook should have sent us the error message from the panic in the worker thread
+        assert!(
+            rx.recv_timeout(Duration::from_secs(20))
+                .is_ok_and(|s| s.contains("cannot dispatch non-existent payload")),
+            "expected thread panic did not happen"
+        );
     }
 }

@@ -76,9 +76,13 @@ impl EventDispatcherDbConnection {
         )
     }
 
-    pub fn get_payload_with_retry(&self, id: i64) -> PendingPayload {
+    pub fn get_payload_with_retry(&self, id: i64) -> Option<PendingPayload> {
         with_retry(
-            || self.get_payload(id),
+            || match self.get_payload(id) {
+                Ok(payload) => Ok(Some(payload)),
+                Err(db_error::SqliteError(rusqlite::Error::QueryReturnedNoRows)) => Ok(None),
+                Err(e) => Err(e),
+            },
             "Failed to retrieve payload {id} from event observer database".to_string(),
         )
     }
