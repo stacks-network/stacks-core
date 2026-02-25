@@ -306,9 +306,7 @@ pub mod test_observer {
     use warp::Filter;
     use {tokio, warp};
 
-    use crate::event_dispatcher::{
-        self, MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent,
-    };
+    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
     use crate::Config;
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
@@ -536,70 +534,51 @@ pub mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
-    /// Waits until all events that have been queued for dispatch until now
-    /// have actually been delivered. This ensures the tests have all the data
-    /// they need to assert on.
-    fn catch_up() {
-        event_dispatcher::catch_up_all_event_dispatchers();
-    }
-
     pub fn get_stacker_sets() -> Vec<(StacksBlockId, u64, RewardSet)> {
-        catch_up();
         STACKER_SETS.lock().unwrap().clone()
     }
 
     pub fn get_memtxs() -> Vec<String> {
-        catch_up();
         MEMTXS.lock().unwrap().clone()
     }
 
     pub fn get_memtx_drops() -> Vec<(String, String)> {
-        catch_up();
         MEMTXS_DROPPED.lock().unwrap().clone()
     }
 
     pub fn get_blocks() -> Vec<serde_json::Value> {
-        catch_up();
         NEW_BLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_microblocks() -> Vec<serde_json::Value> {
-        catch_up();
         NEW_MICROBLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_burn_blocks() -> Vec<BurnBlockEvent> {
-        catch_up();
         BURN_BLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_attachments() -> Vec<serde_json::Value> {
-        catch_up();
         ATTACHMENTS.lock().unwrap().clone()
     }
 
     pub fn get_mined_blocks() -> Vec<MinedBlockEvent> {
-        catch_up();
         MINED_BLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_mined_microblocks() -> Vec<MinedMicroblockEvent> {
-        catch_up();
         MINED_MICROBLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_mined_nakamoto_blocks() -> Vec<MinedNakamotoBlockEvent> {
-        catch_up();
         MINED_NAKAMOTO_BLOCKS.lock().unwrap().clone()
     }
 
     pub fn get_stackerdb_chunks() -> Vec<StackerDBChunksEvent> {
-        catch_up();
         NEW_STACKERDB_CHUNKS.lock().unwrap().clone()
     }
 
     pub fn get_proposal_responses() -> Vec<BlockValidateResponse> {
-        catch_up();
         PROPOSAL_RESPONSES.lock().unwrap().clone()
     }
 
@@ -690,7 +669,6 @@ pub mod test_observer {
     }
 
     pub fn clear() {
-        catch_up();
         NEW_BLOCKS.lock().unwrap().clear();
         MINED_BLOCKS.lock().unwrap().clear();
         MINED_MICROBLOCKS.lock().unwrap().clear();

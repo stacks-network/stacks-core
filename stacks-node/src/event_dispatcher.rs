@@ -19,9 +19,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::mpsc::channel;
-use std::sync::{Arc, Mutex};
 #[cfg(test)]
-use std::sync::{LazyLock, Weak};
+use std::sync::LazyLock;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use clarity::vm::costs::ExecutionCost;
@@ -184,10 +184,9 @@ pub struct EventDispatcher {
     pub stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
     /// Path to the database where pending payloads are stored.
     db_path: PathBuf,
-    /// The worker thread that performs the actuall HTTP requests so that they don't block
-    /// the main operation of the node. It's wrapped in an `Arc` only to make some test helpers
-    /// work (see `ALL_WORKERS`); in release code it wouldn't be necessary.
-    worker: Arc<EventDispatcherWorker>,
+    /// The worker thread that performs the actual HTTP requests so that they don't block
+    /// the main operation of the node.
+    worker: EventDispatcherWorker,
 }
 
 /// This struct is used specifically for receiving proposal responses.
@@ -388,36 +387,6 @@ impl BlockEventDispatcher for EventDispatcher {
     }
 }
 
-/// During integration tests, the `test_observer` needs to ensure that all events
-/// that were triggered have actually been delivered, before it can pass on the
-/// captured data. To make that work, during test we store weak references to
-/// all the workers and make it possible to wait for all of them to catch up
-/// in a single function call (see `catch_up_all_event_dispatchers`).
-#[cfg(test)]
-static ALL_WORKERS: Mutex<Vec<Weak<EventDispatcherWorker>>> = Mutex::new(Vec::new());
-
-#[cfg(test)]
-pub fn catch_up_all_event_dispatchers() {
-    let mut results = Vec::new();
-    let mut guard = ALL_WORKERS.lock().unwrap();
-
-    // remove all items that have been dropped; call .noop() the rest
-    guard.retain_mut(|w| {
-        let Some(worker) = w.upgrade() else {
-            return false;
-        };
-        results.push(worker.noop().unwrap());
-        return true;
-    });
-    // unlock the mutex
-    drop(guard);
-
-    // block until all workers have caught up
-    for result in results {
-        result.wait_until_complete();
-    }
-}
-
 impl EventDispatcher {
     /// The default behavior is to create a non-blocking dispatcher with a
     /// queue size of 1,000. Note however that the default *node* configuration
@@ -438,13 +407,6 @@ impl EventDispatcher {
 
         let worker = EventDispatcherWorker::new(db_path.clone(), queue_size)
             .expect("Failed to start worker thread");
-
-        let worker = Arc::new(worker);
-
-        #[cfg(test)]
-        {
-            ALL_WORKERS.lock().unwrap().push(Arc::downgrade(&worker));
-        }
 
         EventDispatcher {
             stackerdb_channel: Arc::new(Mutex::new(StackerDBChannel::new())),
