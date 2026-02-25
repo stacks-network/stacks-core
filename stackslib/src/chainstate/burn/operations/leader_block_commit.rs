@@ -396,8 +396,8 @@ impl LeaderBlockCommitOp {
                 return Err(op_error::InvalidInput);
             }
 
-            // compute the total amount transfered/burned, and check that the burn amount
-            //   is expected given the amount transfered.
+            // compute the total amount transferred/burned, and check that the burn amount
+            //   is expected given the amount transferred.
             let burn_fee = pox_fee
                 .expect("A 0-len output should have already errored")
                 .checked_mul(u64::try_from(OUTPUTS_PER_COMMIT).expect(">2^64 outputs per commit")) // total commitment is the pox_amount * outputs

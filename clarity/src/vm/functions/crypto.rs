@@ -20,7 +20,7 @@ use stacks_common::address::{
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash;
 use stacks_common::util::secp256k1::{Secp256k1PublicKey, secp256k1_recover, secp256k1_verify};
-use stacks_common::util::secp256r1::secp256r1_verify;
+use stacks_common::util::secp256r1::{secp256r1_verify, secp256r1_verify_digest};
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -377,7 +377,12 @@ pub fn special_secp256r1_verify(
         }
     };
 
-    Ok(Value::Bool(
-        secp256r1_verify(message, signature, pubkey).is_ok(),
-    ))
+    let version = *env.contract_context.get_clarity_version();
+    let verify_result = if version.uses_secp256r1_double_hashing() {
+        secp256r1_verify(message, signature, pubkey)
+    } else {
+        secp256r1_verify_digest(message, signature, pubkey)
+    };
+
+    Ok(Value::Bool(verify_result.is_ok()))
 }

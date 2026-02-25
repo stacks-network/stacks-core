@@ -52,6 +52,7 @@ use crate::net::http::{
 };
 use crate::net::httpcore::RPCRequestHandler;
 use crate::net::{Error as NetError, StacksNodeState};
+use crate::util_lib::db::Error as db_error;
 
 /// Test flag to stall block validation per endpoint with a matching passphrase
 #[cfg(any(test, feature = "testing"))]
@@ -86,7 +87,8 @@ define_u8_enum![ValidateRejectCode {
     InvalidTransactionReplay = 7,
     InvalidParentBlock = 8,
     InvalidTimestamp = 9,
-    NetworkChainMismatch = 10
+    NetworkChainMismatch = 10,
+    NotFoundError = 11
 }];
 
 pub static TOO_MANY_REQUESTS_STATUS: u16 = 429;
@@ -143,9 +145,13 @@ where
 {
     fn from(value: T) -> Self {
         let ce: ChainError = value.into();
+        let reason_code = match ce {
+            ChainError::DBError(db_error::NotFoundError) => ValidateRejectCode::NotFoundError,
+            _ => ValidateRejectCode::ChainstateError,
+        };
         Self {
             reason: format!("Chainstate Error: {ce}"),
-            reason_code: ValidateRejectCode::ChainstateError,
+            reason_code,
         }
     }
 }

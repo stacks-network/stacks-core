@@ -1964,7 +1964,7 @@ impl NakamotoChainState {
             );
             ChainstateError::NoSuchBlockError
         })?;
-        let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
+        let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin();
 
         // find parent header
         let Some(parent_header_info) =

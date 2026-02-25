@@ -1438,6 +1438,56 @@ impl TypeSignature {
             CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => Some(1),
         }
     }
+
+    pub fn min_size(&self) -> Result<u32, ClarityTypeError> {
+        self.inner_min_size()?.ok_or_else(|| {
+            ClarityTypeError::InvariantViolation(
+                "FAIL: .min_size() overflowed on too large of a type. Construction should have failed!"
+                    .into(),
+            )
+        })
+    }
+
+    fn inner_min_size(&self) -> Result<Option<u32>, ClarityTypeError> {
+        let out = match self {
+            // NoType's may be asked for their size at runtime --
+            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
+            NoType => Some(1),
+            IntType => Some(16),
+            UIntType => Some(16),
+            BoolType => Some(1),
+            TupleType(tuple_sig) => tuple_sig.inner_min_size()?,
+            SequenceType(SequenceSubtype::BufferType(_))
+            | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => Some(4),
+            // Minimal list value is an empty list, which still carries list type metadata.
+            SequenceType(SequenceSubtype::ListType(list_type)) => list_type.type_size(),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => Some(4),
+            // Optional types always admit `none`, so minimum size is fixed:
+            // 1 byte for NoType plus wrapper.
+            OptionalType(_) => Some(WRAPPER_VALUE_SIZE + 1),
+            ResponseType(v) => {
+                // ResponseTypes are 1 byte for the committed bool,
+                //   plus min(err_type, ok_type)
+                let (t, s) = (&v.0, &v.1);
+                let t_size = t.min_size()?;
+                let s_size = s.min_size()?;
+                cmp::min(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
+            }
+            PrincipalType | CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => {
+                // The actual value size is not computed for these types, so we need to just always
+                // return the size that `size()` returns for them, which is the maximum size of a
+                // contract principal with a 128 byte contract name.
+                Some(148)
+            }
+            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => {
+                // The actual value size is not computed for these types, so we need to just always
+                // return the size that `size()` returns for them, which is the maximum size of a
+                // trait reference with a 128 byte contract name and 128 byte trait name.
+                Some(276)
+            }
+        };
+        Ok(out)
+    }
 }
 
 impl ListTypeData {
@@ -1531,6 +1581,38 @@ impl TupleTypeSignature {
             };
         }
 
+        if total_size > MAX_VALUE_SIZE {
+            Ok(None)
+        } else {
+            Ok(Some(total_size))
+        }
+    }
+
+    /// Tuple Size:
+    ///    size( btreemap<name, value> ) + type_size
+    ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)
+    fn inner_min_size(&self) -> Result<Option<u32>, ClarityTypeError> {
+        let Some(mut total_size) = u32::try_from(self.type_map.len())
+            .ok()
+            .and_then(|x| x.checked_mul(2))
+            .and_then(|x| x.checked_add(self.type_size()?))
+        else {
+            return Ok(None);
+        };
+        for (name, type_signature) in self.type_map.iter() {
+            // we only accept ascii names, so 1 char = 1 byte.
+            total_size = if let Some(new_size) = total_size.checked_add(type_signature.min_size()?)
+            {
+                new_size
+            } else {
+                return Ok(None);
+            };
+            total_size = if let Some(new_size) = total_size.checked_add(name.len() as u32) {
+                new_size
+            } else {
+                return Ok(None);
+            };
+        }
         if total_size > MAX_VALUE_SIZE {
             Ok(None)
         } else {
