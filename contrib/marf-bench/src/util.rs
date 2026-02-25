@@ -138,3 +138,35 @@ pub fn print_output(output: &Output) {
     print!("{}", String::from_utf8_lossy(&output.stdout));
     eprint!("{}", String::from_utf8_lossy(&output.stderr));
 }
+
+/// Return median, minimum, and maximum values for a non-empty slice.
+pub fn median_min_max(values: &[f64]) -> (f64, f64, f64) {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.total_cmp(b));
+
+    let min = *sorted
+        .first()
+        .expect("median_min_max requires non-empty values");
+    let max = *sorted
+        .last()
+        .expect("median_min_max requires non-empty values");
+    let len = sorted.len();
+
+    let median = if len % 2 == 1 {
+        sorted[len / 2]
+    } else {
+        (sorted[(len / 2) - 1] + sorted[len / 2]) / 2.0
+    };
+
+    (median, min, max)
+}
+
+/// Format a floating-point value with three decimal places.
+pub fn f3(value: f64) -> String {
+    format!("{value:.3}")
+}
+
+/// Format a floating-point value with four decimal places.
+pub fn f4(value: f64) -> String {
+    format!("{value:.4}")
+}

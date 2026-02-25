@@ -86,7 +86,7 @@ cargo marf-bench clean --dry-run
 
 ## Command shape
 
-- `run`: `cargo marf-bench run [--output-format <summary|raw|tsv>] <primitives|read|write> [bench-specific options]`
+- `run`: `cargo marf-bench run [--output-format <summary|raw|tsv>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] <primitives|read|write> [bench-specific options]`
 - `bench`: `cargo marf-bench bench [--base <rev|staged|merge-base:<upstream-ref>>] [--target <rev>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] [--keep-worktrees] [--output-format <summary|raw|tsv>] <primitives|read|write> [bench-specific options]`
 - `clean`: `cargo marf-bench clean [--dry-run]`
 
@@ -96,9 +96,11 @@ Notes:
 - `--base` also accepts keywords: `staged`, `merge-base:<upstream-ref>`.
 - `merge-base` keyword requires an explicit upstream ref suffix (no default remote/ref).
 - `--target` requires `--base`.
-- `--repeats` requires `--base`; when set, marf-bench runs full base/target comparisons N times and appends repeat statistics.
-- `--repeat-jitter-threshold` sets the spread threshold (percentage points) for classifying high-jitter rows in repeat confidence output; default is `30`.
-- Repeat confidence classifies a row as high-jitter when total-ms repeat deltas straddle both signs (`min < 0 < max`) and spread exceeds threshold.
+- For `bench`, `--repeats` requires `--base`; when set, marf-bench runs full base/target comparisons N times and appends repeat statistics.
+- `run --repeats` repeats the same current-tree run N times and reports baseline-free repeat statistics (`total_ms` median/min/max, plus median alloc metrics).
+- `--repeat-jitter-threshold` sets the high-jitter threshold; default is `30`.
+- In `run` repeat confidence, a row is high-jitter when `spread/median(total_ms)` exceeds the threshold percentage.
+- In `bench` repeat confidence, a row is high-jitter when repeat deltas straddle both signs (`min < 0 < max`) and spread exceeds threshold.
 - `--keep-worktrees` keeps revision worktrees under the platform temp directory (for example `/tmp/marf-bench-worktrees/...` on Linux) and reuses them across invocations (faster subsequent builds when overlays are unchanged).
 - Bench-specific options (`--iters`, `--rounds`, etc.) come after the bench subcommand.
 
