@@ -585,7 +585,7 @@ pub static STACKS_EPOCH_3_3_MARKER: u8 = 0x0f;
 /// *or greater*.
 pub static STACKS_EPOCH_3_4_MARKER: u8 = 0x10;
 
-/// Stacks 3.45epoch marker.  All block-commits in 3.5 must have a memo bitfield with this value
+/// Stacks 3.5 epoch marker.  All block-commits in 3.5 must have a memo bitfield with this value
 /// *or greater*.
 pub static STACKS_EPOCH_3_5_MARKER: u8 = 0x11;
 
