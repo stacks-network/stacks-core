@@ -407,6 +407,8 @@
     (let ((owner (contract-of pool-owner)))
         ;; TODO: verify signer sig
 
+        (try! (check-pox-addr pox-addr))
+
         (try! (contract-call? pool-owner validate-registration! tx-sender signer-key
             pox-addr
         ))

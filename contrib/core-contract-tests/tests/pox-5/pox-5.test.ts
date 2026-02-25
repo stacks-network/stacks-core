@@ -6,14 +6,7 @@ import {
   randomPoxAddress,
   randomStacksAddress,
 } from '../test-helpers';
-import { hex } from '@scure/base';
-import * as BTC from '@scure/btc-signer';
-import {
-  serializeLockupScript,
-  pox5,
-  errorCodes,
-  testPool,
-} from './pox-5-helpers';
+import { pox5, errorCodes, testPool } from './pox-5-helpers';
 import { randomBytes } from '@stacks/transactions';
 import { inspect } from 'node:util';
 
@@ -246,9 +239,123 @@ describe('staking', () => {
       expect(stakerInfo.firstRewardCycle).toBe(2n);
       expect(stakerInfo.numCycles).toBe(1n);
     });
+
+    test('cannot extend stake before the final cycle', () => {
+      const stacker = alice;
+      txOk(
+        pox5.stake({
+          amountUstx: 1000000,
+          poxAddr: randomPoxAddress(),
+          signerKey: randomBytes(33),
+          maxAmount: 1000000,
+          authId: 0,
+          signerSig: randomBytes(65),
+          startBurnHt: simnet.burnBlockHeight,
+          numCycles: 2,
+          unlockBytes: randomBytes(255),
+        }),
+        stacker,
+      );
+
+      const result = txErr(
+        pox5.stakeExtend({
+          amountUstx: 1000000,
+          poxAddr: randomPoxAddress(),
+          signerKey: randomBytes(33),
+          maxAmount: 1000000,
+          authId: 1,
+          signerSig: randomBytes(65),
+          numCycles: 1,
+          unlockBytes: randomBytes(255),
+        }),
+        stacker,
+      );
+      expect(result.value).toEqual(errorCodes.ERR_CANNOT_EXTEND);
+    });
+
+    test('can switch from pooled to solo via stake-extend', () => {
+      const signerKey = randomBytes(33);
+      const poxAddr = randomPoxAddress();
+      txOk(
+        pox5.registerPool({
+          poolOwner: testPool.identifier,
+          signerKey,
+          poxAddr,
+          signerSig: randomBytes(65),
+          authId: 0,
+        }),
+        deployer,
+      );
+
+      const pooledStake = txOk(
+        pox5.stakePooled({
+          poolOwner: testPool.identifier,
+          amountUstx: 1000000,
+          numCycles: 1,
+          unlockBytes: randomBytes(255),
+          startBurnHt: simnet.burnBlockHeight,
+        }),
+        alice,
+      );
+      assertOk(pooledStake.value.poolOrSoloInfo);
+      expect(pooledStake.value.poolOrSoloInfo.value).toBe(testPool.identifier);
+
+      mineUntil(pooledStake.value.unlockBurnHeight);
+
+      const nextPoxAddr = randomPoxAddress();
+      const nextSignerKey = randomBytes(33);
+      const nextUnlockBytes = randomBytes(683);
+      const extendReceipt = txOk(
+        pox5.stakeExtend({
+          amountUstx: 2000000,
+          poxAddr: nextPoxAddr,
+          signerKey: nextSignerKey,
+          signerSig: randomBytes(65),
+          maxAmount: 2000000,
+          authId: 1,
+          numCycles: 2,
+          unlockBytes: nextUnlockBytes,
+        }),
+        alice,
+      );
+
+      assertErr(extendReceipt.value.poolOrSoloInfo);
+      expect(extendReceipt.value.poolOrSoloInfo.value.poxAddr).toStrictEqual(
+        nextPoxAddr,
+      );
+      expect(extendReceipt.value.poolOrSoloInfo.value.signerKey).toStrictEqual(
+        nextSignerKey,
+      );
+
+      const stakerInfo = rov(pox5.getStakerInfo(alice))!;
+      expect(stakerInfo.amountUstx).toBe(2000000n);
+      expect(stakerInfo.firstRewardCycle).toBe(2n);
+      expect(stakerInfo.numCycles).toBe(2n);
+      expect(stakerInfo.unlockBytes).toStrictEqual(nextUnlockBytes);
+      assertErr(stakerInfo.poolOrSoloInfo);
+      expect(stakerInfo.poolOrSoloInfo.value.poxAddr).toStrictEqual(nextPoxAddr);
+      expect(stakerInfo.poolOrSoloInfo.value.signerKey).toStrictEqual(
+        nextSignerKey,
+      );
+    });
   });
 
   describe('pool-based staking', () => {
+    test('cannot stake to an unregistered pool', () => {
+      const result = txErr(
+        pox5.stakePooled({
+          poolOwner: testPool.identifier,
+          amountUstx: 1000000,
+          numCycles: 1,
+          unlockBytes: randomBytes(255),
+          startBurnHt: simnet.burnBlockHeight,
+        }),
+        alice,
+      );
+
+      expect(result.value).toEqual(errorCodes.ERR_POOL_NOT_FOUND);
+    });
+
     test('can register a pool', () => {
       const owner = accounts.deployer.address;
       const signerKey = randomBytes(33);
@@ -312,6 +419,113 @@ describe('staking', () => {
           }),
         ),
       ).not.toBeNull();
+    });
+
+    test('can switch from solo to pooled via stake-extend-pooled', () => {
+      const soloStake = txOk(
+        pox5.stake({
+          amountUstx: 1000000,
+          poxAddr: randomPoxAddress(),
+          signerKey: randomBytes(33),
+          maxAmount: 1000000,
+          authId: 0,
+          signerSig: randomBytes(65),
+          startBurnHt: simnet.burnBlockHeight,
+          numCycles: 1,
+          unlockBytes: randomBytes(255),
+        }),
+        alice,
+      );
+
+      txOk(
+        pox5.registerPool({
+          poolOwner: testPool.identifier,
+          signerKey: randomBytes(33),
+          poxAddr: randomPoxAddress(),
+          signerSig: randomBytes(65),
+          authId: 0,
+        }),
+        deployer,
+      );
+
+      mineUntil(soloStake.value.unlockBurnHeight);
+
+      const nextUnlockBytes = randomBytes(683);
+      const receipt = txOk(
+        pox5.stakeExtendPooled({
+          poolOwner: testPool.identifier,
+          amountUstx: 1250000,
+          numCycles: 2,
+          unlockBytes: nextUnlockBytes,
+        }),
+        alice,
+      );
+
+      assertOk(receipt.value.poolOrSoloInfo);
+      expect(receipt.value.poolOrSoloInfo.value).toBe(testPool.identifier);
+      expect(receipt.value.amountUstx).toBe(1250000n);
+
+      const stakerInfo = rov(pox5.getStakerInfo(alice))!;
+      expect(stakerInfo.amountUstx).toBe(1250000n);
+      expect(stakerInfo.firstRewardCycle).toBe(2n);
+      expect(stakerInfo.numCycles).toBe(2n);
+      expect(stakerInfo.unlockBytes).toStrictEqual(nextUnlockBytes);
+      assertOk(stakerInfo.poolOrSoloInfo);
+      expect(stakerInfo.poolOrSoloInfo.value).toBe(testPool.identifier);
+    });
+
+    test('cannot call stake-extend-pooled before the final cycle', () => {
+      txOk(
+        pox5.registerPool({
+          poolOwner: testPool.identifier,
+          signerKey: randomBytes(33),
+          poxAddr: randomPoxAddress(),
+          signerSig: randomBytes(65),
+          authId: 0,
+        }),
+        deployer,
+      );
+
+      txOk(
+        pox5.stakePooled({
+          poolOwner: testPool.identifier,
+          amountUstx: 1000000,
+          numCycles: 2,
+          unlockBytes: randomBytes(255),
+          startBurnHt: simnet.burnBlockHeight,
+        }),
+        alice,
+      );
+
+      const result = txErr(
+        pox5.stakeExtendPooled({
+          poolOwner: testPool.identifier,
+          amountUstx: 1000000,
+          numCycles: 1,
+          unlockBytes: randomBytes(255),
+        }),
+        alice,
+      );
+
+      expect(result.value).toEqual(errorCodes.ERR_CANNOT_EXTEND);
+    });
+
+    test('register-pool validates pox-addr', () => {
+      const result = txErr(
+        pox5.registerPool({
+          poolOwner: testPool.identifier,
+          signerKey: randomBytes(33),
+          poxAddr: {
+            version: Uint8Array.from([0x07]),
+            hashbytes: randomBytes(32),
+          },
+          signerSig: randomBytes(65),
+          authId: 0,
+        }),
+        deployer,
+      );
+
+      expect(result.value).toEqual(errorCodes.ERR_INVALID_POX_ADDRESS);
     });
   });
 });
