@@ -617,6 +617,29 @@ impl StacksChainState {
             }
         }
 
+        // check if post-condition mode is supported in this epoch
+        if tx.post_condition_mode == TransactionPostConditionMode::Originator
+            && !epoch_id.supports_sip040_post_conditions()
+        {
+            let msg = "Invalid Stacks transaction: Originator post-condition mode is not supported before Stacks 3.4".to_string();
+            info!("{}", &msg; "txid" => %tx.txid());
+            return Err(Error::InvalidStacksTransaction(msg, false));
+        }
+        // check if MaybeSent NFT post-conditions are supported in this epoch
+        if !epoch_id.supports_sip040_post_conditions() {
+            for post_condition in tx.post_conditions.iter() {
+                if let TransactionPostCondition::Nonfungible(_, _, _, condition_code) =
+                    post_condition
+                {
+                    if *condition_code == NonfungibleConditionCode::MaybeSent {
+                        let msg = "Invalid Stacks transaction: NFT MaybeSent post-condition is not supported before Stacks 3.4".to_string();
+                        info!("{}", &msg; "txid" => %tx.txid());
+                        return Err(Error::InvalidStacksTransaction(msg, false));
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1048,28 +1071,6 @@ impl StacksChainState {
         origin_account: &StacksAccount,
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<StacksTransactionReceipt, Error> {
-        let epoch_id = clarity_tx.get_epoch();
-        if tx.post_condition_mode == TransactionPostConditionMode::Originator
-            && !epoch_id.supports_sip040_post_conditions()
-        {
-            let msg = "Invalid Stacks transaction: Originator post-condition mode is not supported before Stacks 3.4".to_string();
-            info!("{}", &msg; "txid" => %tx.txid());
-            return Err(Error::InvalidStacksTransaction(msg, false));
-        }
-        if !epoch_id.supports_sip040_post_conditions() {
-            for post_condition in tx.post_conditions.iter() {
-                if let TransactionPostCondition::Nonfungible(_, _, _, condition_code) =
-                    post_condition
-                {
-                    if *condition_code == NonfungibleConditionCode::MaybeSent {
-                        let msg = "Invalid Stacks transaction: NFT MaybeSent post-condition is not supported before Stacks 3.4".to_string();
-                        info!("{}", &msg; "txid" => %tx.txid());
-                        return Err(Error::InvalidStacksTransaction(msg, false));
-                    }
-                }
-            }
-        }
-
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
@@ -1844,7 +1845,6 @@ pub mod test {
     fn run_process_transaction_payload_at_epoch(
         epoch_id: StacksEpochId,
         tx: &StacksTransaction,
-        origin_account: &StacksAccount,
     ) -> Result<StacksTransactionReceipt, Error> {
         let marf_kv = MarfedKV::temporary();
         let chain_id = 0x80000000;
@@ -1876,7 +1876,7 @@ pub mod test {
             _ => panic!("Unsupported epoch in test helper: {epoch_id}"),
         };
 
-        let mut next_block = clarity_instance.begin_block(
+        let next_block = clarity_instance.begin_block(
             &StacksBlockHeader::make_index_block_hash(
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
@@ -1886,15 +1886,24 @@ pub mod test {
             burn_db,
         );
 
-        let mut tx_conn = next_block.start_transaction_processing();
-        StacksChainState::process_transaction_payload(&mut tx_conn, tx, origin_account, None)
+        let mut clarity_tx = ClarityTx {
+            block: next_block,
+            config: DBConfig {
+                version: CHAINSTATE_VERSION.to_string(),
+                mainnet: false,
+                chain_id,
+            },
+        };
+
+        let (_fee, receipt) =
+            validate_transactions_static_epoch_and_process_transaction(&mut clarity_tx, tx, false)?;
+        Ok(receipt)
     }
 
     #[test]
     fn process_transaction_payload_originator_mode_epoch_gate() {
         let sk = Secp256k1PrivateKey::random();
         let auth = TransactionAuth::from_p2pkh(&sk).unwrap();
-        let sender = PrincipalData::from(auth.origin().address_testnet());
         let chain_id = 0x80000000;
 
         let tx = StacksTransaction {
@@ -1912,25 +1921,21 @@ pub mod test {
                 None,
             ),
         };
-        let origin_account = StacksAccount {
-            principal: sender,
-            nonce: 0,
-            stx_balance: STXBalance::Unlocked { amount: 100 },
-        };
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&sk).unwrap();
+        let tx = signer.get_tx().unwrap();
 
         let err_epoch33 =
-            run_process_transaction_payload_at_epoch(StacksEpochId::Epoch33, &tx, &origin_account)
-                .unwrap_err();
+            run_process_transaction_payload_at_epoch(StacksEpochId::Epoch33, &tx).unwrap_err();
         match err_epoch33 {
             Error::InvalidStacksTransaction(msg, false) => {
-                assert!(msg.contains("Originator post-condition mode"), "{msg}");
+                assert!(msg.contains("target epoch is not activated"), "{msg}");
             }
             _ => panic!("Expected InvalidStacksTransaction for epoch 3.3"),
         }
 
         let receipt_epoch34 =
-            run_process_transaction_payload_at_epoch(StacksEpochId::Epoch34, &tx, &origin_account)
-                .unwrap();
+            run_process_transaction_payload_at_epoch(StacksEpochId::Epoch34, &tx).unwrap();
         assert_eq!(receipt_epoch34.result, Value::okay_true());
         assert!(!receipt_epoch34.post_condition_aborted);
     }
@@ -1939,7 +1944,6 @@ pub mod test {
     fn process_transaction_payload_nft_maybe_sent_epoch_gate() {
         let sk = Secp256k1PrivateKey::random();
         let auth = TransactionAuth::from_p2pkh(&sk).unwrap();
-        let sender = PrincipalData::from(auth.origin().address_testnet());
         let chain_id = 0x80000000;
 
         let tx = StacksTransaction {
@@ -1966,25 +1970,21 @@ pub mod test {
                 None,
             ),
         };
-        let origin_account = StacksAccount {
-            principal: sender,
-            nonce: 0,
-            stx_balance: STXBalance::Unlocked { amount: 100 },
-        };
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&sk).unwrap();
+        let tx = signer.get_tx().unwrap();
 
         let err_epoch33 =
-            run_process_transaction_payload_at_epoch(StacksEpochId::Epoch33, &tx, &origin_account)
-                .unwrap_err();
+            run_process_transaction_payload_at_epoch(StacksEpochId::Epoch33, &tx).unwrap_err();
         match err_epoch33 {
             Error::InvalidStacksTransaction(msg, false) => {
-                assert!(msg.contains("NFT MaybeSent post-condition"), "{msg}");
+                assert!(msg.contains("target epoch is not activated"), "{msg}");
             }
             _ => panic!("Expected InvalidStacksTransaction for epoch 3.3"),
         }
 
         let receipt_epoch34 =
-            run_process_transaction_payload_at_epoch(StacksEpochId::Epoch34, &tx, &origin_account)
-                .unwrap();
+            run_process_transaction_payload_at_epoch(StacksEpochId::Epoch34, &tx).unwrap();
         assert_eq!(receipt_epoch34.result, Value::okay_true());
         assert!(!receipt_epoch34.post_condition_aborted);
     }
