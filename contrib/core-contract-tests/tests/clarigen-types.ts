@@ -3693,19 +3693,34 @@ export const contracts = {
         access: 'private',
         args: [
           { name: 'amount-ustx', type: 'uint128' },
+          { name: 'num-cycles', type: 'uint128' },
+          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+          { name: 'start-burn-ht', type: 'uint128' },
           {
-            name: 'pox-addr',
+            name: 'pool-or-solo-info',
             type: {
-              tuple: [
-                { name: 'hashbytes', type: { buffer: { length: 32 } } },
-                { name: 'version', type: { buffer: { length: 1 } } },
-              ],
+              response: {
+                ok: 'principal',
+                error: {
+                  tuple: [
+                    {
+                      name: 'pox-addr',
+                      type: {
+                        tuple: [
+                          {
+                            name: 'hashbytes',
+                            type: { buffer: { length: 32 } },
+                          },
+                          { name: 'version', type: { buffer: { length: 1 } } },
+                        ],
+                      },
+                    },
+                    { name: 'signer-key', type: { buffer: { length: 33 } } },
+                  ],
+                },
+              },
             },
           },
-          { name: 'signer-key', type: { buffer: { length: 33 } } },
-          { name: 'num-cycles', type: 'uint128' },
-          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
-          { name: 'start-burn-ht', type: 'uint128' },
         ],
         outputs: {
           type: {
@@ -3715,18 +3730,39 @@ export const contracts = {
                   { name: 'amount-ustx', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   {
-                    name: 'pox-addr',
+                    name: 'pool-or-solo-info',
                     type: {
-                      tuple: [
-                        { name: 'hashbytes', type: { buffer: { length: 32 } } },
-                        { name: 'version', type: { buffer: { length: 1 } } },
-                      ],
+                      response: {
+                        ok: 'principal',
+                        error: {
+                          tuple: [
+                            {
+                              name: 'pox-addr',
+                              type: {
+                                tuple: [
+                                  {
+                                    name: 'hashbytes',
+                                    type: { buffer: { length: 32 } },
+                                  },
+                                  {
+                                    name: 'version',
+                                    type: { buffer: { length: 1 } },
+                                  },
+                                ],
+                              },
+                            },
+                            {
+                              name: 'signer-key',
+                              type: { buffer: { length: 33 } },
+                            },
+                          ],
+                        },
+                      },
                     },
                   },
-                  { name: 'signer-key', type: { buffer: { length: 33 } } },
                   { name: 'stacker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
-                  { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+                  { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
                   { name: 'unlock-cycle', type: 'uint128' },
                 ],
               },
@@ -3737,27 +3773,37 @@ export const contracts = {
       } as TypedAbiFunction<
         [
           amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
-          poxAddr: TypedAbiArg<
-            {
-              hashbytes: Uint8Array;
-              version: Uint8Array;
-            },
-            'poxAddr'
-          >,
-          signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
           numCycles: TypedAbiArg<number | bigint, 'numCycles'>,
           unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
           startBurnHt: TypedAbiArg<number | bigint, 'startBurnHt'>,
+          poolOrSoloInfo: TypedAbiArg<
+            Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >,
+            'poolOrSoloInfo'
+          >,
         ],
         Response<
           {
             amountUstx: bigint;
             numCycles: bigint;
-            poxAddr: {
-              hashbytes: Uint8Array;
-              version: Uint8Array;
-            };
-            signerKey: Uint8Array;
+            poolOrSoloInfo: Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >;
             stacker: string;
             unlockBurnHeight: bigint;
             unlockBytes: Uint8Array;
@@ -3766,28 +3812,38 @@ export const contracts = {
           bigint
         >
       >,
-      extendStake: {
-        name: 'extend-stake',
-        access: 'public',
+      innerStakeExtend: {
+        name: 'inner-stake-extend',
+        access: 'private',
         args: [
+          { name: 'amount-ustx', type: 'uint128' },
+          { name: 'num-cycles', type: 'uint128' },
+          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
           {
-            name: 'pox-addr',
+            name: 'pool-or-solo-info',
             type: {
-              tuple: [
-                { name: 'hashbytes', type: { buffer: { length: 32 } } },
-                { name: 'version', type: { buffer: { length: 1 } } },
-              ],
+              response: {
+                ok: 'principal',
+                error: {
+                  tuple: [
+                    {
+                      name: 'pox-addr',
+                      type: {
+                        tuple: [
+                          {
+                            name: 'hashbytes',
+                            type: { buffer: { length: 32 } },
+                          },
+                          { name: 'version', type: { buffer: { length: 1 } } },
+                        ],
+                      },
+                    },
+                    { name: 'signer-key', type: { buffer: { length: 33 } } },
+                  ],
+                },
+              },
             },
           },
-          {
-            name: 'signer-sig',
-            type: { optional: { buffer: { length: 65 } } },
-          },
-          { name: 'signer-key', type: { buffer: { length: 33 } } },
-          { name: 'max-amount', type: 'uint128' },
-          { name: 'auth-id', type: 'uint128' },
-          { name: 'num-cycles', type: 'uint128' },
-          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
         ],
         outputs: {
           type: {
@@ -3797,18 +3853,39 @@ export const contracts = {
                   { name: 'amount-ustx', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   {
-                    name: 'pox-addr',
+                    name: 'pool-or-solo-info',
                     type: {
-                      tuple: [
-                        { name: 'hashbytes', type: { buffer: { length: 32 } } },
-                        { name: 'version', type: { buffer: { length: 1 } } },
-                      ],
+                      response: {
+                        ok: 'principal',
+                        error: {
+                          tuple: [
+                            {
+                              name: 'pox-addr',
+                              type: {
+                                tuple: [
+                                  {
+                                    name: 'hashbytes',
+                                    type: { buffer: { length: 32 } },
+                                  },
+                                  {
+                                    name: 'version',
+                                    type: { buffer: { length: 1 } },
+                                  },
+                                ],
+                              },
+                            },
+                            {
+                              name: 'signer-key',
+                              type: { buffer: { length: 33 } },
+                            },
+                          ],
+                        },
+                      },
                     },
                   },
-                  { name: 'signer-key', type: { buffer: { length: 33 } } },
                   { name: 'stacker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
-                  { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+                  { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
                   { name: 'unlock-cycle', type: 'uint128' },
                 ],
               },
@@ -3818,29 +3895,158 @@ export const contracts = {
         },
       } as TypedAbiFunction<
         [
-          poxAddr: TypedAbiArg<
-            {
-              hashbytes: Uint8Array;
-              version: Uint8Array;
-            },
-            'poxAddr'
-          >,
-          signerSig: TypedAbiArg<Uint8Array | null, 'signerSig'>,
-          signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
-          maxAmount: TypedAbiArg<number | bigint, 'maxAmount'>,
-          authId: TypedAbiArg<number | bigint, 'authId'>,
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
           numCycles: TypedAbiArg<number | bigint, 'numCycles'>,
           unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+          poolOrSoloInfo: TypedAbiArg<
+            Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >,
+            'poolOrSoloInfo'
+          >,
         ],
         Response<
           {
             amountUstx: bigint;
             numCycles: bigint;
-            poxAddr: {
-              hashbytes: Uint8Array;
-              version: Uint8Array;
-            };
-            signerKey: Uint8Array;
+            poolOrSoloInfo: Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >;
+            stacker: string;
+            unlockBurnHeight: bigint;
+            unlockBytes: Uint8Array;
+            unlockCycle: bigint;
+          },
+          bigint
+        >
+      >,
+      innerStakeUpdate: {
+        name: 'inner-stake-update',
+        access: 'private',
+        args: [
+          { name: 'amount-ustx-increase', type: 'uint128' },
+          {
+            name: 'pool-or-solo-info',
+            type: {
+              response: {
+                ok: 'principal',
+                error: {
+                  tuple: [
+                    {
+                      name: 'pox-addr',
+                      type: {
+                        tuple: [
+                          {
+                            name: 'hashbytes',
+                            type: { buffer: { length: 32 } },
+                          },
+                          { name: 'version', type: { buffer: { length: 1 } } },
+                        ],
+                      },
+                    },
+                    { name: 'signer-key', type: { buffer: { length: 33 } } },
+                  ],
+                },
+              },
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'num-cycles', type: 'uint128' },
+                  {
+                    name: 'pool-or-solo-info',
+                    type: {
+                      response: {
+                        ok: 'principal',
+                        error: {
+                          tuple: [
+                            {
+                              name: 'pox-addr',
+                              type: {
+                                tuple: [
+                                  {
+                                    name: 'hashbytes',
+                                    type: { buffer: { length: 32 } },
+                                  },
+                                  {
+                                    name: 'version',
+                                    type: { buffer: { length: 1 } },
+                                  },
+                                ],
+                              },
+                            },
+                            {
+                              name: 'signer-key',
+                              type: { buffer: { length: 33 } },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                  { name: 'stacker', type: 'principal' },
+                  { name: 'unlock-burn-height', type: 'uint128' },
+                  { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+                  { name: 'unlock-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          amountUstxIncrease: TypedAbiArg<
+            number | bigint,
+            'amountUstxIncrease'
+          >,
+          poolOrSoloInfo: TypedAbiArg<
+            Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >,
+            'poolOrSoloInfo'
+          >,
+        ],
+        Response<
+          {
+            amountUstx: bigint;
+            numCycles: bigint;
+            poolOrSoloInfo: Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >;
             stacker: string;
             unlockBurnHeight: bigint;
             unlockBytes: Uint8Array;
@@ -3915,21 +4121,6 @@ export const contracts = {
           bigint
         >
       >,
-      removeStackerFromSetForCycle: {
-        name: 'remove-stacker-from-set-for-cycle',
-        access: 'public',
-        args: [
-          { name: 'stacker', type: 'principal' },
-          { name: 'cycle', type: 'uint128' },
-        ],
-        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
-      } as TypedAbiFunction<
-        [
-          stacker: TypedAbiArg<string, 'stacker'>,
-          cycle: TypedAbiArg<number | bigint, 'cycle'>,
-        ],
-        Response<boolean, bigint>
-      >,
       setBurnchainParameters: {
         name: 'set-burnchain-parameters',
         access: 'public',
@@ -3978,7 +4169,7 @@ export const contracts = {
           { name: 'max-amount', type: 'uint128' },
           { name: 'auth-id', type: 'uint128' },
           { name: 'num-cycles', type: 'uint128' },
-          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
         ],
         outputs: {
           type: {
@@ -3988,18 +4179,39 @@ export const contracts = {
                   { name: 'amount-ustx', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   {
-                    name: 'pox-addr',
+                    name: 'pool-or-solo-info',
                     type: {
-                      tuple: [
-                        { name: 'hashbytes', type: { buffer: { length: 32 } } },
-                        { name: 'version', type: { buffer: { length: 1 } } },
-                      ],
+                      response: {
+                        ok: 'principal',
+                        error: {
+                          tuple: [
+                            {
+                              name: 'pox-addr',
+                              type: {
+                                tuple: [
+                                  {
+                                    name: 'hashbytes',
+                                    type: { buffer: { length: 32 } },
+                                  },
+                                  {
+                                    name: 'version',
+                                    type: { buffer: { length: 1 } },
+                                  },
+                                ],
+                              },
+                            },
+                            {
+                              name: 'signer-key',
+                              type: { buffer: { length: 33 } },
+                            },
+                          ],
+                        },
+                      },
                     },
                   },
-                  { name: 'signer-key', type: { buffer: { length: 33 } } },
                   { name: 'stacker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
-                  { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+                  { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
                   { name: 'unlock-cycle', type: 'uint128' },
                 ],
               },
@@ -4029,11 +4241,213 @@ export const contracts = {
           {
             amountUstx: bigint;
             numCycles: bigint;
-            poxAddr: {
+            poolOrSoloInfo: Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >;
+            stacker: string;
+            unlockBurnHeight: bigint;
+            unlockBytes: Uint8Array;
+            unlockCycle: bigint;
+          },
+          bigint
+        >
+      >,
+      stakeExtend: {
+        name: 'stake-extend',
+        access: 'public',
+        args: [
+          { name: 'amount-ustx', type: 'uint128' },
+          {
+            name: 'pox-addr',
+            type: {
+              tuple: [
+                { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                { name: 'version', type: { buffer: { length: 1 } } },
+              ],
+            },
+          },
+          {
+            name: 'signer-sig',
+            type: { optional: { buffer: { length: 65 } } },
+          },
+          { name: 'signer-key', type: { buffer: { length: 33 } } },
+          { name: 'max-amount', type: 'uint128' },
+          { name: 'auth-id', type: 'uint128' },
+          { name: 'num-cycles', type: 'uint128' },
+          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'num-cycles', type: 'uint128' },
+                  {
+                    name: 'pool-or-solo-info',
+                    type: {
+                      response: {
+                        ok: 'principal',
+                        error: {
+                          tuple: [
+                            {
+                              name: 'pox-addr',
+                              type: {
+                                tuple: [
+                                  {
+                                    name: 'hashbytes',
+                                    type: { buffer: { length: 32 } },
+                                  },
+                                  {
+                                    name: 'version',
+                                    type: { buffer: { length: 1 } },
+                                  },
+                                ],
+                              },
+                            },
+                            {
+                              name: 'signer-key',
+                              type: { buffer: { length: 33 } },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                  { name: 'stacker', type: 'principal' },
+                  { name: 'unlock-burn-height', type: 'uint128' },
+                  { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+                  { name: 'unlock-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
+          poxAddr: TypedAbiArg<
+            {
               hashbytes: Uint8Array;
               version: Uint8Array;
-            };
-            signerKey: Uint8Array;
+            },
+            'poxAddr'
+          >,
+          signerSig: TypedAbiArg<Uint8Array | null, 'signerSig'>,
+          signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
+          maxAmount: TypedAbiArg<number | bigint, 'maxAmount'>,
+          authId: TypedAbiArg<number | bigint, 'authId'>,
+          numCycles: TypedAbiArg<number | bigint, 'numCycles'>,
+          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+        ],
+        Response<
+          {
+            amountUstx: bigint;
+            numCycles: bigint;
+            poolOrSoloInfo: Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >;
+            stacker: string;
+            unlockBurnHeight: bigint;
+            unlockBytes: Uint8Array;
+            unlockCycle: bigint;
+          },
+          bigint
+        >
+      >,
+      stakeExtendPooled: {
+        name: 'stake-extend-pooled',
+        access: 'public',
+        args: [
+          { name: 'pool-owner', type: 'trait_reference' },
+          { name: 'amount-ustx', type: 'uint128' },
+          { name: 'num-cycles', type: 'uint128' },
+          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'num-cycles', type: 'uint128' },
+                  {
+                    name: 'pool-or-solo-info',
+                    type: {
+                      response: {
+                        ok: 'principal',
+                        error: {
+                          tuple: [
+                            {
+                              name: 'pox-addr',
+                              type: {
+                                tuple: [
+                                  {
+                                    name: 'hashbytes',
+                                    type: { buffer: { length: 32 } },
+                                  },
+                                  {
+                                    name: 'version',
+                                    type: { buffer: { length: 1 } },
+                                  },
+                                ],
+                              },
+                            },
+                            {
+                              name: 'signer-key',
+                              type: { buffer: { length: 33 } },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                  { name: 'stacker', type: 'principal' },
+                  { name: 'unlock-burn-height', type: 'uint128' },
+                  { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+                  { name: 'unlock-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          poolOwner: TypedAbiArg<string, 'poolOwner'>,
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
+          numCycles: TypedAbiArg<number | bigint, 'numCycles'>,
+          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
+        ],
+        Response<
+          {
+            amountUstx: bigint;
+            numCycles: bigint;
+            poolOrSoloInfo: Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >;
             stacker: string;
             unlockBurnHeight: bigint;
             unlockBytes: Uint8Array;
@@ -4049,7 +4463,7 @@ export const contracts = {
           { name: 'pool-owner', type: 'trait_reference' },
           { name: 'amount-ustx', type: 'uint128' },
           { name: 'num-cycles', type: 'uint128' },
-          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
           { name: 'start-burn-ht', type: 'uint128' },
         ],
         outputs: {
@@ -4060,18 +4474,39 @@ export const contracts = {
                   { name: 'amount-ustx', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   {
-                    name: 'pox-addr',
+                    name: 'pool-or-solo-info',
                     type: {
-                      tuple: [
-                        { name: 'hashbytes', type: { buffer: { length: 32 } } },
-                        { name: 'version', type: { buffer: { length: 1 } } },
-                      ],
+                      response: {
+                        ok: 'principal',
+                        error: {
+                          tuple: [
+                            {
+                              name: 'pox-addr',
+                              type: {
+                                tuple: [
+                                  {
+                                    name: 'hashbytes',
+                                    type: { buffer: { length: 32 } },
+                                  },
+                                  {
+                                    name: 'version',
+                                    type: { buffer: { length: 1 } },
+                                  },
+                                ],
+                              },
+                            },
+                            {
+                              name: 'signer-key',
+                              type: { buffer: { length: 33 } },
+                            },
+                          ],
+                        },
+                      },
                     },
                   },
-                  { name: 'signer-key', type: { buffer: { length: 33 } } },
                   { name: 'stacker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
-                  { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+                  { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
                   { name: 'unlock-cycle', type: 'uint128' },
                 ],
               },
@@ -4091,11 +4526,209 @@ export const contracts = {
           {
             amountUstx: bigint;
             numCycles: bigint;
-            poxAddr: {
+            poolOrSoloInfo: Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >;
+            stacker: string;
+            unlockBurnHeight: bigint;
+            unlockBytes: Uint8Array;
+            unlockCycle: bigint;
+          },
+          bigint
+        >
+      >,
+      stakeUpdate: {
+        name: 'stake-update',
+        access: 'public',
+        args: [
+          { name: 'amount-ustx-increase', type: 'uint128' },
+          {
+            name: 'pox-addr',
+            type: {
+              tuple: [
+                { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                { name: 'version', type: { buffer: { length: 1 } } },
+              ],
+            },
+          },
+          { name: 'signer-key', type: { buffer: { length: 33 } } },
+          {
+            name: 'signer-sig',
+            type: { optional: { buffer: { length: 65 } } },
+          },
+          { name: 'auth-id', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'num-cycles', type: 'uint128' },
+                  {
+                    name: 'pool-or-solo-info',
+                    type: {
+                      response: {
+                        ok: 'principal',
+                        error: {
+                          tuple: [
+                            {
+                              name: 'pox-addr',
+                              type: {
+                                tuple: [
+                                  {
+                                    name: 'hashbytes',
+                                    type: { buffer: { length: 32 } },
+                                  },
+                                  {
+                                    name: 'version',
+                                    type: { buffer: { length: 1 } },
+                                  },
+                                ],
+                              },
+                            },
+                            {
+                              name: 'signer-key',
+                              type: { buffer: { length: 33 } },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                  { name: 'stacker', type: 'principal' },
+                  { name: 'unlock-burn-height', type: 'uint128' },
+                  { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+                  { name: 'unlock-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          amountUstxIncrease: TypedAbiArg<
+            number | bigint,
+            'amountUstxIncrease'
+          >,
+          poxAddr: TypedAbiArg<
+            {
               hashbytes: Uint8Array;
               version: Uint8Array;
-            };
-            signerKey: Uint8Array;
+            },
+            'poxAddr'
+          >,
+          signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
+          signerSig: TypedAbiArg<Uint8Array | null, 'signerSig'>,
+          authId: TypedAbiArg<number | bigint, 'authId'>,
+        ],
+        Response<
+          {
+            amountUstx: bigint;
+            numCycles: bigint;
+            poolOrSoloInfo: Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >;
+            stacker: string;
+            unlockBurnHeight: bigint;
+            unlockBytes: Uint8Array;
+            unlockCycle: bigint;
+          },
+          bigint
+        >
+      >,
+      stakeUpdatePooled: {
+        name: 'stake-update-pooled',
+        access: 'public',
+        args: [
+          { name: 'pool-owner', type: 'trait_reference' },
+          { name: 'amount-ustx-increase', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'num-cycles', type: 'uint128' },
+                  {
+                    name: 'pool-or-solo-info',
+                    type: {
+                      response: {
+                        ok: 'principal',
+                        error: {
+                          tuple: [
+                            {
+                              name: 'pox-addr',
+                              type: {
+                                tuple: [
+                                  {
+                                    name: 'hashbytes',
+                                    type: { buffer: { length: 32 } },
+                                  },
+                                  {
+                                    name: 'version',
+                                    type: { buffer: { length: 1 } },
+                                  },
+                                ],
+                              },
+                            },
+                            {
+                              name: 'signer-key',
+                              type: { buffer: { length: 33 } },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                  { name: 'stacker', type: 'principal' },
+                  { name: 'unlock-burn-height', type: 'uint128' },
+                  { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
+                  { name: 'unlock-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          poolOwner: TypedAbiArg<string, 'poolOwner'>,
+          amountUstxIncrease: TypedAbiArg<
+            number | bigint,
+            'amountUstxIncrease'
+          >,
+        ],
+        Response<
+          {
+            amountUstx: bigint;
+            numCycles: bigint;
+            poolOrSoloInfo: Response<
+              string,
+              {
+                poxAddr: {
+                  hashbytes: Uint8Array;
+                  version: Uint8Array;
+                };
+                signerKey: Uint8Array;
+              }
+            >;
             stacker: string;
             unlockBurnHeight: bigint;
             unlockBytes: Uint8Array;
@@ -4173,40 +4806,6 @@ export const contracts = {
         [lockPeriod: TypedAbiArg<number | bigint, 'lockPeriod'>],
         boolean
       >,
-      constructOutputScript: {
-        name: 'construct-output-script',
-        access: 'read_only',
-        args: [
-          { name: 'stacker', type: 'principal' },
-          { name: 'unlock-burn-height', type: { buffer: { length: 3 } } },
-          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
-        ],
-        outputs: { type: { buffer: { length: 34 } } },
-      } as TypedAbiFunction<
-        [
-          stacker: TypedAbiArg<string, 'stacker'>,
-          unlockBurnHeight: TypedAbiArg<Uint8Array, 'unlockBurnHeight'>,
-          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
-        ],
-        Uint8Array
-      >,
-      constructUnlockScript: {
-        name: 'construct-unlock-script',
-        access: 'read_only',
-        args: [
-          { name: 'stacker', type: 'principal' },
-          { name: 'unlock-burn-height', type: { buffer: { length: 3 } } },
-          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
-        ],
-        outputs: { type: { buffer: { length: 286 } } },
-      } as TypedAbiFunction<
-        [
-          stacker: TypedAbiArg<string, 'stacker'>,
-          unlockBurnHeight: TypedAbiArg<Uint8Array, 'unlockBurnHeight'>,
-          unlockBytes: TypedAbiArg<Uint8Array, 'unlockBytes'>,
-        ],
-        Uint8Array
-      >,
       currentPoxRewardCycle: {
         name: 'current-pox-reward-cycle',
         access: 'read_only',
@@ -4257,16 +4856,37 @@ export const contracts = {
                 { name: 'first-reward-cycle', type: 'uint128' },
                 { name: 'num-cycles', type: 'uint128' },
                 {
-                  name: 'pox-addr',
+                  name: 'pool-or-solo-info',
                   type: {
-                    tuple: [
-                      { name: 'hashbytes', type: { buffer: { length: 32 } } },
-                      { name: 'version', type: { buffer: { length: 1 } } },
-                    ],
+                    response: {
+                      ok: 'principal',
+                      error: {
+                        tuple: [
+                          {
+                            name: 'pox-addr',
+                            type: {
+                              tuple: [
+                                {
+                                  name: 'hashbytes',
+                                  type: { buffer: { length: 32 } },
+                                },
+                                {
+                                  name: 'version',
+                                  type: { buffer: { length: 1 } },
+                                },
+                              ],
+                            },
+                          },
+                          {
+                            name: 'signer-key',
+                            type: { buffer: { length: 33 } },
+                          },
+                        ],
+                      },
+                    },
                   },
                 },
-                { name: 'signer-key', type: { buffer: { length: 33 } } },
-                { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+                { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
               ],
             },
           },
@@ -4277,11 +4897,16 @@ export const contracts = {
           amountUstx: bigint;
           firstRewardCycle: bigint;
           numCycles: bigint;
-          poxAddr: {
-            hashbytes: Uint8Array;
-            version: Uint8Array;
-          };
-          signerKey: Uint8Array;
+          poolOrSoloInfo: Response<
+            string,
+            {
+              poxAddr: {
+                hashbytes: Uint8Array;
+                version: Uint8Array;
+              };
+              signerKey: Uint8Array;
+            }
+          >;
           unlockBytes: Uint8Array;
         } | null
       >,
@@ -4393,12 +5018,6 @@ export const contracts = {
         ],
         boolean
       >,
-      uintToBuffLe: {
-        name: 'uint-to-buff-le',
-        access: 'read_only',
-        args: [{ name: 'n', type: 'uint128' }],
-        outputs: { type: { buffer: { length: 1 } } },
-      } as TypedAbiFunction<[n: TypedAbiArg<number | bigint, 'n'>], Uint8Array>,
     },
     maps: {
       pools: {
@@ -4471,16 +5090,34 @@ export const contracts = {
             { name: 'first-reward-cycle', type: 'uint128' },
             { name: 'num-cycles', type: 'uint128' },
             {
-              name: 'pox-addr',
+              name: 'pool-or-solo-info',
               type: {
-                tuple: [
-                  { name: 'hashbytes', type: { buffer: { length: 32 } } },
-                  { name: 'version', type: { buffer: { length: 1 } } },
-                ],
+                response: {
+                  ok: 'principal',
+                  error: {
+                    tuple: [
+                      {
+                        name: 'pox-addr',
+                        type: {
+                          tuple: [
+                            {
+                              name: 'hashbytes',
+                              type: { buffer: { length: 32 } },
+                            },
+                            {
+                              name: 'version',
+                              type: { buffer: { length: 1 } },
+                            },
+                          ],
+                        },
+                      },
+                      { name: 'signer-key', type: { buffer: { length: 33 } } },
+                    ],
+                  },
+                },
               },
             },
-            { name: 'signer-key', type: { buffer: { length: 33 } } },
-            { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+            { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
           ],
         },
       } as TypedAbiMap<
@@ -4489,11 +5126,16 @@ export const contracts = {
           amountUstx: bigint;
           firstRewardCycle: bigint;
           numCycles: bigint;
-          poxAddr: {
-            hashbytes: Uint8Array;
-            version: Uint8Array;
-          };
-          signerKey: Uint8Array;
+          poolOrSoloInfo: Response<
+            string,
+            {
+              poxAddr: {
+                hashbytes: Uint8Array;
+                version: Uint8Array;
+              };
+              signerKey: Uint8Array;
+            }
+          >;
           unlockBytes: Uint8Array;
         }
       >,
@@ -5944,27 +6586,20 @@ export const contracts = {
   },
   testPox5Pool: {
     functions: {
-      updateAllowedRegisteringTxSender: {
-        name: 'update-allowed-registering-tx-sender',
+      updateAllowedCaller: {
+        name: 'update-allowed-caller',
         access: 'public',
-        args: [
-          { name: 'new-allowed-registering-tx-sender', type: 'principal' },
-        ],
+        args: [{ name: 'new-allowed-caller', type: 'principal' }],
         outputs: { type: { response: { ok: 'bool', error: 'none' } } },
       } as TypedAbiFunction<
-        [
-          newAllowedRegisteringTxSender: TypedAbiArg<
-            string,
-            'newAllowedRegisteringTxSender'
-          >,
-        ],
+        [newAllowedCaller: TypedAbiArg<string, 'newAllowedCaller'>],
         Response<boolean, null>
       >,
       validateRegistration_x: {
         name: 'validate-registration!',
         access: 'public',
         args: [
-          { name: 'registering-tx-sender', type: 'principal' },
+          { name: 'caller', type: 'principal' },
           { name: 'signer-key', type: { buffer: { length: 33 } } },
           {
             name: 'pox-addr',
@@ -5979,7 +6614,7 @@ export const contracts = {
         outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
       } as TypedAbiFunction<
         [
-          registeringTxSender: TypedAbiArg<string, 'registeringTxSender'>,
+          caller: TypedAbiArg<string, 'caller'>,
           signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
           poxAddr: TypedAbiArg<
             {
@@ -5998,7 +6633,7 @@ export const contracts = {
           { name: 'staker', type: 'principal' },
           { name: 'amount-ustx', type: 'uint128' },
           { name: 'num-cycles', type: 'uint128' },
-          { name: 'unlock-bytes', type: { buffer: { length: 255 } } },
+          { name: 'unlock-bytes', type: { buffer: { length: 683 } } },
         ],
         outputs: { type: { response: { ok: 'bool', error: 'none' } } },
       } as TypedAbiFunction<
@@ -6013,14 +6648,14 @@ export const contracts = {
     },
     maps: {},
     variables: {
-      allowedRegisteringTxSender: {
-        name: 'allowed-registering-tx-sender',
+      allowedCaller: {
+        name: 'allowed-caller',
         type: 'principal',
         access: 'variable',
       } as TypedAbiVariable<string>,
     },
     constants: {
-      allowedRegisteringTxSender: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
+      allowedCaller: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
     },
     non_fungible_tokens: [],
     fungible_tokens: [],

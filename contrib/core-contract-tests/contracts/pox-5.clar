@@ -425,6 +425,103 @@
     )
 )
 
+;; Allow a user to update their staked STX amount or pool while they are staked.
+(define-public (stake-update-pooled
+        (pool-owner <pool-owner-trait>)
+        (amount-ustx-increase uint)
+    )
+    (let (
+            (owner (contract-of pool-owner))
+            (staker-info (unwrap! (get-staker-info tx-sender) ERR_NOT_STAKED))
+        )
+        (asserts! (is-some (get-pool-info owner)) ERR_POOL_NOT_FOUND)
+        (try! (contract-call? pool-owner validate-stake! tx-sender
+            (+ (get amount-ustx staker-info) amount-ustx-increase)
+            (get num-cycles staker-info) (get unlock-bytes staker-info)
+        ))
+        (inner-stake-update amount-ustx-increase (ok owner))
+    )
+)
+
+;; Allow a user to update their staked STX amount, signer key,
+;; and/or PoX address while they are staked.
+;;
+;; #[allow(unnecessary_public)]
+(define-public (stake-update
+        (amount-ustx-increase uint)
+        (pox-addr {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        })
+        (signer-key (buff 33))
+        ;; #[allow(unused_binding)]
+        (signer-sig (optional (buff 65)))
+        ;; #[allow(unused_binding)]
+        (auth-id uint)
+    )
+    (begin
+        ;; TODO: verify signer sig
+
+        ;;  pox-addr must be valid
+        (try! (check-pox-addr pox-addr))
+
+        (inner-stake-update amount-ustx-increase
+            (err {
+                pox-addr: pox-addr,
+                signer-key: signer-key,
+            })
+        )
+    )
+)
+
+(define-private (inner-stake-update
+        (amount-ustx-increase uint)
+        (pool-or-solo-info (response principal {
+            pox-addr: {
+                version: (buff 1),
+                hashbytes: (buff 32),
+            },
+            signer-key: (buff 33),
+        }))
+    )
+    (let (
+            (current-stacker-info (unwrap! (get-staker-info tx-sender) ERR_NOT_STAKED))
+            (new-amount-ustx (+ (get amount-ustx current-stacker-info) amount-ustx-increase))
+            (unlock-cycle (-
+                (+ (get first-reward-cycle current-stacker-info)
+                    (get num-cycles current-stacker-info)
+                )
+                u1
+            ))
+        )
+        ;; assert that the amount of STX to increase is greater than 0
+        (asserts! (> amount-ustx-increase u0) ERR_INVALID_AMOUNT)
+
+        ;; assert that the staker has sufficient STX to increase their stake
+        (asserts! (>= (stx-get-balance tx-sender) amount-ustx-increase)
+            ERR_INSUFFICIENT_FUNDS
+        )
+
+        (map-set staking-state tx-sender {
+            amount-ustx: new-amount-ustx,
+            first-reward-cycle: (get first-reward-cycle current-stacker-info),
+            num-cycles: (get num-cycles current-stacker-info),
+            unlock-bytes: (get unlock-bytes current-stacker-info),
+            pool-or-solo-info: pool-or-solo-info,
+        })
+
+        (ok {
+            stacker: tx-sender,
+            unlock-burn-height: (reward-cycle-to-unlock-height unlock-cycle),
+            unlock-bytes: (get unlock-bytes current-stacker-info),
+            amount-ustx: new-amount-ustx,
+            unlock-cycle: unlock-cycle,
+            num-cycles: (get num-cycles current-stacker-info),
+            pool-or-solo-info: pool-or-solo-info,
+        })
+    )
+)
+
 ;;; Validation helpers
 
 (define-read-only (check-pox-lock-period (lock-period uint))
