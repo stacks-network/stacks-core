@@ -116,6 +116,7 @@ pub enum DefineResult {
     UseTrait(ClarityName, TraitIdentifier),
     /// `impl-trait`
     ImplTrait(TraitIdentifier),
+    /// Not a define statement
     NoDefine,
 }
 

@@ -93,7 +93,7 @@ pub fn special_contract_call(
             (contract_identifier.clone(), None)
         }
         SymbolicExpressionType::Atom(contract_ref) => {
-            // First, chcek if the atom references a contract constant which is a callable
+            // First, check if the atom references a contract constant which is a callable
             let callable = env
                 .contract_context
                 .lookup_variable(contract_ref)
