@@ -95,7 +95,7 @@ cargo marf-bench clean --dry-run
 
 ## Command shape
 
-- `run`: `cargo marf-bench run [--output-format <summary|raw|tsv>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] <primitives|read|write|patch> [bench-specific options]`
+- `run`: `cargo marf-bench run [--output-format <summary|raw|tsv>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] <primitives|read|write|patch> [bench-specific options]`
 - `bench`: `cargo marf-bench bench [--base <rev|staged|merge-base:<upstream-ref>>] [--target <rev>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] [--keep-worktrees] [--output-format <summary|raw|tsv>] <primitives|read|write|patch> [bench-specific options]`
 - `clean`: `cargo marf-bench clean [--dry-run]`
 

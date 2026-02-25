@@ -27,6 +27,7 @@
 //! - `patch_apply_node{4|16|48|256}_{backptr|plain}_diff=*`: patch application to typed base nodes.
 //! - `patch_try_from_patch_node{4|16|48|256}_{backptr|plain}_diff=*`: incremental patch-from-patch transition cost.
 
+use std::collections::HashSet;
 use std::hint::black_box;
 
 use blockstack_lib::chainstate::stacks::index::node::{
@@ -126,7 +127,7 @@ impl NodeBenchType {
             Self::Node4 => 4,
             Self::Node16 => 16,
             Self::Node48 => 48,
-            Self::Node256 => 255,
+            Self::Node256 => 256,
         }
     }
 }
@@ -147,7 +148,7 @@ fn print_usage() {
     println!("  PTR_STATES      Comma-separated pointer states [default: all]");
     println!("                  Allowed: all,backptr,plain");
     println!("  PATCH_DIFFS     Comma-separated patch diff sizes [default: 1,4,16,64]");
-    println!("                  Must be in range 1..=255 and unique");
+    println!("                  Must be in range 1..=256 and unique");
     println!("  OUTPUT_FORMAT   Output mode [default: summary]");
     println!("                  'summary': unified summary lines only");
     println!("                  'raw': detailed per-case lines + unified summary lines");
@@ -215,16 +216,13 @@ fn parse_ptr_states() -> Vec<PtrState> {
 /// Parse and validate `PATCH_DIFFS` cardinalities.
 fn parse_patch_diffs() -> Vec<usize> {
     let diffs = parse_csv_usize_env("PATCH_DIFFS", &DEFAULT_DIFFS);
-    let mut prev = None;
+    let mut seen = HashSet::with_capacity(diffs.len());
     for value in &diffs {
         assert!(
-            *value > 0 && *value <= 255,
-            "PATCH_DIFFS entries must be in range 1..=255"
+            *value > 0 && *value <= 256,
+            "PATCH_DIFFS entries must be in range 1..=256"
         );
-        if let Some(last) = prev {
-            assert!(*value != last, "PATCH_DIFFS entries must be unique");
-        }
-        prev = Some(*value);
+        assert!(seen.insert(*value), "PATCH_DIFFS entries must be unique");
     }
     diffs
 }

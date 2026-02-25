@@ -17,6 +17,7 @@
 
 use std::hint::black_box;
 use std::io::Cursor;
+use std::sync::OnceLock;
 
 use blockstack_lib::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use blockstack_lib::chainstate::stacks::index::node::{
@@ -71,8 +72,17 @@ fn record_case<F>(summary: &mut Summary, name: &str, mode: OutputMode, f: F)
 where
     F: FnMut(),
 {
-    let rounds = parse_usize_env("ROUNDS", DEFAULT_ROUNDS);
-    record_case_with_rounds(summary, name, mode, rounds, f);
+    record_case_with_rounds(summary, name, mode, configured_rounds(), f);
+}
+
+/// Return validated `ROUNDS` benchmark setting, parsed once per process.
+fn configured_rounds() -> usize {
+    static ROUNDS: OnceLock<usize> = OnceLock::new();
+    *ROUNDS.get_or_init(|| {
+        let rounds = parse_usize_env("ROUNDS", DEFAULT_ROUNDS);
+        assert!(rounds > 0, "ROUNDS must be > 0");
+        rounds
+    })
 }
 
 /// Return a deterministic full-length trie path byte array.
@@ -246,9 +256,7 @@ pub fn run(args: &[String], output_mode: OutputMode) -> Option<Summary> {
     }
 
     let iters = parse_usize_env("ITERS", DEFAULT_ITERS);
-    let rounds = parse_usize_env("ROUNDS", DEFAULT_ROUNDS);
     assert!(iters > 0, "ITERS must be > 0");
-    assert!(rounds > 0, "ROUNDS must be > 0");
 
     let path = sample_path();
     let leaf_data = [0x11u8; 40];
@@ -309,7 +317,7 @@ pub fn run(args: &[String], output_mode: OutputMode) -> Option<Summary> {
     max_len_path_bytes.extend_from_slice(&path);
 
     if output_mode.is_raw() {
-        println!("iters={iters}\trounds={rounds}");
+        println!("iters={iters}\trounds={}", configured_rounds());
     }
 
     let mut summary = Summary::new("primitives", 64);
