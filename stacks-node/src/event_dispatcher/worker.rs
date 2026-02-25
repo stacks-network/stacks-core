@@ -144,8 +144,7 @@ impl EventDispatcherWorker {
                     // If the sending fails (i.e. the receiver has been dropped), that means a logic bug
                     // has been introduced to the code -- at time of writing, the main function is waiting
                     // for this message a few lines down, outside the thread closure.
-                    // We log this, but we still start the loop.
-                    error!(
+                    panic!(
                         "Event Dispatcher Worker: Unable to send ready state. This is a bug. {err}"
                     );
                 }
