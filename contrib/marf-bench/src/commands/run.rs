@@ -19,7 +19,7 @@ use clap::Args;
 use crate::OutputFormat;
 use crate::commands::bench_target::BenchTarget;
 use crate::git::current_repo_root;
-use crate::report::{print_repeated_comparison_stats, print_single_run};
+use crate::report::{print_repeated_run_stats, print_single_run};
 use crate::runner::Runner;
 use crate::util::log;
 
@@ -27,14 +27,14 @@ use crate::util::log;
 #[derive(Debug, Args)]
 pub struct RunArgs {
     /// Select output format for benchmark results.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Summary)]
+    #[arg(long, value_enum, default_value_t = OutputFormat::Summary, global = true)]
     output_format: OutputFormat,
 
     /// Repeat the full benchmark run N times and emit repeat statistics.
     #[arg(long, global = true)]
     repeats: Option<usize>,
 
-    /// High-jitter threshold for repeat confidence summary spread in percentage points.
+    /// High-jitter threshold for run repeats as spread/median(total_ms) percentage.
     #[arg(long, default_value_t = 30.0, global = true, requires = "repeats")]
     repeat_jitter_threshold: f64,
 
@@ -90,18 +90,8 @@ pub fn run_target(
     print_single_run(output_format, &baseline_rows);
 
     if show_repeat_stats {
-        log("Run repeat baseline is repeat #1 (shown in Run summary)");
-        let repeated_pairs: Vec<_> = repeated_rows
-            .into_iter()
-            .map(|rows| (baseline_rows.clone(), rows))
-            .collect();
-        print_repeated_comparison_stats(
-            output_format,
-            "run:repeat#1",
-            "run:repeat#N",
-            &repeated_pairs,
-            repeat_jitter_threshold,
-        );
+        log("Run repeat stats are computed directly across repeats (no baseline anchor)");
+        print_repeated_run_stats(output_format, &repeated_rows, repeat_jitter_threshold);
     }
 
     log("Done");

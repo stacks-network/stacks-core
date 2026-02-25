@@ -17,6 +17,8 @@ mod commands;
 mod git;
 mod report;
 mod runner;
+mod table;
+mod tsv;
 mod util;
 
 use std::panic;

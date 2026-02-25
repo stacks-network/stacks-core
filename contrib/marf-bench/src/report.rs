@@ -13,35 +13,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//! Reporting utilities for marf-bench, including summary and comparison rendering in both
+//! pretty table and TSV formats, as well as repeat run comparison and jitter classification logic.
+//!
+//! TSV output is included for machine parsing (e.g. in CI).
+
 use std::collections::BTreeSet;
 
-use crate::OutputFormat;
-use crate::util::{log, pct, sort_rows, to_row_map};
-
-/// A formatted comparison row used for pretty-table output.
-struct ComparisonRow {
-    benchmark: String,
-    name: String,
-    total: String,
-    total_delta: String,
-    count: String,
-    count_delta: String,
-    bytes: String,
-    bytes_delta: String,
-}
-
-/// Aggregated per-row statistics across repeated comparisons.
-struct RepeatStatsRow {
-    benchmark: String,
-    name: String,
-    total_median: String,
-    total_min: String,
-    total_max: String,
-    count_median: String,
-    bytes_median: String,
-    repeats: String,
-}
-
+use crate::table::{Align, Column, Table};
+use crate::util::{f3, f4, log, median_min_max, pct, sort_rows, to_row_map};
+use crate::{OutputFormat, tsv};
 /// Parsed benchmark summary metrics for one benchmark/name pair.
 #[derive(Debug, Clone)]
 pub struct SummaryRow {
@@ -50,6 +31,538 @@ pub struct SummaryRow {
     total_ms: f64,
     alloc_count: u64,
     alloc_bytes: u64,
+}
+
+/// Canonical key type used to join benchmark rows across repeated runs.
+type BenchKey = (String, String);
+
+/// Canonical jitter tuple: `(benchmark, name, median, min, max, spread_or_spread_pct)`.
+type JitterRow = (String, String, f64, f64, f64, f64);
+
+/// Rendering modes for repeat-stat tables and TSV streams.
+#[derive(Clone, Copy)]
+enum RepeatStatsMode {
+    ComparisonDelta,
+    RunAbsolute,
+}
+
+/// Fully computed repeat metrics for one `(benchmark, name)` key.
+struct RepeatComputedRow {
+    benchmark: String,
+    name: String,
+    total_median: f64,
+    total_min: f64,
+    total_max: f64,
+    count_median: f64,
+    count_min: f64,
+    count_max: f64,
+    bytes_median: f64,
+    bytes_min: f64,
+    bytes_max: f64,
+}
+
+struct ConfidenceRenderContext<'a> {
+    labels: Option<(&'a str, &'a str)>,
+    total_rows: usize,
+    stable_rows: usize,
+    jitter_rows: &'a [JitterRow],
+    repeats: usize,
+    jitter_threshold_pct: f64,
+}
+
+impl RepeatStatsMode {
+    fn tsv_header(self, prefix: &str) -> &'static str {
+        match (self, prefix) {
+            (Self::ComparisonDelta, "repeat-stats") => {
+                "repeat-stats\tbenchmark\tname\tmetric\tmedian_delta_pct\tmin_delta_pct\tmax_delta_pct\trepeats"
+            }
+            (Self::RunAbsolute, "run-repeat-stats") => {
+                "run-repeat-stats\tbenchmark\tname\tmetric\tmedian\tmin\tmax\trepeats"
+            }
+            _ => unreachable!("invalid repeat stats prefix/mode combination"),
+        }
+    }
+
+    fn table_columns(self) -> Vec<Column> {
+        match self {
+            Self::ComparisonDelta => vec![
+                Column::new("benchmark", Align::Left),
+                Column::new("name", Align::Left),
+                Column::new("total Δ med", Align::Right),
+                Column::new("total Δ min", Align::Right),
+                Column::new("total Δ max", Align::Right),
+                Column::new("count Δ med", Align::Right),
+                Column::new("bytes Δ med", Align::Right),
+                Column::new("repeats", Align::Right),
+            ],
+            Self::RunAbsolute => vec![
+                Column::new("benchmark", Align::Left),
+                Column::new("name", Align::Left),
+                Column::new("total med", Align::Right),
+                Column::new("total min", Align::Right),
+                Column::new("total max", Align::Right),
+                Column::new("count med", Align::Right),
+                Column::new("bytes med", Align::Right),
+                Column::new("repeats", Align::Right),
+            ],
+        }
+    }
+
+    fn format_total(self, value: f64) -> String {
+        match self {
+            Self::ComparisonDelta => format!("{:+.1}%", value),
+            Self::RunAbsolute => format!("{:.3}", value),
+        }
+    }
+
+    fn format_count_median(self, value: f64) -> String {
+        match self {
+            Self::ComparisonDelta => format!("{:+.1}%", value),
+            Self::RunAbsolute => format!("{:.0}", value),
+        }
+    }
+
+    fn format_bytes_median(self, value: f64) -> String {
+        match self {
+            Self::ComparisonDelta => format!("{:+.1}%", value),
+            Self::RunAbsolute => format!("{:.0}", value),
+        }
+    }
+}
+
+/// Print three TSV metric lines (total/count/bytes) for one benchmark key.
+fn print_tsv_three_metrics(prefix: &str, row: &RepeatComputedRow, repeats: usize) {
+    crate::tsv_line!(
+        prefix,
+        row.benchmark,
+        row.name,
+        "total_ms",
+        f4(row.total_median),
+        f4(row.total_min),
+        f4(row.total_max),
+        repeats,
+    );
+    crate::tsv_line!(
+        prefix,
+        row.benchmark,
+        row.name,
+        "alloc_count",
+        f4(row.count_median),
+        f4(row.count_min),
+        f4(row.count_max),
+        repeats,
+    );
+    crate::tsv_line!(
+        prefix,
+        row.benchmark,
+        row.name,
+        "alloc_bytes",
+        f4(row.bytes_median),
+        f4(row.bytes_min),
+        f4(row.bytes_max),
+        repeats,
+    );
+}
+
+/// Print TSV jitter detail header and top rows for either run or comparison mode.
+fn print_tsv_jitter_rows(prefix: &str, mode: RepeatStatsMode, jitter_rows: &[JitterRow]) {
+    let mut header = vec![prefix, "benchmark", "name"];
+    match mode {
+        RepeatStatsMode::RunAbsolute => header.extend([
+            "median_total_ms",
+            "min_total_ms",
+            "max_total_ms",
+            "spread_pct_of_median",
+        ]),
+        RepeatStatsMode::ComparisonDelta => header.extend([
+            "median_delta_pct",
+            "min_delta_pct",
+            "max_delta_pct",
+            "spread_pct",
+        ]),
+    }
+    header.push("classification");
+    tsv::print_line(header);
+
+    for (benchmark, name, median, min, max, spread) in jitter_rows.iter().take(10) {
+        crate::tsv_line!(
+            prefix,
+            benchmark,
+            name,
+            f4(*median),
+            f4(*min),
+            f4(*max),
+            f4(*spread),
+            "high-jitter",
+        );
+    }
+}
+
+/// Compute common benchmark keys present in all repeated base/target row sets.
+fn common_keys_for_comparison_runs(
+    repeated_rows: &[(Vec<SummaryRow>, Vec<SummaryRow>)],
+) -> BTreeSet<BenchKey> {
+    if repeated_rows.is_empty() {
+        return BTreeSet::new();
+    }
+
+    let mut keys: BTreeSet<BenchKey> = {
+        let (base_rows, target_rows) = &repeated_rows[0];
+        let base_map = to_row_map(base_rows);
+        let target_map = to_row_map(target_rows);
+        base_map
+            .keys()
+            .filter(|key| target_map.contains_key(*key))
+            .cloned()
+            .collect()
+    };
+
+    for (base_rows, target_rows) in repeated_rows.iter().skip(1) {
+        let base_map = to_row_map(base_rows);
+        let target_map = to_row_map(target_rows);
+        keys.retain(|key| base_map.contains_key(key) && target_map.contains_key(key));
+    }
+
+    keys
+}
+
+/// Compute common benchmark keys present in all repeated single-run row sets.
+fn common_keys_for_run_repeats(repeated_rows: &[Vec<SummaryRow>]) -> BTreeSet<BenchKey> {
+    if repeated_rows.is_empty() {
+        return BTreeSet::new();
+    }
+
+    let mut keys: BTreeSet<BenchKey> = {
+        let rows = &repeated_rows[0];
+        to_row_map(rows).keys().cloned().collect()
+    };
+
+    for rows in repeated_rows.iter().skip(1) {
+        let row_map = to_row_map(rows);
+        keys.retain(|key| row_map.contains_key(key));
+    }
+
+    keys
+}
+
+/// Collect `%delta` metric series for one key across repeated comparison runs.
+fn collect_delta_series_for_key(
+    repeated_rows: &[(Vec<SummaryRow>, Vec<SummaryRow>)],
+    benchmark: &str,
+    name: &str,
+) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let mut total_deltas = Vec::with_capacity(repeated_rows.len());
+    let mut count_deltas = Vec::with_capacity(repeated_rows.len());
+    let mut bytes_deltas = Vec::with_capacity(repeated_rows.len());
+
+    for (base_rows, target_rows) in repeated_rows {
+        let base_map = to_row_map(base_rows);
+        let target_map = to_row_map(target_rows);
+        let key = (benchmark.to_string(), name.to_string());
+        let base = &base_map[&key];
+        let target = &target_map[&key];
+
+        total_deltas.push(pct(base.total_ms, target.total_ms));
+        count_deltas.push(pct(base.alloc_count as f64, target.alloc_count as f64));
+        bytes_deltas.push(pct(base.alloc_bytes as f64, target.alloc_bytes as f64));
+    }
+
+    (total_deltas, count_deltas, bytes_deltas)
+}
+
+/// Collect absolute metric series for one key across repeated single-tree runs.
+fn collect_absolute_series_for_key(
+    repeated_rows: &[Vec<SummaryRow>],
+    benchmark: &str,
+    name: &str,
+) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let mut totals = Vec::with_capacity(repeated_rows.len());
+    let mut counts = Vec::with_capacity(repeated_rows.len());
+    let mut bytes = Vec::with_capacity(repeated_rows.len());
+
+    for rows in repeated_rows {
+        let row_map = to_row_map(rows);
+        let key = (benchmark.to_string(), name.to_string());
+        let row = &row_map[&key];
+        totals.push(row.total_ms);
+        counts.push(row.alloc_count as f64);
+        bytes.push(row.alloc_bytes as f64);
+    }
+
+    (totals, counts, bytes)
+}
+
+/// Classify high-jitter rows for comparison repeats using `%delta` spread semantics.
+fn classify_comparison_jitter_rows(
+    keys: &BTreeSet<BenchKey>,
+    repeated_rows: &[(Vec<SummaryRow>, Vec<SummaryRow>)],
+    jitter_threshold_pct: f64,
+) -> (Vec<JitterRow>, usize) {
+    let mut jitter_rows: Vec<JitterRow> = Vec::new();
+    let mut stable_rows = 0usize;
+
+    for (benchmark, name) in keys {
+        let (total_deltas, _, _) = collect_delta_series_for_key(repeated_rows, benchmark, name);
+        let (median, min, max) = median_min_max(&total_deltas);
+        let spread = max - min;
+        let straddles_zero = min < 0.0 && max > 0.0;
+        let high_jitter = straddles_zero && spread >= jitter_threshold_pct;
+
+        if high_jitter {
+            jitter_rows.push((
+                benchmark.to_string(),
+                name.to_string(),
+                median,
+                min,
+                max,
+                spread,
+            ));
+        } else {
+            stable_rows += 1;
+        }
+    }
+
+    jitter_rows.sort_by(|a, b| b.5.total_cmp(&a.5));
+    (jitter_rows, stable_rows)
+}
+
+/// Classify high-jitter rows for run repeats using absolute `total_ms` spread/median semantics.
+fn classify_run_jitter_rows(
+    keys: &BTreeSet<BenchKey>,
+    repeated_rows: &[Vec<SummaryRow>],
+    jitter_threshold_pct: f64,
+) -> (Vec<JitterRow>, usize) {
+    let mut jitter_rows: Vec<JitterRow> = Vec::new();
+    let mut stable_rows = 0usize;
+
+    for (benchmark, name) in keys {
+        let (totals, _, _) = collect_absolute_series_for_key(repeated_rows, benchmark, name);
+        let (median, min, max) = median_min_max(&totals);
+        let spread = max - min;
+        let spread_pct = if median.abs() <= f64::EPSILON {
+            if spread <= f64::EPSILON {
+                0.0
+            } else {
+                f64::INFINITY
+            }
+        } else {
+            (spread / median.abs()) * 100.0
+        };
+
+        if spread_pct >= jitter_threshold_pct {
+            jitter_rows.push((
+                benchmark.to_string(),
+                name.to_string(),
+                median,
+                min,
+                max,
+                spread_pct,
+            ));
+        } else {
+            stable_rows += 1;
+        }
+    }
+
+    jitter_rows.sort_by(|a, b| b.5.total_cmp(&a.5));
+    (jitter_rows, stable_rows)
+}
+
+/// Build fully-computed repeat rows from comparison `%delta` series.
+fn compute_repeat_rows_for_comparison(
+    keys: &BTreeSet<BenchKey>,
+    repeated_rows: &[(Vec<SummaryRow>, Vec<SummaryRow>)],
+) -> Vec<RepeatComputedRow> {
+    let mut rows = Vec::with_capacity(keys.len());
+
+    for (benchmark, name) in keys {
+        let (total_deltas, count_deltas, bytes_deltas) =
+            collect_delta_series_for_key(repeated_rows, benchmark, name);
+
+        let (total_median, total_min, total_max) = median_min_max(&total_deltas);
+        let (count_median, count_min, count_max) = median_min_max(&count_deltas);
+        let (bytes_median, bytes_min, bytes_max) = median_min_max(&bytes_deltas);
+
+        rows.push(RepeatComputedRow {
+            benchmark: benchmark.to_string(),
+            name: name.to_string(),
+            total_median,
+            total_min,
+            total_max,
+            count_median,
+            count_min,
+            count_max,
+            bytes_median,
+            bytes_min,
+            bytes_max,
+        });
+    }
+
+    rows
+}
+
+/// Build fully-computed repeat rows from absolute run series.
+fn compute_repeat_rows_for_run(
+    keys: &BTreeSet<BenchKey>,
+    repeated_rows: &[Vec<SummaryRow>],
+) -> Vec<RepeatComputedRow> {
+    let mut rows = Vec::with_capacity(keys.len());
+
+    for (benchmark, name) in keys {
+        let (totals, counts, bytes) =
+            collect_absolute_series_for_key(repeated_rows, benchmark, name);
+
+        let (total_median, total_min, total_max) = median_min_max(&totals);
+        let (count_median, count_min, count_max) = median_min_max(&counts);
+        let (bytes_median, bytes_min, bytes_max) = median_min_max(&bytes);
+
+        rows.push(RepeatComputedRow {
+            benchmark: benchmark.to_string(),
+            name: name.to_string(),
+            total_median,
+            total_min,
+            total_max,
+            count_median,
+            count_min,
+            count_max,
+            bytes_median,
+            bytes_min,
+            bytes_max,
+        });
+    }
+
+    rows
+}
+
+/// Emit TSV repeat rows for either comparison-delta or absolute-run mode.
+fn print_repeat_rows_tsv(
+    prefix: &str,
+    mode: RepeatStatsMode,
+    rows: &[RepeatComputedRow],
+    repeats: usize,
+) {
+    println!("{}", mode.tsv_header(prefix));
+    for row in rows {
+        print_tsv_three_metrics(prefix, row, repeats);
+    }
+}
+
+/// Emit pretty table repeat rows for either comparison-delta or absolute-run mode.
+fn print_repeat_rows_table(mode: RepeatStatsMode, rows: &[RepeatComputedRow], repeats: usize) {
+    let mut table = Table::new(mode.table_columns());
+    for row in rows {
+        table.push_row(vec![
+            row.benchmark.clone(),
+            row.name.clone(),
+            mode.format_total(row.total_median),
+            mode.format_total(row.total_min),
+            mode.format_total(row.total_max),
+            mode.format_count_median(row.count_median),
+            mode.format_bytes_median(row.bytes_median),
+            repeats.to_string(),
+        ]);
+    }
+    table.print(false);
+}
+
+/// Render confidence output (TSV or human-readable) for either comparison or run repeat mode.
+fn print_confidence_output(
+    output_format: OutputFormat,
+    mode: RepeatStatsMode,
+    context: ConfidenceRenderContext<'_>,
+) {
+    let tsv_prefix = match mode {
+        RepeatStatsMode::ComparisonDelta => "repeat-confidence",
+        RepeatStatsMode::RunAbsolute => "run-repeat-confidence",
+    };
+
+    if output_format == OutputFormat::Tsv {
+        let mut summary_header = vec![tsv_prefix.to_string(), "summary".to_string()];
+        let mut summary_values = vec![tsv_prefix.to_string(), "summary".to_string()];
+
+        if let RepeatStatsMode::ComparisonDelta = mode {
+            let (base_label, target_label) = context
+                .labels
+                .expect("comparison confidence output requires base/target labels");
+            summary_header.extend(["base", "target"].into_iter().map(str::to_string));
+            summary_values.extend([base_label, target_label].into_iter().map(str::to_string));
+        }
+
+        summary_header.extend(
+            ["total_rows", "stable_rows", "high_jitter_rows", "repeats"]
+                .into_iter()
+                .map(str::to_string),
+        );
+        summary_values.extend([
+            context.total_rows.to_string(),
+            context.stable_rows.to_string(),
+            context.jitter_rows.len().to_string(),
+            context.repeats.to_string(),
+        ]);
+
+        tsv::print_line(summary_header);
+        tsv::print_line(summary_values);
+
+        crate::tsv_line!(
+            tsv_prefix,
+            "config",
+            "jitter_threshold_pct",
+            f4(context.jitter_threshold_pct)
+        );
+        print_tsv_jitter_rows(tsv_prefix, mode, context.jitter_rows);
+        return;
+    }
+
+    println!();
+    match mode {
+        RepeatStatsMode::ComparisonDelta => log("Repeat confidence summary"),
+        RepeatStatsMode::RunAbsolute => log("Run repeat confidence summary"),
+    }
+
+    if let Some((base_label, target_label)) = context.labels {
+        println!("baseline: {base_label}");
+        println!("comparison: {target_label}");
+    }
+
+    println!(
+        "values: total_ms stability across {} repeats",
+        context.repeats
+    );
+    let num_jitter_rows = context.jitter_rows.len();
+    let jitter_preamble = format!(
+        "rows: total={} stable={} high-jitter={num_jitter_rows} ",
+        context.total_rows, context.stable_rows
+    );
+    match mode {
+        RepeatStatsMode::ComparisonDelta => println!(
+            "{jitter_preamble} (high-jitter means min<0<max and spread>={:.1}%)",
+            context.jitter_threshold_pct,
+        ),
+        RepeatStatsMode::RunAbsolute => println!(
+            "{jitter_preamble} (high-jitter means spread/median>={:.1}%)",
+            context.jitter_threshold_pct,
+        ),
+    }
+
+    if context.jitter_rows.is_empty() {
+        println!("high-jitter rows: none");
+        return;
+    }
+
+    match mode {
+        RepeatStatsMode::ComparisonDelta => println!("top high-jitter rows (by spread):"),
+        RepeatStatsMode::RunAbsolute => println!("top high-jitter rows (by spread/median):"),
+    }
+
+    for (benchmark, name, median, min, max, spread) in context.jitter_rows.iter().take(10) {
+        match mode {
+            RepeatStatsMode::ComparisonDelta => println!(
+                "  {benchmark} / {name}  median={median:+.1}%  min={min:+.1}%  max={max:+.1}%  spread={spread:.1}%",
+            ),
+            RepeatStatsMode::RunAbsolute => println!(
+                "  {benchmark} / {name}  median={median:.3}ms  min={min:.3}ms  max={max:.3}ms  spread/median={spread:.1}%",
+            ),
+        }
+    }
 }
 
 impl SummaryRow {
@@ -87,9 +600,12 @@ pub fn print_single_run(output_format: OutputFormat, rows: &[SummaryRow]) {
     match output_format {
         OutputFormat::Tsv => {
             for row in sorted {
-                println!(
-                    "{}\t{}\t{:.3}\t{}\t{}",
-                    row.benchmark, row.name, row.total_ms, row.alloc_count, row.alloc_bytes
+                crate::tsv_line!(
+                    row.benchmark,
+                    row.name,
+                    f3(row.total_ms),
+                    row.alloc_count,
+                    row.alloc_bytes,
                 );
             }
         }
@@ -114,9 +630,7 @@ pub fn print_single_run(output_format: OutputFormat, rows: &[SummaryRow]) {
             println!();
             log("Run summary");
             println!(
-                "{:<benchmark_w$}{:<name_w$}{:>12}  {:>12}  {:>12}",
-                benchmark_header,
-                name_header,
+                "{benchmark_header:<benchmark_w$}{name_header:<name_w$}{:>12}  {:>12}  {:>12}",
                 "total_ms",
                 "alloc_count",
                 "alloc_bytes",
@@ -161,36 +675,36 @@ pub fn print_comparison(
         for (benchmark, name) in keys {
             let base = &base_map[&(benchmark.clone(), name.clone())];
             let target = &target_map[&(benchmark.clone(), name.clone())];
-            println!(
-                "{}\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.4}\t{}\t{}\t{}\t{:.4}\t{}\t{}\t{}\t{:.4}",
+            crate::tsv_line!(
                 benchmark,
                 name,
-                base.total_ms,
-                target.total_ms,
-                target.total_ms - base.total_ms,
-                pct(base.total_ms, target.total_ms),
+                f3(base.total_ms),
+                f3(target.total_ms),
+                f3(target.total_ms - base.total_ms),
+                f4(pct(base.total_ms, target.total_ms)),
                 base.alloc_count,
                 target.alloc_count,
                 target.alloc_count as i128 - base.alloc_count as i128,
-                pct(base.alloc_count as f64, target.alloc_count as f64),
+                f4(pct(base.alloc_count as f64, target.alloc_count as f64)),
                 base.alloc_bytes,
                 target.alloc_bytes,
                 target.alloc_bytes as i128 - base.alloc_bytes as i128,
-                pct(base.alloc_bytes as f64, target.alloc_bytes as f64)
+                f4(pct(base.alloc_bytes as f64, target.alloc_bytes as f64)),
             );
         }
         return;
     }
 
-    let mut rows: Vec<ComparisonRow> = Vec::new();
-    let mut benchmark_w = "benchmark".len();
-    let mut name_w = "name".len();
-    let mut total_w = "total(ms) b/t".len();
-    let mut total_delta_w = "Δ".len();
-    let mut count_w = "alloc_count b/t".len();
-    let mut count_delta_w = "Δ".len();
-    let mut bytes_w = "alloc_bytes b/t".len();
-    let mut bytes_delta_w = "Δ".len();
+    let mut table = Table::new(vec![
+        Column::new("benchmark", Align::Left),
+        Column::new("name", Align::Left),
+        Column::new("total(ms) b/t", Align::Right),
+        Column::new("Δ", Align::Right),
+        Column::new("alloc_count b/t", Align::Right),
+        Column::new("Δ", Align::Right),
+        Column::new("alloc_bytes b/t", Align::Right),
+        Column::new("Δ", Align::Right),
+    ]);
 
     for (benchmark, name) in keys {
         let base = &base_map[&(benchmark.clone(), name.clone())];
@@ -209,16 +723,7 @@ pub fn print_comparison(
             pct(base.alloc_bytes as f64, target.alloc_bytes as f64)
         );
 
-        benchmark_w = benchmark_w.max(benchmark.len());
-        name_w = name_w.max(name.len());
-        total_w = total_w.max(total.len());
-        total_delta_w = total_delta_w.max(total_delta.len());
-        count_w = count_w.max(count.len());
-        count_delta_w = count_delta_w.max(count_delta.len());
-        bytes_w = bytes_w.max(bytes.len());
-        bytes_delta_w = bytes_delta_w.max(bytes_delta.len());
-
-        rows.push(ComparisonRow {
+        table.push_row(vec![
             benchmark,
             name,
             total,
@@ -227,79 +732,13 @@ pub fn print_comparison(
             count_delta,
             bytes,
             bytes_delta,
-        });
+        ]);
     }
 
     println!();
     log("Comparison summary");
     println!("values: {base_label} / {target_label} / %delta");
-    let divider = "-".repeat(
-        benchmark_w
-            + 2
-            + name_w
-            + 2
-            + total_w
-            + 2
-            + total_delta_w
-            + 2
-            + count_w
-            + 2
-            + count_delta_w
-            + 2
-            + bytes_w
-            + 2
-            + bytes_delta_w,
-    );
-    println!(
-        "{:<benchmark_w$}  {:<name_w$}  {:>total_w$}  {:>total_delta_w$}  {:>count_w$}  {:>count_delta_w$}  {:>bytes_w$}  {:>bytes_delta_w$}",
-        "benchmark",
-        "name",
-        "total(ms) b/t",
-        "Δ",
-        "alloc_count b/t",
-        "Δ",
-        "alloc_bytes b/t",
-        "Δ",
-        benchmark_w = benchmark_w,
-        name_w = name_w,
-        total_w = total_w,
-        total_delta_w = total_delta_w,
-        count_w = count_w,
-        count_delta_w = count_delta_w,
-        bytes_w = bytes_w,
-        bytes_delta_w = bytes_delta_w,
-    );
-    println!("{divider}");
-
-    let mut current_benchmark: Option<String> = None;
-    for row in rows {
-        if let Some(prev) = &current_benchmark
-            && prev != &row.benchmark
-        {
-            println!("{divider}");
-        }
-        println!(
-            "{:<benchmark_w$}  {:<name_w$}  {:>total_w$}  {:>total_delta_w$}  {:>count_w$}  {:>count_delta_w$}  {:>bytes_w$}  {:>bytes_delta_w$}",
-            &row.benchmark,
-            row.name,
-            row.total,
-            row.total_delta,
-            row.count,
-            row.count_delta,
-            row.bytes,
-            row.bytes_delta,
-            benchmark_w = benchmark_w,
-            name_w = name_w,
-            total_w = total_w,
-            total_delta_w = total_delta_w,
-            count_w = count_w,
-            count_delta_w = count_delta_w,
-            bytes_w = bytes_w,
-            bytes_delta_w = bytes_delta_w,
-        );
-        current_benchmark = Some(row.benchmark);
-    }
-    println!("{divider}");
+    table.print(true);
 }
 
 /// Print median/min/max repeat statistics for comparison runs.
@@ -314,79 +753,21 @@ pub fn print_repeated_comparison_stats(
         return;
     }
 
-    let mut keys: BTreeSet<(String, String)> = {
-        let (base_rows, target_rows) = &repeated_rows[0];
-        let base_map = to_row_map(base_rows);
-        let target_map = to_row_map(target_rows);
-        base_map
-            .keys()
-            .filter(|key| target_map.contains_key(*key))
-            .cloned()
-            .collect()
-    };
-
-    for (base_rows, target_rows) in repeated_rows.iter().skip(1) {
-        let base_map = to_row_map(base_rows);
-        let target_map = to_row_map(target_rows);
-        keys.retain(|key| base_map.contains_key(key) && target_map.contains_key(key));
-    }
+    let keys = common_keys_for_comparison_runs(repeated_rows);
 
     if keys.is_empty() {
         return;
     }
 
+    let computed_rows = compute_repeat_rows_for_comparison(&keys, repeated_rows);
+
     if output_format == OutputFormat::Tsv {
-        println!(
-            "repeat-stats\tbenchmark\tname\tmetric\tmedian_delta_pct\tmin_delta_pct\tmax_delta_pct\trepeats"
+        print_repeat_rows_tsv(
+            "repeat-stats",
+            RepeatStatsMode::ComparisonDelta,
+            &computed_rows,
+            repeated_rows.len(),
         );
-        for (benchmark, name) in &keys {
-            let mut total_deltas = Vec::with_capacity(repeated_rows.len());
-            let mut count_deltas = Vec::with_capacity(repeated_rows.len());
-            let mut bytes_deltas = Vec::with_capacity(repeated_rows.len());
-
-            for (base_rows, target_rows) in repeated_rows {
-                let base_map = to_row_map(base_rows);
-                let target_map = to_row_map(target_rows);
-                let base = &base_map[&(benchmark.clone(), name.clone())];
-                let target = &target_map[&(benchmark.clone(), name.clone())];
-
-                total_deltas.push(pct(base.total_ms, target.total_ms));
-                count_deltas.push(pct(base.alloc_count as f64, target.alloc_count as f64));
-                bytes_deltas.push(pct(base.alloc_bytes as f64, target.alloc_bytes as f64));
-            }
-
-            let (total_median, total_min, total_max) = median_min_max(&total_deltas);
-            let (count_median, count_min, count_max) = median_min_max(&count_deltas);
-            let (bytes_median, bytes_min, bytes_max) = median_min_max(&bytes_deltas);
-
-            println!(
-                "repeat-stats\t{}\t{}\ttotal_ms\t{:.4}\t{:.4}\t{:.4}\t{}",
-                benchmark,
-                name,
-                total_median,
-                total_min,
-                total_max,
-                repeated_rows.len()
-            );
-            println!(
-                "repeat-stats\t{}\t{}\talloc_count\t{:.4}\t{:.4}\t{:.4}\t{}",
-                benchmark,
-                name,
-                count_median,
-                count_min,
-                count_max,
-                repeated_rows.len()
-            );
-            println!(
-                "repeat-stats\t{}\t{}\talloc_bytes\t{:.4}\t{:.4}\t{:.4}\t{}",
-                benchmark,
-                name,
-                bytes_median,
-                bytes_min,
-                bytes_max,
-                repeated_rows.len()
-            );
-        }
         print_repeat_confidence_summary(
             output_format,
             base_label,
@@ -398,62 +779,6 @@ pub fn print_repeated_comparison_stats(
         return;
     }
 
-    let mut rows: Vec<RepeatStatsRow> = Vec::new();
-    let mut benchmark_w = "benchmark".len();
-    let mut name_w = "name".len();
-    let mut total_median_w = "total Δ med".len();
-    let mut total_min_w = "total Δ min".len();
-    let mut total_max_w = "total Δ max".len();
-    let mut count_median_w = "count Δ med".len();
-    let mut bytes_median_w = "bytes Δ med".len();
-
-    for (benchmark, name) in &keys {
-        let mut total_deltas = Vec::with_capacity(repeated_rows.len());
-        let mut count_deltas = Vec::with_capacity(repeated_rows.len());
-        let mut bytes_deltas = Vec::with_capacity(repeated_rows.len());
-
-        for (base_rows, target_rows) in repeated_rows {
-            let base_map = to_row_map(base_rows);
-            let target_map = to_row_map(target_rows);
-            let base = &base_map[&(benchmark.clone(), name.clone())];
-            let target = &target_map[&(benchmark.clone(), name.clone())];
-
-            total_deltas.push(pct(base.total_ms, target.total_ms));
-            count_deltas.push(pct(base.alloc_count as f64, target.alloc_count as f64));
-            bytes_deltas.push(pct(base.alloc_bytes as f64, target.alloc_bytes as f64));
-        }
-
-        let (total_median, total_min, total_max) = median_min_max(&total_deltas);
-        let (count_median, _, _) = median_min_max(&count_deltas);
-        let (bytes_median, _, _) = median_min_max(&bytes_deltas);
-
-        let total_median_cell = format!("{:+.1}%", total_median);
-        let total_min_cell = format!("{:+.1}%", total_min);
-        let total_max_cell = format!("{:+.1}%", total_max);
-        let count_median_cell = format!("{:+.1}%", count_median);
-        let bytes_median_cell = format!("{:+.1}%", bytes_median);
-        let repeats_cell = repeated_rows.len().to_string();
-
-        benchmark_w = benchmark_w.max(benchmark.len());
-        name_w = name_w.max(name.len());
-        total_median_w = total_median_w.max(total_median_cell.len());
-        total_min_w = total_min_w.max(total_min_cell.len());
-        total_max_w = total_max_w.max(total_max_cell.len());
-        count_median_w = count_median_w.max(count_median_cell.len());
-        bytes_median_w = bytes_median_w.max(bytes_median_cell.len());
-
-        rows.push(RepeatStatsRow {
-            benchmark: benchmark.to_string(),
-            name: name.to_string(),
-            total_median: total_median_cell,
-            total_min: total_min_cell,
-            total_max: total_max_cell,
-            count_median: count_median_cell,
-            bytes_median: bytes_median_cell,
-            repeats: repeats_cell,
-        });
-    }
-
     println!();
     log("Repeated comparison stats");
     println!("baseline: {base_label}");
@@ -463,65 +788,11 @@ pub fn print_repeated_comparison_stats(
         repeated_rows.len()
     );
 
-    let divider = "-".repeat(
-        benchmark_w
-            + 2
-            + name_w
-            + 2
-            + total_median_w
-            + 2
-            + total_min_w
-            + 2
-            + total_max_w
-            + 2
-            + count_median_w
-            + 2
-            + bytes_median_w
-            + 2
-            + "repeats".len(),
+    print_repeat_rows_table(
+        RepeatStatsMode::ComparisonDelta,
+        &computed_rows,
+        repeated_rows.len(),
     );
-
-    println!(
-        "{:<benchmark_w$}  {:<name_w$}  {:>total_median_w$}  {:>total_min_w$}  {:>total_max_w$}  {:>count_median_w$}  {:>bytes_median_w$}  {:>7}",
-        "benchmark",
-        "name",
-        "total Δ med",
-        "total Δ min",
-        "total Δ max",
-        "count Δ med",
-        "bytes Δ med",
-        "repeats",
-        benchmark_w = benchmark_w,
-        name_w = name_w,
-        total_median_w = total_median_w,
-        total_min_w = total_min_w,
-        total_max_w = total_max_w,
-        count_median_w = count_median_w,
-        bytes_median_w = bytes_median_w,
-    );
-    println!("{divider}");
-
-    for row in rows {
-        println!(
-            "{:<benchmark_w$}  {:<name_w$}  {:>total_median_w$}  {:>total_min_w$}  {:>total_max_w$}  {:>count_median_w$}  {:>bytes_median_w$}  {:>7}",
-            row.benchmark,
-            row.name,
-            row.total_median,
-            row.total_min,
-            row.total_max,
-            row.count_median,
-            row.bytes_median,
-            row.repeats,
-            benchmark_w = benchmark_w,
-            name_w = name_w,
-            total_median_w = total_median_w,
-            total_min_w = total_min_w,
-            total_max_w = total_max_w,
-            count_median_w = count_median_w,
-            bytes_median_w = bytes_median_w,
-        );
-    }
-    println!("{divider}");
 
     print_repeat_confidence_summary(
         output_format,
@@ -531,6 +802,57 @@ pub fn print_repeated_comparison_stats(
         repeated_rows,
         jitter_threshold_pct,
     );
+}
+
+/// Print median/min/max repeat statistics for single-run repeats.
+pub fn print_repeated_run_stats(
+    output_format: OutputFormat,
+    repeated_rows: &[Vec<SummaryRow>],
+    jitter_threshold_pct: f64,
+) {
+    if repeated_rows.is_empty() {
+        return;
+    }
+
+    let keys = common_keys_for_run_repeats(repeated_rows);
+
+    if keys.is_empty() {
+        return;
+    }
+
+    let computed_rows = compute_repeat_rows_for_run(&keys, repeated_rows);
+
+    if output_format == OutputFormat::Tsv {
+        print_repeat_rows_tsv(
+            "run-repeat-stats",
+            RepeatStatsMode::RunAbsolute,
+            &computed_rows,
+            repeated_rows.len(),
+        );
+
+        print_run_repeat_confidence_summary(
+            output_format,
+            &keys,
+            repeated_rows,
+            jitter_threshold_pct,
+        );
+        return;
+    }
+
+    println!();
+    log("Run repeat stats");
+    println!(
+        "values: median/min/max absolute values across {} repeats",
+        repeated_rows.len()
+    );
+
+    print_repeat_rows_table(
+        RepeatStatsMode::RunAbsolute,
+        &computed_rows,
+        repeated_rows.len(),
+    );
+
+    print_run_repeat_confidence_summary(output_format, &keys, repeated_rows, jitter_threshold_pct);
 }
 
 /// Print a confidence summary highlighting high-jitter rows.
@@ -546,118 +868,47 @@ fn print_repeat_confidence_summary(
         return;
     }
 
-    let mut jitter_rows: Vec<(String, String, f64, f64, f64, f64)> = Vec::new();
-    let mut stable_rows = 0usize;
+    let (jitter_rows, stable_rows) =
+        classify_comparison_jitter_rows(keys, repeated_rows, jitter_threshold_pct);
 
-    for (benchmark, name) in keys {
-        let mut total_deltas = Vec::with_capacity(repeated_rows.len());
-
-        for (base_rows, target_rows) in repeated_rows {
-            let base_map = to_row_map(base_rows);
-            let target_map = to_row_map(target_rows);
-            let base = &base_map[&(benchmark.clone(), name.clone())];
-            let target = &target_map[&(benchmark.clone(), name.clone())];
-            total_deltas.push(pct(base.total_ms, target.total_ms));
-        }
-
-        let (median, min, max) = median_min_max(&total_deltas);
-        let spread = max - min;
-        let straddles_zero = min < 0.0 && max > 0.0;
-        let high_jitter = straddles_zero && spread >= jitter_threshold_pct;
-
-        if high_jitter {
-            jitter_rows.push((
-                benchmark.to_string(),
-                name.to_string(),
-                median,
-                min,
-                max,
-                spread,
-            ));
-        } else {
-            stable_rows += 1;
-        }
-    }
-
-    jitter_rows.sort_by(|a, b| b.5.total_cmp(&a.5));
-
-    if output_format == OutputFormat::Tsv {
-        println!(
-            "repeat-confidence\tsummary\tbase\ttarget\ttotal_rows\tstable_rows\thigh_jitter_rows\trepeats"
-        );
-        println!(
-            "repeat-confidence\tsummary\t{}\t{}\t{}\t{}\t{}\t{}",
-            base_label,
-            target_label,
-            keys.len(),
+    print_confidence_output(
+        output_format,
+        RepeatStatsMode::ComparisonDelta,
+        ConfidenceRenderContext {
+            labels: Some((base_label, target_label)),
+            total_rows: keys.len(),
             stable_rows,
-            jitter_rows.len(),
-            repeated_rows.len()
-        );
-        println!(
-            "repeat-confidence\tconfig\tjitter_threshold_pct\t{:.4}",
-            jitter_threshold_pct
-        );
-        println!(
-            "repeat-confidence\tbenchmark\tname\tmedian_delta_pct\tmin_delta_pct\tmax_delta_pct\tspread_pct\tclassification"
-        );
-        for (benchmark, name, median, min, max, spread) in jitter_rows.iter().take(10) {
-            println!(
-                "repeat-confidence\t{}\t{}\t{:.4}\t{:.4}\t{:.4}\t{:.4}\thigh-jitter",
-                benchmark, name, median, min, max, spread
-            );
-        }
-        return;
-    }
-
-    println!();
-    log("Repeat confidence summary");
-    println!("baseline: {base_label}");
-    println!("comparison: {target_label}");
-    println!(
-        "values: total_ms stability across {} repeats",
-        repeated_rows.len()
+            jitter_rows: &jitter_rows,
+            repeats: repeated_rows.len(),
+            jitter_threshold_pct,
+        },
     );
-    println!(
-        "rows: total={} stable={} high-jitter={} (high-jitter means min<0<max and spread>={:.1}%)",
-        keys.len(),
-        stable_rows,
-        jitter_rows.len(),
-        jitter_threshold_pct,
-    );
-
-    if jitter_rows.is_empty() {
-        println!("high-jitter rows: none");
-        return;
-    }
-
-    println!("top high-jitter rows (by spread):");
-    for (benchmark, name, median, min, max, spread) in jitter_rows.iter().take(10) {
-        println!(
-            "  {} / {}  median={:+.1}%  min={:+.1}%  max={:+.1}%  spread={:.1}%",
-            benchmark, name, median, min, max, spread
-        );
-    }
 }
 
-/// Return median, minimum, and maximum values for a non-empty slice.
-fn median_min_max(values: &[f64]) -> (f64, f64, f64) {
-    let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| a.total_cmp(b));
+/// Print a confidence summary for absolute run-repeat stability.
+fn print_run_repeat_confidence_summary(
+    output_format: OutputFormat,
+    keys: &BTreeSet<(String, String)>,
+    repeated_rows: &[Vec<SummaryRow>],
+    jitter_threshold_pct: f64,
+) {
+    if keys.is_empty() || repeated_rows.is_empty() {
+        return;
+    }
 
-    let min = *sorted
-        .first()
-        .expect("median_min_max requires non-empty values");
-    let max = *sorted
-        .last()
-        .expect("median_min_max requires non-empty values");
-    let len = sorted.len();
+    let (jitter_rows, stable_rows) =
+        classify_run_jitter_rows(keys, repeated_rows, jitter_threshold_pct);
 
-    let median = if len % 2 == 1 {
-        sorted[len / 2]
-    } else {
-        (sorted[(len / 2) - 1] + sorted[len / 2]) / 2.0
-    };
-
-    (median, min, max)
+    print_confidence_output(
+        output_format,
+        RepeatStatsMode::RunAbsolute,
+        ConfidenceRenderContext {
+            labels: None,
+            total_rows: keys.len(),
+            stable_rows,
+            jitter_rows: &jitter_rows,
+            repeats: repeated_rows.len(),
+            jitter_threshold_pct,
+        },
+    );
 }

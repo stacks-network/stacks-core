@@ -39,7 +39,7 @@ pub struct BenchArgs {
     target_revision: Option<String>,
 
     /// Select output format for benchmark results.
-    #[arg(long, value_enum, default_value_t = OutputFormat::Summary)]
+    #[arg(long, value_enum, default_value_t = OutputFormat::Summary, global = true)]
     output_format: OutputFormat,
 
     /// Repeat full base/target benchmark comparison N times and emit repeat statistics.
