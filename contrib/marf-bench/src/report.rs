@@ -781,8 +781,10 @@ pub fn print_repeated_comparison_stats(
 
     println!();
     log("Repeated comparison stats");
+    println!("baseline: {base_label}");
+    println!("comparison: {target_label}");
     println!(
-        "values: {base_label} / {target_label} / median/min/max %delta across {} repeats",
+        "values: median/min/max %delta across {} repeats",
         repeated_rows.len()
     );
 

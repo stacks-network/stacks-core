@@ -28,6 +28,8 @@ pub enum BenchTarget {
     Read(ReadArgs),
     /// Run MARF write-path benchmarks.
     Write(WriteArgs),
+    /// Run MARF patch-node compression benchmarks.
+    Patch(PatchArgs),
 }
 
 impl BenchTarget {
@@ -38,6 +40,7 @@ impl BenchTarget {
                 BenchKind::Primitives,
                 BenchEnvOverrides {
                     iters: args.iters,
+                    rounds: args.rounds,
                     ..Default::default()
                 },
             )],
@@ -69,6 +72,17 @@ impl BenchTarget {
                     ..Default::default()
                 },
             )],
+            Self::Patch(args) => vec![BenchRunRequest::new(
+                BenchKind::Patch,
+                BenchEnvOverrides {
+                    iters: args.iters,
+                    rounds: args.rounds,
+                    node_types: args.node_types,
+                    ptr_states: args.ptr_states,
+                    patch_diffs: args.patch_diffs,
+                    ..Default::default()
+                },
+            )],
         }
     }
 }
@@ -79,6 +93,10 @@ pub struct PrimitivesArgs {
     /// Set ITERS for primitives case loop count.
     #[arg(long)]
     iters: Option<usize>,
+
+    /// Set ROUNDS for primitives repeated case runs.
+    #[arg(long)]
+    rounds: Option<usize>,
 }
 
 /// Arguments for the `read` benchmark target.
@@ -151,4 +169,28 @@ pub struct WriteArgs {
     /// Set KEY_SEARCH_MAX_TRIES for write promotion-key search budget.
     #[arg(long)]
     key_search_max_tries: Option<usize>,
+}
+
+/// Arguments for the `patch` benchmark target.
+#[derive(Debug, Args)]
+pub struct PatchArgs {
+    /// Set ITERS for patch benchmark loop count.
+    #[arg(long)]
+    iters: Option<usize>,
+
+    /// Set ROUNDS for patch repeated case runs.
+    #[arg(long)]
+    rounds: Option<usize>,
+
+    /// Set NODE_TYPES as comma-separated values (for example: node4,node16,node48,node256 or all).
+    #[arg(long)]
+    node_types: Option<String>,
+
+    /// Set PTR_STATES as comma-separated values (for example: backptr,plain or all).
+    #[arg(long)]
+    ptr_states: Option<String>,
+
+    /// Set PATCH_DIFFS as comma-separated diff sizes (for example: 1,4,16,64).
+    #[arg(long)]
+    patch_diffs: Option<String>,
 }

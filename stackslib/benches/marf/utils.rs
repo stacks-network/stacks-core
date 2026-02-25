@@ -54,6 +54,20 @@ pub fn parse_csv_string_env(name: &str, default: &[&str]) -> Vec<String> {
     parse_csv_env(name, &defaults, "string")
 }
 
+/// Parse comma-separated string tokens, lowercasing and trimming each entry.
+pub fn parse_csv_lowercase_tokens_env(name: &str) -> Option<Vec<String>> {
+    let raw = std::env::var(name).ok()?;
+    let tokens: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(|item| item.to_ascii_lowercase())
+        .collect();
+
+    assert!(!tokens.is_empty(), "{name} must contain at least one value");
+    Some(tokens)
+}
+
 /// Build a deterministic block id from a numeric seed.
 pub fn block_id(seed: u32) -> StacksBlockId {
     let mut bytes = [0u8; 32];

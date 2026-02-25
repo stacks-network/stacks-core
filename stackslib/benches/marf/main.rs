@@ -15,6 +15,7 @@
 
 mod allocator;
 mod common;
+mod patch;
 mod primitives;
 mod read;
 mod utils;
@@ -109,6 +110,7 @@ fn print_usage() {
     println!("  primitives    Primitive microbench profile (codec + trie/storage)");
     println!("  read          Read-heavy MARF::get profile");
     println!("  write         Write workflow profile");
+    println!("  patch         TrieNodePatch construction/application profile");
     println!();
     println!("Environment variables:");
     println!("  OUTPUT_FORMAT");
@@ -140,6 +142,7 @@ fn main() {
         "primitives" => primitives::run(sub_args, output_mode),
         "read" => read::run(sub_args, output_mode),
         "write" => write::run(sub_args, output_mode),
+        "patch" => patch::run(sub_args, output_mode),
         "-h" | "--help" | "help" => {
             print_usage();
             None

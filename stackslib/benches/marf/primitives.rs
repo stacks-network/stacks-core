@@ -17,7 +17,7 @@
 
 use std::hint::black_box;
 use std::io::Cursor;
-use std::time::Instant;
+use std::sync::OnceLock;
 
 use blockstack_lib::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use blockstack_lib::chainstate::stacks::index::node::{
@@ -33,7 +33,7 @@ use blockstack_lib::chainstate::stacks::index::{
 };
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
 
-use crate::allocator::{reset_stats, snapshot};
+use crate::common::record_case_with_rounds;
 use crate::utils::{
     block_id, has_help_flag, missing_path_hash, parse_usize_env, path_from_seed, trie_insert,
     walk_to_insertion_point,
@@ -42,61 +42,26 @@ use crate::{OutputMode, Summary};
 
 /// Default iterations per primitive case.
 const DEFAULT_ITERS: usize = 200_000;
-
-/// Allocation/timing result for one primitive case.
-#[derive(Clone, Copy)]
-struct CaseStats {
-    alloc_calls: u64,
-    alloc_bytes: u64,
-    elapsed_ms: f64,
-}
+/// Default independent repetitions per case.
+const DEFAULT_ROUNDS: usize = 1;
 
 #[rustfmt::skip]
-fn print_usage(args: &[String]) {
-    if has_help_flag(args) {
-        println!("primitives: Allocation profiling micro-benchmark for primitives (codec + trie/storage)");
-        println!();
-        println!("Environment Variables:");
-        println!("  ITERS Iterations per measured case [default: {DEFAULT_ITERS}]");
-        println!("              Higher values reduce timer noise but increase runtime linearly");
-        println!("              Allocation counters are total counts/bytes across all iterations");
-        println!("  OUTPUT_FORMAT");
-        println!("              Output mode [default: summary]");
-        println!("              'summary': unified summary lines only");
-        println!("              'raw': detailed per-case lines + unified summary lines");
-        println!();
-        println!("Output Lines:");
-        println!("  summary     Unified summary lines emitted by marf bench main");
-        return;
-    }
-}
-
-/// Run one measured primitive case and capture allocator counters.
-fn run_case<F>(name: &str, mode: OutputMode, mut f: F) -> CaseStats
-where
-    F: FnMut(),
-{
-    reset_stats();
-    let start = Instant::now();
-    f();
-    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    let stats = snapshot();
-    if mode.is_raw() {
-        println!(
-            "{name}\talloc_calls={}\talloc_bytes={}\trealloc_calls={}\tdealloc_calls={}\tdealloc_bytes={}\telapsed_ms={:.2}",
-            stats.alloc_calls,
-            stats.alloc_bytes,
-            stats.realloc_calls,
-            stats.dealloc_calls,
-            stats.dealloc_bytes,
-            elapsed_ms
-        );
-    }
-    CaseStats {
-        alloc_calls: stats.alloc_calls,
-        alloc_bytes: stats.alloc_bytes,
-        elapsed_ms,
-    }
+fn print_usage() {
+    println!("primitives: Allocation profiling micro-benchmark for primitives (codec + trie/storage)");
+    println!();
+    println!("Environment Variables:");
+    println!("  ITERS Iterations per measured case [default: {DEFAULT_ITERS}]");
+    println!("              Higher values reduce timer noise but increase runtime linearly");
+    println!("              Allocation counters are total counts/bytes across all iterations");
+    println!("  ROUNDS      Independent repetitions per case [default: {DEFAULT_ROUNDS}]");
+    println!("              Higher values improve stability estimates in summary totals");
+    println!("  OUTPUT_FORMAT");
+    println!("              Output mode [default: summary]");
+    println!("              'summary': unified summary lines only");
+    println!("              'raw': detailed per-case lines + unified summary lines");
+    println!();
+    println!("Output Lines:");
+    println!("  summary     Unified summary lines emitted by marf bench main");
 }
 
 /// Measure and append one primitive case to summary output.
@@ -104,8 +69,17 @@ fn record_case<F>(summary: &mut Summary, name: &str, mode: OutputMode, f: F)
 where
     F: FnMut(),
 {
-    let stats = run_case(name, mode, f);
-    summary.push_line(name, stats.elapsed_ms, stats.alloc_calls, stats.alloc_bytes);
+    record_case_with_rounds(summary, name, mode, configured_rounds(), f);
+}
+
+/// Return validated `ROUNDS` benchmark setting, parsed once per process.
+fn configured_rounds() -> usize {
+    static ROUNDS: OnceLock<usize> = OnceLock::new();
+    *ROUNDS.get_or_init(|| {
+        let rounds = parse_usize_env("ROUNDS", DEFAULT_ROUNDS);
+        assert!(rounds > 0, "ROUNDS must be > 0");
+        rounds
+    })
 }
 
 /// Return a deterministic full-length trie path byte array.
@@ -274,7 +248,7 @@ fn make_storage_fixture(cache_strategy: &str) -> StorageFixture {
 /// Run primitive benchmark subcommand and return summary rows.
 pub fn run(args: &[String], output_mode: OutputMode) -> Option<Summary> {
     if has_help_flag(args) {
-        print_usage(args);
+        print_usage();
         return None;
     }
 
@@ -340,7 +314,7 @@ pub fn run(args: &[String], output_mode: OutputMode) -> Option<Summary> {
     max_len_path_bytes.extend_from_slice(&path);
 
     if output_mode.is_raw() {
-        println!("iters={iters}");
+        println!("iters={iters}\trounds={}", configured_rounds());
     }
 
     let mut summary = Summary::new("primitives", 64);

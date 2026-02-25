@@ -47,15 +47,24 @@ enum BenchKind {
     Primitives,
     Read,
     Write,
+    Patch,
 }
 
 impl BenchKind {
-    /// Convert a benchmark kind into the marf bench CLI argument.
-    fn as_arg(self) -> &'static str {
+    /// Return Cargo bench target name for this benchmark kind.
+    fn bench_name(self) -> &'static str {
         match self {
-            Self::Primitives => "primitives",
-            Self::Read => "read",
-            Self::Write => "write",
+            Self::Primitives | Self::Read | Self::Write | Self::Patch => "marf",
+        }
+    }
+
+    /// Convert a benchmark kind into the harness subcommand argument when needed.
+    fn harness_subcommand(self) -> Option<&'static str> {
+        match self {
+            Self::Primitives => Some("primitives"),
+            Self::Read => Some("read"),
+            Self::Write => Some("write"),
+            Self::Patch => Some("patch"),
         }
     }
 }
