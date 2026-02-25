@@ -119,7 +119,10 @@ use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config
 
 pub mod capitulate_parent_tenure_view;
 pub mod late_block_proposal;
+pub mod missing_burn_block_proposal;
 pub mod reorg;
+pub mod signers_consider_consensus_blocks;
+pub mod signers_consider_late_proposals;
 pub mod signers_wait_for_validation;
 pub mod tenure_extend;
 pub mod tx_replay;
