@@ -55,7 +55,7 @@ max_rbf = 150
 # tenure_extend_wait_timeout_ms = 120000
 
 # WARNING: Should be > tenure_extend_wait_timeout_ms and > signer's
-# tenure_idle_timeout + buffer (default 62s).
+# tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs (default 62s).
 # Default: 180 seconds
 # tenure_timeout_secs = 180
 

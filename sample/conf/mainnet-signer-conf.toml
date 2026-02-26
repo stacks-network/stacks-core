@@ -149,9 +149,11 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 #
 # If a new miner tries to reorg a tenure that already produced blocks:
 #   - If (burn_block_received - first_block_signed) < this value:
-#     Reorg is ALLOWED (the tenure was "poorly timed" / not yet established)
+#     Reorg is ALLOWED (the tenure was "poorly timed" and the incoming
+#     miner did not have sufficient time to RBF an outdated commit)
 #   - If (burn_block_received - first_block_signed) >= this value:
-#     Reorg is DENIED (the tenure had enough time to establish itself)
+#     Reorg is DENIED (the tenure was established long enough for the
+#     incoming miner to RBF any outdated commit)
 #
 # WARNING: Setting this too LOW allows dangerous reorgs of established
 # tenures. Setting it too HIGH blocks legitimate miner handoffs when
@@ -176,6 +178,12 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # capitulating to the consensus view of other signers.
 # Lower values mean faster convergence; higher values give more time
 # for independent verification.
+#
+# WARNING: Setting this too low can cause the signer to flip-flop
+# between viewpoints. It must allow enough time for other signers to
+# receive updates and publish their own updated views before this
+# signer gives up on its own viewpoint and converges.
+#
 # Default: 20
 # Units: seconds
 # capitulate_miner_view_timeout_secs = 20
@@ -194,18 +202,25 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # Run in dry-run mode. The signer logs actions but does not submit
 # StackerDB messages or participate in signing. Useful for testing
 # or monitoring.
+#
+# WARNING: If you enable dry_run, make sure this signer is NOT running
+# with a valid registered signer key. A registered signer in dry-run
+# mode will not participate in signing, which harms network liveness.
+#
 # Default: false
 # dry_run = false
 
-# Validate blocks by replaying transactions (experimental).
-# Provides additional validation at the cost of more resources.
+# Enforce transaction replay during stacks block validation following a
+# bitcoin block reorg (experimental). Ensures that a miner includes the
+# expected transactions from reorged stacks blocks that can be replayed.
 # Default: false
 # validate_with_replay_tx = false
 
-# Number of blocks after a fork to reset the replay set.
-# Acts as a failsafe to prevent unbounded replay set growth.
+# Number of bitcoin blocks after a bitcoin fork to reset the replay set.
+# Acts as a failsafe to ensure that signers do not permanently prevent
+# valid stacks block production based solely on transaction replay.
 # Default: 2
-# Units: blocks
+# Units: bitcoin blocks
 # reset_replay_set_after_fork_blocks = 2
 
 # HTTP timeout for StackerDB read/write operations.
