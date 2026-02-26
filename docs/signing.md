@@ -71,7 +71,7 @@ Key interactions:
   The signer waits `block_proposal_timeout_ms` before marking an unresponsive miner as inactive.
   If the miner extends before the signer invalidates the new winner, the extend is rejected.
 
-- **`tenure_timeout_secs`** (miner) should be > signer's **`tenure_idle_timeout + buffer`** (default 62s).
+- **`tenure_timeout_secs`** (miner) should be > signer's **`tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs`** (default 62s).
   The signer computes an extend timestamp from the last block time + idle timeout + buffer.
   The miner must wait at least this long before time-based extends.
 

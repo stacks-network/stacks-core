@@ -222,8 +222,8 @@ max_rbf = 150
 # If this value >= signer's `block_proposal_timeout_ms`:
 #   Signer times out new winner first, then accepts the extend -> OK
 #
-# Additionally, the signer requires `tenure_idle_timeout + buffer` (default
-# 62s) to have passed since the last block before accepting any extend.
+# Additionally, the signer requires `tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs`
+# (default 62s) to have passed since the last block before accepting any extend.
 # Both conditions must be met on the signer side.
 #
 # Default: 120_000
@@ -234,12 +234,12 @@ max_rbf = 150
 # tenure extend (even if the miner itself won the sortition).
 #
 # This is checked alongside the signer-provided `tenure_extend_timestamp`
-# (which is computed from `tenure_idle_timeout + buffer`). The miner
+# (which is computed from `tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs`). The miner
 # will only extend when BOTH this timeout has elapsed AND the signer's
 # timestamp allows it.
 #
 # WARNING: Should be greater than `tenure_extend_wait_timeout_ms` and
-# greater than signer's `tenure_idle_timeout + buffer` (default 62s).
+# greater than signer's `tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs` (default 62s).
 #
 # Default: 180
 # Units: seconds

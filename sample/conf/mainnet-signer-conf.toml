@@ -26,6 +26,8 @@
 # REQUIRED: Hex-encoded Stacks private key for this signer.
 # 64 hex chars (uncompressed) or 66 hex chars (with "01" compression suffix).
 # This key determines the signer's on-chain identity and STX address.
+# Must correspond to the public key used to register this signer via
+# stack-stx or stack-aggregation-commit Clarity function calls.
 stacks_private_key = "<YOUR_SIGNER_PRIVATE_KEY_HEX>"
 
 # REQUIRED: The Stacks node RPC endpoint to connect to.
@@ -63,7 +65,7 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # much time to propose a block. If no proposal arrives, the signer marks
 # the winner as InvalidatedBeforeFirstBlock. This is one of two gates
 # that must be satisfied before the signer will accept a tenure extend
-# from the PREVIOUS miner (the other gate is `tenure_idle_timeout`).
+# from the PREVIOUS miner (the other gate is `tenure_idle_timeout_secs`).
 #
 # WARNING: Interacts with miner's `tenure_extend_wait_timeout_ms` (default 120_000ms).
 # The miner waits `tenure_extend_wait_timeout_ms` before attempting to extend.
@@ -100,15 +102,15 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # signer will allow a tenure extend.
 #
 # When the signer accepts a block, it computes an extend timestamp:
-#   extend_timestamp = last_block_time + tenure_idle_timeout + buffer
+#   extend_timestamp = last_block_time + tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs
 # The signer includes this timestamp in its BlockAccepted response.
 # The miner cannot extend until current_time >= extend_timestamp.
 #
 # This is one of two gates for tenure extends (the other is
-# `block_proposal_timeout` for new-winner invalidation).
+# `block_proposal_timeout_ms` for new-winner invalidation).
 #
 # WARNING: Must coordinate with the miner's settings:
-#   - Miner `tenure_timeout` (default 180s): must be > this + buffer
+#   - Miner `tenure_timeout_secs` (default 180s): must be > this + buffer
 #   - Miner `tenure_extend_wait_timeout_ms` (default 120_000ms): should
 #     be >= this + buffer so the miner doesn't extend too early
 #
@@ -118,7 +120,7 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 
 # Buffer added to the tenure idle timeout to account for clock skew
 # between signer and miner nodes. The effective idle timeout sent to
-# miners is: tenure_idle_timeout + tenure_idle_timeout_buffer.
+# miners is: tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs.
 #
 # Default: 2
 # Units: seconds
