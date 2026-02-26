@@ -50,6 +50,7 @@ pub mod getsortition;
 pub mod getstackerdbchunk;
 pub mod getstackerdbmetadata;
 pub mod getstackers;
+pub mod getstxbtcratio;
 pub mod getstxtransfercost;
 pub mod gettenure;
 pub mod gettenureblocks;
@@ -127,6 +128,7 @@ impl StacksHttp {
             getstackerdbmetadata::RPCGetStackerDBMetadataRequestHandler::new(),
         );
         self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
+        self.register_rpc_endpoint(getstxbtcratio::GetStxBtcRatioRequestHandler::default());
         self.register_rpc_endpoint(getsortition::GetSortitionHandler::new());
         self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
         self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());

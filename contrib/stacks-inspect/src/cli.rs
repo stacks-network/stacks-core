@@ -360,6 +360,26 @@ pub enum Command {
         network: String,
     },
 
+    /// Get STX/BTC ratio for a reward cycle
+    #[command(name = "get-stx-btc-ratio")]
+    GetStxBtcRatio {
+        /// Path to chainstate directory
+        #[arg(value_name = "CHAINSTATE_DIR")]
+        chainstate_dir: String,
+
+        /// Network (mainnet, krypton, naka3)
+        #[arg(value_name = "NETWORK")]
+        network: String,
+
+        /// Reward cycle number
+        #[arg(value_name = "REWARD_CYCLE")]
+        reward_cycle: u64,
+
+        /// Optional chain tip to query at
+        #[arg(value_name = "CHAIN_TIP")]
+        chain_tip: Option<String>,
+    },
+
     /// Get account state at a chain tip
     #[command(name = "get-account")]
     GetAccount {

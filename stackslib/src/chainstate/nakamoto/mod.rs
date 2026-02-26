@@ -40,6 +40,7 @@ use stacks_common::types::{PrivateKey, SIP031EmissionInterval, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::uint::Uint256;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
@@ -53,8 +54,8 @@ use super::stacks::boot::{
 };
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::{
-    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerRewardInfo, StacksBlockHeaderTypes,
-    StacksEpochReceipt, StacksHeaderInfo,
+    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
+    StacksBlockHeaderTypes, StacksEpochReceipt, StacksHeaderInfo,
 };
 use super::stacks::events::StacksTransactionReceipt;
 use super::stacks::{
@@ -601,6 +602,28 @@ impl MaturedMinerRewards {
     pub fn consolidate(&self) -> Vec<MinerReward> {
         vec![self.recipient.clone(), self.parent_reward.clone()]
     }
+}
+
+/// Struct for tracking the total amount of STX earned and BTC spent in each reward cycle, for
+/// calculating the STX/BTC ratio.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StxBtcCycleTotals {
+    pub reward_cycle: u64,
+    pub tenure_count: u64,
+    pub stx_earned_ustx: u128,
+    pub btc_spent_sats: u64,
+}
+
+/// Struct for tracking the STX/BTC ratio for each reward cycle, both the raw ratio and the
+/// 5-cycle weighted geometric mean smoothed ratio.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StxBtcCycleRatio {
+    pub reward_cycle: u64,
+    pub tenure_count: u64,
+    pub stx_earned_ustx: u128,
+    pub btc_spent_sats: u64,
+    pub stx_btc_ratio: Option<u128>,
+    pub smoothed_stx_btc_ratio: Option<u128>,
 }
 
 /// Result of preparing to produce or validate a block
@@ -3753,6 +3776,408 @@ impl NakamotoChainState {
             .optional()
             .map(Option::unwrap_or_default) // It's fine to map `NONE` to `0`, because it's impossible to have `Some(0)`
             .map_err(ChainstateError::from)
+    }
+
+    /// Find the tenure consensus hash to start scanning from when computing cycle totals.
+    /// This resolves to the first sortition in `end_reward_cycle + 1` (if available), capped at
+    /// `tip_index_hash`, so the final tenure in `end_reward_cycle` can be attributed its fees.
+    fn get_tenure_consensus_hash_at_cycle_end<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
+        sort_db: &SortitionDB,
+        tip_index_hash: &StacksBlockId,
+        pox_constants: &PoxConstants,
+        first_burn_height: u64,
+        end_reward_cycle: u64,
+    ) -> Result<Option<ConsensusHash>, ChainstateError> {
+        let Some(tip_header) = Self::get_block_header(conn.sqlite(), tip_index_hash)? else {
+            return Ok(None);
+        };
+
+        let Some(tip_snapshot) =
+            SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &tip_header.consensus_hash)?
+        else {
+            return Ok(None);
+        };
+
+        // Find the first sortition in the next cycle, which will compute this miner's fees up to
+        // the end of the target cycle. If there are no sortitions after the start of the next
+        // cycle, then we'll just use the latest sortition we have, which will undercount fees for
+        // the last tenure but is still correct for all previous tenures.
+        let anchor_cycle = end_reward_cycle.saturating_add(1);
+        let anchor_cycle_start_burn_height =
+            pox_constants.reward_cycle_to_block_height(first_burn_height, anchor_cycle);
+        let cycle_end_burn_height = pox_constants
+            .reward_cycle_to_block_height(first_burn_height, anchor_cycle.saturating_add(1))
+            .saturating_sub(1);
+        let search_end_burn_height = cycle_end_burn_height.min(tip_snapshot.block_height);
+        let sort_handle = sort_db.index_handle(&tip_snapshot.sortition_id);
+        if anchor_cycle_start_burn_height <= search_end_burn_height {
+            for burn_height in anchor_cycle_start_burn_height..=search_end_burn_height {
+                let Some(snapshot) = sort_handle.get_block_snapshot_by_height(burn_height)? else {
+                    break;
+                };
+                if snapshot.sortition {
+                    return Ok(Some(snapshot.consensus_hash));
+                }
+            }
+        }
+
+        let fallback_snapshot =
+            sort_handle.get_last_snapshot_with_sortition(search_end_burn_height)?;
+        Ok(Some(fallback_snapshot.consensus_hash))
+    }
+
+    /// Compute aggregate STX earned and BTC spent for each reward cycle in
+    /// `[start_reward_cycle, end_reward_cycle]`.
+    ///
+    /// STX earned is the immediate per-tenure miner schedule (`coinbase + fees`), and BTC spent
+    /// is the per-tenure sortition total burn (`burnchain_sortition_burn`).
+    pub fn get_stx_btc_cycle_totals<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
+        sort_db: &SortitionDB,
+        tip_index_hash: &StacksBlockId,
+        pox_constants: &PoxConstants,
+        first_burn_height: u64,
+        start_reward_cycle: u64,
+        end_reward_cycle: u64,
+    ) -> Result<HashMap<u64, StxBtcCycleTotals>, ChainstateError> {
+        let mut totals_by_cycle = HashMap::new();
+        if start_reward_cycle > end_reward_cycle {
+            return Ok(totals_by_cycle);
+        }
+
+        for cycle in start_reward_cycle..=end_reward_cycle {
+            totals_by_cycle.insert(
+                cycle,
+                StxBtcCycleTotals {
+                    reward_cycle: cycle,
+                    tenure_count: 0,
+                    stx_earned_ustx: 0,
+                    btc_spent_sats: 0,
+                },
+            );
+        }
+
+        let Some(mut tenure_consensus_hash) = Self::get_tenure_consensus_hash_at_cycle_end(
+            conn,
+            sort_db,
+            tip_index_hash,
+            pox_constants,
+            first_burn_height,
+            end_reward_cycle,
+        )?
+        else {
+            return Ok(totals_by_cycle);
+        };
+        // `parent_fees` in a tenure's schedule belong to the *parent* tenure.
+        // As we scan newest -> oldest tenure, carry each schedule's `parent_fees` to the next
+        // iteration so fees are attributed to the tenure that produced them.
+        let mut fees_from_child_tenure = None;
+
+        loop {
+            let Some(tenure_start_header) = Self::get_nakamoto_tenure_start_block_header(
+                conn,
+                tip_index_hash,
+                &tenure_consensus_hash,
+            )?
+            else {
+                break;
+            };
+
+            let Some(reward_cycle) = pox_constants.block_height_to_reward_cycle(
+                first_burn_height,
+                u64::from(tenure_start_header.burn_header_height),
+            ) else {
+                break;
+            };
+
+            // If we've gone back past the start cycle, stop.
+            if reward_cycle < start_reward_cycle {
+                break;
+            }
+
+            let miner_info_opt = StacksChainState::get_miner_info(
+                conn.sqlite(),
+                &tenure_start_header.consensus_hash,
+                &tenure_start_header.anchored_header.block_hash(),
+            )?;
+            if reward_cycle <= end_reward_cycle {
+                if let Some(miner_info) = miner_info_opt.as_ref() {
+                    let stx_earned =
+                        Self::stx_earned_for_tenure(&miner_info, fees_from_child_tenure);
+                    let cycle_totals = totals_by_cycle
+                        .get_mut(&reward_cycle)
+                        .expect("FATAL: missing cycle totals for populated range");
+                    cycle_totals.tenure_count = cycle_totals.tenure_count.saturating_add(1);
+                    cycle_totals.stx_earned_ustx =
+                        cycle_totals.stx_earned_ustx.saturating_add(stx_earned);
+                    cycle_totals.btc_spent_sats = cycle_totals
+                        .btc_spent_sats
+                        .saturating_add(miner_info.burnchain_sortition_burn);
+                }
+            }
+            fees_from_child_tenure = miner_info_opt
+                .as_ref()
+                .and_then(|miner_info| Self::fees_for_parent_tenure(&miner_info.tx_fees));
+
+            let Some(parent_tenure_consensus_hash) =
+                conn.get_parent_tenure_consensus_hash(tip_index_hash, &tenure_consensus_hash)?
+            else {
+                break;
+            };
+            tenure_consensus_hash = parent_tenure_consensus_hash;
+        }
+
+        Ok(totals_by_cycle)
+    }
+
+    /// Get the per-cycle STX/BTC ratio and 5-cycle weighted smoothing using fixed-point math.
+    pub fn get_stx_btc_ratio_for_cycle<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
+        sort_db: &SortitionDB,
+        tip_index_hash: &StacksBlockId,
+        pox_constants: &PoxConstants,
+        first_burn_height: u64,
+        reward_cycle: u64,
+    ) -> Result<StxBtcCycleRatio, ChainstateError> {
+        const SMOOTHING_WEIGHTS: [u32; 5] = [5, 4, 3, 2, 1];
+        let start_cycle = reward_cycle.saturating_sub((SMOOTHING_WEIGHTS.len() - 1) as u64);
+
+        let totals_by_cycle = Self::get_stx_btc_cycle_totals(
+            conn,
+            sort_db,
+            tip_index_hash,
+            pox_constants,
+            first_burn_height,
+            start_cycle,
+            reward_cycle,
+        )?;
+
+        let target_cycle_totals =
+            totals_by_cycle
+                .get(&reward_cycle)
+                .cloned()
+                .unwrap_or(StxBtcCycleTotals {
+                    reward_cycle,
+                    tenure_count: 0,
+                    stx_earned_ustx: 0,
+                    btc_spent_sats: 0,
+                });
+
+        let ratio_by_cycle: HashMap<u64, Option<u128>> = totals_by_cycle
+            .into_iter()
+            .map(|(cycle, totals)| (cycle, Self::raw_stx_btc_ratio(&totals)))
+            .collect();
+        let stx_btc_ratio = ratio_by_cycle.get(&reward_cycle).copied().flatten();
+        let smoothed_stx_btc_ratio = Self::weighted_smoothed_stx_btc_ratio(
+            reward_cycle,
+            &ratio_by_cycle,
+            &SMOOTHING_WEIGHTS,
+        );
+
+        Ok(StxBtcCycleRatio {
+            reward_cycle,
+            tenure_count: target_cycle_totals.tenure_count,
+            stx_earned_ustx: target_cycle_totals.stx_earned_ustx,
+            btc_spent_sats: target_cycle_totals.btc_spent_sats,
+            stx_btc_ratio,
+            smoothed_stx_btc_ratio,
+        })
+    }
+
+    fn stx_earned_for_tenure(
+        miner_info: &MinerPaymentSchedule,
+        fees_from_child_tenure: Option<u128>,
+    ) -> u128 {
+        let fee_component = match miner_info.tx_fees {
+            MinerPaymentTxFees::Nakamoto { .. } => fees_from_child_tenure.unwrap_or(0),
+            MinerPaymentTxFees::Epoch2 { anchored, streamed } => anchored.saturating_add(streamed),
+        };
+        miner_info.coinbase.saturating_add(fee_component)
+    }
+
+    fn fees_for_parent_tenure(tx_fees: &MinerPaymentTxFees) -> Option<u128> {
+        match tx_fees {
+            MinerPaymentTxFees::Nakamoto { parent_fees } => Some(*parent_fees),
+            MinerPaymentTxFees::Epoch2 { .. } => None,
+        }
+    }
+
+    fn raw_stx_btc_ratio(totals: &StxBtcCycleTotals) -> Option<u128> {
+        if totals.tenure_count == 0 || totals.btc_spent_sats == 0 {
+            return None;
+        }
+        Some(totals.stx_earned_ustx / u128::from(totals.btc_spent_sats))
+    }
+
+    fn weighted_smoothed_stx_btc_ratio(
+        reward_cycle: u64,
+        ratio_by_cycle: &HashMap<u64, Option<u128>>,
+        weights: &[u32],
+    ) -> Option<u128> {
+        // Math overview:
+        // We want the weighted geometric mean:
+        //   G = Π_i (r_i)^(w_i / W), where W = Σ_i w_i.
+        // Equivalently, G is the W-th root of:
+        //   P = Π_i (r_i)^(w_i).
+        //
+        // To avoid floating-point math, we work in Q64 fixed-point (same scaling as AtcRational):
+        //   r_i_fp = r_i << 64
+        // and solve for the integer floor of g_fp such that:
+        //   g_fp^W <= Π_i (r_i_fp)^(w_i).
+        // We find this floor with integer binary search, then convert back to an integer ratio by
+        // shifting right 64 bits.
+        //
+        // This gives a deterministic fixed-point approximation of
+        //   w_5^(5/15) * w_4^(4/15) * w_3^(3/15) * w_2^(2/15) * w_1^(1/15)
+        // (or the same expression with dynamic W if some cycles are missing).
+        // Same Q64 scaling as AtcRational.
+        const FIXED_POINT_SHIFT: usize = 64;
+
+        fn normalize_bigint(value: &mut Vec<u64>) {
+            while value.len() > 1 && value.last().copied() == Some(0) {
+                value.pop();
+            }
+        }
+
+        fn cmp_bigint(a: &[u64], b: &[u64]) -> std::cmp::Ordering {
+            if a.len() != b.len() {
+                return a.len().cmp(&b.len());
+            }
+            for i in (0..a.len()).rev() {
+                if a[i] != b[i] {
+                    return a[i].cmp(&b[i]);
+                }
+            }
+            std::cmp::Ordering::Equal
+        }
+
+        fn bigint_from_uint256(value: &Uint256) -> Vec<u64> {
+            let mut result = vec![value.0[0], value.0[1], value.0[2], value.0[3]];
+            normalize_bigint(&mut result);
+            result
+        }
+
+        fn mul_bigint(lhs: &[u64], rhs: &[u64]) -> Vec<u64> {
+            if lhs.len() == 1 && lhs[0] == 0 {
+                return vec![0];
+            }
+            if rhs.len() == 1 && rhs[0] == 0 {
+                return vec![0];
+            }
+
+            let mut result = vec![0u64; lhs.len() + rhs.len()];
+            for (i, lhs_limb) in lhs.iter().enumerate() {
+                let mut carry = 0u128;
+                for (j, rhs_limb) in rhs.iter().enumerate() {
+                    let idx = i + j;
+                    let accum = u128::from(*lhs_limb) * u128::from(*rhs_limb)
+                        + u128::from(result[idx])
+                        + carry;
+                    result[idx] = accum as u64;
+                    carry = accum >> 64;
+                }
+
+                let mut idx = i + rhs.len();
+                while carry > 0 {
+                    if idx == result.len() {
+                        result.push(0);
+                    }
+                    let accum = u128::from(result[idx]) + carry;
+                    result[idx] = accum as u64;
+                    carry = accum >> 64;
+                    idx += 1;
+                }
+            }
+
+            normalize_bigint(&mut result);
+            result
+        }
+
+        fn pow_bigint(base: &[u64], exponent: u32) -> Vec<u64> {
+            let mut result = vec![1u64];
+            let mut power = base.to_vec();
+            let mut exp = exponent;
+            while exp > 0 {
+                if (exp & 1) == 1 {
+                    result = mul_bigint(&result, &power);
+                }
+                exp >>= 1;
+                if exp > 0 {
+                    power = mul_bigint(&power, &power);
+                }
+            }
+            result
+        }
+
+        fn uint256_to_u128_saturating(value: &Uint256) -> u128 {
+            if value.0[2] != 0 || value.0[3] != 0 {
+                return u128::MAX;
+            }
+            (u128::from(value.0[1]) << 64) | u128::from(value.0[0])
+        }
+
+        // If the current cycle is undefined, keep the smoothed value undefined too.
+        if ratio_by_cycle
+            .get(&reward_cycle)
+            .copied()
+            .flatten()
+            .is_none()
+        {
+            return None;
+        }
+
+        let mut weighted_ratios = vec![];
+        let mut sum_weights = 0u32;
+        let mut max_ratio = 0u128;
+        for (offset, weight) in weights.iter().enumerate() {
+            let offset_u64 = u64::try_from(offset).expect("FATAL: offset conversion failure");
+            if offset_u64 > reward_cycle {
+                break;
+            }
+
+            let cycle = reward_cycle - offset_u64;
+            let Some(ratio) = ratio_by_cycle.get(&cycle).copied().flatten() else {
+                continue;
+            };
+            // Geometric mean is zero if any included factor is zero.
+            if ratio == 0 {
+                return Some(0);
+            }
+            let ratio_fp = Uint256::from_u128(ratio) << FIXED_POINT_SHIFT;
+            weighted_ratios.push((ratio_fp, *weight));
+            max_ratio = max_ratio.max(ratio);
+            sum_weights = sum_weights.saturating_add(*weight);
+        }
+
+        if sum_weights == 0 {
+            return None;
+        }
+
+        let mut weighted_product = vec![1u64];
+        for (ratio_fp, weight) in weighted_ratios {
+            let ratio_fp_big = bigint_from_uint256(&ratio_fp);
+            let weighted_ratio = pow_bigint(&ratio_fp_big, weight);
+            weighted_product = mul_bigint(&weighted_product, &weighted_ratio);
+        }
+
+        // Find floor of fixed-point geometric mean `g_fp` such that:
+        // g_fp^sum_weights <= product(ratio_fp_i^weight_i)
+        let one = Uint256::from_u64(1);
+        let mut low = Uint256::from_u64(0);
+        let mut high = Uint256::from_u128(max_ratio) << FIXED_POINT_SHIFT;
+        while low < high {
+            let mid = low + (((high - low) + one) >> 1);
+            let mid_big = bigint_from_uint256(&mid);
+            let mid_pow = pow_bigint(&mid_big, sum_weights);
+            match cmp_bigint(&mid_pow, &weighted_product) {
+                std::cmp::Ordering::Greater => high = mid - one,
+                std::cmp::Ordering::Less | std::cmp::Ordering::Equal => low = mid,
+            }
+        }
+
+        let smoothed_ratio = low >> FIXED_POINT_SHIFT;
+        Some(uint256_to_u128_saturating(&smoothed_ratio))
     }
 
     /// Find all of the TXIDs of Stacks-on-burnchain operations processed in the given Stacks fork.
