@@ -51,7 +51,7 @@ pub fn tuple_get(
 
     let arg_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Expected name".to_string(),
         ))?;
 
@@ -69,7 +69,7 @@ pub fn tuple_get(
                             )
                         })?)
                     } else {
-                        Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+                        Err(RuntimeCheckErrorKind::Unreachable(format!(
                             "Expected tuple: {}",
                             TypeSignature::type_of(&data)?
                         ))
@@ -83,7 +83,7 @@ pub fn tuple_get(
             runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
             Ok(tuple_data.get_owned(arg_name)?)
         }
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Expected tuple: {}",
             TypeSignature::type_of(&value)?
         ))
@@ -94,7 +94,7 @@ pub fn tuple_get(
 pub fn tuple_merge(base: Value, update: Value) -> Result<Value, VmExecutionError> {
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Expected tuple: {}",
             TypeSignature::type_of(&base)?
         ))),
@@ -102,7 +102,7 @@ pub fn tuple_merge(base: Value, update: Value) -> Result<Value, VmExecutionError
 
     let new_values = match update {
         Value::Tuple(new_values) => Ok(new_values),
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Expected tuple: {}",
             TypeSignature::type_of(&update)?
         ))),

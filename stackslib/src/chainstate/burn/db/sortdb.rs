@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -52,7 +52,9 @@ use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
+use crate::chainstate::stacks::index::marf::{
+    test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
+};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::ChainstateDB;
 use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, StacksEpochId};
@@ -1344,7 +1346,7 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|result| result.is_some())
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition(
@@ -2080,7 +2082,8 @@ impl<'a> SortitionHandleConn<'a> {
         self.get_indexed(&self.context.chain_tip, key)
     }
 
-    fn get_sortition_id_for_bhh(
+    /// Get the sortition ID for a particular burn header hash in the current fork.
+    pub fn get_sortition_id_for_bhh(
         &self,
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<SortitionId>, db_error> {
@@ -2214,7 +2217,7 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(Some((block_commit, stacks_chain_tip)))
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition(
@@ -2260,7 +2263,7 @@ impl<'a> SortitionHandleConn<'a> {
         })
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     pub fn get_last_snapshot_with_sortition_from_tip(&self) -> Result<BlockSnapshot, db_error> {
         let ancestor_hash =
             match self.get_indexed(&self.context.chain_tip, db_keys::last_sortition())? {
@@ -2669,7 +2672,9 @@ impl SortitionDB {
 
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open index at {}", index_path);
-        let open_opts = MARFOpenOpts::default();
+        let mut open_opts = MARFOpenOpts::default();
+        open_opts.external_blobs = false;
+        test_override_marf_compression(&mut open_opts);
         let marf = MARF::from_path(index_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
         Ok(marf)
@@ -5268,7 +5273,7 @@ impl SortitionDB {
         }
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition_tx(

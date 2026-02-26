@@ -181,7 +181,7 @@ pub fn special_stx_transfer(
     {
         stx_transfer_consolidated(env, from, to, amount, memo)
     } else {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into())
     }
 }
 
@@ -207,7 +207,7 @@ pub fn special_stx_transfer_memo(
     {
         stx_transfer_consolidated(env, from, to, amount, memo)
     } else {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into())
     }
 }
 
@@ -291,7 +291,7 @@ pub fn special_stx_burn(
 
         env.add_memory(TypeSignature::PrincipalType.size()?.into())?;
         env.add_memory(STXBalance::unlocked_and_v1_size.try_into().map_err(|_| {
-            RuntimeCheckErrorKind::ExpectsRejectable(
+            RuntimeCheckErrorKind::Unreachable(
                 "BUG: STXBalance::unlocked_and_v1_size does not fit into a u64".into(),
             )
         })?)?;
@@ -313,7 +313,7 @@ pub fn special_stx_burn(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer STX args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer STX args".to_string()).into())
     }
 }
 
@@ -328,7 +328,7 @@ pub fn special_mint_token(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
@@ -341,7 +341,7 @@ pub fn special_mint_token(
         }
 
         let ft_info = env.contract_context.meta_ft.get(token_name).ok_or(
-            RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such FT: {token_name}")),
+            RuntimeCheckErrorKind::Unreachable(format!("No such FT: {token_name}")),
         )?;
 
         env.global_context.database.checked_increase_token_supply(
@@ -380,7 +380,7 @@ pub fn special_mint_token(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad mint FT args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad mint FT args".to_string()).into())
     }
 }
 
@@ -393,16 +393,20 @@ pub fn special_mint_asset_v200(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
     let asset = eval(&args[1], env, context)?;
     let to = eval(&args[2], env, context)?;
 
-    let nft_metadata = env.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such NFT: {asset_name}")),
-    )?;
+    let nft_metadata =
+        env.contract_context
+            .meta_nft
+            .get(asset_name)
+            .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+                "No such NFT: {asset_name}"
+            )))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
@@ -471,16 +475,20 @@ pub fn special_mint_asset_v205(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
     let asset = eval(&args[1], env, context)?;
     let to = eval(&args[2], env, context)?;
 
-    let nft_metadata = env.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such NFT: {asset_name}")),
-    )?;
+    let nft_metadata =
+        env.contract_context
+            .meta_nft
+            .get(asset_name)
+            .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+                "No such NFT: {asset_name}"
+            )))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
@@ -546,7 +554,7 @@ pub fn special_transfer_asset_v200(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
@@ -554,9 +562,13 @@ pub fn special_transfer_asset_v200(
     let from = eval(&args[2], env, context)?;
     let to = eval(&args[3], env, context)?;
 
-    let nft_metadata = env.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such NFT: {asset_name}")),
-    )?;
+    let nft_metadata =
+        env.contract_context
+            .meta_nft
+            .get(asset_name)
+            .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+                "No such NFT: {asset_name}"
+            )))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
@@ -628,7 +640,7 @@ pub fn special_transfer_asset_v200(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer NFT args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer NFT args".to_string()).into())
     }
 }
 
@@ -643,7 +655,7 @@ pub fn special_transfer_asset_v205(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
@@ -651,9 +663,13 @@ pub fn special_transfer_asset_v205(
     let from = eval(&args[2], env, context)?;
     let to = eval(&args[3], env, context)?;
 
-    let nft_metadata = env.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such NFT: {asset_name}")),
-    )?;
+    let nft_metadata =
+        env.contract_context
+            .meta_nft
+            .get(asset_name)
+            .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+                "No such NFT: {asset_name}"
+            )))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
@@ -724,7 +740,7 @@ pub fn special_transfer_asset_v205(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer NFT args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer NFT args".to_string()).into())
     }
 }
 
@@ -739,7 +755,7 @@ pub fn special_transfer_token(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
@@ -762,7 +778,7 @@ pub fn special_transfer_token(
         }
 
         let ft_info = env.contract_context.meta_ft.get(token_name).ok_or(
-            RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such FT: {token_name}")),
+            RuntimeCheckErrorKind::Unreachable(format!("No such FT: {token_name}")),
         )?;
 
         let from_bal = env.global_context.database.get_ft_balance(
@@ -829,7 +845,7 @@ pub fn special_transfer_token(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad transfer FT args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad transfer FT args".to_string()).into())
     }
 }
 
@@ -844,7 +860,7 @@ pub fn special_get_balance(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
@@ -852,7 +868,7 @@ pub fn special_get_balance(
 
     if let Value::Principal(ref principal) = owner {
         let ft_info = env.contract_context.meta_ft.get(token_name).ok_or(
-            RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such FT: {token_name}")),
+            RuntimeCheckErrorKind::Unreachable(format!("No such FT: {token_name}")),
         )?;
 
         let balance = env.global_context.database.get_ft_balance(
@@ -880,15 +896,19 @@ pub fn special_get_owner_v200(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
     let asset = eval(&args[1], env, context)?;
 
-    let nft_metadata = env.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such NFT: {asset_name}")),
-    )?;
+    let nft_metadata =
+        env.contract_context
+            .meta_nft
+            .get(asset_name)
+            .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+                "No such NFT: {asset_name}"
+            )))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
@@ -930,15 +950,19 @@ pub fn special_get_owner_v205(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
     let asset = eval(&args[1], env, context)?;
 
-    let nft_metadata = env.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such NFT: {asset_name}")),
-    )?;
+    let nft_metadata =
+        env.contract_context
+            .meta_nft
+            .get(asset_name)
+            .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+                "No such NFT: {asset_name}"
+            )))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
@@ -979,7 +1003,7 @@ pub fn special_get_token_supply(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
@@ -1001,7 +1025,7 @@ pub fn special_burn_token(
 
     let token_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
@@ -1057,7 +1081,7 @@ pub fn special_burn_token(
 
         Ok(Value::okay_true())
     } else {
-        Err(RuntimeCheckErrorKind::ExpectsAcceptable("Bad burn FT args".to_string()).into())
+        Err(RuntimeCheckErrorKind::Unreachable("Bad burn FT args".to_string()).into())
     }
 }
 
@@ -1072,16 +1096,20 @@ pub fn special_burn_asset_v200(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
     let asset = eval(&args[1], env, context)?;
     let sender = eval(&args[2], env, context)?;
 
-    let nft_metadata = env.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such NFT: {asset_name}")),
-    )?;
+    let nft_metadata =
+        env.contract_context
+            .meta_nft
+            .get(asset_name)
+            .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+                "No such NFT: {asset_name}"
+            )))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
@@ -1164,16 +1192,20 @@ pub fn special_burn_asset_v205(
 
     let asset_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad token name".to_string(),
         ))?;
 
     let asset = eval(&args[1], env, context)?;
     let sender = eval(&args[2], env, context)?;
 
-    let nft_metadata = env.contract_context.meta_nft.get(asset_name).ok_or(
-        RuntimeCheckErrorKind::ExpectsAcceptable(format!("No such NFT: {asset_name}")),
-    )?;
+    let nft_metadata =
+        env.contract_context
+            .meta_nft
+            .get(asset_name)
+            .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+                "No such NFT: {asset_name}"
+            )))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
