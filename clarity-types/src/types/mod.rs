@@ -729,10 +729,19 @@ pub trait SequencedValue<T> {
 
     fn to_value(v: &T) -> Result<Value, ClarityTypeError>;
 
+    /// Consuming version of `to_value`. Takes ownership of the element,
+    /// avoiding a clone when `T` is expensive to clone or copy (e.g. `ListData`).
+    fn into_value(v: T) -> Result<Value, ClarityTypeError>
+    where
+        T: std::borrow::Borrow<T>,
+    {
+        Self::to_value(&v)
+    }
+
     fn atom_values(&mut self) -> Result<Vec<SymbolicExpression>, ClarityTypeError> {
         self.drained_items()
-            .iter()
-            .map(|item| Ok(SymbolicExpression::atom_value(Self::to_value(item)?)))
+            .into_iter()
+            .map(|item| Ok(SymbolicExpression::atom_value(Self::into_value(item)?)))
             .collect()
     }
 }
@@ -754,6 +763,10 @@ impl SequencedValue<Value> for ListData {
 
     fn to_value(v: &Value) -> Result<Value, ClarityTypeError> {
         Ok(v.clone())
+    }
+
+    fn into_value(v: Value) -> Result<Value, ClarityTypeError> {
+        Ok(v)
     }
 }
 
@@ -829,6 +842,10 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
 
     fn to_value(v: &Vec<u8>) -> Result<Value, ClarityTypeError> {
         Value::string_utf8_from_bytes(v.clone())
+    }
+
+    fn into_value(v: Vec<u8>) -> Result<Value, ClarityTypeError> {
+        Value::string_utf8_from_bytes(v)
     }
 }
 
