@@ -36,6 +36,9 @@ endpoint = "127.0.0.1:30000"
 events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
 ```
 
+> To test mining without spending BTC, add `mock_mining = true` to the `[node]`
+> section. See also [`mainnet-mockminer-conf.toml`](../sample/conf/mainnet-mockminer-conf.toml).
+
 For a comprehensive reference of **all** miner settings including signer coordination
 timeouts, tenure management, mempool configuration, and cost limits, see
 [`mainnet-miner-conf.toml`](../sample/conf/mainnet-miner-conf.toml).
@@ -53,6 +56,7 @@ signer configuration and the critical miner-signer coordination settings.
 | [`mainnet-signer-conf.toml`](../sample/conf/mainnet-signer-conf.toml) | Signer binary config reference                          |
 | [`mainnet-signer.toml`](../sample/conf/mainnet-signer.toml)           | Node-side signer config                                 |
 | [`testnet-miner-conf.toml`](../sample/conf/testnet-miner-conf.toml)   | Testnet miner config                                    |
+| [`mainnet-mockminer-conf.toml`](../sample/conf/mainnet-mockminer-conf.toml) | Mock miner (test mining without spending BTC)    |
 
 ## RBF Configuration
 
