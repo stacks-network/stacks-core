@@ -631,6 +631,7 @@ fn runtime_check_error_kind_type_value_error_ccall() {
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 2 and later.
 ///     Clarity 1 will not be able to upload contract-3.
+///     In epoch 3.4 and later, this error is not triggered because calling via a constant is allowed.
 #[test]
 fn runtime_check_error_kind_contract_call_expect_name_cdeploy() {
     let contract_1 = SetupContract::new(
@@ -667,6 +668,7 @@ fn runtime_check_error_kind_contract_call_expect_name_cdeploy() {
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 2 and later.
 ///     Clarity 1 will not be able to upload contract-3.
+///     In epoch 3.4 and later, this error is not triggered because calling via a constant is allowed.
 #[test]
 fn runtime_check_error_kind_contract_call_expect_name_ccall() {
     let contract_1 = SetupContract::new(

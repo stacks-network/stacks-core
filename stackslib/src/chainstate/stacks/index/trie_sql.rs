@@ -1,28 +1,23 @@
-/*
- copyright: (c) 2013-2020 by Blockstack PBC, a public benefit corporation.
-
- This file is part of Blockstack.
-
- Blockstack is free software. You may redistribute or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License or
- (at your option) any later version.
-
- Blockstack is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY, including without the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
-*/
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::Write;
 
 use rusqlite::blob::Blob;
 use rusqlite::{params, Connection, DatabaseName, OptionalExtension, Transaction};
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::sqlite::NO_PARAMS;
 
 #[cfg(test)]
 use crate::chainstate::stacks::index::bits::read_hash_bytes;
@@ -33,6 +28,8 @@ use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
+use crate::types::chainstate::TrieHash;
+use crate::types::sqlite::NO_PARAMS;
 use crate::util_lib::db::{query_count, query_row, tx_begin_immediate, u64_to_sql};
 
 static SQL_MARF_DATA_TABLE: &str = "
@@ -498,7 +495,7 @@ pub fn get_external_trie_offset_length(
 ) -> Result<(u64, u64), Error> {
     let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_id = ?1";
     let args = params![block_id];
-    let (offset, length) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
+    let (offset, length): (u64, u64) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
 }
 
@@ -509,7 +506,7 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
 ) -> Result<(u64, u64), Error> {
     let qry = "SELECT external_offset, external_length FROM marf_data WHERE block_hash = ?1";
     let args = params![bhh];
-    let (offset, length) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
+    let (offset, length): (u64, u64) = query_row(conn, qry, args)?.ok_or(Error::NotFoundError)?;
     Ok((offset, length))
 }
 
@@ -517,7 +514,7 @@ pub fn get_external_trie_offset_length_by_bhh<T: MarfTrieId>(
 /// which the next trie will be appended.
 pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
     let qry = "SELECT (external_offset + external_length) AS blobs_length FROM marf_data ORDER BY external_offset DESC LIMIT 1";
-    let max_len = query_row(conn, qry, NO_PARAMS)?.unwrap_or(0);
+    let max_len: u64 = query_row(conn, qry, NO_PARAMS)?.unwrap_or(0);
     Ok(max_len)
 }
 

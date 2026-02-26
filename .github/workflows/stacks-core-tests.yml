@@ -55,7 +55,7 @@ jobs:
         id: codecov
         uses: stacks-network/actions/codecov@main
         with:
-          test-name: ${{ matrix.test-name }}
+          test-name: ${{ github.job }}-${{ matrix.partition }}
 
   ## Generate and upload openapi html artifact
   open-api-validation:
@@ -126,9 +126,8 @@ jobs:
         with:
           # We'd like to uncomment the below line once the codecov upload is working
           # fail_ci_if_error: true
-          test-name: ${{ matrix.test-name }}
+          test-name: ${{ github.job }}
           upload-only: true
-          filename: ./contrib/core-contract-tests/lcov.info
 
   # Core contract tests on Clarinet v1
   # Check for false positives/negatives
