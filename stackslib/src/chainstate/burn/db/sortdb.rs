@@ -481,7 +481,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: u32 = 10;
+pub const SORTITION_DB_VERSION: u32 = 11;
 
 const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
@@ -720,6 +720,8 @@ const SORTITION_DB_SCHEMA_8: &[&str] = &[
 static SORTITION_DB_SCHEMA_9: &[&str] =
     &[r#"ALTER TABLE block_commits ADD punished TEXT DEFAULT NULL;"#];
 static SORTITION_DB_SCHEMA_10: &[&str] = &[r#"DROP TABLE IF EXISTS ast_rule_heights;"#];
+static SORTITION_DB_SCHEMA_11: &[&str] =
+    &[r#"ALTER TABLE block_commits ADD btc_tx_fee TEXT DEFAULT NULL;"#];
 
 const LAST_SORTITION_DB_INDEX: &str = "index_block_commits_by_sender";
 const SORTITION_DB_INDEXES: &[&str] = &[
@@ -2854,6 +2856,7 @@ impl SortitionDB {
         let db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
         SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_10(&db_tx)?;
+        SortitionDB::apply_schema_11(&db_tx)?;
         db_tx.commit()?;
 
         self.add_indexes()?;
@@ -3350,6 +3353,19 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_11(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_11 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["11"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3414,6 +3430,10 @@ impl SortitionDB {
                     } else if version == 9 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_10(tx.deref())?;
+                        tx.commit()?;
+                    } else if version == 10 {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_11(tx.deref())?;
                         tx.commit()?;
                     } else if version == SORTITION_DB_VERSION {
                         // this transaction is almost never needed
@@ -11022,5 +11042,36 @@ pub mod tests {
         )
         .unwrap();
         assert!(!table_exists(db.conn(), "ast_rule_heights").unwrap());
+    }
+
+    #[test]
+    fn schema_11_adds_column() {
+        let tmp = std::env::temp_dir().join(function_name!());
+
+        let first_block_header = {
+            let burnchain = Burnchain::regtest(tmp.to_str().unwrap());
+            let burnchain_db =
+                BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true).unwrap();
+
+            burnchain_db.get_canonical_chain_tip().unwrap()
+        };
+        let epochs = (*STACKS_EPOCHS_TESTNET).clone();
+        let db = SortitionDB::connect_test_with_epochs(
+            first_block_header.block_height,
+            &first_block_header.block_hash,
+            epochs,
+        )
+        .unwrap();
+
+        let mut stmt = db
+            .conn()
+            .prepare("PRAGMA table_info(block_commits)")
+            .unwrap();
+        let block_commit_cols: Vec<String> = stmt
+            .query_map(NO_PARAMS, |row| row.get(1))
+            .unwrap()
+            .map(|row_res| row_res.expect("FATAL: failed to decode block_commits column name"))
+            .collect();
+        assert!(block_commit_cols.iter().any(|col| col == "btc_tx_fee"));
     }
 }
