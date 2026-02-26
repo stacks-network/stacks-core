@@ -27,7 +27,8 @@ use crate::vm::representations::SymbolicExpressionType::Field;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
-    TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value, parse_name_type_pairs,
+    CallableData, PrincipalData, TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value,
+    parse_name_type_pairs,
 };
 
 define_named_enum!(DefineFunctions {
@@ -97,15 +98,25 @@ pub enum DefineFunctionsParsed<'a> {
 
 #[derive(Debug)]
 pub enum DefineResult {
+    /// `define-constant`
     Variable(ClarityName, Value),
+    /// `define-private`, `define-public`, `define-read-only`
     Function(ClarityName, DefinedFunction),
+    /// `define-map`
     Map(ClarityName, TypeSignature, TypeSignature),
+    /// `define-data-var`
     PersistedVariable(ClarityName, TypeSignature, Value),
+    /// `define-fungible-token`
     FungibleToken(ClarityName, Option<u128>),
+    /// `define-non-fungible-token`
     NonFungibleAsset(ClarityName, TypeSignature),
+    /// `define-trait`
     Trait(ClarityName, BTreeMap<ClarityName, FunctionSignature>),
+    /// `use-trait`
     UseTrait(ClarityName, TraitIdentifier),
+    /// `impl-trait`
     ImplTrait(TraitIdentifier),
+    /// Not a define statement
     NoDefine,
 }
 
@@ -120,6 +131,7 @@ fn check_legal_define(
     }
 }
 
+/// Handle a define-constant statement, which defines a named constant.
 fn handle_define_variable(
     variable: &ClarityName,
     expression: &SymbolicExpression,
@@ -128,7 +140,25 @@ fn handle_define_variable(
     // is the variable name legal?
     check_legal_define(variable, env.contract_context)?;
     let context = LocalContext::new();
-    let value = eval(expression, env, &context)?;
+    let raw_value = eval(expression, env, &context)?;
+    let value = if env
+        .contract_context
+        .get_clarity_version()
+        .supports_callables()
+        && env.epoch().supports_call_with_constant()
+    {
+        match raw_value {
+            Value::Principal(PrincipalData::Contract(contract_identifier)) => {
+                Value::CallableContract(CallableData {
+                    contract_identifier,
+                    trait_identifier: None,
+                })
+            }
+            v => v,
+        }
+    } else {
+        raw_value
+    };
     Ok(DefineResult::Variable(variable.clone(), value))
 }
 
