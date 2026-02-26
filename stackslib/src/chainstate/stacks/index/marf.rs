@@ -1760,7 +1760,31 @@ impl<T: MarfTrieId> MARF<T> {
         F: Fn(TrieHash, MARFValue) -> Result<(), Error>,
     {
         let (original_block_hash, original_block_id) = storage.get_cur_block_and_id();
+        let result = Self::inner_each_leaf(storage, block_hash, &handle_leaf);
 
+        storage
+            .open_block_maybe_id(&original_block_hash, original_block_id)
+            .inspect_err(|e| {
+                warn!("Failed to re-open {original_block_hash} {original_block_id:?}: {e:?}");
+            })?;
+
+        let (restored_block_hash, _) = storage.get_cur_block_and_id();
+        assert_eq!(
+            restored_block_hash, original_block_hash,
+            "for_each_leaf: open block changed after traversal"
+        );
+
+        result
+    }
+
+    fn inner_each_leaf<F>(
+        storage: &mut TrieStorageConnection<T>,
+        block_hash: &T,
+        handle_leaf: &F,
+    ) -> Result<u64, Error>
+    where
+        F: Fn(TrieHash, MARFValue) -> Result<(), Error>,
+    {
         storage.open_block(block_hash)?;
         let (root_node, _root_hash) = Trie::read_root(storage)?;
 
@@ -1833,18 +1857,6 @@ impl<T: MarfTrieId> MARF<T> {
                 leaf_count += 1;
             }
         }
-
-        storage
-            .open_block_maybe_id(&original_block_hash, original_block_id)
-            .inspect_err(|e| {
-                warn!("Failed to re-open {original_block_hash} {original_block_id:?}: {e:?}");
-            })?;
-
-        let (restored_block_hash, _) = storage.get_cur_block_and_id();
-        assert_eq!(
-            restored_block_hash, original_block_hash,
-            "for_each_leaf: open block changed after traversal"
-        );
 
         Ok(leaf_count)
     }
