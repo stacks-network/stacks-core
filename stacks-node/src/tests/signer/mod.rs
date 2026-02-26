@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 mod commands;
-#[cfg(feature = "build-signer-v3-3-0-0-1")]
+#[cfg(feature = "build-signer-v3-3-0-0-5-0")]
 pub mod multiversion;
 pub mod v0;
 
@@ -63,6 +63,7 @@ use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerCon
 use stacks_signer::runloop::{SignerResult, State, StateInfo};
 use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer_state::LocalStateMachine;
+use stacks_signer::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use stacks_signer::{Signer, SpawnedSigner};
 
 use super::nakamoto_integrations::{
@@ -489,20 +490,27 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
             debug!("Issue status request to {path}");
             let client = reqwest::blocking::Client::new();
-            let response = client
-                .get(path)
-                .send()
-                .expect("Failed to send status request");
-            assert!(response.status().is_success())
+            match client.get(path).send() {
+                Ok(response) if response.status().is_success() => {}
+                Ok(response) => {
+                    debug!(
+                        "Signer #{signer_ix} returned non-success status: {}",
+                        response.status()
+                    );
+                }
+                Err(e) => {
+                    debug!("Failed to send status request to signer #{signer_ix}: {e}");
+                }
+            }
         }
     }
 
     pub fn wait_for_registered(&self) {
         let mut finished_signers = HashSet::new();
         wait_for(120, || {
-            self.send_status_request(&finished_signers);
-            thread::sleep(Duration::from_secs(1));
-            let latest_states = self.get_states(&finished_signers);
+            self.send_status_request(&HashSet::new());
+            thread::sleep(Duration::from_secs(5));
+            let latest_states = self.get_states(&HashSet::new());
             for (ix, state) in latest_states.iter().enumerate() {
                 let Some(state) = state else { continue; };
                 if state.runloop_state == State::RegisteredSigners {
@@ -1442,10 +1450,14 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .iter()
             .zip(self.signer_configs.clone())
             .map(|(privk, config)| {
-                (
-                    StacksAddress::p2pkh(false, &StacksPublicKey::from_private(privk)),
-                    config.supported_signer_protocol_version,
-                )
+                let public_key = StacksPublicKey::from_private(privk);
+                let pinned_versions = TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.get();
+                let version = if let Some(pinned_version) = pinned_versions.get(&public_key) {
+                    *pinned_version
+                } else {
+                    config.supported_signer_protocol_version
+                };
+                (StacksAddress::p2pkh(false, &public_key), version)
             })
             .collect()
     }
@@ -1738,6 +1750,22 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .previous_output
             .txid;
         Some(Txid::from_bitcoin_tx_hash(parent_txid))
+    }
+    /// Restart the signer at `idx` with a new supported protocol version.
+    pub fn restart_signer_with_supported_version(&mut self, idx: usize, version: u64) {
+        let mut cfg = self.stop_signer(idx);
+        cfg.supported_signer_protocol_version = version;
+        self.restart_signer(idx, cfg);
+    }
+
+    /// Restart the first `n` signers with a new supported protocol version.
+    /// Restarts in reverse index order so removals/insertions don't shift upcoming indices.
+    /// Waits for all signers to re-register after restarts.
+    pub fn restart_first_n_signers_with_supported_version(&mut self, n: usize, version: u64) {
+        for idx in (0..n).rev() {
+            self.restart_signer_with_supported_version(idx, version);
+        }
+        self.wait_for_registered();
     }
 }
 

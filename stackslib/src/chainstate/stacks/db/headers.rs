@@ -23,7 +23,8 @@ use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::{Error, *};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::{
-    query_row, query_row_columns, query_row_panic, DBConn, Error as db_error, FromColumn, FromRow,
+    query_row, query_row_columns, query_row_panic, query_rows, DBConn, Error as db_error,
+    FromColumn, FromRow,
 };
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
@@ -247,6 +248,34 @@ impl StacksChainState {
             "FATAL: multiple rows for the same consensus hash".to_string()
         })
         .map_err(Error::DBError)
+    }
+
+    /// Get a stacks header info by its sortition's burnchain header hash.
+    /// If there are multiple at a given burn view, all will be returned.
+    pub fn get_stacks_block_header_info_by_burn_header_hash(
+        conn: &Connection,
+        burnchain_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<StacksHeaderInfo>, Error> {
+        let sql = "SELECT * FROM block_headers WHERE burn_header_hash = ?1";
+        let out = query_rows(conn, sql, &[&burnchain_header_hash])?;
+        if !out.is_empty() {
+            return Ok(out);
+        }
+        Err(Error::NoSuchBlockError)
+    }
+
+    /// Get a stacks header info by its sortition's burn block height
+    /// If there are multiple at a given burn view, all will be returned.
+    pub fn get_stacks_block_header_info_by_burn_header_height(
+        conn: &Connection,
+        burn_header_height: u64,
+    ) -> Result<Vec<StacksHeaderInfo>, Error> {
+        let sql = "SELECT * FROM block_headers WHERE burn_header_height = ?1";
+        let out = query_rows(conn, sql, &[&burn_header_height])?;
+        if !out.is_empty() {
+            return Ok(out);
+        }
+        Err(Error::NoSuchBlockError)
     }
 
     /// Get an ancestor block header
