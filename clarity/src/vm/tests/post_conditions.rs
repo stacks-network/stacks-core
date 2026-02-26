@@ -1683,7 +1683,7 @@ fn restrict_assets_too_many_allowances() {
             .join(" ")
     );
     let max_allowances_err: ClarityEvalError =
-        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(format!(
             "Too many allowances: got {}, allowed {MAX_ALLOWANCES}",
             MAX_ALLOWANCES + 1
         )))
@@ -1701,7 +1701,7 @@ fn expected_allowance_expr_error() {
     let snippet = "(restrict-assets? tx-sender ((bad-fn u1)) true)";
 
     let expected_error: ClarityEvalError = VmExecutionError::RuntimeCheck(
-        RuntimeCheckErrorKind::ExpectsAcceptable("Expected allowance expr: bad-fn".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Expected allowance expr: bad-fn".to_string()),
     )
     .into();
 
@@ -1720,7 +1720,7 @@ fn expected_allowance_expr_error_unhandled_native() {
     let snippet = "(restrict-assets? tx-sender ((tx-sender u1)) true)";
 
     let expected_error: ClarityEvalError = VmExecutionError::RuntimeCheck(
-        RuntimeCheckErrorKind::ExpectsAcceptable("Expected allowance expr: tx-sender".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Expected allowance expr: tx-sender".to_string()),
     )
     .into();
 
@@ -1736,7 +1736,7 @@ fn allowance_expr_not_allowed() {
     let snippet = "(with-stx u1)";
 
     let expected: ClarityEvalError = VmExecutionError::RuntimeCheck(
-        RuntimeCheckErrorKind::ExpectsAcceptable("Allowance expr not allowed".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Allowance expr not allowed".to_string()),
     )
     .into();
 
@@ -1757,7 +1757,7 @@ fn restrict_assets_expected_list_of_allowances() {
         )
     "#;
     let expected_error: ClarityEvalError =
-        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
             "Expected list of allowances: for restrict-assets? as argument 2".to_string(),
         ))
         .into();
@@ -1780,7 +1780,7 @@ fn as_contract_expected_list_of_allowances() {
 
     // The argument is `u42` (not a list), so we expect this error
     let expected_error: ClarityEvalError =
-        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
             "Expected list of allowances: for as-contract? as argument 1".to_string(),
         ))
         .into();

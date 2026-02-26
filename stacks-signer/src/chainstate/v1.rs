@@ -57,8 +57,8 @@ impl SortitionState {
         db: &SignerDb,
         block_proposal_timeout: Duration,
     ) -> Result<bool, SignerChainstateError> {
-        // if we've already signed a block in this tenure, the miner can't have timed out.
-        let has_block = db.has_signed_block_in_tenure(sortition)?;
+        // if we've already approved/signed a block in this tenure, the miner can't have timed out.
+        let has_block = db.has_approved_block_in_tenure(sortition)?;
         if has_block {
             return Ok(false);
         }

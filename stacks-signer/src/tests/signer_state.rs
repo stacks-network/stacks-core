@@ -206,7 +206,7 @@ fn check_capitulate_miner_view() {
 
     let h = std::thread::spawn(move || {
         // Mark the old miner's block as globally accepted
-        db.mark_block_globally_accepted(&mut block_info_1).unwrap();
+        block_info_1.mark_globally_accepted().unwrap();
         db.insert_block(&block_info_1).unwrap();
 
         // Miner view should stay as the old miner as it has a globally accepted block and 60% consider it valid.
@@ -225,7 +225,7 @@ fn check_capitulate_miner_view() {
         );
 
         // Now that we have a globally approved block for the new miner
-        db.mark_block_globally_accepted(&mut block_info_2).unwrap();
+        block_info_2.mark_globally_accepted().unwrap();
         db.insert_block(&block_info_2).unwrap();
 
         assert_eq!(
@@ -409,8 +409,7 @@ fn check_capitulate_with_local_timeout() {
         b.block.header.chain_length = 50;
         b.burn_height = burn_block_height;
     });
-    db.mark_block_globally_accepted(&mut other_tenure_block)
-        .unwrap();
+    other_tenure_block.mark_globally_accepted().unwrap();
     db.insert_block(&other_tenure_block).unwrap();
 
     // Setup global evaluator with 8 out of 10 signers (80%) on the non-timed-out view
@@ -607,8 +606,7 @@ fn check_capitulate_split_view_node_at_lower_height() {
         b.block.header.chain_length = 1;
         b.burn_height = burn_block_height;
     });
-    db.mark_block_globally_accepted(&mut local_block_info)
-        .unwrap();
+    local_block_info.mark_globally_accepted().unwrap();
     db.insert_block(&local_block_info).unwrap();
 
     let (mut other_block_info, _) = create_block_override(|b| {
@@ -617,8 +615,7 @@ fn check_capitulate_split_view_node_at_lower_height() {
         b.block.header.chain_length = 1;
         b.burn_height = burn_block_height.saturating_add(1);
     });
-    db.mark_block_globally_accepted(&mut other_block_info)
-        .unwrap();
+    other_block_info.mark_globally_accepted().unwrap();
     db.insert_block(&other_block_info).unwrap();
 
     let signer_state_machine = SignerStateMachine {
@@ -795,8 +792,7 @@ fn check_capitulate_split_view_node_at_higher_height() {
         b.block.header.chain_length = 1;
         b.burn_height = burn_block_height;
     });
-    db.mark_block_globally_accepted(&mut local_block_info)
-        .unwrap();
+    local_block_info.mark_globally_accepted().unwrap();
     db.insert_block(&local_block_info).unwrap();
 
     let (mut other_block_info, _) = create_block_override(|b| {
@@ -805,8 +801,7 @@ fn check_capitulate_split_view_node_at_higher_height() {
         b.block.header.chain_length = 1;
         b.burn_height = burn_block_height.saturating_add(1);
     });
-    db.mark_block_globally_accepted(&mut other_block_info)
-        .unwrap();
+    other_block_info.mark_globally_accepted().unwrap();
     db.insert_block(&other_block_info).unwrap();
 
     let signer_state_machine = SignerStateMachine {
@@ -977,9 +972,7 @@ fn check_capitulate_viewpoint_time_guards() {
         b.burn_height = burn_block_height;
     });
     block_info.signed_self = Some(get_epoch_time_secs());
-    signerdb
-        .mark_block_globally_accepted(&mut block_info)
-        .unwrap();
+    block_info.mark_globally_accepted().unwrap();
     signerdb.insert_block(&block_info).unwrap();
 
     last_capitulate_miner_view = SystemTime::now()

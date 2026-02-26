@@ -715,7 +715,7 @@ fn check_sortition_timeout() {
     };
 
     let mut block_info = BlockInfo::from(block_proposal);
-    block_info.signed_over = true;
+    block_info.mark_pre_committed().unwrap();
     signer_db.insert_block(&block_info).unwrap();
 
     // This will no longer be timed out as we have a non-empty tenure

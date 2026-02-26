@@ -2910,8 +2910,7 @@ impl NakamotoChainState {
     /// tenure.
     ///
     /// Get the highest block in a given tenure (identified by burnchain block height) with a canonical
-    ///  burn_view (i.e., burn_view on the canonical sortition fork). This covers only Nakamoto blocks.
-    /// Epoch2 blocks will not be checked.
+    ///  burn_view (i.e., burn_view on the canonical sortition fork).
     pub fn find_highest_known_block_header_in_tenure_by_block_height(
         chainstate: &StacksChainState,
         sort_db: &SortitionDB,
@@ -2932,8 +2931,7 @@ impl NakamotoChainState {
     /// tenure.
     ///
     /// Get the highest block in a given tenure (identified by burnchain block hash) with a canonical
-    ///  burn_view (i.e., burn_view on the canonical sortition fork). This covers only Nakamoto blocks.
-    /// Epoch2 blocks will not be checked.
+    ///  burn_view (i.e., burn_view on the canonical sortition fork).
     pub fn find_highest_known_block_header_in_tenure_by_block_hash(
         chainstate: &StacksChainState,
         sort_db: &SortitionDB,
@@ -2979,8 +2977,7 @@ impl NakamotoChainState {
         if !out.is_empty() {
             return Ok(out);
         }
-
-        Err(ChainstateError::NoSuchBlockError)
+        StacksChainState::get_stacks_block_header_info_by_burn_header_height(db, tenure_height)
     }
 
     /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
@@ -3012,8 +3009,7 @@ impl NakamotoChainState {
         if !out.is_empty() {
             return Ok(out);
         }
-
-        Err(ChainstateError::NoSuchBlockError)
+        StacksChainState::get_stacks_block_header_info_by_burn_header_hash(db, tenure_block_hash)
     }
 
     /// Get the VRF proof for a Stacks block.
