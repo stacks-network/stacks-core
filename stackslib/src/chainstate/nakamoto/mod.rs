@@ -3994,6 +3994,81 @@ impl NakamotoChainState {
         block_bitvec: &BitVec<4000>,
         active_reward_set: &RewardSet,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
+        Self::setup_normal_block_processing_inner(
+            chainstate_tx,
+            clarity_instance,
+            sortition_dbconn,
+            first_block_height,
+            pox_constants,
+            parent_chain_tip,
+            parent_consensus_hash,
+            parent_header_hash,
+            parent_burn_height,
+            tenure_block_snapshot,
+            block,
+            coinbase_height,
+            tenure_cause,
+            block_bitvec,
+            active_reward_set,
+            false,
+        )
+    }
+
+    fn setup_normal_block_processing_ephemeral<'a, 'b>(
+        chainstate_tx: &'b mut ChainstateTx,
+        clarity_instance: &'a mut ClarityInstance,
+        sortition_dbconn: &'b dyn SortitionDBRef,
+        first_block_height: u64,
+        pox_constants: &PoxConstants,
+        parent_chain_tip: &StacksHeaderInfo,
+        parent_consensus_hash: &ConsensusHash,
+        parent_header_hash: &BlockHeaderHash,
+        parent_burn_height: u32,
+        tenure_block_snapshot: &BlockSnapshot,
+        block: &NakamotoBlock,
+        coinbase_height: u64,
+        tenure_cause: MinerTenureInfoCause,
+        block_bitvec: &BitVec<4000>,
+        active_reward_set: &RewardSet,
+    ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
+        Self::setup_normal_block_processing_inner(
+            chainstate_tx,
+            clarity_instance,
+            sortition_dbconn,
+            first_block_height,
+            pox_constants,
+            parent_chain_tip,
+            parent_consensus_hash,
+            parent_header_hash,
+            parent_burn_height,
+            tenure_block_snapshot,
+            block,
+            coinbase_height,
+            tenure_cause,
+            block_bitvec,
+            active_reward_set,
+            true,
+        )
+    }
+
+    fn setup_normal_block_processing_inner<'a, 'b>(
+        chainstate_tx: &'b mut ChainstateTx,
+        clarity_instance: &'a mut ClarityInstance,
+        sortition_dbconn: &'b dyn SortitionDBRef,
+        first_block_height: u64,
+        pox_constants: &PoxConstants,
+        parent_chain_tip: &StacksHeaderInfo,
+        parent_consensus_hash: &ConsensusHash,
+        parent_header_hash: &BlockHeaderHash,
+        parent_burn_height: u32,
+        tenure_block_snapshot: &BlockSnapshot,
+        block: &NakamotoBlock,
+        coinbase_height: u64,
+        tenure_cause: MinerTenureInfoCause,
+        block_bitvec: &BitVec<4000>,
+        active_reward_set: &RewardSet,
+        ephemeral: bool,
+    ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         let burn_header_hash = &tenure_block_snapshot.burn_header_hash;
         let burn_header_height =
             u32::try_from(tenure_block_snapshot.block_height).map_err(|_| {
@@ -4053,24 +4128,46 @@ impl NakamotoChainState {
                 return Err(ChainstateError::NoSuchBlockError);
             }
         }
-        Self::setup_block(
-            chainstate_tx,
-            clarity_instance,
-            sortition_dbconn,
-            first_block_height,
-            pox_constants,
-            parent_consensus_hash,
-            parent_header_hash,
-            parent_burn_height,
-            burn_header_hash,
-            burn_header_height,
-            coinbase_height,
-            tenure_cause,
-            block_bitvec,
-            &tenure_block_commit,
-            active_reward_set,
-            Some(block.header.timestamp),
-        )
+
+        if ephemeral {
+            Self::setup_ephemeral_block(
+                chainstate_tx,
+                clarity_instance,
+                sortition_dbconn,
+                first_block_height,
+                pox_constants,
+                parent_consensus_hash,
+                parent_header_hash,
+                parent_burn_height,
+                burn_header_hash,
+                burn_header_height,
+                coinbase_height,
+                tenure_cause,
+                block_bitvec,
+                &tenure_block_commit,
+                active_reward_set,
+                Some(block.header.timestamp),
+            )
+        } else {
+            Self::setup_block(
+                chainstate_tx,
+                clarity_instance,
+                sortition_dbconn,
+                first_block_height,
+                pox_constants,
+                parent_consensus_hash,
+                parent_header_hash,
+                parent_burn_height,
+                burn_header_hash,
+                burn_header_height,
+                coinbase_height,
+                tenure_cause,
+                block_bitvec,
+                &tenure_block_commit,
+                active_reward_set,
+                Some(block.header.timestamp),
+            )
+        }
     }
 
     /// Begin block-processing and return all of the pre-processed state within a
@@ -4602,6 +4699,100 @@ impl NakamotoChainState {
         ),
         ChainstateError,
     > {
+        Self::append_block_inner(
+            chainstate_tx,
+            clarity_instance,
+            burn_dbconn,
+            burnchain_view,
+            pox_constants,
+            parent_chain_tip,
+            chain_tip_burn_header_hash,
+            chain_tip_burn_header_height,
+            chain_tip_burn_header_timestamp,
+            block,
+            block_size,
+            burnchain_commit_burn,
+            burnchain_sortition_burn,
+            active_reward_set,
+            do_not_advance,
+            false,
+        )
+    }
+
+    /// Append a Nakamoto block without persisting to MARF. For parallel,
+    /// read-only validation.
+    pub fn append_block_ephemeral<'a>(
+        chainstate_tx: &mut ChainstateTx,
+        clarity_instance: &'a mut ClarityInstance,
+        burn_dbconn: &mut SortitionHandleConn,
+        burnchain_view: &ConsensusHash,
+        pox_constants: &PoxConstants,
+        parent_chain_tip: &StacksHeaderInfo,
+        chain_tip_burn_header_hash: &BurnchainHeaderHash,
+        chain_tip_burn_header_height: u32,
+        chain_tip_burn_header_timestamp: u64,
+        block: &NakamotoBlock,
+        block_size: u64,
+        burnchain_commit_burn: u64,
+        burnchain_sortition_burn: u64,
+        active_reward_set: &RewardSet,
+        do_not_advance: bool,
+    ) -> Result<
+        (
+            StacksEpochReceipt,
+            PreCommitClarityBlock<'a>,
+            Option<RewardSetData>,
+            Vec<StacksTransactionEvent>,
+        ),
+        ChainstateError,
+    > {
+        Self::append_block_inner(
+            chainstate_tx,
+            clarity_instance,
+            burn_dbconn,
+            burnchain_view,
+            pox_constants,
+            parent_chain_tip,
+            chain_tip_burn_header_hash,
+            chain_tip_burn_header_height,
+            chain_tip_burn_header_timestamp,
+            block,
+            block_size,
+            burnchain_commit_burn,
+            burnchain_sortition_burn,
+            active_reward_set,
+            do_not_advance,
+            true,
+        )
+    }
+
+    /// Inner implementation shared by `append_block` and `append_block_ephemeral`.
+    fn append_block_inner<'a>(
+        chainstate_tx: &mut ChainstateTx,
+        clarity_instance: &'a mut ClarityInstance,
+        burn_dbconn: &mut SortitionHandleConn,
+        burnchain_view: &ConsensusHash,
+        pox_constants: &PoxConstants,
+        parent_chain_tip: &StacksHeaderInfo,
+        chain_tip_burn_header_hash: &BurnchainHeaderHash,
+        chain_tip_burn_header_height: u32,
+        chain_tip_burn_header_timestamp: u64,
+        block: &NakamotoBlock,
+        block_size: u64,
+        burnchain_commit_burn: u64,
+        burnchain_sortition_burn: u64,
+        active_reward_set: &RewardSet,
+        do_not_advance: bool,
+        ephemeral: bool,
+    ) -> Result<
+        (
+            StacksEpochReceipt,
+            PreCommitClarityBlock<'a>,
+            Option<RewardSetData>,
+            Vec<StacksTransactionEvent>,
+        ),
+        ChainstateError,
+    > {
         debug!(
             "Process Nakamoto block {:?} with {} transactions",
             &block.header.block_hash().to_hex(),
@@ -4793,6 +4984,24 @@ impl NakamotoChainState {
                 &tenure_block_snapshot,
                 coinbase_height,
                 tenure_cause,
+            )?
+        } else if ephemeral {
+            Self::setup_normal_block_processing_ephemeral(
+                chainstate_tx,
+                clarity_instance,
+                burn_dbconn,
+                first_block_height,
+                pox_constants,
+                parent_chain_tip,
+                &parent_ch,
+                &parent_block_hash,
+                parent_chain_tip.burn_header_height,
+                &tenure_block_snapshot,
+                block,
+                coinbase_height,
+                tenure_cause,
+                &block.header.pox_treatment,
+                active_reward_set,
             )?
         } else {
             // normal block

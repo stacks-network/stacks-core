@@ -83,6 +83,10 @@ pub struct ValidateBlockArgs {
     #[arg(long, default_value_t = false)]
     pub early_exit: bool,
 
+    /// Parallel validation threads (0=auto, 1=single-threaded)
+    #[arg(long, default_value_t = 1)]
+    pub threads: usize,
+
     /// Block selection mode (if not specified, validates all blocks)
     #[command(subcommand)]
     pub mode: Option<ValidateBlockMode>,
@@ -642,5 +646,77 @@ mod tests {
 
         assert_eq!(cli.config, Some("/path/to/config.toml".to_string()));
         assert!(matches!(cli.command, Command::DumpConsts));
+    }
+
+    #[test]
+    fn test_validate_block_threads_default() {
+        let cli = Cli::try_parse_from(["stacks-inspect", "validate-block", "/some/path"]).unwrap();
+
+        match cli.command {
+            Command::ValidateBlock(args) => {
+                assert_eq!(args.threads, 1, "default should be single-threaded");
+                assert!(!args.early_exit);
+            }
+            _ => panic!("Expected ValidateBlock command"),
+        }
+    }
+
+    #[test]
+    fn test_validate_block_threads_explicit() {
+        let cli = Cli::try_parse_from([
+            "stacks-inspect",
+            "validate-block",
+            "--threads",
+            "4",
+            "/some/path",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Command::ValidateBlock(args) => {
+                assert_eq!(args.threads, 4);
+            }
+            _ => panic!("Expected ValidateBlock command"),
+        }
+    }
+
+    #[test]
+    fn test_validate_block_threads_zero_auto() {
+        let cli = Cli::try_parse_from([
+            "stacks-inspect",
+            "validate-block",
+            "--threads",
+            "0",
+            "/some/path",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Command::ValidateBlock(args) => {
+                assert_eq!(args.threads, 0, "0 should parse as auto-detect");
+            }
+            _ => panic!("Expected ValidateBlock command"),
+        }
+    }
+
+    #[test]
+    fn test_validate_block_threads_with_early_exit() {
+        let cli = Cli::try_parse_from([
+            "stacks-inspect",
+            "validate-block",
+            "--early-exit",
+            "--threads",
+            "8",
+            "/some/path",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Command::ValidateBlock(args) => {
+                assert_eq!(args.threads, 8);
+                assert!(args.early_exit);
+            }
+            _ => panic!("Expected ValidateBlock command"),
+        }
     }
 }

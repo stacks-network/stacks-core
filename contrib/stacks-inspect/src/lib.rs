@@ -16,8 +16,10 @@
 pub mod cli;
 
 use std::io::Write;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
-use std::{fs, io, process};
+use std::{fs, io, process, thread};
 
 use clarity::types::chainstate::SortitionId;
 use clarity::util::hash::{Sha512Trunc256Sum, to_hex};
@@ -288,6 +290,183 @@ fn collect_nakamoto_entries(
     false
 }
 
+/// Worker holding DB handles for block validation. Avoids reopening chainstate/sortition DB per block.
+struct StagingValidationWorker {
+    chainstate: StacksChainState,
+    sortdb: SortitionDB,
+    blocks_path: String,
+}
+
+impl StagingValidationWorker {
+    fn new(db_path: &str, conf: Config) -> Result<Self, String> {
+        let chain_state_path = format!("{db_path}/chainstate/");
+        let sort_db_path = format!("{db_path}/burnchain/sortition");
+
+        let (chainstate, _) = StacksChainState::open(
+            conf.is_mainnet(),
+            conf.burnchain.chain_id,
+            &chain_state_path,
+            None,
+        )
+        .map_err(|e| format!("Failed to open chainstate at {chain_state_path}: {e:?}"))?;
+
+        let burnchain = conf.get_burnchain();
+        let epochs = conf.burnchain.get_epoch_list();
+        let sortdb = SortitionDB::connect(
+            &sort_db_path,
+            burnchain.first_block_height,
+            &burnchain.first_block_hash,
+            u64::from(burnchain.first_block_timestamp),
+            &epochs,
+            burnchain.pox_constants.clone(),
+            None,
+            true,
+        )
+        .map_err(|e| format!("Failed to open sortition DB at {sort_db_path}: {e:?}"))?;
+
+        Ok(Self {
+            blocks_path: chainstate.blocks_path.clone(),
+            chainstate,
+            sortdb,
+        })
+    }
+
+    fn validate_entry(&mut self, entry: &BlockScanEntry) -> Result<(), String> {
+        match entry.source {
+            BlockSource::Epoch2 => self.validate_epoch2_block(&entry.index_block_hash),
+            BlockSource::Nakamoto => self.validate_nakamoto_block(&entry.index_block_hash),
+        }
+    }
+
+    fn validate_entry_ephemeral(&mut self, entry: &BlockScanEntry) -> Result<(), String> {
+        match entry.source {
+            BlockSource::Epoch2 => self.validate_epoch2_block_ephemeral(&entry.index_block_hash),
+            BlockSource::Nakamoto => {
+                self.validate_nakamoto_block_ephemeral(&entry.index_block_hash)
+            }
+        }
+    }
+
+    fn validate_epoch2_block(&mut self, block_id: &StacksBlockId) -> Result<(), String> {
+        self.validate_epoch2_block_inner(block_id, false)
+    }
+
+    fn validate_epoch2_block_ephemeral(&mut self, block_id: &StacksBlockId) -> Result<(), String> {
+        self.validate_epoch2_block_inner(block_id, true)
+    }
+
+    fn validate_epoch2_block_inner(
+        &mut self,
+        block_id: &StacksBlockId,
+        ephemeral: bool,
+    ) -> Result<(), String> {
+        let sort_tx = self.sortdb.tx_begin_at_tip();
+        let (chainstate_tx, clarity_instance) = self.chainstate.chainstate_tx_begin();
+
+        let mut next_staging_block =
+            StacksChainState::load_staging_block_info(&chainstate_tx.tx, block_id)
+                .map_err(|e| format!("Failed to load staging block info: {e:?}"))?
+                .ok_or_else(|| "No such index block hash in block database".to_string())?;
+
+        next_staging_block.block_data = StacksChainState::load_block_bytes(
+            &self.blocks_path,
+            &next_staging_block.consensus_hash,
+            &next_staging_block.anchored_block_hash,
+        )
+        .map_err(|e| format!("Failed to load block bytes: {e:?}"))?
+        .unwrap_or_default();
+
+        let parent_header_info =
+            StacksChainState::get_parent_header_info(&chainstate_tx, &next_staging_block)
+                .map_err(|e| format!("Failed to get parent header info: {e:?}"))?
+                .ok_or_else(|| "Missing parent header info".to_string())?;
+
+        let block = StacksChainState::extract_stacks_block(&next_staging_block)
+            .map_err(|e| format!("{e:?}"))?;
+        let block_size = next_staging_block.block_data.len() as u64;
+
+        if ephemeral {
+            replay_block_ephemeral(
+                sort_tx,
+                chainstate_tx,
+                clarity_instance,
+                &parent_header_info,
+                &next_staging_block.parent_microblock_hash,
+                next_staging_block.parent_microblock_seq,
+                block_id,
+                &block,
+                block_size,
+                &next_staging_block.consensus_hash,
+                &next_staging_block.anchored_block_hash,
+                next_staging_block.commit_burn,
+                next_staging_block.sortition_burn,
+            )
+        } else {
+            replay_block(
+                sort_tx,
+                chainstate_tx,
+                clarity_instance,
+                &parent_header_info,
+                &next_staging_block.parent_microblock_hash,
+                next_staging_block.parent_microblock_seq,
+                block_id,
+                &block,
+                block_size,
+                &next_staging_block.consensus_hash,
+                &next_staging_block.anchored_block_hash,
+                next_staging_block.commit_burn,
+                next_staging_block.sortition_burn,
+            )
+        }
+    }
+
+    fn validate_nakamoto_block(&mut self, block_id: &StacksBlockId) -> Result<(), String> {
+        self.validate_nakamoto_block_inner(block_id, false)
+    }
+
+    fn validate_nakamoto_block_ephemeral(
+        &mut self,
+        block_id: &StacksBlockId,
+    ) -> Result<(), String> {
+        self.validate_nakamoto_block_inner(block_id, true)
+    }
+
+    fn validate_nakamoto_block_inner(
+        &mut self,
+        block_id: &StacksBlockId,
+        ephemeral: bool,
+    ) -> Result<(), String> {
+        let (block, block_size) = self
+            .chainstate
+            .nakamoto_blocks_db()
+            .get_nakamoto_block(block_id)
+            .map_err(|e| format!("Failed to load Nakamoto block: {e:?}"))?
+            .ok_or_else(|| "No block data found".to_string())?;
+
+        if ephemeral {
+            replay_block_nakamoto_ephemeral(
+                &mut self.sortdb,
+                &mut self.chainstate,
+                &block,
+                block_size,
+            )
+            .map_err(|e| format!("Failed to validate Nakamoto block: {e:?}"))
+        } else {
+            replay_block_nakamoto(&mut self.sortdb, &mut self.chainstate, &block, block_size)
+                .map_err(|e| format!("Failed to validate Nakamoto block: {e:?}"))
+        }
+    }
+}
+
+/// Resolve the effective thread count for parallel validation.
+///
+/// `requested == 0` means auto-detect (use all available). The result is clamped to `[1, available]`.
+fn resolve_thread_count(requested: usize, available: usize) -> usize {
+    let base = if requested == 0 { available } else { requested };
+
+    base.min(available).max(1)
+}
+
 /// Replay blocks from chainstate database
 /// Terminates on error using `process::exit()`
 ///
@@ -338,28 +517,123 @@ pub fn command_validate_block(args: &ValidateBlockArgs, conf: Option<&Config>) {
         return;
     }
     let total_blocks = work_items.len();
-    let mut completed = 0;
-    let mut errors: Vec<(StacksBlockId, String)> = Vec::new();
 
-    for entry in work_items {
-        if let Err(e) = validate_entry(db_path, conf, &entry) {
-            if early_exit {
+    let available_threads = thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+
+    let thread_count = resolve_thread_count(args.threads, available_threads);
+    let conf_owned = conf.clone();
+
+    let errors: Vec<(StacksBlockId, String)> = if thread_count <= 1 {
+        let mut worker = StagingValidationWorker::new(db_path, conf_owned).unwrap_or_else(|e| {
+            eprintln!("Failed to initialize validator: {e}");
+            process::exit(1);
+        });
+
+        let mut errors = Vec::new();
+        let mut completed = 0usize;
+
+        for entry in &work_items {
+            if let Err(e) = worker.validate_entry(entry) {
+                if early_exit {
+                    print!("\r");
+                    io::stdout().flush().ok();
+                    println!("Block {}: {e}", entry.index_block_hash);
+                    process::exit(1);
+                }
+
                 print!("\r");
                 io::stdout().flush().ok();
-                println!("Block {}: {e}", entry.index_block_hash);
-                process::exit(1);
+                errors.push((entry.index_block_hash.clone(), e));
             }
-            print!("\r");
-            io::stdout().flush().ok();
-            errors.push((entry.index_block_hash.clone(), e));
-        }
-        completed += 1;
-        let pct = ((completed as f32 / total_blocks as f32) * 100.0).floor() as usize;
-        print!("\rValidating: {:>3}% ({}/{})", pct, completed, total_blocks);
-        io::stdout().flush().ok();
-    }
 
-    print!("\rValidating: 100% ({}/{})\n", total_blocks, total_blocks);
+            completed += 1;
+
+            let pct = ((completed as f32 / total_blocks as f32) * 100.0).floor() as usize;
+
+            print!("\rValidating: {:>3}% ({}/{})", pct, completed, total_blocks);
+            io::stdout().flush().ok();
+        }
+
+        errors
+    } else {
+        println!("Using {thread_count} threads (max {available_threads})");
+
+        let work_items = Arc::new(work_items);
+        let next_index = Arc::new(AtomicUsize::new(0));
+        let processed = Arc::new(AtomicUsize::new(0));
+        let should_stop = Arc::new(AtomicBool::new(false));
+        let db_path = Arc::new(db_path.to_string());
+
+        let handles: Vec<_> = (0..thread_count)
+            .map(|_| {
+                let hashes = Arc::clone(&work_items);
+                let next = Arc::clone(&next_index);
+                let processed_ctr = Arc::clone(&processed);
+                let stop = Arc::clone(&should_stop);
+                let db_path = Arc::clone(&db_path);
+                let conf_clone = conf_owned.clone();
+                let total = total_blocks;
+                let early = early_exit;
+
+                thread::spawn(move || {
+                    let mut worker = match StagingValidationWorker::new(&db_path, conf_clone) {
+                        Ok(w) => w,
+                        Err(e) => return vec![(StacksBlockId([0; 32]), e)],
+                    };
+
+                    let mut local_errors: Vec<(StacksBlockId, String)> = Vec::new();
+
+                    loop {
+                        if early && stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+
+                        let idx = next.fetch_add(1, Ordering::Relaxed);
+
+                        if idx >= hashes.len() {
+                            break;
+                        }
+
+                        let entry = &hashes[idx];
+
+                        if let Err(e) = worker.validate_entry_ephemeral(entry) {
+                            if early {
+                                stop.store(true, Ordering::Relaxed);
+                            }
+                            local_errors.push((entry.index_block_hash.clone(), e));
+                        }
+
+                        let current = processed_ctr.fetch_add(1, Ordering::Relaxed) + 1;
+
+                        if current.is_multiple_of(100) || current == total {
+                            let pct = ((current as f32 / total as f32) * 100.0).floor() as usize;
+                            print!("\rValidating: {:>3}% ({}/{})", pct, current, total);
+                            io::stdout().flush().ok();
+                        }
+                    }
+
+                    local_errors
+                })
+            })
+            .collect();
+
+        let mut all_errors = Vec::new();
+
+        for handle in handles {
+            match handle.join() {
+                Ok(errs) => all_errors.extend(errs),
+                Err(_) => {
+                    all_errors.push((StacksBlockId([0; 32]), "Worker thread panicked".to_string()))
+                }
+            }
+        }
+
+        all_errors
+    };
+
+    print!("\rValidating: 100% ({t}/{t})\n", t = total_blocks);
 
     if !errors.is_empty() {
         println!(
@@ -377,13 +651,6 @@ pub fn command_validate_block(args: &ValidateBlockArgs, conf: Option<&Config>) {
         total_blocks,
         start.elapsed().as_secs()
     );
-}
-
-fn validate_entry(db_path: &str, conf: &Config, entry: &BlockScanEntry) -> Result<(), String> {
-    match entry.source {
-        BlockSource::Nakamoto => replay_naka_staging_block(db_path, &entry.index_block_hash, conf),
-        BlockSource::Epoch2 => replay_staging_block(db_path, &entry.index_block_hash, conf),
-    }
 }
 
 /// Replay mock mined blocks from JSON files
@@ -644,80 +911,6 @@ pub fn command_contract_hash(args: &ContractHashArgs, _conf: Option<&Config>) {
     println!("Contract hash for {source_name}:\n{hex_string}");
 }
 
-/// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
-fn replay_staging_block(
-    db_path: &str,
-    block_id: &StacksBlockId,
-    conf: &Config,
-) -> Result<(), String> {
-    let chain_state_path = format!("{db_path}/chainstate/");
-    let sort_db_path = format!("{db_path}/burnchain/sortition");
-
-    let (mut chainstate, _) = StacksChainState::open(
-        conf.is_mainnet(),
-        conf.burnchain.chain_id,
-        &chain_state_path,
-        None,
-    )
-    .map_err(|e| format!("Failed to open chainstate at {chain_state_path}: {e:?}"))?;
-
-    let burnchain = conf.get_burnchain();
-    let epochs = conf.burnchain.get_epoch_list();
-    let mut sortdb = SortitionDB::connect(
-        &sort_db_path,
-        burnchain.first_block_height,
-        &burnchain.first_block_hash,
-        u64::from(burnchain.first_block_timestamp),
-        &epochs,
-        burnchain.pox_constants.clone(),
-        None,
-        true,
-    )
-    .map_err(|e| format!("Failed to open sortition DB at {sort_db_path}: {e:?}"))?;
-
-    let sort_tx = sortdb.tx_begin_at_tip();
-
-    let blocks_path = chainstate.blocks_path.clone();
-    let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
-    let mut next_staging_block =
-        StacksChainState::load_staging_block_info(&chainstate_tx.tx, block_id)
-            .map_err(|e| format!("Failed to load staging block info: {e:?}"))?
-            .ok_or_else(|| "No such index block hash in block database".to_string())?;
-
-    next_staging_block.block_data = StacksChainState::load_block_bytes(
-        &blocks_path,
-        &next_staging_block.consensus_hash,
-        &next_staging_block.anchored_block_hash,
-    )
-    .map_err(|e| format!("Failed to load block bytes: {e:?}"))?
-    .unwrap_or_default();
-
-    let parent_header_info =
-        StacksChainState::get_parent_header_info(&chainstate_tx, &next_staging_block)
-            .map_err(|e| format!("Failed to get parent header info: {e:?}"))?
-            .ok_or_else(|| "Missing parent header info".to_string())?;
-
-    let block = StacksChainState::extract_stacks_block(&next_staging_block)
-        .map_err(|e| format!("{e:?}"))?;
-    let block_size = next_staging_block.block_data.len() as u64;
-
-    replay_block(
-        sort_tx,
-        chainstate_tx,
-        clarity_instance,
-        &parent_header_info,
-        &next_staging_block.parent_microblock_hash,
-        next_staging_block.parent_microblock_seq,
-        block_id,
-        &block,
-        block_size,
-        &next_staging_block.consensus_hash,
-        &next_staging_block.anchored_block_hash,
-        next_staging_block.commit_burn,
-        next_staging_block.sortition_burn,
-    )
-}
-
 /// Process a mock mined block and call `replay_block()` to validate
 fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Option<&Config>) {
     let chain_state_path = format!("{db_path}/chainstate/");
@@ -789,9 +982,78 @@ fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Opt
     .expect("Failed to replay mock mined block");
 }
 
-/// Validate a block against chainstate
+/// Validate a block without persisting to MARF.
+#[allow(clippy::too_many_arguments)]
+fn replay_block_ephemeral(
+    sort_tx: IndexDBTx<SortitionHandleContext, SortitionId>,
+    chainstate_tx: ChainstateTx,
+    clarity_instance: &mut ClarityInstance,
+    parent_header_info: &StacksHeaderInfo,
+    parent_microblock_hash: &BlockHeaderHash,
+    parent_microblock_seq: u16,
+    block_id: &StacksBlockId,
+    block: &StacksBlock,
+    block_size: u64,
+    block_consensus_hash: &ConsensusHash,
+    block_hash: &BlockHeaderHash,
+    block_commit_burn: u64,
+    block_sortition_burn: u64,
+) -> Result<(), String> {
+    replay_block_inner(
+        sort_tx,
+        chainstate_tx,
+        clarity_instance,
+        parent_header_info,
+        parent_microblock_hash,
+        parent_microblock_seq,
+        block_id,
+        block,
+        block_size,
+        block_consensus_hash,
+        block_hash,
+        block_commit_burn,
+        block_sortition_burn,
+        true,
+    )
+}
+
+/// Validate a block against chainstate.
 #[allow(clippy::too_many_arguments)]
 fn replay_block(
+    sort_tx: IndexDBTx<SortitionHandleContext, SortitionId>,
+    chainstate_tx: ChainstateTx,
+    clarity_instance: &mut ClarityInstance,
+    parent_header_info: &StacksHeaderInfo,
+    parent_microblock_hash: &BlockHeaderHash,
+    parent_microblock_seq: u16,
+    block_id: &StacksBlockId,
+    block: &StacksBlock,
+    block_size: u64,
+    block_consensus_hash: &ConsensusHash,
+    block_hash: &BlockHeaderHash,
+    block_commit_burn: u64,
+    block_sortition_burn: u64,
+) -> Result<(), String> {
+    replay_block_inner(
+        sort_tx,
+        chainstate_tx,
+        clarity_instance,
+        parent_header_info,
+        parent_microblock_hash,
+        parent_microblock_seq,
+        block_id,
+        block,
+        block_size,
+        block_consensus_hash,
+        block_hash,
+        block_commit_burn,
+        block_sortition_burn,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn replay_block_inner(
     mut sort_tx: IndexDBTx<SortitionHandleContext, SortitionId>,
     mut chainstate_tx: ChainstateTx,
     clarity_instance: &mut ClarityInstance,
@@ -805,6 +1067,7 @@ fn replay_block(
     block_hash: &BlockHeaderHash,
     block_commit_burn: u64,
     block_sortition_burn: u64,
+    ephemeral: bool,
 ) -> Result<(), String> {
     let parent_block_header = match &parent_header_info.anchored_header {
         StacksBlockHeaderTypes::Epoch2(bh) => bh,
@@ -885,23 +1148,45 @@ fn replay_block(
 
     let pox_constants = sort_tx.context.pox_constants.clone();
 
-    match StacksChainState::append_block(
-        &mut chainstate_tx,
-        clarity_instance,
-        &mut sort_tx,
-        &pox_constants,
-        parent_header_info,
-        block_consensus_hash,
-        &burn_header_hash,
-        burn_header_height,
-        burn_header_timestamp,
-        block,
-        block_size,
-        &next_microblocks,
-        block_commit_burn,
-        block_sortition_burn,
-        true,
-    ) {
+    let append_block_result = if ephemeral {
+        StacksChainState::append_block_ephemeral(
+            &mut chainstate_tx,
+            clarity_instance,
+            &mut sort_tx,
+            &pox_constants,
+            parent_header_info,
+            block_consensus_hash,
+            &burn_header_hash,
+            burn_header_height,
+            burn_header_timestamp,
+            block,
+            block_size,
+            &next_microblocks,
+            block_commit_burn,
+            block_sortition_burn,
+            true,
+        )
+    } else {
+        StacksChainState::append_block(
+            &mut chainstate_tx,
+            clarity_instance,
+            &mut sort_tx,
+            &pox_constants,
+            parent_header_info,
+            block_consensus_hash,
+            &burn_header_hash,
+            burn_header_height,
+            burn_header_timestamp,
+            block,
+            block_size,
+            &next_microblocks,
+            block_commit_burn,
+            block_sortition_burn,
+            true,
+        )
+    };
+
+    match append_block_result {
         Ok((receipt, _, _)) => {
             if let Some(cost) = cost_opt {
                 if receipt.anchored_block_cost != cost {
@@ -922,45 +1207,14 @@ fn replay_block(
     }
 }
 
-/// Fetch and process a NakamotoBlock from database and call `replay_block_nakamoto()` to validate
-fn replay_naka_staging_block(
-    db_path: &str,
-    block_id: &StacksBlockId,
-    conf: &Config,
-) -> Result<(), String> {
-    let chain_state_path = format!("{db_path}/chainstate/");
-    let sort_db_path = format!("{db_path}/burnchain/sortition");
-
-    let (mut chainstate, _) = StacksChainState::open(
-        conf.is_mainnet(),
-        conf.burnchain.chain_id,
-        &chain_state_path,
-        None,
-    )
-    .map_err(|e| format!("Failed to open chainstate: {e:?}"))?;
-
-    let burnchain = conf.get_burnchain();
-    let epochs = conf.burnchain.get_epoch_list();
-    let mut sortdb = SortitionDB::connect(
-        &sort_db_path,
-        burnchain.first_block_height,
-        &burnchain.first_block_hash,
-        u64::from(burnchain.first_block_timestamp),
-        &epochs,
-        burnchain.pox_constants.clone(),
-        None,
-        true,
-    )
-    .map_err(|e| format!("Failed to open sortition DB: {e:?}"))?;
-
-    let (block, block_size) = chainstate
-        .nakamoto_blocks_db()
-        .get_nakamoto_block(block_id)
-        .map_err(|e| format!("Failed to load Nakamoto block: {e:?}"))?
-        .ok_or_else(|| "No block data found".to_string())?;
-
-    replay_block_nakamoto(&mut sortdb, &mut chainstate, &block, block_size)
-        .map_err(|e| format!("Failed to validate Nakamoto block: {e:?}"))
+#[allow(clippy::result_large_err)]
+fn replay_block_nakamoto_ephemeral(
+    sort_db: &mut SortitionDB,
+    stacks_chain_state: &mut StacksChainState,
+    block: &NakamotoBlock,
+    block_size: u64,
+) -> Result<(), ChainstateError> {
+    replay_block_nakamoto_inner(sort_db, stacks_chain_state, block, block_size, true)
 }
 
 #[allow(clippy::result_large_err)]
@@ -969,6 +1223,17 @@ fn replay_block_nakamoto(
     stacks_chain_state: &mut StacksChainState,
     block: &NakamotoBlock,
     block_size: u64,
+) -> Result<(), ChainstateError> {
+    replay_block_nakamoto_inner(sort_db, stacks_chain_state, block, block_size, false)
+}
+
+#[allow(clippy::result_large_err)]
+fn replay_block_nakamoto_inner(
+    sort_db: &mut SortitionDB,
+    stacks_chain_state: &mut StacksChainState,
+    block: &NakamotoBlock,
+    block_size: u64,
+    ephemeral: bool,
 ) -> Result<(), ChainstateError> {
     // find corresponding snapshot
     let next_ready_block_snapshot =
@@ -1225,26 +1490,51 @@ fn replay_block_nakamoto(
     // simply commit the block before beginning the second transaction to mark it processed.
     let block_id = block.block_id();
     let mut burn_view_handle = sort_db.index_handle(&burnchain_view_sn.sortition_id);
-    let (ok_opt, err_opt) = match NakamotoChainState::append_block(
-        &mut chainstate_tx,
-        clarity_instance,
-        &mut burn_view_handle,
-        burnchain_view,
-        &pox_constants,
-        &parent_header_info,
-        &next_ready_block_snapshot.burn_header_hash,
-        next_ready_block_snapshot
-            .block_height
-            .try_into()
-            .expect("Failed to downcast u64 to u32"),
-        next_ready_block_snapshot.burn_header_timestamp,
-        block,
-        block_size,
-        commit_burn,
-        sortition_burn,
-        &active_reward_set,
-        true,
-    ) {
+    let append_block_result = if ephemeral {
+        NakamotoChainState::append_block_ephemeral(
+            &mut chainstate_tx,
+            clarity_instance,
+            &mut burn_view_handle,
+            burnchain_view,
+            &pox_constants,
+            &parent_header_info,
+            &next_ready_block_snapshot.burn_header_hash,
+            next_ready_block_snapshot
+                .block_height
+                .try_into()
+                .expect("Failed to downcast u64 to u32"),
+            next_ready_block_snapshot.burn_header_timestamp,
+            block,
+            block_size,
+            commit_burn,
+            sortition_burn,
+            &active_reward_set,
+            true,
+        )
+    } else {
+        NakamotoChainState::append_block(
+            &mut chainstate_tx,
+            clarity_instance,
+            &mut burn_view_handle,
+            burnchain_view,
+            &pox_constants,
+            &parent_header_info,
+            &next_ready_block_snapshot.burn_header_hash,
+            next_ready_block_snapshot
+                .block_height
+                .try_into()
+                .expect("Failed to downcast u64 to u32"),
+            next_ready_block_snapshot.burn_header_timestamp,
+            block,
+            block_size,
+            commit_burn,
+            sortition_burn,
+            &active_reward_set,
+            true,
+        )
+    };
+
+    let (ok_opt, err_opt) = match append_block_result {
         Ok((receipt, _, _, _)) => (Some(receipt), None),
         Err(e) => (None, Some(e)),
     };
@@ -1281,4 +1571,35 @@ fn replay_block_nakamoto(
     };
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_thread_count_zero_means_auto() {
+        assert_eq!(resolve_thread_count(0, 8), 8);
+        assert_eq!(resolve_thread_count(0, 1), 1);
+    }
+
+    #[test]
+    fn test_resolve_thread_count_explicit() {
+        assert_eq!(resolve_thread_count(4, 8), 4);
+        assert_eq!(resolve_thread_count(1, 8), 1);
+    }
+
+    #[test]
+    fn test_resolve_thread_count_clamps_to_available() {
+        // Requested > available: clamp down
+        assert_eq!(resolve_thread_count(16, 8), 8);
+        assert_eq!(resolve_thread_count(100, 4), 4);
+    }
+
+    #[test]
+    fn test_resolve_thread_count_minimum_one() {
+        // Even with 0 available (shouldn't happen in practice), floor at 1
+        assert_eq!(resolve_thread_count(0, 0), 1);
+        assert_eq!(resolve_thread_count(1, 0), 1);
+    }
 }
