@@ -168,6 +168,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         TraitTooManyMethods(_, _) => Tested(vec![static_check_error_trait_too_many_methods]),
         WriteAttemptedInReadOnly => Tested(vec![static_check_error_write_attempted_in_read_only]),
         AtBlockClosureMustBeReadOnly => Tested(vec![static_check_error_at_block_closure_must_be_read_only]),
+        AtBlockUnavailable => Tested(vec![static_check_error_at_block_unavailable]),
         ExpectedListOfAllowances(_, _) => Tested(vec![static_check_error_expected_list_of_allowances]),
         AllowanceExprNotAllowed => Tested(vec![static_check_error_allowance_expr_not_allowed]),
         ExpectedAllowanceExpr(_) => Tested(vec![static_check_error_expected_allowance_expr]),
@@ -1226,6 +1227,21 @@ fn static_check_error_at_block_closure_must_be_read_only() {
         (define-private (foo-bar)
             (at-block (sha256 0)
                (var-set foo 0)))",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::AtBlockUnavailable`]
+/// Caused by: using `at-block` in Epoch 3.4+, where the built-in is disabled.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_at_block_unavailable() {
+    contract_deploy_consensus_test!(
+        contract_name: "at-block-unavailable",
+        contract_code: "
+        (define-public (trigger-error)
+            (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
+                    u1)))",
+        deploy_epochs: &[StacksEpochId::Epoch34],
     );
 }
 

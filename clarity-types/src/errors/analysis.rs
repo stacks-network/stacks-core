@@ -498,6 +498,8 @@ pub enum StaticCheckErrorKind {
     WriteAttemptedInReadOnly,
     /// `at-block` closure must be read-only but contains write operations.
     AtBlockClosureMustBeReadOnly,
+    /// `at-block` is not available in this epoch.
+    AtBlockUnavailable,
 
     // contract post-conditions
     /// Post-condition expects a list of asset allowances but received invalid input.
@@ -609,6 +611,8 @@ pub enum RuntimeCheckErrorKind {
     /// Referenced function is not defined in the current scope.
     /// The `String` wraps the non-existent function name.
     UndefinedFunction(String),
+    /// `at-block` is not available in this epoch.
+    AtBlockUnavailable,
 
     // Argument counts
     /// Incorrect number of arguments provided to a function.
@@ -1171,6 +1175,7 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::TooManyFunctionParameters(found, allowed) => format!("too many function parameters specified: found {found}, the maximum is {allowed}"),
             StaticCheckErrorKind::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
             StaticCheckErrorKind::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),
+            StaticCheckErrorKind::AtBlockUnavailable => "(at-block ...) is not available in this epoch".into(),
             StaticCheckErrorKind::BadTokenName => "expecting an token name as an argument".into(),
             StaticCheckErrorKind::DefineNFTBadSignature => "(define-asset ...) expects an asset name and an asset identifier type signature as arguments".into(),
             StaticCheckErrorKind::NoSuchNFT(asset_name) => format!("tried to use asset function with a undefined asset ('{asset_name}')"),

@@ -918,6 +918,11 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch34
     }
 
+    /// Whether `at-block` is available in this epoch.
+    pub fn supports_at_block(&self) -> bool {
+        self < &StacksEpochId::Epoch34
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {

@@ -118,6 +118,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             runtime_check_error_kind_name_already_used_ccall
         ]),
         UndefinedFunction(_) => Tested(vec![runtime_check_error_kind_undefined_function_ccall]),
+        AtBlockUnavailable => Tested(vec![runtime_check_error_kind_at_block_unavailable_ccall]),
         IncorrectArgumentCount(_, _) => {
             Tested(vec![runtime_check_error_kind_incorrect_argument_count_ccall])
         }
@@ -916,6 +917,24 @@ fn runtime_check_error_kind_undefined_function_ccall() {
             (ok true))",
         function_name: "missing-func",
         function_args: &[],
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::AtBlockUnavailable`]
+/// Caused by: invoking `at-block` after crossing into Epoch 3.4, where the built-in is disabled.
+/// Outcome: block accepted.
+#[test]
+fn runtime_check_error_kind_at_block_unavailable_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "at-block-unavail",
+        contract_code: "
+        (define-public (trigger-error)
+            (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
+                    u1)))",
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: &[StacksEpochId::Epoch33],
+        call_epochs: &[StacksEpochId::Epoch34],
     );
 }
 
