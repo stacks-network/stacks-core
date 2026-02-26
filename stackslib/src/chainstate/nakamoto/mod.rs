@@ -4044,12 +4044,7 @@ impl NakamotoChainState {
             if a.len() != b.len() {
                 return a.len().cmp(&b.len());
             }
-            for i in (0..a.len()).rev() {
-                if a[i] != b[i] {
-                    return a[i].cmp(&b[i]);
-                }
-            }
-            std::cmp::Ordering::Equal
+            a.iter().rev().cmp(b.iter().rev())
         }
 
         fn bigint_from_uint256(value: &Uint256) -> Vec<u64> {
@@ -4059,34 +4054,40 @@ impl NakamotoChainState {
         }
 
         fn mul_bigint(lhs: &[u64], rhs: &[u64]) -> Vec<u64> {
-            if lhs.len() == 1 && lhs[0] == 0 {
+            if lhs.len() == 1 && lhs.first() == Some(&0) {
                 return vec![0];
             }
-            if rhs.len() == 1 && rhs[0] == 0 {
+            if rhs.len() == 1 && rhs.first() == Some(&0) {
                 return vec![0];
             }
 
             let mut result = vec![0u64; lhs.len() + rhs.len()];
             for (i, lhs_limb) in lhs.iter().enumerate() {
                 let mut carry = 0u128;
-                for (j, rhs_limb) in rhs.iter().enumerate() {
-                    let idx = i + j;
-                    let accum = u128::from(*lhs_limb) * u128::from(*rhs_limb)
-                        + u128::from(result[idx])
-                        + carry;
-                    result[idx] = accum as u64;
-                    carry = accum >> 64;
+                {
+                    let (_, result_tail) = result.split_at_mut(i);
+
+                    for (slot, rhs_limb) in result_tail.iter_mut().zip(rhs.iter()) {
+                        let accum = u128::from(*lhs_limb) * u128::from(*rhs_limb)
+                            + u128::from(*slot)
+                            + carry;
+                        *slot = accum as u64;
+                        carry = accum >> 64;
+                    }
+
+                    for slot in result_tail.iter_mut().skip(rhs.len()) {
+                        if carry == 0 {
+                            break;
+                        }
+                        let accum = u128::from(*slot) + carry;
+                        *slot = accum as u64;
+                        carry = accum >> 64;
+                    }
                 }
 
-                let mut idx = i + rhs.len();
                 while carry > 0 {
-                    if idx == result.len() {
-                        result.push(0);
-                    }
-                    let accum = u128::from(result[idx]) + carry;
-                    result[idx] = accum as u64;
-                    carry = accum >> 64;
-                    idx += 1;
+                    result.push(carry as u64);
+                    carry >>= 64;
                 }
             }
 
