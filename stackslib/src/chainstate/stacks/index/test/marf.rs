@@ -20,7 +20,6 @@ use std::collections::HashMap;
 use clarity::types::chainstate::{BlockHeaderHash, TrieHash};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::to_hex;
-use tempfile::tempdir;
 
 use crate::chainstate::stacks::index::marf::{
     MARFOpenOpts, MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
@@ -2300,10 +2299,7 @@ fn setup_for_each_leaf_marf(
 
 #[test]
 fn test_for_each_leaf_yields_all_keys() {
-    let dir = tempdir().unwrap();
-    let db_path = dir.path().join("index.sqlite");
-    let (mut marf, blocks, expected_keys) =
-        setup_for_each_leaf_marf(db_path.to_str().unwrap(), 2, 1);
+    let (mut marf, blocks, expected_keys) = setup_for_each_leaf_marf(":memory:", 2, 1);
     let b1 = blocks[0].clone();
     let b2 = blocks[1].clone();
 
@@ -2356,10 +2352,7 @@ fn test_for_each_leaf_yields_all_keys() {
 
 #[test]
 fn test_for_each_leaf_large_scale_resolves_backpointers_and_values() {
-    let dir = tempdir().unwrap();
-    let db_path = dir.path().join("index.sqlite");
-    let (mut marf, blocks, expected_keys) =
-        setup_for_each_leaf_marf(db_path.to_str().unwrap(), 300, 150);
+    let (mut marf, blocks, expected_keys) = setup_for_each_leaf_marf(":memory:", 300, 150);
 
     let block_at_tip = &blocks[299];
 
@@ -2409,10 +2402,8 @@ fn test_for_each_leaf_large_scale_resolves_backpointers_and_values() {
 
 #[test]
 fn test_for_each_leaf_single_block() {
-    let dir = tempdir().unwrap();
-    let db_path = dir.path().join("index.sqlite");
     let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
-    let mut marf = MARF::<StacksBlockId>::from_path(db_path.to_str().unwrap(), open_opts).unwrap();
+    let mut marf = MARF::<StacksBlockId>::from_path(":memory:", open_opts).unwrap();
 
     let b1 = StacksBlockId::from_bytes(&[1u8; 32]).unwrap();
     marf.begin(&StacksBlockId::sentinel(), &b1).unwrap();
@@ -2459,10 +2450,7 @@ fn test_for_each_leaf_single_block() {
 
 #[test]
 fn test_for_each_leaf_at_intermediate_height() {
-    let dir = tempdir().unwrap();
-    let db_path = dir.path().join("index.sqlite");
-    let (mut marf, blocks, _expected_keys) =
-        setup_for_each_leaf_marf(db_path.to_str().unwrap(), 300, 150);
+    let (mut marf, blocks, _expected_keys) = setup_for_each_leaf_marf(":memory:", 300, 150);
 
     // Walk at height 4 (blocks[4]), NOT the tip.
     let block_at_4 = &blocks[4];
@@ -2526,10 +2514,7 @@ fn test_for_each_leaf_at_intermediate_height() {
 
 #[test]
 fn test_for_each_leaf_callback_error_propagates() {
-    let dir = tempdir().unwrap();
-    let db_path = dir.path().join("index.sqlite");
-    let (mut marf, blocks, _expected_keys) =
-        setup_for_each_leaf_marf(db_path.to_str().unwrap(), 10, 10);
+    let (mut marf, blocks, _expected_keys) = setup_for_each_leaf_marf(":memory:", 10, 10);
     let tip = &blocks[9];
 
     let call_count = Cell::new(0u64);
