@@ -751,7 +751,7 @@ impl NakamotoBlockProposal {
         coinbase: Option<&StacksTransaction>,
         tenure_cause: MinerTenureInfoCause,
         // not directly used; used as a handle to open other chainstates
-        chainstate_handle: &mut StacksChainState,
+        chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
     ) -> Result<bool, BlockValidateRejectReason> {
         let mut replay_txs_maybe: Option<VecDeque<StacksTransaction>> =
