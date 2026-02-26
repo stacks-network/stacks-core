@@ -1,0 +1,22 @@
+[package]
+name = "stacks-profiler"
+version = "0.0.1"
+license = "GPLv3"
+homepage = "https://github.com/stacks-network/stacks-core"
+repository = "https://github.com/stacks-network/stacks-core"
+description = "Instrumentation and profiling library for the Stacks blockchain"
+keywords = [ "stacks", "stx", "bitcoin", "crypto", "decentralized", "dapps", "blockchain", "profiler" ]
+edition = "2024"
+publish = false
+
+[dependencies]
+stacks-profiler-macros.workspace = true
+libc.workspace = true
+rapidhash.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "overhead"
+harness = false
