@@ -1491,7 +1491,8 @@ fn forked_tenure_invalid() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
-    let Some(result) = forked_tenure_testing(Duration::from_secs(5), Duration::from_secs(7), false)
+    let Some(result) =
+        forked_tenure_testing(Duration::from_secs(10), Duration::from_secs(15), false)
     else {
         warn!("Snapshot created. Run test again.");
         return;
