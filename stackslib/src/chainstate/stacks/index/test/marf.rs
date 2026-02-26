@@ -17,6 +17,7 @@
 use clarity::types::chainstate::{BlockHeaderHash, TrieHash};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::to_hex;
+use tempfile::tempdir;
 
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use crate::chainstate::stacks::index::node::{TrieNodeID, TrieNodeType, TriePtr};
@@ -2153,4 +2154,78 @@ fn test_marf_commit_to_other_block_hash() {
         marf.get_open_chain_tip_height(),
         "Open tip block height after commit"
     );
+}
+
+#[test]
+fn test_marf_unconfirmed_reflush_keeps_latest_state() {
+    let tmp_dir = tempdir().unwrap();
+    let marf_path = tmp_dir
+        .path()
+        .join("test_marf_unconfirmed_reflush_keeps_latest_state.sqlite");
+    let marf_path = marf_path.to_string_lossy().into_owned();
+
+    // Create a confirmed tip first.
+    {
+        let confirmed_opts = MARFOpenOpts::default();
+        let confirmed_storage =
+            TrieFileStorage::<StacksBlockId>::open(&marf_path, confirmed_opts).unwrap();
+        let mut confirmed_marf = MARF::<StacksBlockId>::from_storage(confirmed_storage);
+        let confirmed_tip = StacksBlockId([0x55; 32]);
+        confirmed_marf
+            .begin(&StacksBlockId::sentinel(), &confirmed_tip)
+            .unwrap();
+        confirmed_marf.commit().unwrap();
+    }
+
+    let marf_opts = MARFOpenOpts::default();
+    let storage =
+        TrieFileStorage::<StacksBlockId>::open_unconfirmed(&marf_path, marf_opts).unwrap();
+    let mut marf = MARF::<StacksBlockId>::from_storage(storage);
+    let confirmed_tip = StacksBlockId([0x55; 32]);
+
+    let key_1 = "unconfirmed-key-1";
+    let key_2 = "unconfirmed-key-2";
+    let key_3 = "unconfirmed-key-3";
+    let value_1 = MARFValue::from_value("unconfirmed-value-1");
+    let value_2 = MARFValue::from_value("unconfirmed-value-2");
+    let value_3 = MARFValue::from_value("unconfirmed-value-3");
+
+    let unconfirmed_tip = marf.begin_unconfirmed(&confirmed_tip).unwrap();
+    marf.insert(key_1, value_1.clone()).unwrap();
+    marf.commit().unwrap();
+
+    // Prime read path against unconfirmed state.
+    assert_eq!(
+        marf.get(&unconfirmed_tip, key_1).unwrap(),
+        Some(value_1.clone())
+    );
+
+    // Re-flush the same logical unconfirmed tip (same block_id row updated in place).
+    marf.begin_unconfirmed(&confirmed_tip).unwrap();
+    marf.insert(key_2, value_2.clone()).unwrap();
+    marf.commit().unwrap();
+
+    assert_eq!(
+        marf.get(&unconfirmed_tip, key_1).unwrap(),
+        Some(value_1.clone())
+    );
+    assert_eq!(
+        marf.get(&unconfirmed_tip, key_2).unwrap(),
+        Some(value_2.clone())
+    );
+
+    // Do one more cycle to make stale-root regressions obvious.
+    marf.begin_unconfirmed(&confirmed_tip).unwrap();
+    marf.insert(key_3, value_3.clone()).unwrap();
+    marf.commit().unwrap();
+
+    assert_eq!(
+        marf.get(&unconfirmed_tip, key_1).unwrap(),
+        Some(value_1.clone())
+    );
+    assert_eq!(
+        marf.get(&unconfirmed_tip, key_2).unwrap(),
+        Some(value_2.clone())
+    );
+    assert_eq!(marf.get(&unconfirmed_tip, key_3).unwrap(), Some(value_3));
 }

@@ -328,3 +328,93 @@ impl<T: MarfTrieId> TrieCache<T> {
         self.state_ref().load_block_id(block_hash)
     }
 }
+
+/// A small array-backed (fixed capacity) Most-Recently-Used (MRU) cache.
+///
+/// * Index `0` is always the most recently accessed entry.
+/// * On lookup, a hit promotes the entry to index `0` via `rotate_right(1)`, preserving recency
+///   order of all other entries.
+/// * On insert when full, the least-recently-used entry (last position) is evicted.
+#[derive(Debug, Clone)]
+pub struct MruCache<K, V, const N: usize> {
+    entries: [Option<(K, V)>; N],
+    len: usize,
+}
+
+impl<K: Eq, V, const N: usize> MruCache<K, V, N> {
+    pub fn new() -> Self {
+        Self {
+            entries: core::array::from_fn(|_| None),
+            len: 0,
+        }
+    }
+
+    /// Look up by key.
+    ///
+    /// On hit, promotes the entry to MRU position.
+    pub fn get(&mut self, key: &K) -> Option<&V> {
+        let pos = self.entries[..self.len]
+            .iter()
+            .position(|entry| matches!(entry, Some((k, _)) if k == key))?;
+
+        if pos > 0 {
+            // Shift entries [0..pos] right by one and move the hit to position 0,
+            // preserving recency order of all other entries (true LRU).
+            self.entries[..=pos].rotate_right(1);
+        }
+
+        debug_assert!(
+            self.entries[0].is_some(),
+            "entry promoted to position 0 should always be Some"
+        );
+
+        self.entries[0].as_ref().map(|(_, v)| v)
+    }
+
+    /// Insert a key-value pair.
+    ///
+    /// If the key is already present, updates the value and promotes it. Otherwise, inserts at MRU
+    /// position, evicting the LRU entry if at capacity.
+    pub fn put(&mut self, key: K, value: V) {
+        // Update existing entry
+        if let Some(pos) = self.entries[..self.len]
+            .iter()
+            .position(|entry| matches!(entry, Some((k, _)) if k == &key))
+        {
+            debug_assert!(
+                pos < self.entries.len(),
+                "search position should always be within array bounds"
+            );
+
+            if let Some(slot) = self.entries.get_mut(pos) {
+                *slot = Some((key, value));
+            }
+
+            if pos > 0 {
+                // Shift entries [0..pos] right by one and move the updated entry to position 0,
+                // preserving recency order of all other entries (true LRU).
+                self.entries[..=pos].rotate_right(1);
+            }
+
+            return;
+        }
+
+        // Grow if not at capacity
+        if self.len < N {
+            self.len += 1;
+        }
+
+        // Rotate right: moves the current LRU (last position) to index 0, then overwrite it
+        // with the new entry. Entries [0..len-1] shift right by one, preserving their order.
+        self.entries[..self.len].rotate_right(1);
+        self.entries[0] = Some((key, value));
+    }
+
+    /// Clear all entries from the cache and reset length to zero.
+    pub fn clear(&mut self) {
+        for entry in &mut self.entries[..self.len] {
+            *entry = None;
+        }
+        self.len = 0;
+    }
+}
