@@ -21,6 +21,7 @@ stacker = true
 [burnchain]
 mode = "krypton"
 peer_host = "bitcoin.regtest.hiro.so"
+rpc_port = 18443
 peer_port = 18444
 pox_prepare_length = 100
 pox_reward_length = 900

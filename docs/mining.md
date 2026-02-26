@@ -6,7 +6,7 @@ you should make sure to add the following config fields to your [config file](..
 ```toml
 [node]
 # Run as a miner
-miner = True
+miner = true
 # Bitcoin private key to spend
 seed = "YOUR PRIVATE KEY"
 # Enable stacker support (required for signer coordination)
@@ -52,11 +52,15 @@ signer configuration and the critical miner-signer coordination settings.
 
 | File                                                                  | Purpose                                                 |
 | --------------------------------------------------------------------- | ------------------------------------------------------- |
-| [`mainnet-miner-conf.toml`](../sample/conf/mainnet-miner-conf.toml)   | Comprehensive miner reference (all settings documented) |
-| [`mainnet-signer-conf.toml`](../sample/conf/mainnet-signer-conf.toml) | Signer binary config reference                          |
-| [`mainnet-signer.toml`](../sample/conf/mainnet-signer.toml)           | Node-side signer config                                 |
-| [`testnet-miner-conf.toml`](../sample/conf/testnet-miner-conf.toml)   | Testnet miner config                                    |
-| [`mainnet-mockminer-conf.toml`](../sample/conf/mainnet-mockminer-conf.toml) | Mock miner (test mining without spending BTC)    |
+| [`mainnet-miner-conf.toml`](../sample/conf/mainnet-miner-conf.toml)           | Comprehensive miner reference (all settings documented) |
+| [`mainnet-signer-conf.toml`](../sample/conf/mainnet-signer-conf.toml)         | Signer binary config reference                          |
+| [`mainnet-signer.toml`](../sample/conf/mainnet-signer.toml)                   | Node-side signer config                                 |
+| [`testnet-miner-conf.toml`](../sample/conf/testnet-miner-conf.toml)           | Testnet miner config                                    |
+| [`mainnet-mockminer-conf.toml`](../sample/conf/mainnet-mockminer-conf.toml)   | Mock miner (test mining without spending BTC)            |
+| [`mainnet-follower-conf.toml`](../sample/conf/mainnet-follower-conf.toml)     | Mainnet follower (read-only node)                        |
+| [`testnet-follower-conf.toml`](../sample/conf/testnet-follower-conf.toml)     | Testnet follower                                         |
+| [`testnet-signer.toml`](../sample/conf/testnet-signer.toml)                   | Testnet node-side signer config                          |
+| [`mocknet.toml`](../sample/conf/mocknet.toml)                                 | Local mocknet development                                |
 
 ## RBF Configuration
 
@@ -115,5 +119,6 @@ Estimates are then randomly "fuzzed" using uniform random fuzz of size up to
 ## Further Reading
 
 - [Signing documentation](signing.md)
+- [Follower documentation](follower.md)
 - [stacksfoundation/miner-docs](https://github.com/stacksfoundation/miner-docs)
 - [Mining Documentation](https://docs.stacks.co/stacks-in-depth/nodes-and-miners/mine-mainnet-stacks-tokens)

@@ -393,7 +393,7 @@ struct RawConfigFile {
     /// This is one of two gates for tenure extends (the other is
     /// `block_proposal_timeout` for new-winner invalidation).
     /// ---
-    /// @default: `120`
+    /// @default: `60`
     /// @units: seconds
     /// @notes:
     ///   - WARNING: Must coordinate with miner's `tenure_timeout` (default 180s,

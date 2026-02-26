@@ -223,7 +223,7 @@ max_rbf = 150
 #   Signer times out new winner first, then accepts the extend -> OK
 #
 # Additionally, the signer requires `tenure_idle_timeout + buffer` (default
-# 122s) to have passed since the last block before accepting any extend.
+# 62s) to have passed since the last block before accepting any extend.
 # Both conditions must be met on the signer side.
 #
 # Default: 120_000
@@ -239,7 +239,7 @@ max_rbf = 150
 # timestamp allows it.
 #
 # WARNING: Should be greater than `tenure_extend_wait_timeout_ms` and
-# greater than signer's `tenure_idle_timeout + buffer` (default 122s).
+# greater than signer's `tenure_idle_timeout + buffer` (default 62s).
 #
 # Default: 180
 # Units: seconds
@@ -300,7 +300,10 @@ max_rbf = 150
 # contract_cost_limit_percentage = 95
 
 # Maximum execution time allowed for a single transaction.
-# Default: 30
+# NOTE: When the [miner] section is present and this field is omitted,
+# the effective value is None (no timeout). The default of 30 only
+# applies when the entire [miner] section is absent.
+# Default: 30 (when [miner] section is absent)
 # Units: seconds
 # max_execution_time_secs = 30
 
@@ -341,8 +344,13 @@ max_rbf = 150
 
 # Size of the nonce cache used during mempool walks.
 # Default: 1_048_576
-# Units: bytes
+# Units: items (LRU cache entries)
 # nonce_cache_size = 1048576
+
+# Size of the candidate retry cache for the GlobalFeeRate mempool walk strategy.
+# Default: 1_048_576
+# Units: items
+# candidate_retry_cache_size = 1048576
 
 # --- Tenure Extension Polling ---
 
@@ -354,6 +362,7 @@ max_rbf = 150
 # --- Advanced / Debugging ---
 
 # Replay expected transactions during block building (experimental).
+# WARNING: Cannot be set to true on mainnet (node will fail to start).
 # Default: false
 # replay_transactions = false
 

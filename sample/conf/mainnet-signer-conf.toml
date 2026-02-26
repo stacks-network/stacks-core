@@ -112,9 +112,9 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 #   - Miner `tenure_extend_wait_timeout_ms` (default 120_000ms): should
 #     be >= this + buffer so the miner doesn't extend too early
 #
-# Default: 120
+# Default: 60
 # Units: seconds
-# tenure_idle_timeout_secs = 120
+# tenure_idle_timeout_secs = 60
 
 # Buffer added to the tenure idle timeout to account for clock skew
 # between signer and miner nodes. The effective idle timeout sent to
