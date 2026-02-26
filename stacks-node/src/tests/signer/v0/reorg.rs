@@ -4162,7 +4162,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     // Since the block may be globally rejected by the time approving signers see the block, we cannot guarantee that they issue a pre-commit.
     // They may simply ignore the block. However, they should NOT issue a rejection either (regardless of order of receiving rejecting_signers responses).
     assert!(
-        wait_for_block_pre_commits_from_signers(
+        wait_for_block_rejections_from_signers(
             30,
             &signer_signature_hash,
             &approving_signers,
