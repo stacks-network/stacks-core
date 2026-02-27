@@ -446,22 +446,70 @@ fn print_repeat_rows_tsv(
     }
 }
 
-/// Emit pretty table repeat rows for either comparison-delta or absolute-run mode.
-fn print_repeat_rows_table(mode: RepeatStatsMode, rows: &[RepeatComputedRow], repeats: usize) {
-    let mut table = Table::new(mode.table_columns());
+/// Emit pretty repeat rows split into confidence sections based on jitter classification.
+fn print_repeat_rows_table_with_confidence_split(
+    mode: RepeatStatsMode,
+    rows: &[RepeatComputedRow],
+    repeats: usize,
+    jitter_rows: &[JitterRow],
+) {
+    let jitter_keys: BTreeSet<BenchKey> = jitter_rows
+        .iter()
+        .map(|(benchmark, name, ..)| (benchmark.clone(), name.clone()))
+        .collect();
+
+    let mut high_confidence_rows = Vec::new();
+    let mut low_confidence_rows = Vec::new();
+
     for row in rows {
-        table.push_row(vec![
-            row.benchmark.clone(),
-            row.name.clone(),
-            mode.format_total(row.total_median),
-            mode.format_total(row.total_min),
-            mode.format_total(row.total_max),
-            mode.format_count_median(row.count_median),
-            mode.format_bytes_median(row.bytes_median),
-            repeats.to_string(),
-        ]);
+        let key = (row.benchmark.clone(), row.name.clone());
+        if jitter_keys.contains(&key) {
+            low_confidence_rows.push(row);
+        } else {
+            high_confidence_rows.push(row);
+        }
     }
-    table.print(false);
+
+    println!("high-confidence rows (low/no jitter):");
+    if high_confidence_rows.is_empty() {
+        println!("(none)");
+    } else {
+        let mut table = Table::new(mode.table_columns());
+        for row in high_confidence_rows {
+            table.push_row(vec![
+                row.benchmark.clone(),
+                row.name.clone(),
+                mode.format_total(row.total_median),
+                mode.format_total(row.total_min),
+                mode.format_total(row.total_max),
+                mode.format_count_median(row.count_median),
+                mode.format_bytes_median(row.bytes_median),
+                repeats.to_string(),
+            ]);
+        }
+        table.print(false);
+    }
+
+    println!();
+    println!("low-confidence rows (high-jitter):");
+    if low_confidence_rows.is_empty() {
+        println!("(none)");
+    } else {
+        let mut table = Table::new(mode.table_columns());
+        for row in low_confidence_rows {
+            table.push_row(vec![
+                row.benchmark.clone(),
+                row.name.clone(),
+                mode.format_total(row.total_median),
+                mode.format_total(row.total_min),
+                mode.format_total(row.total_max),
+                mode.format_count_median(row.count_median),
+                mode.format_bytes_median(row.bytes_median),
+                repeats.to_string(),
+            ]);
+        }
+        table.print(false);
+    }
 }
 
 /// Render confidence output (TSV or human-readable) for either comparison or run repeat mode.
@@ -761,6 +809,9 @@ pub fn print_repeated_comparison_stats(
 
     let computed_rows = compute_repeat_rows_for_comparison(&keys, repeated_rows);
 
+    let (jitter_rows, stable_rows) =
+        classify_comparison_jitter_rows(&keys, repeated_rows, jitter_threshold_pct);
+
     if output_format == OutputFormat::Tsv {
         print_repeat_rows_tsv(
             "repeat-stats",
@@ -768,13 +819,17 @@ pub fn print_repeated_comparison_stats(
             &computed_rows,
             repeated_rows.len(),
         );
-        print_repeat_confidence_summary(
+        print_confidence_output(
             output_format,
-            base_label,
-            target_label,
-            &keys,
-            repeated_rows,
-            jitter_threshold_pct,
+            RepeatStatsMode::ComparisonDelta,
+            ConfidenceRenderContext {
+                labels: Some((base_label, target_label)),
+                total_rows: keys.len(),
+                stable_rows,
+                jitter_rows: &jitter_rows,
+                repeats: repeated_rows.len(),
+                jitter_threshold_pct,
+            },
         );
         return;
     }
@@ -788,19 +843,24 @@ pub fn print_repeated_comparison_stats(
         repeated_rows.len()
     );
 
-    print_repeat_rows_table(
+    print_repeat_rows_table_with_confidence_split(
         RepeatStatsMode::ComparisonDelta,
         &computed_rows,
         repeated_rows.len(),
+        &jitter_rows,
     );
 
-    print_repeat_confidence_summary(
+    print_confidence_output(
         output_format,
-        base_label,
-        target_label,
-        &keys,
-        repeated_rows,
-        jitter_threshold_pct,
+        RepeatStatsMode::ComparisonDelta,
+        ConfidenceRenderContext {
+            labels: Some((base_label, target_label)),
+            total_rows: keys.len(),
+            stable_rows,
+            jitter_rows: &jitter_rows,
+            repeats: repeated_rows.len(),
+            jitter_threshold_pct,
+        },
     );
 }
 
@@ -822,6 +882,9 @@ pub fn print_repeated_run_stats(
 
     let computed_rows = compute_repeat_rows_for_run(&keys, repeated_rows);
 
+    let (jitter_rows, stable_rows) =
+        classify_run_jitter_rows(&keys, repeated_rows, jitter_threshold_pct);
+
     if output_format == OutputFormat::Tsv {
         print_repeat_rows_tsv(
             "run-repeat-stats",
@@ -830,11 +893,17 @@ pub fn print_repeated_run_stats(
             repeated_rows.len(),
         );
 
-        print_run_repeat_confidence_summary(
+        print_confidence_output(
             output_format,
-            &keys,
-            repeated_rows,
-            jitter_threshold_pct,
+            RepeatStatsMode::RunAbsolute,
+            ConfidenceRenderContext {
+                labels: None,
+                total_rows: keys.len(),
+                stable_rows,
+                jitter_rows: &jitter_rows,
+                repeats: repeated_rows.len(),
+                jitter_threshold_pct,
+            },
         );
         return;
     }
@@ -846,58 +915,12 @@ pub fn print_repeated_run_stats(
         repeated_rows.len()
     );
 
-    print_repeat_rows_table(
+    print_repeat_rows_table_with_confidence_split(
         RepeatStatsMode::RunAbsolute,
         &computed_rows,
         repeated_rows.len(),
+        &jitter_rows,
     );
-
-    print_run_repeat_confidence_summary(output_format, &keys, repeated_rows, jitter_threshold_pct);
-}
-
-/// Print a confidence summary highlighting high-jitter rows.
-fn print_repeat_confidence_summary(
-    output_format: OutputFormat,
-    base_label: &str,
-    target_label: &str,
-    keys: &BTreeSet<(String, String)>,
-    repeated_rows: &[(Vec<SummaryRow>, Vec<SummaryRow>)],
-    jitter_threshold_pct: f64,
-) {
-    if keys.is_empty() || repeated_rows.is_empty() {
-        return;
-    }
-
-    let (jitter_rows, stable_rows) =
-        classify_comparison_jitter_rows(keys, repeated_rows, jitter_threshold_pct);
-
-    print_confidence_output(
-        output_format,
-        RepeatStatsMode::ComparisonDelta,
-        ConfidenceRenderContext {
-            labels: Some((base_label, target_label)),
-            total_rows: keys.len(),
-            stable_rows,
-            jitter_rows: &jitter_rows,
-            repeats: repeated_rows.len(),
-            jitter_threshold_pct,
-        },
-    );
-}
-
-/// Print a confidence summary for absolute run-repeat stability.
-fn print_run_repeat_confidence_summary(
-    output_format: OutputFormat,
-    keys: &BTreeSet<(String, String)>,
-    repeated_rows: &[Vec<SummaryRow>],
-    jitter_threshold_pct: f64,
-) {
-    if keys.is_empty() || repeated_rows.is_empty() {
-        return;
-    }
-
-    let (jitter_rows, stable_rows) =
-        classify_run_jitter_rows(keys, repeated_rows, jitter_threshold_pct);
 
     print_confidence_output(
         output_format,
