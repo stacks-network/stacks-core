@@ -62,9 +62,9 @@ fn make_utf8_string(n: usize) -> SequenceData {
 
 // ---------------------------------------------------------------------------
 // Compare three strategies:
-//   1. drain+clone: old drained_items (drain().collect()) + old to_value (clone)
-//   2. take+clone:  new drained_items (mem::take) + old to_value (clone)
-//   3. take+move:   new drained_items (mem::take) + new into_value (move)
+//   1. drain+clone: old drained_items (renamed take_items) (drain().collect()) + old to_value (clone)
+//   2. take+clone:  new take_items (mem::take) + old to_value (clone)
+//   3. take+move:   new take_items (mem::take) + new into_value (move)
 //
 // Comparing 1 vs 2 isolates the drain→take improvement.
 // Comparing 2 vs 3 isolates the clone→move improvement.

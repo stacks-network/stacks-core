@@ -725,7 +725,7 @@ pub trait SequencedValue<T> {
 
     fn items(&self) -> &Vec<T>;
 
-    fn drained_items(&mut self) -> Vec<T>;
+    fn take_items(&mut self) -> Vec<T>;
 
     fn to_value(v: &T) -> Result<Value, ClarityTypeError>;
 
@@ -736,7 +736,7 @@ pub trait SequencedValue<T> {
     }
 
     fn atom_values(&mut self) -> Result<Vec<SymbolicExpression>, ClarityTypeError> {
-        self.drained_items()
+        self.take_items()
             .into_iter()
             .map(|item| Ok(SymbolicExpression::atom_value(Self::into_value(item)?)))
             .collect()
@@ -748,7 +748,7 @@ impl SequencedValue<Value> for ListData {
         &self.data
     }
 
-    fn drained_items(&mut self) -> Vec<Value> {
+    fn take_items(&mut self) -> Vec<Value> {
         mem::take(&mut self.data)
     }
 
@@ -772,7 +772,7 @@ impl SequencedValue<u8> for BuffData {
         &self.data
     }
 
-    fn drained_items(&mut self) -> Vec<u8> {
+    fn take_items(&mut self) -> Vec<u8> {
         mem::take(&mut self.data)
     }
 
@@ -797,7 +797,7 @@ impl SequencedValue<u8> for ASCIIData {
         &self.data
     }
 
-    fn drained_items(&mut self) -> Vec<u8> {
+    fn take_items(&mut self) -> Vec<u8> {
         mem::take(&mut self.data)
     }
 
@@ -822,7 +822,7 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
         &self.data
     }
 
-    fn drained_items(&mut self) -> Vec<Vec<u8>> {
+    fn take_items(&mut self) -> Vec<Vec<u8>> {
         mem::take(&mut self.data)
     }
 
