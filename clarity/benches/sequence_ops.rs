@@ -3,6 +3,7 @@ use std::hint::black_box;
 use clarity::vm::types::{
     ListData, ListTypeData, SequenceSubtype, SequencedValue, TypeSignature, Value,
 };
+use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::{ASCIIData, BuffData, CharType, SequenceData, UTF8Data};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
@@ -69,7 +70,7 @@ fn make_utf8_string(n: usize) -> SequenceData {
 // Comparing 2 vs 3 isolates the clone→move improvement.
 // ---------------------------------------------------------------------------
 
-/// Old behavior: drain(..).collect() + iter + to_value (clone).
+/// Old behavior: drain(..).collect() + iter + to_value (clone) + SymbolicExpression wrap.
 fn drain_and_clone(sequence_data: &mut SequenceData) {
     let result: Vec<_> = match sequence_data {
         SequenceData::Buffer(data) => data
@@ -77,62 +78,62 @@ fn drain_and_clone(sequence_data: &mut SequenceData) {
             .drain(..)
             .collect::<Vec<_>>()
             .iter()
-            .map(|item| BuffData::to_value(item).unwrap())
+            .map(|item| SymbolicExpression::atom_value(BuffData::to_value(item).unwrap()))
             .collect(),
         SequenceData::List(data) => data
             .data
             .drain(..)
             .collect::<Vec<_>>()
             .iter()
-            .map(|item| ListData::to_value(item).unwrap())
+            .map(|item| SymbolicExpression::atom_value(ListData::to_value(item).unwrap()))
             .collect(),
         SequenceData::String(CharType::ASCII(data)) => data
             .data
             .drain(..)
             .collect::<Vec<_>>()
             .iter()
-            .map(|item| ASCIIData::to_value(item).unwrap())
+            .map(|item| SymbolicExpression::atom_value(ASCIIData::to_value(item).unwrap()))
             .collect(),
         SequenceData::String(CharType::UTF8(data)) => data
             .data
             .drain(..)
             .collect::<Vec<_>>()
             .iter()
-            .map(|item| UTF8Data::to_value(item).unwrap())
+            .map(|item| SymbolicExpression::atom_value(UTF8Data::to_value(item).unwrap()))
             .collect(),
     };
     black_box(result);
 }
 
-/// Intermediate: mem::take + iter + to_value (clone) — isolates drain improvement.
+/// Intermediate: mem::take + iter + to_value (clone) + SymbolicExpression wrap — isolates drain improvement.
 fn take_and_clone(sequence_data: &mut SequenceData) {
     let result: Vec<_> = match sequence_data {
         SequenceData::Buffer(data) => {
             let items = std::mem::take(&mut data.data);
             items
                 .iter()
-                .map(|item| BuffData::to_value(item).unwrap())
+                .map(|item| SymbolicExpression::atom_value(BuffData::to_value(item).unwrap()))
                 .collect()
         }
         SequenceData::List(data) => {
             let items = std::mem::take(&mut data.data);
             items
                 .iter()
-                .map(|item| ListData::to_value(item).unwrap())
+                .map(|item| SymbolicExpression::atom_value(ListData::to_value(item).unwrap()))
                 .collect()
         }
         SequenceData::String(CharType::ASCII(data)) => {
             let items = std::mem::take(&mut data.data);
             items
                 .iter()
-                .map(|item| ASCIIData::to_value(item).unwrap())
+                .map(|item| SymbolicExpression::atom_value(ASCIIData::to_value(item).unwrap()))
                 .collect()
         }
         SequenceData::String(CharType::UTF8(data)) => {
             let items = std::mem::take(&mut data.data);
             items
                 .iter()
-                .map(|item| UTF8Data::to_value(item).unwrap())
+                .map(|item| SymbolicExpression::atom_value(UTF8Data::to_value(item).unwrap()))
                 .collect()
         }
     };
