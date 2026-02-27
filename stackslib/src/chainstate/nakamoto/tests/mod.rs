@@ -2186,6 +2186,7 @@ fn test_make_miners_stackerdb_config() {
             burn_parent_modulus: ((snapshot.block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: snapshot.burn_header_hash.clone(),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         let winning_ops = if i == 0 {

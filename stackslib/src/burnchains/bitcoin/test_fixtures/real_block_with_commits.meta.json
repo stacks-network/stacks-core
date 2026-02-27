@@ -1,0 +1,26 @@
+{
+  "block_height": 938472,
+  "total_fees_sats": 4423284,
+  "commit_estimates": [
+    {
+      "txid": "87fe40bff549af8813e1db7aedb7ec3bc31ac205189f5cdc85d4b639df478beb",
+      "expected_fee_sats": 1168
+    },
+    {
+      "txid": "4fd11792b0db315c452de940b1a3c0dc2830bbe30ed4782e54c26f4e88984ae6",
+      "expected_fee_sats": 1168
+    },
+    {
+      "txid": "c84ecc9d535ca40283598d72cf1abab4ff8bb26984213b520285497c46de6df1",
+      "expected_fee_sats": 1527
+    },
+    {
+      "txid": "55d3e5de8a0946bb50456272bb4d1a2f78ee2114c8345151398f0a3fe95fc619",
+      "expected_fee_sats": 1531
+    },
+    {
+      "txid": "c704e397ff8826ecfdbbf25abd3c98c6acd722fe8a0cd7ab40a2de1b80b61404",
+      "expected_fee_sats": 1168
+    }
+  ]
+}

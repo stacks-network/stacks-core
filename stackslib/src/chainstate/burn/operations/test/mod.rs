@@ -71,6 +71,7 @@ fn bitcoin_transaction(
             .into_iter()
             .map(|output2data| output2data.as_bitcoin_tx_output())
             .collect(),
+        expected_btc_tx_fee: None,
     }
 }
 
@@ -237,6 +238,7 @@ fn serde_blockstack_ops() {
                 treatment: vec![],
                 sunset_burn: 6,
                 burn_header_hash: BurnchainHeaderHash([4u8; 32]),
+                expected_btc_tx_fee: Some(1000),
             },
         )),
     };

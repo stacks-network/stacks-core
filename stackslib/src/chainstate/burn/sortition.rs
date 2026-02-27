@@ -1119,6 +1119,7 @@ mod test {
                 commit_outs: vec![],
 
                 burn_fee: 100,
+
                 input: (Txid([0; 32]), 0),
                 apparent_sender: BurnchainSigner(format!("signer {i}")),
                 txid: Txid([i; 32]),
@@ -1127,6 +1128,7 @@ mod test {
                 burn_parent_modulus: i % BURN_BLOCK_MINED_AT_MODULUS as u8,
                 burn_header_hash: header.block_hash.clone(),
                 treatment: vec![],
+                expected_btc_tx_fee: Some(1000),
             };
 
             let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();

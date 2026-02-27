@@ -410,6 +410,7 @@ mod tests {
             burn_parent_modulus: (101 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         let mut burnchain = Burnchain::default_unittest(100, &first_burn_hash);

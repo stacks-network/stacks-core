@@ -238,6 +238,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let key_vtxindex: u16 = row.get_unwrap("key_vtxindex");
         let memo_hex: String = row.get_unwrap("memo");
         let burn_fee_str: String = row.get_unwrap("burn_fee");
+        let expected_btc_tx_fee_str: Option<String> = row.get("btc_tx_fee").unwrap_or(None);
         let input_json: String = row.get_unwrap("input");
         let apparent_sender_json: String = row.get_unwrap("apparent_sender");
         let sunset_burn_str: String = row.get_unwrap("sunset_burn");
@@ -257,6 +258,12 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let burn_fee = burn_fee_str
             .parse::<u64>()
             .expect("DB Corruption: burn fee is not parseable as u64");
+
+        let expected_btc_tx_fee = expected_btc_tx_fee_str.map(|btc_tx_fee_str| {
+            btc_tx_fee_str
+                .parse::<u64>()
+                .expect("DB Corruption: btc tx fee is not parseable as u64")
+        });
 
         let sunset_burn = sunset_burn_str
             .parse::<u64>()
@@ -292,6 +299,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             block_height,
             burn_header_hash,
             treatment: punished,
+            expected_btc_tx_fee,
         };
         Ok(block_commit)
     }
@@ -5703,6 +5711,7 @@ impl SortitionHandleTx<'_> {
         // serialize apparent sender to JSON
         let apparent_sender_str = serde_json::to_string(&block_commit.apparent_sender)
             .map_err(db_error::SerializationError)?;
+        let btc_tx_fee_str = block_commit.expected_btc_tx_fee.map(|fee| fee.to_string());
 
         // find parent block commit's snapshot's sortition ID.
         // If the parent_block_ptr doesn't point to a valid snapshot, then store an empty
@@ -5730,6 +5739,7 @@ impl SortitionHandleTx<'_> {
             block_commit.key_vtxindex,
             to_hex(&block_commit.memo[..]),
             block_commit.burn_fee.to_string(),
+            btc_tx_fee_str,
             tx_input_str,
             sort_id,
             serde_json::to_value(&block_commit.commit_outs).unwrap(),
@@ -5739,8 +5749,8 @@ impl SortitionHandleTx<'_> {
             serde_json::to_string(&block_commit.treatment).unwrap(),
         ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus, punished) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)", args)?;
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, btc_tx_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus, punished) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)", args)?;
 
         let parent_args = params![sort_id, block_commit.txid, parent_sortition_id];
 
@@ -7285,6 +7295,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
@@ -8000,6 +8011,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
@@ -10208,6 +10220,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         // descends from genesis
@@ -10251,6 +10264,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 2) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x04; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         // descends from block_commit_1
@@ -10294,6 +10308,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 3) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x05; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         // descends from genesis_block_commit
@@ -10337,6 +10352,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 4) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x06; 32]),
             treatment: vec![],
+            expected_btc_tx_fee: Some(1000),
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();

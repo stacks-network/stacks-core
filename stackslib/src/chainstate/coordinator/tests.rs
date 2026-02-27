@@ -687,6 +687,7 @@ fn make_genesis_block_with_recipients(
         block_height: 0,
         burn_parent_modulus: (BURN_BLOCK_MINED_AT_MODULUS - 1) as u8,
         burn_header_hash: BurnchainHeaderHash([0; 32]),
+        expected_btc_tx_fee: Some(1000),
     };
 
     (BlockstackOperationType::LeaderBlockCommit(commit_op), block)
@@ -966,6 +967,7 @@ fn make_stacks_block_with_input(
         block_height: 0,
         burn_parent_modulus: (BURN_BLOCK_MINED_AT_MODULUS - 1) as u8,
         burn_header_hash: BurnchainHeaderHash([0; 32]),
+        expected_btc_tx_fee: Some(1000),
     };
 
     (BlockstackOperationType::LeaderBlockCommit(commit_op), block)
