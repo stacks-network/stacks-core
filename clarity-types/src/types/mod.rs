@@ -541,31 +541,36 @@ impl SequenceData {
         }
     }
 
-    /// Retains elements where the predicate returns Ok(true).
-    /// Removes elements where it returns Ok(false).
-    /// If the predicate or internal value conversion returns an error, the operation
-    /// is aborted and the original sequence is left unmodified. The first error is propagated.
+    /// Filters the sequence in-place, retaining only elements for which the
+    /// predicate returns `Ok(true)`.
+    ///
+    /// Uses a single forward pass (O(n)): kept elements are swapped to the
+    /// front, then the tail is truncated.
+    ///
+    /// On error the sequence is left in a partially-filtered state — some
+    /// elements may already have been reordered or removed. Callers should
+    /// treat the sequence as invalid after an error.
     pub fn retain_values<E, F>(&mut self, mut predicate: F) -> Result<(), RetainValuesError<E>>
     where
         F: FnMut(SymbolicExpression) -> Result<bool, E>,
     {
-        // Note: this macro can probably get removed once
-        // ```Vec::drain_filter<F>(&mut self, filter: F) -> DrainFilter<T, F>```
-        // is available in rust stable channel (experimental at this point).
         macro_rules! retain_inner {
             ($data:expr, $seq_type:ident) => {{
-                let mut i = 0;
-                while i != $data.data.len() {
+                let mut write = 0;
+                for read in 0..$data.data.len() {
                     let atom_value = SymbolicExpression::atom_value(
-                        $seq_type::to_value(&$data.data[i]).map_err(RetainValuesError::Internal)?,
+                        $seq_type::to_value(&$data.data[read])
+                            .map_err(RetainValuesError::Internal)?,
                     );
                     let keep = predicate(atom_value).map_err(RetainValuesError::Predicate)?;
                     if keep {
-                        i += 1;
-                    } else {
-                        $data.data.remove(i);
+                        if write != read {
+                            $data.data.swap(write, read);
+                        }
+                        write += 1;
                     }
                 }
+                $data.data.truncate(write);
             }};
         }
 
