@@ -339,7 +339,7 @@ pub fn apply(
                     return Err(VmExecutionError::from(e));
                 }
             };
-            used_memory += arg_value.get_memory_use()?;
+            used_memory += arg_use;
             evaluated_args.push(arg_value);
         }
         exec_state.call_stack.decr_apply_depth();
