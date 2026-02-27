@@ -110,7 +110,8 @@ impl RPCNakamotoBlockSimulateRequestHandler {
                     tenure_tx.connection().as_transaction(|tx| {
                         tx.with_clarity_db(|ref mut db| {
                             for mint in &self.mint {
-                                let mut balance = db.get_stx_balance_snapshot(&mint.principal)?;
+                                let mut balance =
+                                    db.get_stx_balance_snapshot_outside_at_block(&mint.principal)?;
                                 balance.credit(mint.amount)?;
                                 balance.save()?;
                             }

@@ -4552,7 +4552,8 @@ impl StacksChainState {
                             ))
                         };
 
-                    let mut snapshot = db.get_stx_balance_snapshot(&recipient_principal)?;
+                    let mut snapshot =
+                        db.get_stx_balance_snapshot_outside_at_block(&recipient_principal)?;
                     snapshot.credit(miner_reward_total)?;
 
                     debug!(

@@ -564,7 +564,7 @@ impl StacksChainState {
             // 4. delete the user's stacking-state entry.
             clarity.with_clarity_db(|db| {
                 // lookup the Stacks account and alter their unlock height to next block
-                let mut balance = db.get_stx_balance_snapshot(principal)?;
+                let mut balance = db.get_stx_balance_snapshot_outside_at_block(principal)?;
                 let canonical_locked = balance.canonical_balance_repr()?.amount_locked();
                 if canonical_locked < *amount_locked {
                     panic!("Principal missed reward slots, but did not have as many locked tokens as expected. Actual: {}, Expected: {}", canonical_locked, *amount_locked);

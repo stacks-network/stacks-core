@@ -97,7 +97,7 @@ pub fn pox_lock_v1(
     assert!(unlock_burn_height > 0);
     assert!(lock_amount > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+    let mut snapshot = db.get_stx_balance_snapshot_outside_at_block(principal)?;
 
     if snapshot.balance().was_locked_by_v2() {
         debug!("PoX Lock attempted on an account locked by v2");

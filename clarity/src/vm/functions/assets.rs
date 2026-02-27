@@ -102,7 +102,10 @@ pub fn special_stx_balance(
             let mut snapshot = env
                 .global_context
                 .database
-                .get_stx_balance_snapshot(principal)?;
+                .get_stx_balance_snapshot_at_current_burn_height(
+                    principal,
+                    *env.contract_context.get_clarity_version(),
+                )?;
             snapshot.get_available_balance()?
         };
         Ok(Value::UInt(balance))
@@ -146,7 +149,11 @@ pub fn stx_transfer_consolidated(
     env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
     env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
-    let mut sender_snapshot = env.global_context.database.get_stx_balance_snapshot(from)?;
+    let mut sender_snapshot = env
+        .global_context
+        .database
+        .get_stx_balance_snapshot_outside_at_block(from)?;
+
     if !sender_snapshot.can_transfer(amount)? {
         return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
     }
@@ -235,7 +242,10 @@ pub fn special_stx_account(
     let stx_balance = env
         .global_context
         .database
-        .get_stx_balance_snapshot(&principal)?
+        .get_stx_balance_snapshot_at_current_burn_height(
+            &principal,
+            *env.contract_context.get_clarity_version(),
+        )?
         .canonical_balance_repr()?;
     let v1_unlock_ht = env.global_context.database.get_v1_unlock_height();
     let v2_unlock_ht = env.global_context.database.get_v2_unlock_height()?;
@@ -296,7 +306,10 @@ pub fn special_stx_burn(
             )
         })?)?;
 
-        let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(from)?;
+        let mut burner_snapshot = env
+            .global_context
+            .database
+            .get_stx_balance_snapshot_outside_at_block(from)?;
         if !burner_snapshot.can_transfer(amount)? {
             return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
         }

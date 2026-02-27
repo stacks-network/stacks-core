@@ -69,7 +69,7 @@ pub fn pox_lock_v3(
     assert!(unlock_burn_height > 0);
     assert!(lock_amount > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+    let mut snapshot = db.get_stx_balance_snapshot_outside_at_block(principal)?;
 
     if snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxAlreadyLocked);
@@ -105,7 +105,7 @@ pub fn pox_lock_extend_v3(
 ) -> Result<u128, LockingError> {
     assert!(unlock_burn_height > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+    let mut snapshot = db.get_stx_balance_snapshot_outside_at_block(principal)?;
 
     if !snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxExtendNotLocked);
@@ -141,7 +141,7 @@ pub fn pox_lock_increase_v3(
 ) -> Result<STXBalance, LockingError> {
     assert!(new_total_locked > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+    let mut snapshot = db.get_stx_balance_snapshot_outside_at_block(principal)?;
 
     if !snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxExtendNotLocked);

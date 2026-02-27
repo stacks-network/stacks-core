@@ -324,7 +324,7 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+                let mut snapshot = db.get_stx_balance_snapshot_outside_at_block(principal)?;
 
                 // last line of defense: if we don't have sufficient funds, panic.
                 // This should be checked by the block validation logic.
@@ -359,7 +359,7 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+                let mut snapshot = db.get_stx_balance_snapshot_outside_at_block(principal)?;
                 snapshot.credit(amount as u128)?;
 
                 let new_balance = snapshot.get_available_balance()?;

@@ -87,7 +87,7 @@ pub fn get_stx_account_at(
     account: &PrincipalData,
 ) -> STXBalance {
     with_clarity_db_ro(peer, tip, |db| {
-        db.get_stx_balance_snapshot(account)
+        db.get_stx_balance_snapshot_at_current_burn_height(account, ClarityVersion::Clarity2)
             .unwrap()
             .canonical_balance_repr()
             .unwrap()
@@ -300,7 +300,7 @@ pub fn check_stacking_state_invariants(
     active_pox_contract: &str,
 ) -> StackingStateCheckData {
     let account_state = with_clarity_db_ro(peer, tip, |db| {
-        db.get_stx_balance_snapshot(stacker)
+        db.get_stx_balance_snapshot_at_current_burn_height(stacker, ClarityVersion::Clarity2)
             .unwrap()
             .canonical_balance_repr()
             .unwrap()

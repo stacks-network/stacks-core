@@ -2411,26 +2411,53 @@ impl<'a> ClarityDatabase<'a> {
         ClarityDatabase::make_key_for_account(principal, StoreType::PoxUnlockHeight)
     }
 
-    pub fn get_stx_balance_snapshot<'conn>(
+    /// Use this only from code that cannot be executed in a time-traveling `at-block`
+    /// context. The behavior inside `at-block` changed in Clarity 5, so if you need
+    /// to handle such situations, you have to call `get_stx_balance_snapshot_at_current_burn_height`
+    /// and supply the applicable Clarity version.
+    ///
+    /// If you're in a read/write context (e.g. anything that actualy plans to modify
+    /// the snapshot), then you're fine to use this method, because `at-block` contexts
+    /// will always be read-only.
+    pub fn get_stx_balance_snapshot_outside_at_block<'conn>(
         &'conn mut self,
         principal: &PrincipalData,
     ) -> Result<STXBalanceSnapshot<'a, 'conn>, VmExecutionError> {
-        let stx_balance = self.get_account_stx_balance(principal)?;
         let cur_burn_height = u64::from(self.get_current_burnchain_block_height()?);
+        self.get_stx_balance_snapshot_at_burn_height(principal, cur_burn_height)
+    }
+
+    pub fn get_stx_balance_snapshot_at_current_burn_height<'conn>(
+        &'conn mut self,
+        principal: &PrincipalData,
+        clarity_version: ClarityVersion,
+    ) -> Result<STXBalanceSnapshot<'a, 'conn>, VmExecutionError> {
+        let cur_burn_height = u64::from(
+            self.get_current_burnchain_block_height_for_clarity_version(clarity_version)?,
+        );
+        self.get_stx_balance_snapshot_at_burn_height(principal, cur_burn_height)
+    }
+
+    fn get_stx_balance_snapshot_at_burn_height<'conn>(
+        &'conn mut self,
+        principal: &PrincipalData,
+        burn_block_height: u64,
+    ) -> Result<STXBalanceSnapshot<'a, 'conn>, VmExecutionError> {
+        let stx_balance = self.get_account_stx_balance(principal)?;
 
         test_debug!(
-            "Balance of {principal} (raw={},locked={},unlock-height={},current-height={cur_burn_height}) is {} (has_unlockable_tokens_at_burn_block={})",
+            "Balance of {principal} (raw={},locked={},unlock-height={},current-height={burn_block_height}) is {} (has_unlockable_tokens_at_burn_block={})",
             stx_balance.amount_unlocked(),
             stx_balance.amount_locked(),
             stx_balance.unlock_height(),
             stx_balance.get_available_balance_at_burn_block(
-                cur_burn_height,
+                burn_block_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
                 self.get_v3_unlock_height()?
             )?,
             stx_balance.has_unlockable_tokens_at_burn_block(
-                cur_burn_height,
+                burn_block_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
                 self.get_v3_unlock_height()?
@@ -2440,7 +2467,7 @@ impl<'a> ClarityDatabase<'a> {
         Ok(STXBalanceSnapshot::new(
             principal,
             stx_balance,
-            cur_burn_height,
+            burn_block_height,
             self,
         ))
     }
