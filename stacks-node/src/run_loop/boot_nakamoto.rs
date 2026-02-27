@@ -250,7 +250,12 @@ impl BootRunLoop {
             return 0;
         }
 
-        let Ok(sortdb) = SortitionDB::open(&sortdb_path, false, burnchain.pox_constants) else {
+        let Ok(sortdb) = SortitionDB::open(
+            &sortdb_path,
+            false,
+            burnchain.pox_constants,
+            Some(config.node.get_marf_opts()),
+        ) else {
             info!("Failed to open Sortition DB while checking current burn height, assuming height = 0");
             return 0;
         };

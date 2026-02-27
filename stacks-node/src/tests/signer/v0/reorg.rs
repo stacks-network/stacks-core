@@ -1491,7 +1491,8 @@ fn forked_tenure_invalid() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
-    let Some(result) = forked_tenure_testing(Duration::from_secs(5), Duration::from_secs(7), false)
+    let Some(result) =
+        forked_tenure_testing(Duration::from_secs(10), Duration::from_secs(15), false)
     else {
         warn!("Snapshot created. Run test again.");
         return;
@@ -2380,6 +2381,7 @@ fn partial_tenure_fork() {
         &conf.get_burn_db_file_path(),
         false,
         conf.get_burnchain().pox_constants,
+        None,
     )
     .unwrap();
 
@@ -3293,6 +3295,7 @@ fn bitcoin_reorg_extended_tenure() {
         &conf_1.get_burn_db_file_path(),
         false,
         conf_1.get_burnchain().pox_constants,
+        None,
     )
     .unwrap();
 
@@ -4323,6 +4326,7 @@ fn revalidate_unknown_parent() {
         &conf.get_burn_db_file_path(),
         false,
         conf.get_burnchain().pox_constants,
+        None,
     )
     .unwrap();
 
@@ -4924,6 +4928,7 @@ fn btc_fork_on_midtenure_accept() {
         &conf.get_burn_db_file_path(),
         false,
         conf.get_burnchain().pox_constants,
+        None,
     )
     .unwrap();
 
