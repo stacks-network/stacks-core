@@ -23,7 +23,7 @@ use stacks_common::util::hash::Hash160;
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::RawRewardSetEntry;
+use crate::chainstate::stacks::boot::{PoxVersions, RawRewardSetEntry};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::proptest_utils::reward_set_entry_strategy;
 
@@ -52,8 +52,12 @@ pub fn check_make_reward_set(
 
     prop_assume!(threshold > 0);
 
-    let reward_set =
-        StacksChainState::make_reward_set(threshold, addresses.to_vec(), StacksEpochId::latest());
+    let reward_set = StacksChainState::make_reward_set(
+        threshold,
+        addresses.to_vec(),
+        StacksEpochId::latest(),
+        PoxVersions::Pox4,
+    );
 
     prop_assert_eq!(Some(threshold), reward_set.pox_ustx_threshold);
 

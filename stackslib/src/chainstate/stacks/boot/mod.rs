@@ -759,6 +759,13 @@ impl StacksChainState {
         })
     }
 
+    pub fn make_signer_set_pox_5(
+        _threshold: u128,
+        _entries: &[RawRewardSetEntry],
+    ) -> Option<Vec<NakamotoSignerEntry>> {
+        None
+    }
+
     pub fn make_signer_set(
         threshold: u128,
         entries: &[RawRewardSetEntry],
@@ -824,6 +831,7 @@ impl StacksChainState {
         threshold: u128,
         mut addresses: Vec<RawRewardSetEntry>,
         epoch_id: StacksEpochId,
+        pox_version: PoxVersions,
     ) -> RewardSet {
         let mut reward_set = vec![];
         let mut missed_slots = vec![];
@@ -834,7 +842,10 @@ impl StacksChainState {
             addresses.sort_by_cached_key(|k| k.reward_address.to_burnchain_repr());
         }
 
-        let signer_set = Self::make_signer_set(threshold, &addresses);
+        let signer_set = match pox_version {
+            PoxVersions::Pox5 => Self::make_signer_set_pox_5(threshold, &addresses),
+            _ => Self::make_signer_set(threshold, &addresses),
+        };
 
         while let Some(RawRewardSetEntry {
             reward_address: address,
@@ -1493,9 +1504,14 @@ pub mod test {
             },
         ];
         assert_eq!(
-            StacksChainState::make_reward_set(threshold, addresses, StacksEpochId::Epoch2_05)
-                .rewarded_addresses
-                .len(),
+            StacksChainState::make_reward_set(
+                threshold,
+                addresses,
+                StacksEpochId::Epoch2_05,
+                PoxVersions::Pox4
+            )
+            .rewarded_addresses
+            .len(),
             3
         );
     }

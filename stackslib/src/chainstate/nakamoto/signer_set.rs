@@ -26,9 +26,8 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
-    PoxVersions, RawRewardSetEntry, RewardSet, POX_4_NAME, POX_5_NAME, SIGNERS_MAX_LIST_SIZE,
-    SIGNERS_NAME, SIGNERS_PK_LEN, SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME,
-    SIGNERS_VOTING_NAME,
+    PoxVersions, RawRewardSetEntry, RewardSet, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
+    SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TransactionPayload};
@@ -309,8 +308,15 @@ impl NakamotoSigners {
             &reward_slots[..],
             liquid_ustx,
         );
-        let reward_set =
-            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
+
+        let pox_version: PoxVersions =
+            PoxVersions::lookup_by_name(pox_contract).ok_or(ChainstateError::DefunctPoxContract)?;
+        let reward_set = StacksChainState::make_reward_set(
+            threshold,
+            reward_slots,
+            StacksEpochId::Epoch30,
+            pox_version,
+        );
 
         test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
         let stackerdb_list = if participation == 0 {
