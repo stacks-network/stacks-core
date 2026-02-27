@@ -2445,7 +2445,7 @@ impl Default for NodeConfig {
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
-            marf_compress: false,
+            marf_compress: true,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
             fault_injection_block_push_fail_probability: None,
@@ -4952,7 +4952,7 @@ mod tests {
             true, config.node.marf_defer_hashing,
             "default defer hashing"
         );
-        assert_eq!(false, config.node.marf_compress, "default compress");
+        assert_eq!(true, config.node.marf_compress, "default compress");
 
         let cfg_opts = config.node.get_marf_opts();
         assert_eq!("noop", cfg_opts.cache_strategy, "default cache opt");
@@ -4961,7 +4961,7 @@ mod tests {
             cfg_opts.hash_calculation_mode,
             "default defer hashing opt"
         );
-        assert_eq!(false, cfg_opts.compress, "default compress opt");
+        assert_eq!(true, cfg_opts.compress, "default compress opt");
         assert_eq!(
             false, cfg_opts.external_blobs,
             "internal default blob setting"
@@ -4977,7 +4977,7 @@ mod tests {
                 [node]
                 marf_cache_strategy = "everything"
                 marf_defer_hashing = false
-                marf_compress = true
+                marf_compress = false
                 "#,
         );
 
@@ -4990,7 +4990,7 @@ mod tests {
             false, config.node.marf_defer_hashing,
             "configured defer hashing"
         );
-        assert_eq!(true, config.node.marf_compress, "configured compress");
+        assert_eq!(false, config.node.marf_compress, "configured compress");
 
         let cfg_opts = config.node.get_marf_opts();
         assert_eq!(
@@ -5002,7 +5002,7 @@ mod tests {
             cfg_opts.hash_calculation_mode,
             "configured hash opt"
         );
-        assert_eq!(true, cfg_opts.compress, "configured compress opt");
+        assert_eq!(false, cfg_opts.compress, "configured compress opt");
         assert_eq!(
             false, cfg_opts.external_blobs,
             "internal default blob setting"
