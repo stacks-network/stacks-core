@@ -2121,7 +2121,7 @@ pub struct NodeConfig {
     /// before being written to disk, trading slightly increased CPU overhead during
     /// reads and writes for reduced storage requirements.
     /// ---
-    /// @default: `false`
+    /// @default: `true`
     /// @notes:
     ///   - Compression affects only the on-disk MARF representation; in-memory behavior
     ///     remains unchanged.
