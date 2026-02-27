@@ -423,9 +423,11 @@ impl Runner {
 
     /// Check whether a path is currently registered as a git worktree.
     fn is_registered_worktree(&self, path: &Path) -> Result<bool> {
+        let requested = normalize_worktree_path_for_compare(path);
         Ok(list_worktree_paths(&self.repo_root)?
             .into_iter()
-            .any(|candidate| candidate == path))
+            .map(|candidate| normalize_worktree_path_for_compare(&candidate))
+            .any(|candidate| candidate == requested))
     }
 
     /// Return true if the path is under the keep-worktrees cache root.
@@ -448,6 +450,11 @@ impl Runner {
 
         Ok(())
     }
+}
+
+/// Normalize worktree path shape for stable equality checks across symlinked temp roots.
+fn normalize_worktree_path_for_compare(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// Return true if this checkout includes TrieNodePatch support in node definitions.
