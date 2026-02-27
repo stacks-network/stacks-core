@@ -238,21 +238,30 @@ pub struct GlobalContext<'a, 'hooks> {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ContractContext {
+    /// The identifier of this contract
     pub contract_identifier: QualifiedContractIdentifier,
+    /// Despite being called `variables`, these are actually the constants defined in the contract
     pub variables: HashMap<ClarityName, Value>,
+    /// The functions defined in this contract, mapped by their name
     pub functions: HashMap<ClarityName, DefinedFunction>,
+    /// The traits defined in this contract, mapped by their name, to a map of the trait's function
+    /// signatures
     pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    /// The traits implemented by this contract
     pub implemented_traits: HashSet<TraitIdentifier>,
-    // tracks the names of NFTs, FTs, Maps, and Data Vars.
-    //  used for ensuring that they never are defined twice.
+    /// The names of NFTs, FTs, Maps, and Data Vars, used to ensure that they never are defined twice
     pub persisted_names: HashSet<ClarityName>,
-    // track metadata for contract defined storage
+    /// Key/value types for contract defined maps
     pub meta_data_map: HashMap<ClarityName, DataMapMetadata>,
+    /// Types for contract defined data variables
     pub meta_data_var: HashMap<ClarityName, DataVariableMetadata>,
+    /// Key types for contract defined non-fungible tokens
     pub meta_nft: HashMap<ClarityName, NonFungibleTokenMetadata>,
+    /// Total supply for contract defined fungible tokens
     pub meta_ft: HashMap<ClarityName, FungibleTokenMetadata>,
+    /// The total size of constants stored by this contract
     pub data_size: u64,
-    /// track the clarity version of the contract
+    /// The clarity version of this contract
     clarity_version: ClarityVersion,
 }
 
@@ -1921,6 +1930,7 @@ impl ContractContext {
         }
     }
 
+    /// Lookup a contract constant by name
     pub fn lookup_variable(&self, name: &str) -> Option<&Value> {
         self.variables.get(name)
     }
