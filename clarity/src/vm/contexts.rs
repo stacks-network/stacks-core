@@ -2004,7 +2004,7 @@ impl ContractContext {
     /// Canonicalize the types for the specified epoch. Only functions and
     /// defined traits are exposed externally, so other types are not
     /// canonicalized.
-    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
+    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) -> Result<(), VmExecutionError> {
         for (_, function) in self.functions.iter_mut() {
             function.canonicalize_types(epoch);
         }
@@ -2014,6 +2014,20 @@ impl ContractContext {
                 *function = function.canonicalize(epoch);
             }
         }
+
+        // In pre-sanitized-variable epochs, sanitize all contract
+        // variables at load time so lookups can borrow directly.
+        if epoch.uses_pre_sanitized_variables() {
+            for (_, value) in self.variables.iter_mut() {
+                let owned = std::mem::replace(value, Value::none());
+                let (sanitized, _) =
+                    Value::sanitize_value(epoch, &TypeSignature::type_of(&owned)?, owned)
+                        .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+                *value = sanitized;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -2395,7 +2409,9 @@ mod test {
             .defined_traits
             .insert("bar".into(), trait_functions);
 
-        contract_context.canonicalize_types(&StacksEpochId::Epoch21);
+        contract_context
+            .canonicalize_types(&StacksEpochId::Epoch21)
+            .unwrap();
 
         assert_eq!(
             contract_context.functions["foo"].get_arg_types()[0],

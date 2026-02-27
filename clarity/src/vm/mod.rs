@@ -218,7 +218,7 @@ fn lookup_variable<'a>(
         context.depth(),
     )?;
     if let Some(value) = context.lookup_variable(name) {
-        if exec_state.epoch().supports_clarity_value_refs() {
+        if exec_state.epoch().uses_pre_sanitized_variables() {
             // If the epoch supports value refs, we can return a borrowed reference to the variable without cloning.
             return Ok(ValueRef::Borrowed(value));
         } else {
@@ -230,7 +230,13 @@ fn lookup_variable<'a>(
             return Ok(ValueRef::Owned(value.clone()));
         }
     }
-    if let Some(value) = invoke_ctx.contract_context.lookup_variable(name).cloned() {
+    if let Some(value) = invoke_ctx.contract_context.lookup_variable(name) {
+        if exec_state.epoch().uses_pre_sanitized_variables() {
+            // Variables were sanitized at load time by canonicalize_types.
+            // Borrow directly.
+            return Ok(ValueRef::Borrowed(value));
+        }
+        let value = value.clone();
         runtime_cost(
             ClarityCostFunction::LookupVariableSize,
             exec_state,

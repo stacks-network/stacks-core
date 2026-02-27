@@ -850,7 +850,7 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or_else(|| VmInternalError::Expect(
                 "Failed to read non-consensus contract metadata, even though contract exists in MARF."
                 .into()))?;
-        data.canonicalize_types(&self.get_clarity_epoch_version()?);
+        data.canonicalize_types(&self.get_clarity_epoch_version()?)?;
         Ok(data)
     }
 
