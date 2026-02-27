@@ -664,6 +664,8 @@ fn stack_depth_too_deep_call_chain_ccall() {
 /// Error: [`RuntimeError::UnknownBlockHeaderHash`]
 /// Caused by: calling `at-block` with a block hash that doesn't exist on the current fork
 /// Outcome: block accepted
+/// Note: This test only works until Epoch 3.3. Epoch 3.4 will return a
+/// [`StaticCheckErrorKind::AtBlockUnavailable`].
 #[test]
 fn unknown_block_header_hash_fork() {
     contract_call_consensus_test!(
@@ -679,14 +681,21 @@ fn unknown_block_header_hash_fork() {
 )",
         function_name: "trigger",
         function_args: &[],
+        deploy_epochs: &[StacksEpochId::Epoch33],
     );
 }
 
 /// Error: [`RuntimeError::BadBlockHash`]
 /// Caused by: calling `at-block` with a 31-byte block hash
 /// Outcome: block accepted
+/// Note: This test only works until Epoch 3.3. Epoch 3.4 will return a
+/// [`RuntimeCheckErrorKind::AtBlockUnavailable`] during calls, and
+/// [`StaticCheckErrorKind::AtBlockUnavailable`] during deployment.
 #[test]
 fn bad_block_hash() {
+    let mut deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20).to_vec();
+    deploy_epochs.retain(|epoch| *epoch <= StacksEpochId::Epoch33);
+
     contract_call_consensus_test!(
         contract_name: "bad-block-hash",
         contract_code: "
@@ -700,6 +709,8 @@ fn bad_block_hash() {
 )",
         function_name: "trigger",
         function_args: &[],
+        deploy_epochs: &deploy_epochs,
+        call_epochs: &[StacksEpochId::Epoch33],
     );
 }
 
