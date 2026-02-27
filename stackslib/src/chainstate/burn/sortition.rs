@@ -826,6 +826,7 @@ mod test {
             first_block_height,
             initial_reward_start_block: first_block_height,
             first_block_hash: first_burn_hash.clone(),
+            marf_opts: None,
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
@@ -1092,6 +1093,7 @@ mod test {
             first_block_height,
             initial_reward_start_block: first_block_height,
             first_block_hash: first_burn_hash.clone(),
+            marf_opts: None,
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();

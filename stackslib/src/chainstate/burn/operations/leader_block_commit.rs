@@ -1903,6 +1903,7 @@ mod tests {
             initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),
+            marf_opts: None,
         };
 
         let leader_key_1 = LeaderKeyRegisterOp {
@@ -2441,6 +2442,7 @@ mod tests {
             initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),
+            marf_opts: None,
         };
 
         let leader_key_1 = LeaderKeyRegisterOp {
@@ -3180,6 +3182,7 @@ mod tests {
             first_block_height: 0,
             first_block_timestamp: 0,
             first_block_hash: BurnchainHeaderHash([0x05; 32]),
+            marf_opts: None,
         };
 
         let default_block_commit = LeaderBlockCommitOp {
@@ -3448,6 +3451,7 @@ mod tests {
             initial_reward_start_block: first_block_height,
             first_block_timestamp: 0,
             first_block_hash: first_burn_hash.clone(),
+            marf_opts: None,
         };
 
         let epoch_2_05_start = 125;
@@ -3499,6 +3503,7 @@ mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
 
