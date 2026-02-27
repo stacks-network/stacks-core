@@ -2,11 +2,16 @@ name: tip
 in: query
 schema:
   type: string
-  pattern: "^(latest|[0-9a-f]{64})?$"
+  pattern: "^(latest|[0-9a-fA-F]{64})?$"
   maxLength: 64
   example: latest
 description: |
   Stacks chain tip to query from. Options:
   - (empty/omitted): Use latest anchored tip (canonical confirmed state)
-  - `latest`: Use latest known tip including unconfirmed microblocks
-  - `{block_id}`: Use specific block ID (64 hex characters)
+  - `latest`: Use latest known tip including unconfirmed microblocks.
+    If no unconfirmed state is available, falls back to the confirmed canonical tip.
+  - `{block_id}`: Use specific block ID (64 hex characters, case-insensitive)
+
+  **Note:** If `tip` is present but contains an invalid or malformed value
+  (i.e., not `latest` and not a valid 64-character hex block ID),
+  the node silently falls back to the latest anchored tip (same as omitting `tip`).
