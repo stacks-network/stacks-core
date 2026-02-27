@@ -376,13 +376,26 @@ pub fn create_minimal_confirmed_chain(
     marf: &mut MARF<StacksBlockId>,
     block_count: usize,
 ) -> Vec<StacksBlockId> {
+    debug_assert!(
+        block_count < (u32::MAX as usize) - 1,
+        "block_count must be less than 2^32-1 to fit in tip generation scheme"
+    );
+
+    let block_count_u32 = block_count as u32;
     let mut tips = Vec::with_capacity(block_count);
     let mut parent_tip = StacksBlockId::sentinel();
 
-    for i in 0..block_count {
-        let next_tip = StacksBlockId([(i as u8) + 1; 32]);
+    for i in 0..block_count_u32 {
+        let mut tip_bytes = [0u8; 32];
+        let counter = i.to_be_bytes();
+
+        for chunk in tip_bytes.chunks_mut(4) {
+            chunk.copy_from_slice(&counter);
+        }
+
+        let next_tip = StacksBlockId(tip_bytes);
         let insert_key = format!("confirmed-chain-key-{i}");
-        let insert_value = MARFValue::from(i as u32);
+        let insert_value = MARFValue::from(i);
 
         marf.begin(&parent_tip, &next_tip)
             .unwrap_or_else(|e| panic!("failed to begin block {next_tip:?}: {e:?}"));
