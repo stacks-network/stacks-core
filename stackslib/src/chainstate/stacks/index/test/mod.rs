@@ -30,7 +30,7 @@ use crate::chainstate::stacks::index::node::*;
 use crate::chainstate::stacks::index::storage::*;
 use crate::chainstate::stacks::index::trie::*;
 use crate::chainstate::stacks::index::{
-    ClarityMarfTrieId, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof,
+    ClarityMarfTrieId as _, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof,
 };
 use crate::chainstate::stacks::{BlockHeaderHash, TrieHash};
 
