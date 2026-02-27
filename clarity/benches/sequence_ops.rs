@@ -60,38 +60,87 @@ fn make_utf8_string(n: usize) -> SequenceData {
 }
 
 // ---------------------------------------------------------------------------
-// Clone vs move helpers
+// Compare three strategies:
+//   1. drain+clone: old drained_items (drain().collect()) + old to_value (clone)
+//   2. take+clone:  new drained_items (mem::take) + old to_value (clone)
+//   3. take+move:   new drained_items (mem::take) + new into_value (move)
+//
+// Comparing 1 vs 2 isolates the drain→take improvement.
+// Comparing 2 vs 3 isolates the clone→move improvement.
 // ---------------------------------------------------------------------------
 
-/// Simulates the old `atom_values` behavior: drain + clone each element via `to_value`.
-fn old_atom_values_clone(sequence_data: &mut SequenceData) {
+/// Old behavior: drain(..).collect() + iter + to_value (clone).
+fn drain_and_clone(sequence_data: &mut SequenceData) {
     let result: Vec<_> = match sequence_data {
         SequenceData::Buffer(data) => data
-            .drained_items()
+            .data
+            .drain(..)
+            .collect::<Vec<_>>()
             .iter()
-            .map(|item| black_box(BuffData::to_value(item).unwrap()))
+            .map(|item| BuffData::to_value(item).unwrap())
             .collect(),
         SequenceData::List(data) => data
-            .drained_items()
+            .data
+            .drain(..)
+            .collect::<Vec<_>>()
             .iter()
-            .map(|item| black_box(ListData::to_value(item).unwrap()))
+            .map(|item| ListData::to_value(item).unwrap())
             .collect(),
         SequenceData::String(CharType::ASCII(data)) => data
-            .drained_items()
+            .data
+            .drain(..)
+            .collect::<Vec<_>>()
             .iter()
-            .map(|item| black_box(ASCIIData::to_value(item).unwrap()))
+            .map(|item| ASCIIData::to_value(item).unwrap())
             .collect(),
         SequenceData::String(CharType::UTF8(data)) => data
-            .drained_items()
+            .data
+            .drain(..)
+            .collect::<Vec<_>>()
             .iter()
-            .map(|item| black_box(UTF8Data::to_value(item).unwrap()))
+            .map(|item| UTF8Data::to_value(item).unwrap())
             .collect(),
     };
     black_box(result);
 }
 
-/// Uses the new `atom_values` which drains + moves each element via `into_value`.
-fn new_atom_values_move(sequence_data: &mut SequenceData) {
+/// Intermediate: mem::take + iter + to_value (clone) — isolates drain improvement.
+fn take_and_clone(sequence_data: &mut SequenceData) {
+    let result: Vec<_> = match sequence_data {
+        SequenceData::Buffer(data) => {
+            let items = std::mem::take(&mut data.data);
+            items
+                .iter()
+                .map(|item| BuffData::to_value(item).unwrap())
+                .collect()
+        }
+        SequenceData::List(data) => {
+            let items = std::mem::take(&mut data.data);
+            items
+                .iter()
+                .map(|item| ListData::to_value(item).unwrap())
+                .collect()
+        }
+        SequenceData::String(CharType::ASCII(data)) => {
+            let items = std::mem::take(&mut data.data);
+            items
+                .iter()
+                .map(|item| ASCIIData::to_value(item).unwrap())
+                .collect()
+        }
+        SequenceData::String(CharType::UTF8(data)) => {
+            let items = std::mem::take(&mut data.data);
+            items
+                .iter()
+                .map(|item| UTF8Data::to_value(item).unwrap())
+                .collect()
+        }
+    };
+    black_box(result);
+}
+
+/// New behavior: mem::take + into_iter + into_value (move) — current atom_values().
+fn take_and_move(sequence_data: &mut SequenceData) {
     let result = sequence_data.atom_values().unwrap();
     black_box(result);
 }
@@ -100,23 +149,31 @@ fn new_atom_values_move(sequence_data: &mut SequenceData) {
 // Generic bench runner
 // ---------------------------------------------------------------------------
 
-fn bench_clone_vs_move(
+fn bench_three_ways(
     group: &mut criterion::BenchmarkGroup<criterion::measurement::WallTime>,
     label: &str,
     make: impl Fn() -> SequenceData,
 ) {
-    group.bench_function(BenchmarkId::new("clone", label), |b| {
+    group.bench_function(BenchmarkId::new("drain+clone", label), |b| {
         b.iter_batched(
             &make,
-            |mut seq| old_atom_values_clone(&mut seq),
+            |mut seq| drain_and_clone(&mut seq),
             criterion::BatchSize::SmallInput,
         );
     });
 
-    group.bench_function(BenchmarkId::new("move", label), |b| {
+    group.bench_function(BenchmarkId::new("take+clone", label), |b| {
         b.iter_batched(
             &make,
-            |mut seq| new_atom_values_move(&mut seq),
+            |mut seq| take_and_clone(&mut seq),
+            criterion::BatchSize::SmallInput,
+        );
+    });
+
+    group.bench_function(BenchmarkId::new("take+move", label), |b| {
+        b.iter_batched(
+            &make,
+            |mut seq| take_and_move(&mut seq),
             criterion::BatchSize::SmallInput,
         );
     });
@@ -129,7 +186,7 @@ fn bench_clone_vs_move(
 fn bench_atom_values_int_list(c: &mut Criterion) {
     let mut group = c.benchmark_group("atom_values/int_list");
     for size in [100, 1_000, 8_000] {
-        bench_clone_vs_move(&mut group, &size.to_string(), move || make_int_list(size));
+        bench_three_ways(&mut group, &size.to_string(), move || make_int_list(size));
     }
     group.finish();
 }
@@ -137,7 +194,7 @@ fn bench_atom_values_int_list(c: &mut Criterion) {
 fn bench_atom_values_nested_list(c: &mut Criterion) {
     let mut group = c.benchmark_group("atom_values/nested_list");
     for &(outer, inner) in &[(100, 5), (500, 5), (500, 10)] {
-        bench_clone_vs_move(&mut group, &format!("{outer}x{inner}"), move || {
+        bench_three_ways(&mut group, &format!("{outer}x{inner}"), move || {
             make_nested_list(outer, inner)
         });
     }
@@ -147,7 +204,7 @@ fn bench_atom_values_nested_list(c: &mut Criterion) {
 fn bench_atom_values_buffer(c: &mut Criterion) {
     let mut group = c.benchmark_group("atom_values/buffer");
     for size in [100, 1_000, 8_000] {
-        bench_clone_vs_move(&mut group, &size.to_string(), move || make_buffer(size));
+        bench_three_ways(&mut group, &size.to_string(), move || make_buffer(size));
     }
     group.finish();
 }
@@ -155,7 +212,7 @@ fn bench_atom_values_buffer(c: &mut Criterion) {
 fn bench_atom_values_ascii(c: &mut Criterion) {
     let mut group = c.benchmark_group("atom_values/ascii");
     for size in [100, 1_000, 8_000] {
-        bench_clone_vs_move(&mut group, &size.to_string(), move || {
+        bench_three_ways(&mut group, &size.to_string(), move || {
             make_ascii_string(size)
         });
     }
@@ -165,7 +222,7 @@ fn bench_atom_values_ascii(c: &mut Criterion) {
 fn bench_atom_values_utf8(c: &mut Criterion) {
     let mut group = c.benchmark_group("atom_values/utf8");
     for size in [100, 1_000, 8_000] {
-        bench_clone_vs_move(&mut group, &size.to_string(), move || {
+        bench_three_ways(&mut group, &size.to_string(), move || {
             make_utf8_string(size)
         });
     }

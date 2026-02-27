@@ -18,7 +18,7 @@ pub mod signatures;
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
-use std::{char, fmt, str};
+use std::{char, fmt, mem, str};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -731,10 +731,7 @@ pub trait SequencedValue<T> {
 
     /// Consuming version of `to_value`. Takes ownership of the element,
     /// avoiding a clone when `T` is expensive to clone or copy (e.g. `ListData`).
-    fn into_value(v: T) -> Result<Value, ClarityTypeError>
-    where
-        T: std::borrow::Borrow<T>,
-    {
+    fn into_value(v: T) -> Result<Value, ClarityTypeError> {
         Self::to_value(&v)
     }
 
@@ -752,7 +749,7 @@ impl SequencedValue<Value> for ListData {
     }
 
     fn drained_items(&mut self) -> Vec<Value> {
-        self.data.drain(..).collect()
+        mem::take(&mut self.data)
     }
 
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
@@ -776,7 +773,7 @@ impl SequencedValue<u8> for BuffData {
     }
 
     fn drained_items(&mut self) -> Vec<u8> {
-        self.data.drain(..).collect()
+        mem::take(&mut self.data)
     }
 
     fn type_signature(&self) -> Result<TypeSignature, ClarityTypeError> {
@@ -801,7 +798,7 @@ impl SequencedValue<u8> for ASCIIData {
     }
 
     fn drained_items(&mut self) -> Vec<u8> {
-        self.data.drain(..).collect()
+        mem::take(&mut self.data)
     }
 
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
@@ -826,7 +823,7 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
     }
 
     fn drained_items(&mut self) -> Vec<Vec<u8>> {
-        self.data.drain(..).collect()
+        mem::take(&mut self.data)
     }
 
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
