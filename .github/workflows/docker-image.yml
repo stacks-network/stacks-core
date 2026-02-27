@@ -189,6 +189,7 @@ jobs:
           var_annotation_pattern="${var_branch}" # default to use the branch name
           var_default_image="${{ env.DOCKER_REGISTRY }}/${{ github.repository }}"
           if [ "${{ github.event_name }}" == "schedule" ]; then
+            var_default_image="${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/stacks-nightly"
             var_branch="develop"
             var_annotation_pattern="Nightly" # for scheduled (nightly) builds, use 'Nightly'
           fi
@@ -240,8 +241,8 @@ jobs:
           tags: |
             # if trigger is workflow_dispatch
             type=ref,event=branch,enable=${{ github.event_name == 'workflow_dispatch' }}
-            # if trigger is schedule, set tag as 'nightly'
-            type=schedule,pattern=nightly
+            # if trigger is schedule, use a timestamp
+            type=schedule,pattern={{date 'YYYYMMDD'}}
 
       ## Build and push the docker image(s)
       - name: Build and Push
