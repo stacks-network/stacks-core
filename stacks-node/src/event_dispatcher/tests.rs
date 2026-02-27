@@ -85,7 +85,8 @@ fn test_post_condition_aborted_transaction_does_not_emit_events() {
         tx_signer.sign_origin(&private_key).unwrap();
         tx_signer.get_tx().unwrap()
     };
-    let receipt = StacksTransactionReceipt {
+    let txid = tx.txid();
+    let mut receipt = StacksTransactionReceipt {
         transaction: TransactionOrigin::Stacks(tx),
         events: vec![StacksTransactionEvent::SmartContractEvent(
             SmartContractEventData {
@@ -106,7 +107,7 @@ fn test_post_condition_aborted_transaction_does_not_emit_events() {
         vm_error: None,
     };
 
-    let receipts = vec![receipt];
+    let receipts = vec![receipt.clone()];
 
     // Set up a dispatcher with a dummy observer
     let dir = tempfile::tempdir().unwrap();
@@ -130,6 +131,27 @@ fn test_post_condition_aborted_transaction_does_not_emit_events() {
         assert!(
             observer_events.is_empty(),
             "No observer should receive events for post-condition aborted transactions"
+        );
+    }
+
+    receipt.post_condition_aborted = false;
+    let receipts = vec![receipt];
+    // Call create_dispatch_matrix_and_event_vector with a successful receipt
+    let (dispatch_matrix, events) = dispatcher.create_dispatch_matrix_and_event_vector(&receipts);
+
+    // There should be events emitted for successful transactions
+    assert_eq!(
+        events.len(),
+        1,
+        "Events should be emitted for successful transactions"
+    );
+
+    assert_eq!(events.first().unwrap().0, txid);
+    for observer_events in dispatch_matrix {
+        assert_eq!(
+            observer_events.len(),
+            1,
+            "Observers should receive events for successful transactions"
         );
     }
 }
