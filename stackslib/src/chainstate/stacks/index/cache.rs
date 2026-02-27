@@ -417,4 +417,18 @@ impl<K: Eq, V, const N: usize> MruCache<K, V, N> {
         }
         self.len = 0;
     }
+
+    /// Get the number of entries currently in the cache.
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Check if the cache contains the specified key.
+    #[cfg(test)]
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.entries[..self.len]
+            .iter()
+            .any(|entry| matches!(entry, Some((k, _)) if k == key))
+    }
 }

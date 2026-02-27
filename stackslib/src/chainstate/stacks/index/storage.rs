@@ -2483,6 +2483,13 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         None
     }
 
+    /// Recover from partially-written state -- i.e. blow it away.
+    /// Doesn't get called automatically.
+    pub fn recover(db_path: &String) -> Result<(), Error> {
+        let conn = marf_sqlite_open(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE, false)?;
+        trie_sql::clear_lock_data(&conn)
+    }
+
     #[cfg(test)]
     pub fn stats(&mut self) -> (u64, u64) {
         let r = self.data.read_count;
@@ -2516,11 +2523,19 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         (lr, lw)
     }
 
-    /// Recover from partially-written state -- i.e. blow it away.
-    /// Doesn't get called automatically.
-    pub fn recover(db_path: &String) -> Result<(), Error> {
-        let conn = marf_sqlite_open(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE, false)?;
-        trie_sql::clear_lock_data(&conn)
+    /// Return the number of entries in the root node cache.
+    #[cfg(test)]
+    pub fn root_node_cache_len(&self) -> usize {
+        self.data.root_node_cache.len()
+    }
+
+    /// Return true if the root node cache contains an entry for the current block.
+    #[cfg(test)]
+    pub fn root_node_cache_has_current_block(&self) -> bool {
+        self.data
+            .cur_block_id
+            .map(|id| self.data.root_node_cache.contains_key(&id))
+            .unwrap_or(false)
     }
 
     /// Read the Trie root node's hash from the block table.
