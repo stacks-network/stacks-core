@@ -1240,7 +1240,7 @@ fn marf_split_leaf_path() {
 #[test]
 #[ignore]
 fn marf_insert_random_65536_2048() {
-    let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+    let mut seed = TrieHash::EMPTY.as_bytes().to_vec();
     marf_insert(
         |i| {
             let mut path = [0; 32];
@@ -1312,7 +1312,7 @@ fn marf_insert_random_4096_128_merkle_proof() {
 
         let mut block_header = BlockHeaderHash::sentinel();
 
-        let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+        let mut seed = TrieHash::EMPTY.as_bytes().to_vec();
         let mut prev_block_header = block_header.clone();
 
         let mut i = 1;
@@ -1375,7 +1375,7 @@ fn marf_insert_random_4096_128_merkle_proof() {
         }
 
         i = 1;
-        seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+        seed = TrieHash::EMPTY.as_bytes().to_vec();
 
         let mut block_table_cache = None;
         while i <= 4096 {

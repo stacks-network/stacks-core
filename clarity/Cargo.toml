@@ -38,10 +38,11 @@ proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rstest = { version = "0.17.0" }
 rstest_reuse = { version = "0.5.0" }
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false, features = ["testing"] }
+criterion = "0.8.2"
 
-# a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
-#  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
-# criterion = "0.3"
+[[bench]]
+name = "sequence_ops"
+harness = false
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 serde_stacker = "0.1"
