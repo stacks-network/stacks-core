@@ -4804,6 +4804,7 @@ fn multiple_miners_empty_sortition() {
         &conf_1.get_burn_db_file_path(),
         false,
         conf_1.get_burnchain().pox_constants,
+        None,
     )
     .unwrap();
 
