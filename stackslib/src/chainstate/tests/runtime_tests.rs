@@ -668,6 +668,9 @@ fn stack_depth_too_deep_call_chain_ccall() {
 /// [`StaticCheckErrorKind::AtBlockUnavailable`].
 #[test]
 fn unknown_block_header_hash_fork() {
+    let mut deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20).to_vec();
+    deploy_epochs.retain(|epoch| *epoch <= StacksEpochId::Epoch33);
+
     contract_call_consensus_test!(
         contract_name: "unknown-hash",
         contract_code: "
@@ -681,7 +684,8 @@ fn unknown_block_header_hash_fork() {
 )",
         function_name: "trigger",
         function_args: &[],
-        deploy_epochs: &[StacksEpochId::Epoch33],
+        deploy_epochs: &deploy_epochs,
+        call_epochs: &[StacksEpochId::Epoch33],
     );
 }
 
@@ -850,6 +854,9 @@ fn defunct_pox_contracts() {
 /// Error: [`RuntimeError::BlockTimeNotAvailable`]
 /// Caused by: attempting to retrieve the stacks-block-time from a pre-3.3 height
 /// Outcome: block accepted
+/// Note: This test only works until Epoch 3.3. Epoch 3.4 will return a
+/// [`RuntimeCheckErrorKind::AtBlockUnavailable`] during calls, and
+/// [`StaticCheckErrorKind::AtBlockUnavailable`] during deployment.
 #[test]
 fn block_time_not_available() {
     contract_call_consensus_test!(
@@ -862,7 +869,8 @@ fn block_time_not_available() {
         )",
         function_name: "trigger",
         function_args: &[ClarityValue::UInt(1)],
-        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch33),
+        deploy_epochs: &[StacksEpochId::Epoch33],
+        call_epochs: &[StacksEpochId::Epoch33],
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
     )
 }
