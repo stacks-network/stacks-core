@@ -931,7 +931,7 @@ fn test_at_block() {
                 "{}",
                 type_check_helper_version(
                     good_test,
-                    ClarityVersion::latest(),
+                    ClarityVersion::Clarity4,
                     StacksEpochId::Epoch33
                 )
                 .unwrap()
@@ -942,7 +942,7 @@ fn test_at_block() {
     for (bad_test, expected) in bad.iter() {
         assert_eq!(
             *expected,
-            *type_check_helper_version(bad_test, ClarityVersion::latest(), StacksEpochId::Epoch33)
+            *type_check_helper_version(bad_test, ClarityVersion::Clarity4, StacksEpochId::Epoch33)
                 .unwrap_err()
                 .err
         );
@@ -952,12 +952,27 @@ fn test_at_block() {
         StaticCheckErrorKind::AtBlockUnavailable,
         *type_check_helper_version(
             "(at-block (sha256 u0) u1)",
-            ClarityVersion::latest(),
+            ClarityVersion::Clarity4,
             StacksEpochId::Epoch34
         )
         .unwrap_err()
         .err
     );
+
+    let mut versions_gt_clarity4 = ClarityVersion::ALL.to_vec();
+    versions_gt_clarity4.retain(|version| *version > ClarityVersion::Clarity4);
+    for version in versions_gt_clarity4 {
+        assert_eq!(
+            StaticCheckErrorKind::UnknownFunction("at-block".to_string()),
+            *type_check_helper_version(
+                "(at-block (sha256 u0) u1)",
+                version,
+                StacksEpochId::latest()
+            )
+            .unwrap_err()
+            .err
+        );
+    }
 }
 
 #[apply(test_clarity_versions)]

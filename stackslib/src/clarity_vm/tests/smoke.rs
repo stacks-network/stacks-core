@@ -82,25 +82,6 @@ fn test_at_unknown_block() {
             ),
             _ => panic!("Unexpected error"),
         }
-
-        // if StacksEpochId::latest().supports_at_block() {
-        //     match err {
-        //         ClarityEvalError::Vm(VmExecutionError::Runtime(x, _)) => assert_eq!(
-        //             x,
-        //             RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(
-        //                 vec![2; 32].as_slice()
-        //             ))
-        //         ),
-        //         _ => panic!("Unexpected error"),
-        //     }
-        // } else {
-        //     match err {
-        //         ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(x)) => {
-        //             assert_eq!(x, RuntimeCheckErrorKind::AtBlockUnavailable)
-        //         }
-        //         _ => panic!("Unexpected error"),
-        //     }
-        // }
     }
 
     with_marfed_environment(test, true, Some(StacksEpochId::Epoch33));
