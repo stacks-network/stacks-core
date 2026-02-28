@@ -1218,8 +1218,13 @@ fn static_check_error_write_attempted_in_read_only() {
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::AtBlockClosureMustBeReadOnly`]
 /// Caused by: `at-block` closure must be read-only but contains write operations.
 /// Outcome: block accepted.
+/// Note: In Clarity5+, `at-block` is removed from the language, so this same
+///       contract fails earlier with `UnknownFunction("at-block")`.
 #[test]
 fn static_check_error_at_block_closure_must_be_read_only() {
+    let mut exclude_clarity_versions = ClarityVersion::ALL.to_vec();
+    exclude_clarity_versions.retain(|version| *version > ClarityVersion::Clarity4);
+
     contract_deploy_consensus_test!(
         contract_name: "closure-must-be-ro",
         contract_code: "
@@ -1227,21 +1232,27 @@ fn static_check_error_at_block_closure_must_be_read_only() {
         (define-private (foo-bar)
             (at-block (sha256 0)
                (var-set foo 0)))",
+        exclude_clarity_versions: &exclude_clarity_versions,
     );
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::AtBlockUnavailable`]
 /// Caused by: using `at-block` in Epoch 3.4+, where the built-in is disabled.
 /// Outcome: block accepted.
+/// Note: In Clarity5+, `at-block` is removed from the language surface, so this same
+///       contract fails earlier with `UnknownFunction("at-block")`.
 #[test]
 fn static_check_error_at_block_unavailable() {
+    let mut exclude_clarity_versions = ClarityVersion::ALL.to_vec();
+    exclude_clarity_versions.retain(|version| *version > ClarityVersion::Clarity4);
     contract_deploy_consensus_test!(
         contract_name: "at-block-unavailable",
         contract_code: "
         (define-public (trigger-error)
             (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
                     u1)))",
-        deploy_epochs: &[StacksEpochId::Epoch34],
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch34),
+        exclude_clarity_versions: &exclude_clarity_versions,
     );
 }
 

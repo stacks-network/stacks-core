@@ -150,7 +150,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     AsContract("as-contract", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity3)),
     ContractOf("contract-of", ClarityVersion::Clarity1, None),
     PrincipalOf("principal-of?", ClarityVersion::Clarity1, None),
-    AtBlock("at-block", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity5)),
+    AtBlock("at-block", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity4)),
     GetBlockInfo("get-block-info?", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity2)),
     GetBurnBlockInfo("get-burn-block-info?", ClarityVersion::Clarity2, None),
     ConsError("err", ClarityVersion::Clarity1, None),

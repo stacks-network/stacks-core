@@ -123,34 +123,4 @@ expression: result
       runtime: 4540,
     ),
   )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "082eb4b785f0886bae21ecf6272fd428fc7ad3bafa91b3aefad793df5ba0d315",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: at-block-unavailable-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(:0:0: (at-block ...) is not available in this epoch) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 4540,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 4540,
-    ),
-  )),
 ]
