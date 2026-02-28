@@ -3123,6 +3123,57 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         return Err(Error::NodeTooDeep);
     }
 
+    /// Attempt to read the root node via the MRU cache (`Noop` cache mode only), falling back to a
+    /// normal disk read if the node isn't cacheable or upon cache miss.
+    ///
+    /// ## Returns
+    ///
+    /// * `Ok(None)` if this read is ineligible for the root cache (wrong ptr, unconfirmed block,
+    /// non-`Noop` cache mode), or
+    /// * `Ok(Some(TrieNodeType, TrieHash))` on cache hit/successful cache-miss population.
+    /// * `Err` if an error occurs during cache-miss path's disk read.
+    fn try_read_root_via_cache(
+        &mut self,
+        block_id: u32,
+        clear_ptr: TriePtr,
+    ) -> Result<Option<(TrieNodeType, TrieHash)>, Error> {
+        // Disabled for cache modes other than 'noop' as the main cache will contain these nodes
+        // in other modes.
+        if !matches!(&self.cache, TrieCache::Noop(_)) {
+            return Ok(None);
+        }
+
+        // Is this the root node ptr for this block?
+        let is_root_ptr = clear_ptr.ptr() == TrieStorageConnection::<T>::root_ptr_disk()
+            && clear_ptr.id() == TrieNodeID::Node256 as u8;
+
+        // If not, or if this block is unconfirmed (i.e. the root node may still be mutating), then
+        // don't use the root cache.
+        if !is_root_ptr || self.unconfirmed_block_id == Some(block_id) {
+            return Ok(None);
+        }
+
+        // Consult the MRU root-node cache.
+        let maybe_cached = self.data.root_node_cache.get(&block_id);
+        let (node, hash) = match maybe_cached {
+            // Cache hit
+            Some((node, hash)) => (node.clone(), *hash),
+            // Cache miss
+            None => {
+                // Read the node+hash from disk and populate the cache.
+                let (node, hash) =
+                    self.inner_read_patched_persisted_nodetype(block_id, clear_ptr, true)?;
+                self.data
+                    .root_node_cache
+                    .put(block_id, (node.clone(), hash));
+
+                (node, hash)
+            }
+        };
+
+        Ok(Some((node, hash)))
+    }
+
     /// Read a node and optionally its hash.  If `read_hash` is false, then an empty hash will be
     /// returned
     /// NOTE: ptr will not be treated as a backptr -- the node returned will be from the
@@ -3160,47 +3211,20 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
             Some(id) => {
                 self.bench.read_nodetype_start();
 
-                // For Noop cache: check root-node MRU cache for committed-block root reads.
-                // Skip for unconfirmed block_ids; unconfirmed trie blobs are updated in-place,
-                // so a cached entry could be stale after re-flush.
-                if matches!(&self.cache, TrieCache::Noop(_)) {
-                    let is_root_ptr = clear_ptr.ptr()
-                        == TrieStorageConnection::<T>::root_ptr_disk()
-                        && clear_ptr.id() == TrieNodeID::Node256 as u8;
-                    if is_root_ptr && self.unconfirmed_block_id != Some(id) {
-                        if let Some((node, hash)) = self.data.root_node_cache.get(&id) {
-                            let hash_val = if read_hash {
-                                *hash
-                            } else {
-                                TrieHash([0u8; TRIEHASH_ENCODED_SIZE])
-                            };
-                            self.bench.read_nodetype_finish(false);
-                            return Ok((node.clone(), hash_val));
-                        }
-
-                        // Cache miss: always read hash for cache population even if caller
-                        // doesn't need it.
-                        let (node, hash) =
-                            self.inner_read_patched_persisted_nodetype(id, clear_ptr, true)?;
-                        let hash_val = if read_hash {
-                            hash
-                        } else {
-                            TrieHash([0u8; TRIEHASH_ENCODED_SIZE])
-                        };
-                        self.data.root_node_cache.put(id, (node.clone(), hash));
-                        self.bench.read_nodetype_finish(false);
-                        return Ok((node, hash_val));
-                    }
+                // Try the root-node cache first, which is a noop for non-eligible/non-root nodes.
+                if let Some(result) = self.try_read_root_via_cache(id, clear_ptr)? {
+                    self.bench.read_nodetype_finish(false);
+                    return Ok(result);
                 }
 
                 let (node_inst, node_hash) = if read_hash {
                     if let Some((node_inst, node_hash)) =
                         self.cache.load_node_and_hash(id, &clear_ptr)
                     {
-                        trace!("Cache hit: {:?} {} {:?}", ptr, node_hash, node_inst);
+                        trace!("Cache hit: {ptr:?} {node_hash} {node_inst:?}");
                         (node_inst, node_hash)
                     } else {
-                        trace!("Cache miss: {:?}", ptr);
+                        trace!("Cache miss: {ptr:?}");
                         let (node_inst, node_hash) =
                             self.inner_read_patched_persisted_nodetype(id, clear_ptr, read_hash)?;
                         self.cache
@@ -3208,10 +3232,10 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                         (node_inst, node_hash)
                     }
                 } else if let Some(node_inst) = self.cache.load_node(id, &clear_ptr) {
-                    trace!("Cache hit: {:?}", ptr);
+                    trace!("Cache hit: {ptr:?}");
                     (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                 } else {
-                    trace!("Cache miss: {:?}", ptr);
+                    trace!("Cache miss: {ptr:?}");
                     let (node_inst, _) =
                         self.inner_read_patched_persisted_nodetype(id, clear_ptr, read_hash)?;
                     self.cache.store_node(id, clear_ptr, node_inst.clone());
