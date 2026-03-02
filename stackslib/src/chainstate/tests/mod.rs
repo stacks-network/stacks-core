@@ -219,6 +219,7 @@ impl<'a> TestChainstate<'a> {
             config.burnchain.pox_constants.clone(),
             None,
             true,
+            None,
         )
         .unwrap();
 

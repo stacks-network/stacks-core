@@ -2115,7 +2115,7 @@ fn deploy_and_dispatch(
 
 #[cfg(test)]
 proptest! {
-    /// 4a — Self-define + dispatch succeeds for any trait shape.
+    /// Self-define + dispatch succeeds for any trait shape.
     #[test]
     fn prop_trait_self_define_and_dispatch(shape in trait_shape_strategy()) {
         let combined = shape.combined_contract_source("my-trait");
@@ -2128,7 +2128,7 @@ proptest! {
         prop_assert_eq!(result, expected);
     }
 
-    /// 4c — Missing method-0 produces `BadTraitImplementation` at runtime.
+    /// Missing method-0 produces `BadTraitImplementation` at runtime.
     #[test]
     fn prop_trait_missing_method_detected(shape in trait_shape_strategy()) {
         let combined = shape.combined_contract_source("my-trait");
@@ -2145,7 +2145,7 @@ proptest! {
         );
     }
 
-    /// 4d — Wrong return type on method-0 produces `ReturnTypesMustMatch`.
+    /// Wrong return type on method-0 produces `ReturnTypesMustMatch`.
     #[test]
     fn prop_trait_wrong_return_type_detected(shape in trait_shape_strategy()) {
         let combined = shape.combined_contract_source("my-trait");
