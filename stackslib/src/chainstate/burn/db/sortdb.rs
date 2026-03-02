@@ -238,7 +238,8 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let key_vtxindex: u16 = row.get_unwrap("key_vtxindex");
         let memo_hex: String = row.get_unwrap("memo");
         let burn_fee_str: String = row.get_unwrap("burn_fee");
-        let expected_btc_tx_fee_str: Option<String> = row.get("btc_tx_fee").unwrap_or(None);
+        let expected_btc_tx_fee_str: Option<String> =
+            row.get("expected_btc_tx_fee").unwrap_or(None);
         let input_json: String = row.get_unwrap("input");
         let apparent_sender_json: String = row.get_unwrap("apparent_sender");
         let sunset_burn_str: String = row.get_unwrap("sunset_burn");
@@ -731,7 +732,7 @@ static SORTITION_DB_SCHEMA_9: &[&str] =
     &[r#"ALTER TABLE block_commits ADD punished TEXT DEFAULT NULL;"#];
 static SORTITION_DB_SCHEMA_10: &[&str] = &[r#"DROP TABLE IF EXISTS ast_rule_heights;"#];
 static SORTITION_DB_SCHEMA_11: &[&str] =
-    &[r#"ALTER TABLE block_commits ADD btc_tx_fee TEXT DEFAULT NULL;"#];
+    &[r#"ALTER TABLE block_commits ADD expected_btc_tx_fee TEXT DEFAULT NULL;"#];
 
 const LAST_SORTITION_DB_INDEX: &str = "index_block_commits_by_sender";
 const SORTITION_DB_INDEXES: &[&str] = &[
@@ -5749,7 +5750,7 @@ impl SortitionHandleTx<'_> {
             serde_json::to_string(&block_commit.treatment).unwrap(),
         ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, btc_tx_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus, punished) \
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, expected_btc_tx_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus, punished) \
                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)", args)?;
 
         let parent_args = params![sort_id, block_commit.txid, parent_sortition_id];
@@ -11093,6 +11094,8 @@ pub mod tests {
             .unwrap()
             .map(|row_res| row_res.expect("FATAL: failed to decode block_commits column name"))
             .collect();
-        assert!(block_commit_cols.iter().any(|col| col == "btc_tx_fee"));
+        assert!(block_commit_cols
+            .iter()
+            .any(|col| col == "expected_btc_tx_fee"));
     }
 }
