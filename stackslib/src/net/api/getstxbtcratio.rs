@@ -58,7 +58,8 @@ pub struct GetStxBtcRatioResponse {
     pub tenure_count: u64,
     /// Total STX (coinbase + fees) earned by miners in this cycle, in micro-STX.
     pub stx_earned_ustx: u128,
-    /// Total BTC burned by block-commit transactions in this cycle, in satoshis.
+    /// Total BTC spent by all block-commit transactions in this cycle, in satoshis.
+    /// Includes PoX outputs plus estimated Bitcoin tx fees for every competing commit.
     pub btc_spent_sats: u64,
     /// Raw μSTX/sat ratio for this cycle, or `None` if the cycle has no data.
     pub stx_btc_ratio: Option<u128>,

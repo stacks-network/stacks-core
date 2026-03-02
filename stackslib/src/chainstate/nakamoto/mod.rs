@@ -613,7 +613,10 @@ pub struct StxBtcCycleTotals {
     pub tenure_count: u64,
     /// Total STX (coinbase + transaction fees) earned by miners in this cycle, in micro-STX.
     pub stx_earned_ustx: u128,
-    /// Total BTC burned by block-commit transactions in this cycle, in satoshis.
+    /// Total BTC spent by all block-commit transactions in this cycle, in satoshis.
+    /// This includes both the BTC outputs to PoX addresses, i.e. `burnchain_sortition_burn`,
+    /// and the estimated Bitcoin transaction fees (`expected_btc_tx_fee`) for every competing
+    /// block-commit in each sortition.
     pub btc_spent_sats: u64,
 }
 
@@ -640,7 +643,9 @@ pub struct StxBtcCycleRatio {
     pub tenure_count: u64,
     /// Total STX earned by miners in this cycle, in micro-STX.
     pub stx_earned_ustx: u128,
-    /// Total BTC burned by block-commit transactions in this cycle, in satoshis.
+    /// Total BTC spent by all block-commit transactions in this cycle, in satoshis.
+    /// Includes PoX outputs (`burnchain_sortition_burn`) plus estimated tx fees for all
+    /// competing commits.
     pub btc_spent_sats: u64,
     /// Raw ratio for this cycle in μSTX/sat, or `None` if the cycle has no data.
     pub stx_btc_ratio: Option<u128>,
@@ -3845,11 +3850,32 @@ impl NakamotoChainState {
         Ok(Some(fallback_snapshot.consensus_hash))
     }
 
+    /// Sum the expected Bitcoin transaction fees for every block-commit in the sortition
+    /// identified by `consensus_hash`.  Returns 0 if the snapshot is not found or if none of the
+    /// commits have an `expected_btc_tx_fee`.
+    fn total_expected_btc_fees_for_sortition(
+        sort_db: &SortitionDB,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<u64, ChainstateError> {
+        let Some(snapshot) =
+            SortitionDB::get_block_snapshot_consensus(sort_db.conn(), consensus_hash)?
+        else {
+            return Ok(0);
+        };
+        let commits =
+            SortitionDB::get_block_commits_by_block(sort_db.conn(), &snapshot.sortition_id)?;
+        Ok(commits
+            .iter()
+            .filter_map(|c| c.expected_btc_tx_fee)
+            .fold(0u64, |acc, fee| acc.saturating_add(fee)))
+    }
+
     /// Compute aggregate STX earned and BTC spent for each reward cycle in
     /// `[start_reward_cycle, end_reward_cycle]`.
     ///
-    /// STX earned is the immediate per-tenure miner schedule (`coinbase + fees`), and BTC spent
-    /// is the per-tenure sortition total burn (`burnchain_sortition_burn`).
+    /// STX earned is the immediate per-tenure miner schedule (`coinbase + fees`).  BTC spent is
+    /// the per-tenure sortition total burn (`burnchain_sortition_burn`) plus the sum of expected
+    /// Bitcoin transaction fees for every block-commit in that sortition.
     pub fn get_stx_btc_cycle_totals<SDBI: StacksDBIndexed>(
         conn: &mut SDBI,
         sort_db: &SortitionDB,
@@ -3932,6 +3958,12 @@ impl NakamotoChainState {
                     cycle_totals.btc_spent_sats = cycle_totals
                         .btc_spent_sats
                         .saturating_add(miner_info.burnchain_sortition_burn);
+                    let btc_fees = Self::total_expected_btc_fees_for_sortition(
+                        sort_db,
+                        &tenure_start_header.consensus_hash,
+                    )?;
+                    cycle_totals.btc_spent_sats =
+                        cycle_totals.btc_spent_sats.saturating_add(btc_fees);
                 } else {
                     // Missing miner payment record for this tenure. The tenure is excluded from
                     // cycle totals, and fees_from_child_tenure will be reset to None below,
