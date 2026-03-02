@@ -3910,6 +3910,14 @@ impl NakamotoChainState {
                     cycle_totals.btc_spent_sats = cycle_totals
                         .btc_spent_sats
                         .saturating_add(miner_info.burnchain_sortition_burn);
+                } else {
+                    // Missing miner payment record for this tenure. The tenure is excluded from
+                    // cycle totals, and fees_from_child_tenure will be reset to None below,
+                    // so the parent tenure's fee contribution will also be lost.
+                    warn!(
+                        "No miner payment record for tenure {}; excluding from STX/BTC cycle totals",
+                        &tenure_start_header.consensus_hash
+                    );
                 }
             }
             fees_from_child_tenure = miner_info_opt
@@ -3999,6 +4007,13 @@ impl NakamotoChainState {
         }
     }
 
+    /// Compute the raw STX/BTC ratio for a cycle in units of μSTX per satoshi.
+    ///
+    /// Returns `None` when the cycle has no data (no tenures or no BTC burned), meaning the
+    /// ratio is undefined. Returns `Some(0)` when BTC was burned but miners earned zero STX
+    /// (e.g. a cycle where all blocks were empty). Callers must distinguish between these two
+    /// cases: `None` cycles are excluded from smoothing with adjusted weights, while `Some(0)`
+    /// cycles zero out the geometric mean entirely.
     fn raw_stx_btc_ratio(totals: &StxBtcCycleTotals) -> Option<u128> {
         if totals.tenure_count == 0 || totals.btc_spent_sats == 0 {
             return None;
@@ -4137,7 +4152,9 @@ impl NakamotoChainState {
             let Some(ratio) = ratio_by_cycle.get(&cycle).copied().flatten() else {
                 continue;
             };
-            // Geometric mean is zero if any included factor is zero.
+            // A ratio of zero (BTC burned but no STX earned) zeros out the entire geometric
+            // mean, because zero raised to any positive power is zero. This differs from a
+            // `None` ratio (no data for that cycle), which is simply excluded above.
             if ratio == 0 {
                 return Some(0);
             }
