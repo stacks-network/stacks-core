@@ -27,7 +27,6 @@ fn type_force_bool(value: &Value) -> Result<bool, RuntimeCheckErrorKind> {
         Value::Bool(boolean) => Ok(boolean),
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
-            // TODO: this is not charged? Should it be?
             Box::new(value.clone()),
         )),
     }
@@ -45,7 +44,6 @@ pub fn special_or(
 
     for arg in args.iter() {
         let evaluated = eval(arg, exec_state, invoke_ctx, context)?;
-        // TODO: this is not charged for really. But inside type_force_bool it does a clone? Should this be accounted for?
         let result = type_force_bool(evaluated.as_ref())?;
         if result {
             return Ok(Value::Bool(true));
@@ -67,7 +65,6 @@ pub fn special_and(
 
     for arg in args.iter() {
         let evaluated = eval(arg, exec_state, invoke_ctx, context)?;
-        // TODO: this is not charged for really. But inside type_force_bool it does a clone? Should this be accounted for?
         let result = type_force_bool(evaluated.as_ref())?;
         if !result {
             return Ok(Value::Bool(false));

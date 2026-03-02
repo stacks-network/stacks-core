@@ -648,7 +648,6 @@ pub fn special_transfer_asset_v200(
             from_principal,
             &invoke_ctx.contract_context.contract_identifier,
             asset_name,
-            // TODO: why is this not charged for?
             asset.clone(),
         )?;
 
@@ -750,7 +749,6 @@ pub fn special_transfer_asset_v205(
             from_principal,
             &invoke_ctx.contract_context.contract_identifier,
             asset_name,
-            // TODO: why is this not charged for?
             asset.clone(),
         )?;
 
@@ -1184,7 +1182,6 @@ pub fn special_burn_asset_v200(
             sender_principal,
             &invoke_ctx.contract_context.contract_identifier,
             asset_name,
-            // TODO: why is this not charged for?
             asset.clone(),
         )?;
 
@@ -1279,7 +1276,6 @@ pub fn special_burn_asset_v205(
             sender_principal,
             &invoke_ctx.contract_context.contract_identifier,
             asset_name,
-            // TODO: why is this clone not charged for?
             asset.clone(),
         )?;
 

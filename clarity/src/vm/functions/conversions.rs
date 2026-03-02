@@ -272,7 +272,6 @@ pub fn special_to_ascii(
             convert_string_to_ascii_ok(format!("0x{buffer_data}"))
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
-            // TODO: this is sort of not charged for? Should it be? borrow + copy bytes (metered by runtime_cost already?)
             let flattened_bytes: Vec<u8> = data.iter().flatten().copied().collect();
             match String::from_utf8(flattened_bytes) {
                 Ok(utf8_string) => Ok(convert_utf8_to_ascii(utf8_string)?),

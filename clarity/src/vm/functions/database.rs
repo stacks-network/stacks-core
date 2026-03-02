@@ -552,7 +552,6 @@ pub fn special_at_block(
     let bhh = match value.as_ref() {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() != 32 {
-                // TODO: does this need to be charged for? Its cloning internal data...
                 return Err(RuntimeError::BadBlockHash(data.clone()).into());
             } else {
                 StacksBlockId::from(data.as_slice())

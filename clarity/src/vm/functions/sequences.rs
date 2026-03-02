@@ -570,7 +570,6 @@ pub fn special_replace_at(
         .into());
     }
 
-    // TODO: do you need to track the cost of evaluating copies on primative types?
     let index = if let Value::UInt(index_u128) = index_val.as_ref() {
         if let Ok(index_usize) = usize::try_from(*index_u128) {
             index_usize
