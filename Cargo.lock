@@ -3643,7 +3643,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "libsigner 0.0.1",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "madhouse 0.2.0 (git+https://github.com/stacks-network/madhouse-rs.git?tag=0.2.0)",
  "mockito",
  "mutants",
