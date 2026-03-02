@@ -224,9 +224,6 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
 }
 
 impl BitcoinBlockParser {
-    const BTC_BLOCK_HALVING_INTERVAL: u64 = 210_000;
-    const BTC_INITIAL_SUBSIDY_SATS: u64 = 50 * 100_000_000;
-
     /// New block parser
     pub fn new(network_id: BitcoinNetworkType, magic_bytes: MagicBytes) -> BitcoinBlockParser {
         BitcoinBlockParser {
@@ -518,62 +515,6 @@ impl BitcoinBlockParser {
             parent_block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.header.prev_blockhash),
             txs: accepted_txs,
             timestamp: block.header.time as u64,
-        }
-    }
-
-    /// Calculate the average satoshis per vbyte for a block.
-    fn block_average_sat_per_vbyte(block: &Block, block_height: u64) -> Option<(u64, u64)> {
-        let total_fees = Self::block_total_fees(block, block_height)?;
-        let total_vbytes = block
-            .txdata
-            .iter()
-            .skip(1)
-            .try_fold(0u64, |acc, tx| acc.checked_add(Self::tx_vbytes(tx)?))?;
-
-        if total_vbytes == 0 {
-            return None;
-        }
-
-        Some((total_fees, total_vbytes))
-    }
-
-    /// Calculate the total fees paid by all transactions in a block by looking
-    /// at the coinbase transaction's outputs and subtracting the subsidy.
-    fn block_total_fees(block: &Block, block_height: u64) -> Option<u64> {
-        let coinbase = block.txdata.first()?;
-        if !coinbase.is_coin_base() {
-            warn!(
-                "Block {} does not begin with coinbase transaction; cannot estimate fees",
-                block_height
-            );
-            return None;
-        }
-
-        let coinbase_outputs = coinbase
-            .output
-            .iter()
-            .try_fold(0u64, |acc, out| acc.checked_add(out.value))?;
-        let subsidy = Self::bitcoin_block_subsidy(block_height);
-
-        if coinbase_outputs < subsidy {
-            warn!(
-                "Block {} coinbase outputs {} are below subsidy {}; cannot estimate fees",
-                block_height, coinbase_outputs, subsidy
-            );
-            return None;
-        }
-
-        coinbase_outputs.checked_sub(subsidy)
-    }
-
-    /// Calculate the block subsidy for a given block height.  Returns 0 for
-    /// blocks after the last halving.
-    fn bitcoin_block_subsidy(block_height: u64) -> u64 {
-        let halvings = block_height / Self::BTC_BLOCK_HALVING_INTERVAL;
-        if halvings >= u64::BITS as u64 {
-            0
-        } else {
-            Self::BTC_INITIAL_SUBSIDY_SATS >> halvings
         }
     }
 
