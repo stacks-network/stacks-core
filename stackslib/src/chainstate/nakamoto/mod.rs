@@ -2820,11 +2820,13 @@ impl NakamotoChainState {
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         let canonical_sortition_handle = sort_db.index_handle_at_tip();
         for candidate in candidates.into_iter() {
-            let Some(ref candidate_ch) = candidate.burn_view else {
-                // this is an epoch 2.x header, no burn view to check
-                return Ok(Some(candidate));
-            };
-            let in_canonical_fork = canonical_sortition_handle.processed_block(&candidate_ch)?;
+            // if burn_view is None, then this is an epoch 2.x header, and since epoch 2.x tenure's correspond
+            // to a single stacks block, we can use the miner's tenure sortition as a proxy for canonicity.
+            let candidate_ch = candidate
+                .burn_view
+                .as_ref()
+                .unwrap_or(&candidate.consensus_hash);
+            let in_canonical_fork = canonical_sortition_handle.processed_block(candidate_ch)?;
             if in_canonical_fork {
                 return Ok(Some(candidate));
             }
