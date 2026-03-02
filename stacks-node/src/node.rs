@@ -1052,6 +1052,7 @@ impl Node {
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
             burn_parent_modulus,
+            expected_btc_tx_fee: None,
         })
     }
 

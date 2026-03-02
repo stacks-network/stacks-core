@@ -35,6 +35,7 @@ pub mod indexer;
 pub mod keys;
 pub mod messages;
 pub mod network;
+pub mod rpc;
 pub mod spv;
 
 pub type PeerMessage = stacks_common::deps_common::bitcoin::network::message::NetworkMessage;

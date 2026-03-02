@@ -26,6 +26,10 @@ use stacks::burnchains::bitcoin::address::{
 use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
+use stacks::burnchains::bitcoin::rpc::bitcoin_rpc_client::{
+    BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
+    Timestamp,
+};
 use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
 use stacks::burnchains::db::BurnchainDB;
@@ -68,10 +72,6 @@ use stacks_common::util::sleep_ms;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use crate::burnchains::rpc::bitcoin_rpc_client::{
-    BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
-    Timestamp,
-};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -2578,6 +2578,7 @@ mod tests {
                 vtxindex: 0,
                 block_height: 2212,
                 burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+                expected_btc_tx_fee: Some(1000),
             }
         }
 
@@ -2864,6 +2865,7 @@ mod tests {
             vtxindex: 0,
             block_height: 2212,
             burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+            expected_btc_tx_fee: None,
         };
 
         assert_eq!(to_hex(&commit_op.serialize_to_vec()), "5be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a".to_string());

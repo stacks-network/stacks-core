@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,17 +17,17 @@
 
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
-use stacks::burnchains::bitcoin::address::BitcoinAddress;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::Txid;
-use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize_hex;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
-use crate::burnchains::rpc::bitcoin_rpc_client::{
+use super::{
     deserialize_string_to_bitcoin_address, BitcoinRpcClient, BitcoinRpcClientResult,
     TxidWrapperResponse,
 };
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::Txid;
 
 /// Represents the response returned by the `getblockchaininfo` RPC call.
 ///

@@ -27,6 +27,7 @@ use stacks_common::util::hash::to_hex;
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
+use crate::burnchains::bitcoin::rpc::bitcoin_rpc_client::BitcoinRpcClient;
 use crate::burnchains::bitcoin::{
     bits, BitcoinBlock, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
     Error as btc_error, PeerMessage,
@@ -94,6 +95,8 @@ pub struct BitcoinBlockDownloader {
 pub struct BitcoinBlockParser {
     network_id: BitcoinNetworkType,
     magic_bytes: MagicBytes,
+    fee_estimator_rpc: Option<BitcoinRpcClient>,
+    fixed_median_sat_per_vbyte: Option<u64>,
 }
 
 impl BitcoinBlockDownloader {
@@ -229,7 +232,26 @@ impl BitcoinBlockParser {
         BitcoinBlockParser {
             network_id,
             magic_bytes,
+            fee_estimator_rpc: None,
+            fixed_median_sat_per_vbyte: None,
         }
+    }
+
+    pub fn with_fee_estimator_rpc(
+        mut self,
+        fee_estimator_rpc: BitcoinRpcClient,
+    ) -> BitcoinBlockParser {
+        self.fee_estimator_rpc = Some(fee_estimator_rpc);
+        self
+    }
+
+    #[cfg(test)]
+    pub fn with_fixed_median_sat_per_vbyte(
+        mut self,
+        median_sat_per_vbyte: u64,
+    ) -> BitcoinBlockParser {
+        self.fixed_median_sat_per_vbyte = Some(median_sat_per_vbyte);
+        self
     }
 
     /// Allow raw inputs?
@@ -468,18 +490,17 @@ impl BitcoinBlockParser {
         block_height: u64,
         epoch_id: StacksEpochId,
     ) -> BitcoinBlock {
-        let block_fee_rate = Self::block_average_sat_per_vbyte(block, block_height);
+        let median_sat_per_vbyte = self.block_median_sat_per_vbyte(block);
         let mut accepted_txs = vec![];
         for (i, tx) in block.txdata.iter().enumerate() {
             match self.parse_tx(tx, i, epoch_id) {
                 Some(mut bitcoin_tx) => {
                     if bitcoin_tx.opcode == Opcodes::LeaderBlockCommit as u8 {
-                        if let Some((total_fees, total_vbytes)) = block_fee_rate {
+                        if let Some(median_sat_per_vbyte) = median_sat_per_vbyte {
                             bitcoin_tx.expected_btc_tx_fee =
-                                Self::estimate_tx_fee_from_block_average(
+                                Self::estimate_tx_fee_from_block_median_sat_per_vbyte(
                                     tx,
-                                    total_fees,
-                                    total_vbytes,
+                                    median_sat_per_vbyte,
                                 );
                         }
                     }
@@ -561,22 +582,37 @@ impl BitcoinBlockParser {
         tx.get_weight().checked_add(3).map(|weight| weight / 4)
     }
 
-    /// Estimate the fee for a transaction based on the average fee rate of the
-    /// block it was included in.
-    fn estimate_tx_fee_from_block_average(
+    /// Estimate the fee for a transaction from the block-median sat/vbyte fee
+    /// rate. The result is exact integer arithmetic:
+    ///
+    /// fee_sats = median_sat_per_vbyte * tx_vbytes
+    fn estimate_tx_fee_from_block_median_sat_per_vbyte(
         tx: &Transaction,
-        total_fees: u64,
-        total_vbytes: u64,
+        median_sat_per_vbyte: u64,
     ) -> Option<u64> {
-        if total_vbytes == 0 {
-            return None;
+        let tx_vbytes = Self::tx_vbytes(tx)?;
+        let fee = u128::from(median_sat_per_vbyte).checked_mul(u128::from(tx_vbytes))?;
+        u64::try_from(fee).ok()
+    }
+
+    fn block_median_sat_per_vbyte(&self, block: &Block) -> Option<u64> {
+        if let Some(fixed_median_sat_per_vbyte) = self.fixed_median_sat_per_vbyte {
+            return Some(fixed_median_sat_per_vbyte);
         }
 
-        // fee = ceil((total_fees / total_vbytes) * tx_vbytes)
-        let tx_vbytes = Self::tx_vbytes(tx)?;
-        let weighted_fee = u128::from(total_fees).checked_mul(u128::from(tx_vbytes))?;
-        let rounded_fee = weighted_fee.checked_add(u128::from(total_vbytes / 2))?;
-        u64::try_from(rounded_fee / u128::from(total_vbytes)).ok()
+        let client = self.fee_estimator_rpc.as_ref()?;
+        let block_hash = format!("{}", block.bitcoin_hash());
+        let stats = client
+            .get_block_stats(&block_hash)
+            .map_err(|e| {
+                warn!("Bitcoin RPC getblockstats failed: {}", e);
+                e
+            })
+            .ok()?;
+        // The endpoint returns feerates at the 10th, 25th, 50th, 75th, and
+        // 90th percentile weight unit (in satoshis per virtual byte). We use
+        // the 50th percentile (at index 2) as the median fee rate.
+        stats.feerate_percentiles.get(2).copied()
     }
 
     /// Return true if we handled the block, and we can receive the next one.  Update internal
@@ -688,14 +724,8 @@ mod tests {
     #[derive(Debug, Deserialize, Serialize)]
     struct RealBlockFixtureMeta {
         block_height: u64,
-        total_fees_sats: u64,
-        commit_estimates: Vec<CommitEstimate>,
-    }
-
-    #[derive(Debug, Deserialize, Serialize)]
-    struct CommitEstimate {
-        txid: String,
-        expected_fee_sats: u64,
+        #[serde(default)]
+        median_fee_rate_sat_per_vb: Option<u64>,
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
@@ -1376,21 +1406,24 @@ mod tests {
     }
 
     #[test]
-    fn parse_block_estimates_block_commit_fee_from_block_average() {
+    fn parse_block_estimates_block_commit_fee_from_block_median() {
         // Reuse the block fixture above, but flip the Stacks opcode in the OP_RETURN payload
         // from `:` ("69643a...") to `[` ("69645b...") so this tx parses as a block-commit.
         let block_hex = "000000209cef4ccd19f4294dd5c762aab6d9577fb4412cd4c0a662a953a8b7969697bc1ddab52e6f053758022fb92f04388eb5fdd87046776e9c406880e728b48e6930aff462fc5bffff7f200000000002020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff0502b5020101ffffffff024018a41200000000232103f51f0c868fd99a4a3a14fe2153fba3c5f635c31bf0a588545627134b49609097ac0000000000000000266a24aa21a9ed18a09ae86261d6802bff7fa705afa558764ed3750c2273bfae5b5136c44d14d6012000000000000000000000000000000000000000000000000000000000000000000000000001000000000101a7ef2b09722ad786c569c0812005a731ce19290bb0a2afc16cb91056c2e4c19e0100000017160014393ffec4f09b38895b8502377693f23c6ae00f19ffffffff0300000000000000000d6a0b69643a666f6f2e746573747c1500000000000017a9144b85301ba8e42bf98472b8ed4939d5f76b98fcea87144d9c290100000017a91431f8968eb1730c83fb58409a9a560a0a0835027f8702483045022100fc82815edf1c0ef0c601cf1e26494626d7b01597be5ab83df025ff1ee67730130220016c4c29d77aadb5ff57c0c9272a43950ca29b84d8adfaed95ac69db90b35d5b012102d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e8100000000"
             .replacen("69643a666f6f2e74657374", "69645b666f6f2e74657374", 1);
         let block = make_block(&block_hex).expect("failed to decode block fixture");
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]));
-        let parsed_block = parser.parse_block(&block, 32, StacksEpochId::Epoch2_05);
+        let median_sat_per_vb = 25;
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]))
+            .with_fixed_median_sat_per_vbyte(median_sat_per_vb);
+        let parsed_block = parser.parse_block(&block, 32, StacksEpochId::Epoch34);
 
         assert_eq!(parsed_block.txs.len(), 1);
         assert_eq!(parsed_block.txs[0].opcode, Opcodes::LeaderBlockCommit as u8);
-        assert_eq!(
-            parsed_block.txs[0].expected_btc_tx_fee,
-            BitcoinBlockParser::block_total_fees(&block, 32)
+        let expected_fee = BitcoinBlockParser::estimate_tx_fee_from_block_median_sat_per_vbyte(
+            &block.txdata[1],
+            median_sat_per_vb,
         );
+        assert_eq!(parsed_block.txs[0].expected_btc_tx_fee, expected_fee);
     }
 
     #[test]
@@ -1405,72 +1438,53 @@ mod tests {
         let block = make_block(block_hex.trim()).expect("failed to decode real-block fixture");
 
         // Use current mainnet magic bytes ("X2") for real Bitcoin fixture validation.
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Mainnet, MagicBytes([0x58, 0x32]));
-        let parsed_block = parser.parse_block(&block, meta.block_height, StacksEpochId::Epoch21);
+        let median_sat_per_vb = meta
+            .median_fee_rate_sat_per_vb
+            .expect("failed to get median fee rate from fixture");
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Mainnet, MagicBytes([0x58, 0x32]))
+            .with_fixed_median_sat_per_vbyte(median_sat_per_vb);
+        let parsed_block = parser.parse_block(&block, meta.block_height, StacksEpochId::Epoch34);
 
-        let total_fees = BitcoinBlockParser::block_total_fees(&block, meta.block_height)
-            .expect("could not compute total fees from fixture");
-        let (rate_total_fees, total_vbytes) =
-            BitcoinBlockParser::block_average_sat_per_vbyte(&block, meta.block_height)
-                .expect("could not compute block average fee rate");
-
-        assert_eq!(rate_total_fees, total_fees);
-        assert_eq!(
-            total_fees, meta.total_fees_sats,
-            "fixture total fee mismatch"
-        );
-        assert!(total_vbytes > 0, "expected non-empty block");
-
-        let expected_commit_fees: HashMap<_, _> = meta
-            .commit_estimates
+        let tx_vbytes_by_txid: HashMap<_, _> = block
+            .txdata
             .iter()
-            .map(|e| (e.txid.as_str(), e.expected_fee_sats))
+            .map(|tx| {
+                let txid = Txid::from_vec_be(tx.txid().as_bytes())
+                    .expect("failed to convert txid")
+                    .to_hex();
+                let tx_vbytes =
+                    BitcoinBlockParser::tx_vbytes(tx).expect("could not compute vbytes");
+                (txid, tx_vbytes)
+            })
             .collect();
+
         let parsed_commits: Vec<_> = parsed_block
             .txs
             .iter()
             .filter(|tx| tx.opcode == Opcodes::LeaderBlockCommit as u8)
             .collect();
 
-        assert_eq!(
-            parsed_commits.len(),
-            expected_commit_fees.len(),
-            "fixture commit count mismatch"
+        assert!(
+            !parsed_commits.is_empty(),
+            "expected at least one commit in fixture"
         );
 
         for commit_tx in parsed_commits {
             let txid = commit_tx.txid.to_hex();
-            let expected_fee = expected_commit_fees
+            let tx_vbytes = tx_vbytes_by_txid
                 .get(txid.as_str())
                 .unwrap_or_else(|| panic!("unexpected commit txid {txid}"));
+            let expected_fee = u64::try_from(
+                u128::from(median_sat_per_vb)
+                    .checked_mul(u128::from(*tx_vbytes))
+                    .expect("overflow while estimating fee"),
+            )
+            .expect("fee estimate overflowed u64");
             assert_eq!(
                 commit_tx.expected_btc_tx_fee,
-                Some(*expected_fee),
+                Some(expected_fee),
                 "unexpected estimate for commit txid {txid}"
             );
         }
-
-        let mut estimated_sum = 0u128;
-        let mut estimated_count = 0u64;
-        for tx in block.txdata.iter().skip(1) {
-            let estimate = BitcoinBlockParser::estimate_tx_fee_from_block_average(
-                tx,
-                total_fees,
-                total_vbytes,
-            )
-            .expect("fee estimate should be computable");
-            estimated_sum += u128::from(estimate);
-            estimated_count += 1;
-        }
-
-        assert!(estimated_count > 0, "expected at least one non-coinbase tx");
-
-        // Each rounded estimate contributes at most 0.5 sat rounding error.
-        let expected_sum = u128::from(total_fees);
-        let diff = estimated_sum.abs_diff(expected_sum);
-        assert!(
-            diff <= u128::from((estimated_count / 2).saturating_add(1)),
-            "sum of rounded estimates drifted too far: diff={diff}, txs={estimated_count}"
-        );
     }
 }

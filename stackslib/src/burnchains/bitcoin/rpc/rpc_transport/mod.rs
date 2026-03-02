@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,12 +23,14 @@ use std::io;
 use std::time::Duration;
 
 use base64::encode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use stacks::net::http::{HttpRequestContents, HttpResponsePayload};
-use stacks::net::httpcore::{send_http_request, StacksHttpRequest};
-use stacks::types::net::PeerHost;
+use stacks_common::types::net::PeerHost;
 use url::Url;
+
+use crate::net::http::{HttpRequestContents, HttpResponsePayload};
+use crate::net::httpcore::{send_http_request, StacksHttpRequest};
+use crate::net::Error as NetError;
 
 #[cfg(test)]
 mod tests;
@@ -96,7 +98,7 @@ pub enum RpcError {
     NetworkIO(#[from] io::Error),
     // Stacks lib network error
     #[error("Stacks Net error: {0}")]
-    NetworkStacksLib(#[from] stacks::net::Error),
+    NetworkStacksLib(#[from] NetError),
     /// Represents an error returned by the RPC service itself.
     #[error("Service JSON error: {0}")]
     Service(JsonRpcError),
@@ -158,7 +160,7 @@ impl RpcTransport {
             .ok_or(RpcError::UrlMissingHost(url_obj.clone()))?;
         let port = url_obj
             .port_or_known_default()
-            .ok_or(RpcError::UrlMissingHost(url_obj.clone()))?;
+            .ok_or(RpcError::UrlMissingPort(url_obj.clone()))?;
 
         let peer: PeerHost = format!("{host}:{port}").parse()?;
         let path = url_obj.path().to_string();

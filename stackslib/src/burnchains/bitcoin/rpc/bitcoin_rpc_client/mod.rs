@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -27,21 +27,21 @@ use std::time::Duration;
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
-use stacks::burnchains::bitcoin::address::BitcoinAddress;
-use stacks::burnchains::Txid;
-use stacks::config::Config;
-use stacks::types::chainstate::BurnchainHeaderHash;
-use stacks::types::Address;
-use stacks::util::hash::hex_bytes;
 use stacks_common::deps_common::bitcoin::blockdata::script::Script;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
 use stacks_common::deps_common::bitcoin::network::serialize::{
     serialize_hex, Error as bitcoin_serialize_error,
 };
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::hash::hex_bytes;
 
-use crate::burnchains::rpc::rpc_transport::{RpcAuth, RpcError, RpcTransport};
+use super::{RpcAuth, RpcError, RpcTransport};
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::Txid;
+use crate::config::Config;
+use crate::types::Address;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod test_utils;
 
 #[cfg(test)]
@@ -69,6 +69,21 @@ pub struct GetTransactionResponse {
 #[derive(Debug, Clone, Deserialize)]
 pub struct DescriptorInfoResponse {
     pub checksum: String,
+}
+
+/// Response from the `getblockstats` RPC call, filtered to the requested fields.
+///
+/// Contains fee-rate percentiles for the transactions in a block, expressed in
+/// satoshis per virtual byte (sat/vB).
+///
+/// # Notes
+/// This struct supports a subset of available fields to match current usage.
+/// Additional fields can be added in the future as needed.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetBlockStatsResponse {
+    /// Fee-rate percentiles at the 10th, 25th, 50th, 75th, and 90th percentile
+    /// (in satoshis per virtual byte).
+    pub feerate_percentiles: Vec<u64>,
 }
 
 /// Represents the `timestamp` parameter accepted by the `importdescriptors` RPC method.
@@ -694,5 +709,29 @@ impl BitcoinRpcClient {
             vec![height.into()],
         )?;
         Ok(response.0)
+    }
+
+    /// Returns statistics for the block identified by `blockhash`, filtered to fee-rate percentiles.
+    ///
+    /// Only the `feerate_percentiles` field is requested from the node; all other stats are omitted.
+    ///
+    /// # Arguments
+    /// * `blockhash` - Hex-encoded hash of the block to query.
+    ///
+    /// # Returns
+    /// A [`GetBlockStatsResponse`] containing the fee-rate percentiles for that block.
+    ///
+    /// # Availability
+    /// - **Since**: Bitcoin Core **v0.17.0**.
+    pub fn get_block_stats(
+        &self,
+        blockhash: &str,
+    ) -> BitcoinRpcClientResult<GetBlockStatsResponse> {
+        Ok(self.endpoint.send(
+            &self.client_id,
+            None,
+            "getblockstats",
+            vec![blockhash.into(), json!(["feerate_percentiles"])],
+        )?)
     }
 }

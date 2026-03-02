@@ -3526,6 +3526,7 @@ name = "stackslib"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff 1.1.0",
+ "base64 0.12.3",
  "chrono",
  "clarity 0.0.1",
  "ed25519-dalek",
@@ -3533,6 +3534,7 @@ dependencies = [
  "lazy_static",
  "libstackerdb 0.0.1",
  "mio 0.6.23",
+ "mockito",
  "mutants",
  "nix",
  "percent-encoding",
@@ -3559,6 +3561,7 @@ dependencies = [
  "stdext",
  "stx-genesis",
  "tempfile",
+ "thiserror",
  "time",
  "toml",
  "url",

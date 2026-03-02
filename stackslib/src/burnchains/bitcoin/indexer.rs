@@ -38,6 +38,8 @@ use crate::burnchains::bitcoin::blocks::{
     BitcoinBlockDownloader, BitcoinBlockParser, BitcoinHeaderIPC,
 };
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
+use crate::burnchains::bitcoin::rpc::bitcoin_rpc_client::BitcoinRpcClient;
+use crate::burnchains::bitcoin::rpc::RpcAuth;
 use crate::burnchains::bitcoin::spv::*;
 use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
 use crate::burnchains::db::BurnchainHeaderReader;
@@ -1139,7 +1141,40 @@ impl BurnchainIndexer for BitcoinIndexer {
     }
 
     fn parser(&self) -> BitcoinBlockParser {
-        BitcoinBlockParser::new(self.runtime.network_id, self.config.magic_bytes)
+        let parser = BitcoinBlockParser::new(self.runtime.network_id, self.config.magic_bytes);
+
+        if self.config.rpc_ssl {
+            warn!("Bitcoin RPC requires plain HTTP transport; skipping fee estimation RPC setup");
+            return parser;
+        }
+
+        let rpc_auth = match (&self.config.username, &self.config.password) {
+            (Some(username), Some(password)) => RpcAuth::Basic {
+                username: username.clone(),
+                password: password.clone(),
+            },
+            _ => {
+                warn!("Missing Bitcoin RPC credentials; skipping fee estimation RPC setup");
+                return parser;
+            }
+        };
+
+        match BitcoinRpcClient::new(
+            self.config.peer_host.clone(),
+            self.config.rpc_port,
+            rpc_auth,
+            self.config.timeout,
+            "stacks-bitcoin-fee-estimator".to_string(),
+        ) {
+            Ok(client) => parser.with_fee_estimator_rpc(client),
+            Err(e) => {
+                warn!(
+                    "Failed to create Bitcoin RPC client for fee estimation: {}",
+                    e
+                );
+                parser
+            }
+        }
     }
 
     fn reader(&self) -> BitcoinIndexer {
