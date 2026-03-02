@@ -431,7 +431,7 @@ fn check_special_equals(
 
     // check if there was a least supertype failure.
     arg_type.ok_or_else(|| {
-        StaticCheckErrorKind::ExpectsRejectable(
+        StaticCheckErrorKind::Unreachable(
             "Arg type should be set because arguments checked for >= 1".into(),
         )
     })??;
@@ -692,7 +692,7 @@ fn check_principal_of(
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_33)?;
     Ok(
         TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType)
-            .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into()))?,
+            .map_err(|_| StaticCheckErrorKind::Unreachable("Bad constructor".into()))?,
     )
 }
 
@@ -724,13 +724,13 @@ fn check_principal_construct(
                 ("error_code".into(), TypeSignature::UIntType),
                 (
                     "value".into(),
-                    TypeSignature::new_option(TypeSignature::PrincipalType).map_err(|_| StaticCheckErrorKind::ExpectsRejectable("FATAL: failed to create (optional principal) type signature".into()))?,
+                    TypeSignature::new_option(TypeSignature::PrincipalType).map_err(|_| StaticCheckErrorKind::Unreachable("FATAL: failed to create (optional principal) type signature".into()))?,
                 ),
             ])
-            .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("FAIL: PrincipalConstruct failed to initialize type signature".into()))?
+            .map_err(|_| StaticCheckErrorKind::Unreachable("FAIL: PrincipalConstruct failed to initialize type signature".into()))?
             .into()
         )
-        .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("FATAL: failed to create `(response principal { error_code: uint, principal: (optional principal) })` type signature".into()))?
+        .map_err(|_| StaticCheckErrorKind::Unreachable("FATAL: failed to create `(response principal { error_code: uint, principal: (optional principal) })` type signature".into()))?
     )
 }
 
@@ -744,7 +744,7 @@ fn check_secp256k1_recover(
     checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_65)?;
     Ok(
         TypeSignature::new_response(TypeSignature::BUFFER_33, TypeSignature::UIntType)
-            .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into()))?,
+            .map_err(|_| StaticCheckErrorKind::Unreachable("Bad constructor".into()))?,
     )
 }
 
@@ -817,9 +817,7 @@ fn check_get_burn_block_info(
 
     Ok(TypeSignature::new_option(
         block_info_prop.type_result().map_err(|_| {
-            StaticCheckErrorKind::ExpectsRejectable(
-                "FAILED to type valid burn info property".into(),
-            )
+            StaticCheckErrorKind::Unreachable("FAILED to type valid burn info property".into())
         })?,
     )?)
 }
@@ -918,7 +916,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::IntType,
                     ClarityName::try_from("value".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::ExpectsRejectable(
+                        StaticCheckErrorKind::Unreachable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -929,7 +927,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::UIntType,
                     ClarityName::try_from("value".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::ExpectsRejectable(
+                        StaticCheckErrorKind::Unreachable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -940,7 +938,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
                     ClarityName::try_from("value".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::ExpectsRejectable(
+                        StaticCheckErrorKind::Unreachable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -952,11 +950,11 @@ impl TypedNativeFunction {
                     args: vec![FunctionArg::new(
                         TypeSignature::SequenceType(SequenceSubtype::BufferType(
                             BufferLength::try_from(16_u32).map_err(|_| {
-                                StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into())
+                                StaticCheckErrorKind::Unreachable("Bad constructor".into())
                             })?,
                         )),
                         ClarityName::try_from("value".to_owned()).map_err(|_| {
-                            StaticCheckErrorKind::ExpectsRejectable(
+                            StaticCheckErrorKind::Unreachable(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -969,11 +967,11 @@ impl TypedNativeFunction {
                     args: vec![FunctionArg::new(
                         TypeSignature::SequenceType(SequenceSubtype::BufferType(
                             BufferLength::try_from(16_u32).map_err(|_| {
-                                StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into())
+                                StaticCheckErrorKind::Unreachable("Bad constructor".into())
                             })?,
                         )),
                         ClarityName::try_from("value".to_owned()).map_err(|_| {
-                            StaticCheckErrorKind::ExpectsRejectable(
+                            StaticCheckErrorKind::Unreachable(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -1009,7 +1007,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,
                     ClarityName::try_from("value".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::ExpectsRejectable(
+                        StaticCheckErrorKind::Unreachable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -1062,7 +1060,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
                     ClarityName::try_from("owner".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::ExpectsRejectable(
+                        StaticCheckErrorKind::Unreachable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -1074,7 +1072,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
                     ClarityName::try_from("principal".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::ExpectsRejectable(
+                        StaticCheckErrorKind::Unreachable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -1093,14 +1091,12 @@ impl TypedNativeFunction {
                                     TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX,
                                 )
                                 .map_err(|_| {
-                                    StaticCheckErrorKind::ExpectsRejectable(
-                                        "Bad constructor".into(),
-                                    )
+                                    StaticCheckErrorKind::Unreachable("Bad constructor".into())
                                 })?,
                             ),
                         ])
                         .map_err(|_| {
-                            StaticCheckErrorKind::ExpectsRejectable(
+                            StaticCheckErrorKind::Unreachable(
                                 "FAIL: PrincipalDestruct failed to initialize type signature"
                                     .into(),
                             )
@@ -1116,7 +1112,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
                     ClarityName::try_from("owner".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::ExpectsRejectable(
+                        StaticCheckErrorKind::Unreachable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -1127,7 +1123,7 @@ impl TypedNativeFunction {
                     ("unlock-height".into(), TypeSignature::UIntType),
                 ])
                 .map_err(|_| {
-                    StaticCheckErrorKind::ExpectsRejectable(
+                    StaticCheckErrorKind::Unreachable(
                         "FAIL: StxGetAccount failed to initialize type signature".into(),
                     )
                 })?
@@ -1138,7 +1134,7 @@ impl TypedNativeFunction {
                     FunctionArg::new(
                         TypeSignature::UIntType,
                         ClarityName::try_from("amount".to_owned()).map_err(|_| {
-                            StaticCheckErrorKind::ExpectsRejectable(
+                            StaticCheckErrorKind::Unreachable(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -1146,7 +1142,7 @@ impl TypedNativeFunction {
                     FunctionArg::new(
                         TypeSignature::PrincipalType,
                         ClarityName::try_from("sender".to_owned()).map_err(|_| {
-                            StaticCheckErrorKind::ExpectsRejectable(
+                            StaticCheckErrorKind::Unreachable(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -1156,7 +1152,7 @@ impl TypedNativeFunction {
                     TypeSignature::BoolType,
                     TypeSignature::UIntType,
                 )
-                .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into()))?,
+                .map_err(|_| StaticCheckErrorKind::Unreachable("Bad constructor".into()))?,
             }))),
             StxTransfer => Special(SpecialNativeFunction(&assets::check_special_stx_transfer)),
             StxTransferMemo => Special(SpecialNativeFunction(
@@ -1239,7 +1235,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
                     ClarityName::try_from("contract".to_owned()).map_err(|_| {
-                        StaticCheckErrorKind::ExpectsRejectable(
+                        StaticCheckErrorKind::Unreachable(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -1248,7 +1244,7 @@ impl TypedNativeFunction {
                     TypeSignature::BUFFER_32,
                     TypeSignature::UIntType,
                 )
-                .map_err(|_| StaticCheckErrorKind::ExpectsRejectable("Bad constructor".into()))?,
+                .map_err(|_| StaticCheckErrorKind::Unreachable("Bad constructor".into()))?,
             }))),
             ToAscii => Special(SpecialNativeFunction(&conversions::check_special_to_ascii)),
             RestrictAssets => Special(SpecialNativeFunction(

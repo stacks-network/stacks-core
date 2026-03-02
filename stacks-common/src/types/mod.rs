@@ -928,6 +928,10 @@ impl StacksEpochId {
         }
     }
 
+    pub fn supports_call_with_constant(&self) -> bool {
+        self >= &StacksEpochId::Epoch34
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {

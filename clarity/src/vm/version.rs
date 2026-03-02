@@ -75,6 +75,16 @@ impl ClarityVersion {
         }
     }
 
+    pub fn supports_callables(&self) -> bool {
+        match self {
+            ClarityVersion::Clarity1 => false,
+            ClarityVersion::Clarity2
+            | ClarityVersion::Clarity3
+            | ClarityVersion::Clarity4
+            | ClarityVersion::Clarity5 => true,
+        }
+    }
+
     pub fn uses_secp256r1_double_hashing(&self) -> bool {
         match self {
             ClarityVersion::Clarity1

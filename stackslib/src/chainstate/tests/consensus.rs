@@ -777,7 +777,7 @@ impl ConsensusChain<'_> {
                 consensus_hash: chain_tip.consensus_hash.clone(),
                 parent_block_id: chain_tip.index_block_hash(),
                 tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
-                state_index_root: TrieHash::from_empty_data(),
+                state_index_root: TrieHash::EMPTY,
                 timestamp: 1,
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],

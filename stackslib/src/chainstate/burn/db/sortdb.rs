@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -52,7 +52,9 @@ use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
+use crate::chainstate::stacks::index::marf::{
+    test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
+};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::ChainstateDB;
 use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, StacksEpochId};
@@ -772,6 +774,8 @@ pub struct SortitionDB {
     pub pox_constants: PoxConstants,
     /// Path on disk from which this DB was opened (caller-given; not resolved).
     pub path: String,
+    /// MARF index configuratons
+    pub marf_opts: Option<MARFOpenOpts>,
 }
 
 #[derive(Clone)]
@@ -2078,7 +2082,8 @@ impl<'a> SortitionHandleConn<'a> {
         self.get_indexed(&self.context.chain_tip, key)
     }
 
-    fn get_sortition_id_for_bhh(
+    /// Get the sortition ID for a particular burn header hash in the current fork.
+    pub fn get_sortition_id_for_bhh(
         &self,
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<SortitionId>, db_error> {
@@ -2665,10 +2670,30 @@ impl SortitionDB {
         self.marf.sqlite_conn()
     }
 
-    fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
-        test_debug!("Open index at {}", index_path);
-        let open_opts = MARFOpenOpts::default();
-        let marf = MARF::from_path(index_path, open_opts).map_err(|_e| db_error::Corruption)?;
+    /// Open or create the sortition MARF index database with internal blobs.
+    ///
+    /// This function opens the SQLite-based MARF index at `marf_path`.
+    /// If the index database does not exist, it will be created.
+    /// This index stores all blobs internally within the SQLite database
+    /// (i.e., no separate `.blobs` file).
+    ///
+    /// # Arguments
+    /// * `marf_path` - Path to the MARF SQLite index database.
+    /// * `marf_opts` - Configuration options for opening the MARF.
+    ///
+    /// # Behavior
+    /// Given a `marf_path` such as `burnchain/sortition/marf.sqlite`,
+    /// the MARF blobs are stored internally within the SQLite database.
+    /// This function also enables SQLite foreign key enforcement.
+    fn open_index(
+        marf_path: &str,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<MARF<SortitionId>, db_error> {
+        test_debug!("Open MARF index at {}", marf_path);
+        let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
+        open_opts.external_blobs = false;
+        test_override_marf_compression(&mut open_opts);
+        let marf = MARF::from_path(marf_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
         Ok(marf)
     }
@@ -2680,6 +2705,7 @@ impl SortitionDB {
         path: &str,
         readwrite: bool,
         pox_constants: PoxConstants,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<SortitionDB, db_error> {
         let index_path = db_mkdirs(path)?;
         debug!(
@@ -2688,7 +2714,7 @@ impl SortitionDB {
             index_path
         );
 
-        let marf = SortitionDB::open_index(&index_path)?;
+        let marf = SortitionDB::open_index(&index_path, marf_opts.clone())?;
         let (first_block_height, first_burn_header_hash) =
             SortitionDB::get_first_block_height_and_hash(marf.sqlite_conn())?;
 
@@ -2700,6 +2726,7 @@ impl SortitionDB {
             pox_constants,
             first_block_height,
             first_burn_header_hash,
+            marf_opts,
         };
 
         db.check_schema_version_or_error()?;
@@ -2709,7 +2736,12 @@ impl SortitionDB {
     /// Open a new copy of this SortitionDB. Will use the same `readwrite` flag
     ///  of `self`.
     pub fn reopen(&self) -> Result<SortitionDB, db_error> {
-        Self::open(&self.path, self.readwrite, self.pox_constants.clone())
+        Self::open(
+            &self.path,
+            self.readwrite,
+            self.pox_constants.clone(),
+            self.marf_opts.clone(),
+        )
     }
 
     /// Open the burn database at the given path.  Open read-only or read/write.
@@ -2723,6 +2755,7 @@ impl SortitionDB {
         pox_constants: PoxConstants,
         migrator: Option<SortitionDBMigrator>,
         readwrite: bool,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<SortitionDB, db_error> {
         let create_flag = match fs::metadata(path) {
             Err(e) => {
@@ -2748,7 +2781,7 @@ impl SortitionDB {
             index_path
         );
 
-        let marf = SortitionDB::open_index(&index_path)?;
+        let marf = SortitionDB::open_index(&index_path, marf_opts.clone())?;
 
         let mut db = SortitionDB {
             path: path.to_string(),
@@ -2758,6 +2791,7 @@ impl SortitionDB {
             first_block_height,
             pox_constants,
             first_burn_header_hash: first_burn_hash.clone(),
+            marf_opts,
         };
 
         if create_flag {
@@ -3063,7 +3097,7 @@ impl SortitionDB {
             return Err(db_error::NoDBError);
         }
         let index_path = db_mkdirs(path)?;
-        let marf = SortitionDB::open_index(&index_path)?;
+        let marf = SortitionDB::open_index(&index_path, None)?;
         SortitionDB::get_schema_version(marf.sqlite_conn())
     }
 
@@ -3075,7 +3109,7 @@ impl SortitionDB {
             return Err(db_error::NoDBError);
         }
         let index_path = db_mkdirs(path)?;
-        let marf = SortitionDB::open_index(&index_path)?;
+        let marf = SortitionDB::open_index(&index_path, None)?;
         let sql = "SELECT MAX(block_height) FROM snapshots";
         Ok(query_rows(marf.sqlite_conn(), sql, NO_PARAMS)?
             .pop()
@@ -3449,10 +3483,10 @@ impl SortitionDB {
         // NOTE: the sortition DB created here will not be used for anything, so it's safe to use
         // the mainnet_default PoX constants
         if let Err(db_error::OldSchema(_)) =
-            SortitionDB::open(path, false, PoxConstants::mainnet_default())
+            SortitionDB::open(path, false, PoxConstants::mainnet_default(), None)
         {
             let index_path = db_mkdirs(path)?;
-            let marf = SortitionDB::open_index(&index_path)?;
+            let marf = SortitionDB::open_index(&index_path, None)?;
             let mut db = SortitionDB {
                 path: path.to_string(),
                 marf,
@@ -3461,6 +3495,7 @@ impl SortitionDB {
                 first_block_height: migrator.get_burnchain().first_block_height,
                 first_burn_header_hash: migrator.get_burnchain().first_block_hash.clone(),
                 pox_constants: migrator.get_burnchain().pox_constants.clone(),
+                marf_opts: None,
             };
             db.check_schema_version_and_update(epochs, Some(migrator))
         } else {
@@ -6734,6 +6769,7 @@ pub mod tests {
                 PoxConstants::test_default(),
                 None,
                 true,
+                None,
             )
         }
 
@@ -6768,7 +6804,7 @@ pub mod tests {
                 if readwrite { "readwrite" } else { "readonly" }
             );
 
-            let marf = SortitionDB::open_index(&index_path)?;
+            let marf = SortitionDB::open_index(&index_path, None)?;
 
             let mut db = SortitionDB {
                 path: path.to_string(),
@@ -6778,6 +6814,7 @@ pub mod tests {
                 first_block_height,
                 first_burn_header_hash: first_burn_hash.clone(),
                 pox_constants: PoxConstants::test_default(),
+                marf_opts: None,
             };
 
             if create_flag {
@@ -7030,7 +7067,7 @@ pub mod tests {
         assert!(res.is_err());
         assert!(format!("{:?}", res).contains("no such table: epochs"));
 
-        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default()).is_err());
+        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default(), None).is_err());
 
         // create a v2 sortition DB at the same path as the v1 DB.
         // the schema migration should be successfully applied, and the epochs table should exist.
@@ -7043,6 +7080,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
         // assert that an epoch is returned
@@ -7050,7 +7088,7 @@ pub mod tests {
             .expect("Database should not error querying epochs")
             .expect("Database should have an epoch entry");
 
-        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default()).is_ok());
+        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default(), None).is_ok());
     }
 
     #[test]
@@ -7610,7 +7648,7 @@ pub mod tests {
                         "0000000000000000000000000000000000000000000000000000000000000000",
                     )
                     .unwrap(),
-                    index_root: TrieHash::from_empty_data(),
+                    index_root: TrieHash::EMPTY,
                     num_sortitions: i as u64 + 1,
                     stacks_block_accepted: false,
                     stacks_block_height: 0,
@@ -7860,7 +7898,7 @@ pub mod tests {
                         "0000000000000000000000000000000000000000000000000000000000000000",
                     )
                     .unwrap(),
-                    index_root: TrieHash::from_empty_data(),
+                    index_root: TrieHash::EMPTY,
                     num_sortitions: i + 1,
                     stacks_block_accepted: false,
                     stacks_block_height: 0,
@@ -8782,7 +8820,7 @@ pub mod tests {
                         sortition_hash: SortitionHash([(i as u8); 32]),
                         winning_block_txid: Txid([(i as u8); 32]),
                         winning_stacks_block_hash: BlockHeaderHash([0u8; 32]),
-                        index_root: TrieHash::from_empty_data(),
+                        index_root: TrieHash::EMPTY,
                         num_sortitions: total_sortitions,
                         stacks_block_accepted: false,
                         stacks_block_height: 0,
@@ -8859,7 +8897,7 @@ pub mod tests {
                         sortition_hash: SortitionHash([(i as u8); 32]),
                         winning_block_txid: Txid([(i as u8); 32]),
                         winning_stacks_block_hash: BlockHeaderHash([(i as u8); 32]),
-                        index_root: TrieHash::from_empty_data(),
+                        index_root: TrieHash::EMPTY,
                         num_sortitions: total_sortitions,
                         stacks_block_accepted: false,
                         stacks_block_height: 0,
@@ -9788,6 +9826,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
 
@@ -9857,6 +9896,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
 
@@ -9924,6 +9964,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
     }
@@ -9970,6 +10011,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
     }
@@ -10016,6 +10058,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
     }
@@ -10062,6 +10105,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
     }
@@ -10108,6 +10152,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
     }
@@ -10934,6 +10979,7 @@ pub mod tests {
             PoxConstants::mainnet_default(),
             None,
             true,
+            None,
         )
         .unwrap();
 
@@ -10949,6 +10995,7 @@ pub mod tests {
             PoxConstants::mainnet_default(),
             None,
             true,
+            None,
         )
         .unwrap();
 

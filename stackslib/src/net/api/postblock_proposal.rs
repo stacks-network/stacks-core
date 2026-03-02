@@ -52,6 +52,7 @@ use crate::net::http::{
 };
 use crate::net::httpcore::RPCRequestHandler;
 use crate::net::{Error as NetError, StacksNodeState};
+use crate::util_lib::db::Error as db_error;
 
 /// Test flag to stall block validation per endpoint with a matching passphrase
 #[cfg(any(test, feature = "testing"))]
@@ -86,7 +87,8 @@ define_u8_enum![ValidateRejectCode {
     InvalidTransactionReplay = 7,
     InvalidParentBlock = 8,
     InvalidTimestamp = 9,
-    NetworkChainMismatch = 10
+    NetworkChainMismatch = 10,
+    NotFoundError = 11
 }];
 
 pub static TOO_MANY_REQUESTS_STATUS: u16 = 429;
@@ -143,9 +145,13 @@ where
 {
     fn from(value: T) -> Self {
         let ce: ChainError = value.into();
+        let reason_code = match ce {
+            ChainError::DBError(db_error::NotFoundError) => ValidateRejectCode::NotFoundError,
+            _ => ValidateRejectCode::ChainstateError,
+        };
         Self {
             reason: format!("Chainstate Error: {ce}"),
-            reason_code: ValidateRejectCode::ChainstateError,
+            reason_code,
         }
     }
 }
@@ -595,9 +601,7 @@ impl NakamotoBlockProposal {
             tenure_change,
             coinbase,
             tenure_cause,
-            chainstate.mainnet,
-            chainstate.chain_id,
-            &chainstate.root_path.clone(),
+            chainstate,
             &burn_dbconn,
         )?;
 
@@ -740,15 +744,14 @@ impl NakamotoBlockProposal {
     /// Returns a boolean indicating whether this block exhausts the replay set.
     ///
     /// Returns `false` if there is no replay set.
-    pub fn validate_replay(
+    fn validate_replay(
         &self,
         parent_stacks_header: &StacksHeaderInfo,
         tenure_change: Option<&StacksTransaction>,
         coinbase: Option<&StacksTransaction>,
         tenure_cause: MinerTenureInfoCause,
-        mainnet: bool,
-        chain_id: u32,
-        chainstate_path: &str,
+        // not directly used; used as a handle to open other chainstates
+        chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
     ) -> Result<bool, BlockValidateRejectReason> {
         let mut replay_txs_maybe: Option<VecDeque<StacksTransaction>> =
@@ -770,8 +773,7 @@ impl NakamotoBlockProposal {
             Some(self.block.header.timestamp),
             u64::from(DEFAULT_MAX_TENURE_BYTES),
         )?;
-        let (mut replay_chainstate, _) =
-            StacksChainState::open(mainnet, chain_id, chainstate_path, None)?;
+        let (mut replay_chainstate, _) = chainstate_handle.reopen()?;
         let mut replay_miner_tenure_info =
             replay_builder.load_tenure_info(&mut replay_chainstate, &burn_dbconn, tenure_cause)?;
         let mut replay_tenure_tx =

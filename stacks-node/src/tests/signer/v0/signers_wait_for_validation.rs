@@ -120,6 +120,7 @@ fn signer_waits_for_validation_before_signing() {
         &conf_1.get_burn_db_file_path(),
         false,
         conf_1.get_burnchain().pox_constants,
+        None,
     )
     .unwrap();
     // Mine an initial block to establish state

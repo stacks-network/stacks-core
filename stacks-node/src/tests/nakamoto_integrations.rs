@@ -1550,7 +1550,10 @@ pub fn boot_to_epoch_3_reward_set(
 }
 
 /// Wait for a block commit, without producing a block
-fn wait_for_first_naka_block_commit(timeout_secs: u64, naka_commits_submitted: &Arc<AtomicU64>) {
+pub fn wait_for_first_naka_block_commit(
+    timeout_secs: u64,
+    naka_commits_submitted: &Arc<AtomicU64>,
+) {
     let start = Instant::now();
     while naka_commits_submitted.load(Ordering::SeqCst) < 1 {
         if start.elapsed() > Duration::from_secs(timeout_secs) {
@@ -6881,8 +6884,8 @@ fn signer_chainstate() {
                 reward_cycle,
                 vote: None,
                 valid: Some(true),
-                signed_over: true,
                 proposed_time: get_epoch_time_secs(),
+                approved_time: Some(get_epoch_time_secs()),
                 signed_self: None,
                 signed_group: None,
                 ext: ExtraBlockInfo::None,
@@ -6965,8 +6968,8 @@ fn signer_chainstate() {
                 reward_cycle,
                 vote: None,
                 valid: Some(true),
-                signed_over: true,
                 proposed_time: get_epoch_time_secs(),
+                approved_time: Some(get_epoch_time_secs()),
                 signed_self: Some(get_epoch_time_secs()),
                 signed_group: Some(get_epoch_time_secs()),
                 ext: ExtraBlockInfo::None,

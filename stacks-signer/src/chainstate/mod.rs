@@ -214,7 +214,7 @@ impl SortitionData {
                 continue;
             };
             let Some(local_block_info) =
-                signer_db.get_first_signed_block_in_tenure(&tenure.consensus_hash)?
+                signer_db.get_first_approved_block_in_tenure(&tenure.consensus_hash)?
             else {
                 warn!(
                     "Miner is not building off of most recent tenure, but a tenure they attempted to reorg has already mined blocks, and there is no local knowledge for that tenure's block timing.";
@@ -230,8 +230,10 @@ impl SortitionData {
                 sortition_state_received_time
             {
                 // how long was there between when the proposal was received and the next sortition started?
-                let proposal_to_sortition = if let Some(signed_at) = local_block_info.signed_self {
-                    sortition_state_received_time.saturating_sub(signed_at)
+                let proposal_to_sortition = if let Some(approved_at) =
+                    local_block_info.approved_time
+                {
+                    sortition_state_received_time.saturating_sub(approved_at)
                 } else {
                     info!("We did not sign over the reorged tenure's first block, considering it as a late-arriving proposal");
                     0
@@ -287,7 +289,7 @@ impl SortitionData {
             return Ok(None);
         };
 
-        let Some(signed_over_time) = block_info.signed_self else {
+        let Some(signed_over_time) = block_info.approved_time else {
             return Ok(None);
         };
 
@@ -383,7 +385,7 @@ impl SortitionData {
                 signer_db.block_lookup(&nakamoto_tip.signer_signature_hash())
             {
                 if block_info.state != BlockState::GloballyAccepted {
-                    if let Err(e) = signer_db.mark_block_globally_accepted(&mut block_info) {
+                    if let Err(e) = block_info.mark_globally_accepted() {
                         warn!("Failed to mark block as globally accepted: {e}");
                     } else if let Err(e) = signer_db.insert_block(&block_info) {
                         warn!("Failed to update block info in db: {e}");
