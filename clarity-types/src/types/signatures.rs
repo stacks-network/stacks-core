@@ -17,6 +17,7 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hash;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::{cmp, fmt};
 
 use serde::{Deserialize, Serialize};
@@ -65,10 +66,61 @@ impl AssetIdentifier {
     }
 }
 
+/// Sentinel value for [`CachedSize`] indicating the size has not been computed.
+/// Safe because `MAX_VALUE_SIZE` (1 MB) is far below `u32::MAX`.
+const CACHED_SIZE_UNSET: u32 = u32::MAX;
+
+/// Lazily-cached type size. Uses `AtomicU32` for `Send`+`Sync` compatibility.
+/// Transparent to equality comparisons and serialization.
+struct CachedSize(AtomicU32);
+
+impl CachedSize {
+    fn new() -> Self {
+        CachedSize(AtomicU32::new(CACHED_SIZE_UNSET))
+    }
+
+    fn get(&self) -> Option<u32> {
+        let v = self.0.load(Ordering::Relaxed);
+        (v != CACHED_SIZE_UNSET).then_some(v)
+    }
+
+    fn set(&self, size: u32) {
+        self.0.store(size, Ordering::Relaxed);
+    }
+}
+
+impl Default for CachedSize {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clone for CachedSize {
+    fn clone(&self) -> Self {
+        CachedSize(AtomicU32::new(self.0.load(Ordering::Relaxed)))
+    }
+}
+
+impl PartialEq for CachedSize {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for CachedSize {}
+
+impl fmt::Debug for CachedSize {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CachedSize({:?})", self.get())
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
     #[serde(with = "tuple_type_map_serde")]
     type_map: Arc<BTreeMap<ClarityName, TypeSignature>>,
+    #[serde(skip)]
+    cached_size: CachedSize,
 }
 
 mod tuple_type_map_serde {
@@ -699,6 +751,7 @@ impl TypeSignature {
                 }
                 TypeSignature::from(TupleTypeSignature {
                     type_map: Arc::new(canonicalized_fields),
+                    cached_size: CachedSize::new(),
                 })
             }
             TraitReferenceType(trait_id) => CallableType(CallableSubtype::Trait(trait_id.clone())),
@@ -785,7 +838,10 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
             }
         }
         let type_map = Arc::new(type_map.into_iter().collect());
-        let result = TupleTypeSignature { type_map };
+        let result = TupleTypeSignature {
+            type_map,
+            cached_size: CachedSize::new(),
+        };
         let would_be_size = result
             .inner_size()?
             .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
@@ -840,6 +896,7 @@ impl TupleTypeSignature {
 
     pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
         Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
+        self.cached_size = CachedSize::new();
     }
 }
 
@@ -1026,8 +1083,12 @@ impl TypeSignature {
     ) -> Result<TypeSignature, ClarityTypeError> {
         match (a, b) {
             (
-                TupleType(TupleTypeSignature { type_map: types_a }),
-                TupleType(TupleTypeSignature { type_map: types_b }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_a, ..
+                }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_b, ..
+                }),
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
@@ -1135,8 +1196,12 @@ impl TypeSignature {
     ) -> Result<TypeSignature, ClarityTypeError> {
         match (a, b) {
             (
-                TupleType(TupleTypeSignature { type_map: types_a }),
-                TupleType(TupleTypeSignature { type_map: types_b }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_a, ..
+                }),
+                TupleType(TupleTypeSignature {
+                    type_map: types_b, ..
+                }),
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
@@ -1502,7 +1567,7 @@ impl TypeSignature {
 
 impl ListTypeData {
     /// List Size: type_signature_size + max_len * entry_type.size()
-    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
+    pub(crate) fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
         let total_size = self
             .entry_type
             .size()?
@@ -1552,9 +1617,14 @@ impl TupleTypeSignature {
     }
 
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        self.inner_size()?.ok_or_else(|| {
+        if let Some(cached) = self.cached_size.get() {
+            return Ok(cached);
+        }
+        let computed = self.inner_size()?.ok_or_else(|| {
             ClarityTypeError::InvariantViolation("size() overflowed on a constructed type.".into())
-        })
+        })?;
+        self.cached_size.set(computed);
+        Ok(computed)
     }
 
     fn max_depth(&self) -> u8 {
