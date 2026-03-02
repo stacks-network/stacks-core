@@ -5857,3 +5857,200 @@ impl StacksMessageCodec for NakamotoBlock {
         Ok(NakamotoBlock { header, txs })
     }
 }
+
+#[cfg(test)]
+mod stx_btc_ratio_tests {
+    use std::collections::HashMap;
+
+    use clarity::vm::types::PrincipalData;
+    use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksAddress};
+
+    use super::{NakamotoChainState, StxBtcCycleTotals};
+    use crate::chainstate::stacks::db::{MinerPaymentSchedule, MinerPaymentTxFees};
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    fn totals(tenure_count: u64, stx_earned_ustx: u128, btc_spent_sats: u64) -> StxBtcCycleTotals {
+        StxBtcCycleTotals {
+            reward_cycle: 0,
+            tenure_count,
+            stx_earned_ustx,
+            btc_spent_sats,
+        }
+    }
+
+    fn ratios(pairs: &[(u64, Option<u128>)]) -> HashMap<u64, Option<u128>> {
+        pairs.iter().cloned().collect()
+    }
+
+    fn schedule(coinbase: u128, tx_fees: MinerPaymentTxFees) -> MinerPaymentSchedule {
+        let addr = StacksAddress::new(0, stacks_common::util::hash::Hash160([0u8; 20])).unwrap();
+        MinerPaymentSchedule {
+            recipient: PrincipalData::Standard(addr.clone().into()),
+            address: addr,
+            block_hash: BlockHeaderHash([0u8; 32]),
+            consensus_hash: ConsensusHash([0u8; 20]),
+            parent_block_hash: BlockHeaderHash([0u8; 32]),
+            parent_consensus_hash: ConsensusHash([0u8; 20]),
+            coinbase,
+            tx_fees,
+            burnchain_commit_burn: 0,
+            burnchain_sortition_burn: 0,
+            miner: true,
+            stacks_block_height: 0,
+            vtxindex: 0,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // raw_stx_btc_ratio
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn raw_ratio_no_tenures_is_none() {
+        assert_eq!(
+            NakamotoChainState::raw_stx_btc_ratio(&totals(0, 1_000_000, 100_000)),
+            None
+        );
+    }
+
+    #[test]
+    fn raw_ratio_no_btc_spent_is_none() {
+        assert_eq!(
+            NakamotoChainState::raw_stx_btc_ratio(&totals(10, 1_000_000, 0)),
+            None
+        );
+    }
+
+    #[test]
+    fn raw_ratio_zero_stx_is_some_zero() {
+        // BTC burned but no STX earned → Some(0), not None
+        assert_eq!(
+            NakamotoChainState::raw_stx_btc_ratio(&totals(1, 0, 50_000)),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn raw_ratio_normal() {
+        // 2_000_000 μSTX / 1_000 sats = 2_000 μSTX/sat
+        assert_eq!(
+            NakamotoChainState::raw_stx_btc_ratio(&totals(5, 2_000_000, 1_000)),
+            Some(2_000)
+        );
+    }
+
+    #[test]
+    fn raw_ratio_integer_division_truncates() {
+        // 10 μSTX / 3 sats = 3 (floor), not 4
+        assert_eq!(
+            NakamotoChainState::raw_stx_btc_ratio(&totals(1, 10, 3)),
+            Some(3)
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // stx_earned_for_tenure
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn stx_earned_nakamoto_no_child_fees() {
+        let schedule = schedule(1_000_000, MinerPaymentTxFees::Nakamoto { parent_fees: 500 });
+        // With no child tenure fees, only coinbase counts
+        assert_eq!(
+            NakamotoChainState::stx_earned_for_tenure(&schedule, None),
+            1_000_000
+        );
+    }
+
+    #[test]
+    fn stx_earned_nakamoto_with_child_fees() {
+        let schedule = schedule(1_000_000, MinerPaymentTxFees::Nakamoto { parent_fees: 500 });
+        // Child tenure's parent_fees are credited to this tenure
+        assert_eq!(
+            NakamotoChainState::stx_earned_for_tenure(&schedule, Some(250)),
+            1_000_250
+        );
+    }
+
+    #[test]
+    fn stx_earned_epoch2_uses_own_fees() {
+        let schedule = schedule(
+            1_000_000,
+            MinerPaymentTxFees::Epoch2 {
+                anchored: 300,
+                streamed: 200,
+            },
+        );
+        // Epoch 2: coinbase + anchored + streamed; child fees are ignored
+        assert_eq!(
+            NakamotoChainState::stx_earned_for_tenure(&schedule, Some(9999)),
+            1_000_500
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // weighted_smoothed_stx_btc_ratio
+    // -----------------------------------------------------------------------
+
+    const WEIGHTS: [u32; 5] = [5, 4, 3, 2, 1];
+
+    #[test]
+    fn smoothed_none_when_current_cycle_missing() {
+        // If the current cycle has no ratio, result is None regardless of other cycles
+        let map = ratios(&[(10, None), (9, Some(100)), (8, Some(200))]);
+        assert_eq!(
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            None
+        );
+    }
+
+    #[test]
+    fn smoothed_single_cycle_equals_ratio() {
+        // Only the current cycle has data; result should equal that ratio
+        let map = ratios(&[(5, Some(1000))]);
+        assert_eq!(
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(5, &map, &WEIGHTS),
+            Some(1000)
+        );
+    }
+
+    #[test]
+    fn smoothed_all_equal_ratios_returns_same() {
+        // Geometric mean of equal values is that value
+        let map = ratios(&[
+            (10, Some(500)),
+            (9, Some(500)),
+            (8, Some(500)),
+            (7, Some(500)),
+            (6, Some(500)),
+        ]);
+        assert_eq!(
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            Some(500)
+        );
+    }
+
+    #[test]
+    fn smoothed_zero_ratio_in_any_cycle_returns_zero() {
+        // A single zero ratio zeros out the geometric mean
+        let map = ratios(&[(10, Some(1000)), (9, Some(0)), (8, Some(1000))]);
+        assert_eq!(
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn smoothed_missing_cycles_excluded_from_weights() {
+        // Cycles 9 and 8 are absent; only cycles 10 and 7 contribute.
+        // With only two equal values the result should still equal that value.
+        let map = ratios(&[(10, Some(200)), (7, Some(200))]);
+        assert_eq!(
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            Some(200)
+        );
+    }
+}
