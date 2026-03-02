@@ -1860,6 +1860,18 @@ impl SortitionHandleTx<'_> {
     ) -> Result<(), db_error> {
         let sortition = SortitionDB::get_block_snapshot_consensus(self, burn_view_consensus_hash)?
             .ok_or(db_error::NotFoundError)?;
+
+        test_debug!(
+            "Set canonical Stacks tip on sortition {} ({} {}) to ({},{},{},{})",
+            &sortition.sortition_id,
+            sortition.block_height,
+            &sortition.consensus_hash,
+            consensus_hash,
+            burn_view_consensus_hash,
+            stacks_block_hash,
+            stacks_block_height
+        );
+
         let sql = "INSERT OR REPLACE INTO stacks_chain_tips_by_burn_view (sortition_id,consensus_hash,burn_view_consensus_hash,block_hash,block_height) VALUES (?1,?2,?3,?4,?5)";
         let args = params![
             &sortition.sortition_id,
@@ -4667,6 +4679,13 @@ impl SortitionDB {
                 &[&cursor.sortition_id],
                 |row| Ok((row.get_unwrap(0), row.get_unwrap(1), row.get_unwrap(2), (u64::try_from(row.get_unwrap::<_, i64>(3)).expect("FATAL: block height too high"))))
             ).optional()?;
+            test_debug!(
+                "Result at tip by burn view ({} {} {}): {:?}",
+                &cursor.sortition_id,
+                &cursor.consensus_hash,
+                cursor.block_height,
+                &result_at_tip
+            );
             if let Some(stacks_tip) = result_at_tip {
                 return Ok(Some(stacks_tip));
             }
@@ -4686,6 +4705,13 @@ impl SortitionDB {
                 &[&cursor.sortition_id],
                 |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
             ).optional()?;
+            test_debug!(
+                "Result at tip ({} {} {}): {:?}",
+                &cursor.sortition_id,
+                &cursor.consensus_hash,
+                cursor.block_height,
+                &result_at_tip
+            );
             if let Some((ch, bhh, height)) = result_at_tip {
                 return Ok(Some((ch.clone(), ch, bhh, height)));
             }

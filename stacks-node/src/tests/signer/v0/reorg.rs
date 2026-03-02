@@ -4958,17 +4958,47 @@ fn btc_fork_on_midtenure_accept() {
         signer_test.check_signer_states_normal();
     }
 
+    let sender_nonce_before = get_account(&http_origin, &sender_addr).nonce;
+    let stacks_height_before = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
+
+    // lengthen this last tenure
+    for i in 0..10 {
+        info!("Extend last pre-fork tenure with transaction #{}", i);
+        let (_, sender_nonce) = signer_test
+            .submit_transfer_tx(&sender_sk, send_fee, send_amt)
+            .unwrap();
+
+        wait_for(60, || {
+            Ok(get_account(&http_origin, &sender_addr).nonce > sender_nonce)
+        })
+        .unwrap()
+    }
+
     // stall block broadcast, so that we can force a bitcoin block to be processed
     //  by the stacks node _before_ the block is accepted by the chainstate
     TEST_P2P_BROADCAST_STALL.set(true);
     info!("Stalling miner block broadcast and submitting a transfer tx");
+
+    let sender_nonce_after = get_account(&http_origin, &sender_addr).nonce;
+    let stacks_height_after = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
+
+    assert_eq!(sender_nonce_before + 10, sender_nonce_after);
+    assert_eq!(stacks_height_before + 10, stacks_height_after);
+
+    // give the Stacks miner a chance to quiesce
+    sleep_ms(30_000);
+
     let (_, sender_nonce) = signer_test
         .submit_transfer_tx(&sender_sk, send_fee, send_amt)
         .unwrap();
 
-    let (_, stalled_stacks_tip_hash, stalled_stacks_tip_height) =
+    let (stalled_ch, stalled_stacks_tip_hash, stalled_stacks_tip_height) =
         SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn()).unwrap();
 
+    info!(
+        "Stalled stacks tip height and hash: ({}, {}, {})",
+        &stalled_ch, &stalled_stacks_tip_hash, stalled_stacks_tip_height
+    );
     info!("Mining an intermediate bitcoin block");
     signer_test.mine_bitcoin_block();
     wait_for(60, || {
@@ -4979,6 +5009,10 @@ fn btc_fork_on_midtenure_accept() {
         Ok(sort_tip == info_tip)
     })
     .unwrap();
+
+    // give the Stacks miner a chance to produce the next block
+    sleep_ms(30_000);
+
     TEST_P2P_BROADCAST_STALL.set(false);
 
     info!("Unstalling block broadcast and waiting for block to process");
@@ -5002,7 +5036,7 @@ fn btc_fork_on_midtenure_accept() {
         pre_epoch_3_nonce + 2 * (pre_fork_tenures + 1)
     );
 
-    let (_, _, pre_fork_stacks_tip_height) =
+    let (pre_fork_ch, pre_fork_stacks_bhh, pre_fork_stacks_tip_height) =
         SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn()).unwrap();
 
     assert_eq!(pre_fork_stacks_tip_height - 2, stalled_stacks_tip_height);
@@ -5081,9 +5115,13 @@ fn btc_fork_on_midtenure_accept() {
     // we should have borked the SortitionDB's memoized stacks tip
     //  it now reverts to the first block mined in the last
     //  common ancestor's tenure (which wasn't the last block of that tenure)
-    let (_, post_fork_stacks_tip_hash, post_fork_stacks_tip_height) =
+    let (post_fork_ch, post_fork_stacks_tip_hash, post_fork_stacks_tip_height) =
         SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn()).unwrap();
 
+    info!(
+        "Post-fork tip: ({} {} {})",
+        &post_fork_ch, &post_fork_stacks_tip_hash, &post_fork_stacks_tip_height
+    );
     assert_eq!(post_fork_stacks_tip_height, stalled_stacks_tip_height);
     assert_eq!(post_fork_stacks_tip_hash, stalled_stacks_tip_hash);
 
