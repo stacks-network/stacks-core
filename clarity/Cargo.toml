@@ -44,6 +44,10 @@ criterion = "0.8.2"
 name = "sequence_ops"
 harness = false
 
+[[bench]]
+name = "value_size"
+harness = false
+
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 serde_stacker = "0.1"
 
