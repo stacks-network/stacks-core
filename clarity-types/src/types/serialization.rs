@@ -1063,39 +1063,33 @@ impl Value {
                 value.serialize_write(w)?;
             }
             Sequence(List(data)) => {
-                let len_bytes = data
-                    .len()
-                    .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?
-                    .to_be_bytes();
+                let len_bytes = data.len()?.to_be_bytes();
                 w.write_all(&len_bytes)?;
                 for item in data.data.iter() {
                     item.serialize_write(w)?;
                 }
             }
             Sequence(Buffer(value)) => {
-                let len_bytes = u32::from(
-                    value
-                        .len()
-                        .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?,
-                )
-                .to_be_bytes();
+                let len_bytes = u32::from(value.len()?).to_be_bytes();
                 w.write_all(&len_bytes)?;
                 w.write_all(&value.data)?
             }
             Sequence(SequenceData::String(UTF8(value))) => {
-                let total_len: u32 = value.data.iter().fold(0u32, |len, c| len + c.len() as u32);
+                let total_len: u32 = value.data.iter().try_fold(
+                    0u32,
+                    |len, c| -> Result<u32, SerializationError> {
+                        let char_len = u32::try_from(c.byte_len()?)
+                            .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?;
+                        Ok(len + char_len)
+                    },
+                )?;
                 w.write_all(&(total_len.to_be_bytes()))?;
-                for bytes in value.data.iter() {
-                    w.write_all(bytes)?
+                for c in value.data.iter() {
+                    w.write_all(c.as_bytes()?)?
                 }
             }
             Sequence(SequenceData::String(ASCII(value))) => {
-                let len_bytes = u32::from(
-                    value
-                        .len()
-                        .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?,
-                )
-                .to_be_bytes();
+                let len_bytes = u32::from(value.len()?).to_be_bytes();
                 w.write_all(&len_bytes)?;
                 w.write_all(&value.data)?
             }

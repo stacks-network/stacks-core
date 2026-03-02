@@ -26,8 +26,7 @@ use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
-    ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, TypeSignatureExt as _,
-    UTF8Data, Value,
+    ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, TypeSignatureExt as _, Value,
 };
 use crate::vm::{Environment, LocalContext, eval};
 
@@ -144,9 +143,8 @@ pub fn native_string_to_int_generic(
                 Err(_error) => Ok(Value::none()),
             }
         }
-        Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
-            let flattened_bytes = data.into_iter().flatten().collect();
-            match String::from_utf8(flattened_bytes) {
+        Value::Sequence(SequenceData::String(CharType::UTF8(utf8_data))) => {
+            match String::from_utf8(utf8_data.to_utf8_bytes()?) {
                 Ok(as_string) => Ok(string_to_value_fn(as_string)?),
                 Err(_error) => Ok(Value::none()),
             }
@@ -265,10 +263,9 @@ pub fn special_to_ascii(
         Value::Sequence(SequenceData::Buffer(buffer_data)) => {
             convert_string_to_ascii_ok(format!("0x{buffer_data}"))
         }
-        Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
+        Value::Sequence(SequenceData::String(CharType::UTF8(utf8_data))) => {
             // Convert UTF8 to string first, then to ASCII
-            let flattened_bytes: Vec<u8> = data.into_iter().flatten().collect();
-            match String::from_utf8(flattened_bytes) {
+            match String::from_utf8(utf8_data.to_utf8_bytes()?) {
                 Ok(utf8_string) => Ok(convert_utf8_to_ascii(utf8_string)?),
                 Err(_) => Ok(Value::err_uint(1)), // Invalid UTF8
             }

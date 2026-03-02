@@ -23,7 +23,7 @@ use crate::types::{
     ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
     QualifiedContractIdentifier, SequenceData, SequenceSubtype, SequencedValue as _,
     StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature, UTF8Data,
-    Value,
+    Utf8Char, Value,
 };
 
 #[test]
@@ -356,7 +356,7 @@ fn test_ascii_data_to_value_returns_clarity_type_error() {
 
 #[test]
 fn test_utf8_data_to_value_returns_clarity_types_error_invalid_utf8_encoding() {
-    let err = UTF8Data::to_value(&vec![0xED, 0xA0, 0x80]).unwrap_err();
+    let err = UTF8Data::to_value(&Utf8Char([0xED, 0xA0, 0x80, 0x00])).unwrap_err();
     assert_eq!(ClarityTypeError::InvalidUtf8Encoding, err);
 }
 
@@ -587,7 +587,7 @@ fn test_ascii_data_len_returns_clarity_type_error() {
 #[test]
 fn test_utf8_data_len_returns_clarity_type_error() {
     let err = UTF8Data {
-        data: vec![vec![]; MAX_VALUE_SIZE as usize + 1],
+        data: vec![Utf8Char::from_char('\0'); MAX_VALUE_SIZE as usize + 1],
     }
     .len()
     .unwrap_err();
@@ -626,4 +626,134 @@ fn invalid_utf8_string_from_bytes() {
     let err = Value::string_utf8_from_bytes(bad_bytes).unwrap_err();
 
     assert!(matches!(err, ClarityTypeError::InvalidUtf8Encoding));
+}
+
+#[test]
+fn utf8_char_byte_len_ascii() {
+    assert_eq!(Utf8Char::from_char('\0').byte_len().unwrap(), 1);
+    assert_eq!(Utf8Char::from_char('A').byte_len().unwrap(), 1);
+    assert_eq!(Utf8Char::from_char('z').byte_len().unwrap(), 1);
+    assert_eq!(Utf8Char::from_char('\x7F').byte_len().unwrap(), 1);
+}
+
+#[test]
+fn utf8_char_byte_len_two_byte() {
+    assert_eq!(Utf8Char::from_char('\u{00F1}').byte_len().unwrap(), 2); // ñ
+}
+
+#[test]
+fn utf8_char_byte_len_three_byte() {
+    assert_eq!(Utf8Char::from_char('\u{2603}').byte_len().unwrap(), 3); // snowman
+}
+
+#[test]
+fn utf8_char_byte_len_four_byte() {
+    assert_eq!(Utf8Char::from_char('\u{1F600}').byte_len().unwrap(), 4); // emoji
+}
+
+#[test]
+fn utf8_char_byte_len_invalid_leading_byte() {
+    // Continuation byte as leading byte → error
+    assert!(matches!(
+        Utf8Char([0x80, 0, 0, 0]).byte_len(),
+        Err(ClarityTypeError::InvalidUtf8Encoding)
+    ));
+    // 0xF8+ is invalid UTF-8
+    assert!(matches!(
+        Utf8Char([0xFF, 0, 0, 0]).byte_len(),
+        Err(ClarityTypeError::InvalidUtf8Encoding)
+    ));
+}
+
+#[test]
+fn utf8data_serde_roundtrip_ascii() {
+    let data = UTF8Data {
+        data: vec![Utf8Char::from_char('H'), Utf8Char::from_char('i')],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    let deserialized: UTF8Data = serde_json::from_str(&json).unwrap();
+    assert_eq!(data, deserialized);
+}
+
+#[test]
+fn utf8data_serde_roundtrip_multibyte() {
+    // Snowman U+2603
+    let data = UTF8Data {
+        data: vec![Utf8Char::from_char('\u{2603}')],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    let deserialized: UTF8Data = serde_json::from_str(&json).unwrap();
+    assert_eq!(data, deserialized);
+}
+
+#[test]
+fn utf8data_serde_roundtrip_four_byte() {
+    // Grinning face U+1F600
+    let data = UTF8Data {
+        data: vec![Utf8Char::from_char('\u{1F600}')],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    let deserialized: UTF8Data = serde_json::from_str(&json).unwrap();
+    assert_eq!(data, deserialized);
+}
+
+#[test]
+fn utf8data_serde_roundtrip_mixed() {
+    // "A" + snowman + grinning face
+    let data = UTF8Data {
+        data: vec![
+            Utf8Char::from_char('A'),
+            Utf8Char::from_char('\u{2603}'),
+            Utf8Char::from_char('\u{1F600}'),
+        ],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    let deserialized: UTF8Data = serde_json::from_str(&json).unwrap();
+    assert_eq!(data, deserialized);
+}
+
+#[test]
+fn utf8data_serializes_only_significant_bytes() {
+    // ASCII 'A' should serialize as [65], not [65, 0, 0, 0]
+    let data = UTF8Data {
+        data: vec![Utf8Char::from_char('A')],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    assert_eq!(json, "[[65]]");
+}
+
+#[test]
+fn utf8data_serializes_multibyte_significant_bytes() {
+    // Snowman should serialize as [226, 152, 131], not [226, 152, 131, 0]
+    let data = UTF8Data {
+        data: vec![Utf8Char::from_char('\u{2603}')],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    assert_eq!(json, "[[226,152,131]]");
+}
+
+#[test]
+fn utf8data_deserializes_from_old_format() {
+    // Old format: Vec<Vec<u8>> — ensure backward compatibility
+    let old_json = "[[65],[226,152,131],[240,159,152,128]]";
+    let deserialized: UTF8Data = serde_json::from_str(old_json).unwrap();
+    assert_eq!(
+        deserialized,
+        UTF8Data {
+            data: vec![
+                Utf8Char::from_char('A'),
+                Utf8Char::from_char('\u{2603}'),
+                Utf8Char::from_char('\u{1F600}'),
+            ],
+        }
+    );
+}
+
+#[test]
+fn utf8data_serde_roundtrip_empty() {
+    let data = UTF8Data { data: vec![] };
+    let json = serde_json::to_string(&data).unwrap();
+    assert_eq!(json, "[]");
+    let deserialized: UTF8Data = serde_json::from_str(&json).unwrap();
+    assert_eq!(data, deserialized);
 }

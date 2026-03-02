@@ -422,7 +422,7 @@ fn test_serialize_to_vec_returns_serialization_failure() {
     })));
     let err = value.serialize_to_vec().unwrap_err();
     assert_eq!(
-        SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
+        SerializationError::BadTypeError(ClarityTypeError::ValueTooLarge),
         err
     );
 }
@@ -434,7 +434,7 @@ fn test_serialize_to_hex_returns_serialization_failure() {
     })));
     let err = value.serialize_to_hex().unwrap_err();
     assert_eq!(
-        SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
+        SerializationError::BadTypeError(ClarityTypeError::ValueTooLarge),
         err
     );
 }

@@ -28,7 +28,8 @@ use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
-    ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
+    ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Utf8Char,
+    Value,
 };
 use crate::vm::{ClarityVersion, execute_v2, execute_with_parameters};
 
@@ -433,13 +434,13 @@ fn test_simple_int_to_ascii() {
 fn test_simple_int_to_utf8() {
     let good1_test = r#"(int-to-utf8 1)"#;
     let good1_expected = Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
-        data: vec!["1".as_bytes().to_vec()],
+        data: vec![Utf8Char::from_char('1')],
     })));
     assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
 
     let good2_test = r#"(int-to-utf8 u1)"#;
     let good2_expected = Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
-        data: vec!["1".as_bytes().to_vec()],
+        data: vec![Utf8Char::from_char('1')],
     })));
     assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
 
@@ -742,12 +743,12 @@ proptest! {
         };
         let is_ascii = utf8_chars
             .iter()
-            .all(|char_bytes| char_bytes.len() == 1 && char_bytes[0].is_ascii());
+            .all(|char_bytes| char_bytes.byte_len().unwrap() == 1 && char_bytes.leading_byte().is_ascii());
 
         if is_ascii {
             let ascii_bytes: Vec<u8> = utf8_chars
                 .iter()
-                .map(|char_bytes| char_bytes[0])
+                .map(|char_bytes| char_bytes.leading_byte())
                 .collect();
             match Value::string_ascii_from_bytes(ascii_bytes) {
                 Ok(expected_inner) => {

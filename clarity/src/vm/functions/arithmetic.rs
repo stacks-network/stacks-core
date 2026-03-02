@@ -25,7 +25,7 @@ use crate::vm::errors::{
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value,
+    ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Utf8Char, Value,
 };
 use crate::vm::version::ClarityVersion;
 use crate::vm::{Environment, LocalContext, eval};
@@ -55,7 +55,7 @@ impl ASCIIOps {
     }
 }
 impl UTF8Ops {
-    fn make_value(x: Vec<Vec<u8>>) -> Result<Value, VmExecutionError> {
+    fn make_value(x: Vec<Utf8Char>) -> Result<Value, VmExecutionError> {
         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
             UTF8Data { data: x },
         ))))
@@ -359,7 +359,7 @@ make_arithmetic_ops!(I128Ops, i128);
 make_comparison_ops!(U128Ops, u128);
 make_comparison_ops!(I128Ops, i128);
 make_comparison_ops!(ASCIIOps, Vec<u8>);
-make_comparison_ops!(UTF8Ops, Vec<Vec<u8>>);
+make_comparison_ops!(UTF8Ops, Vec<Utf8Char>);
 make_comparison_ops!(BuffOps, Vec<u8>);
 
 // Used for the `xor` function.
