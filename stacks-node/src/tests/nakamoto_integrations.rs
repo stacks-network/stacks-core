@@ -39,7 +39,7 @@ use libsigner::{SignerSession, StackerDBSession, StacksBlockEvent};
 use rand::{thread_rng, Rng};
 use rusqlite::{Connection, OptionalExtension};
 use serial_test::serial;
-use stacks::burnchains::{MagicBytes, Txid};
+use stacks::burnchains::{MagicBytes, PoxConstants, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,
@@ -256,6 +256,48 @@ fn speed_run_nakamoto_epochs_to_latest(config: &mut Config) {
             e.end_height = prev_end + 1;
         }
         prev_end = prev_end + 1;
+    }
+}
+
+/// Modifies the configuration so that the epoch settings are legal for the given
+/// PoX cycle settings. Call this after setting `pox_reward_length` and
+/// `pox_prepare_length`.
+fn match_epochs_to_reward_cycle_settings(config: &mut Config) {
+    let mut prev_end: u64 = 0;
+    let reward_cycle_length = config.burnchain.pox_reward_length.unwrap() as u64;
+    let prepare_length = config.burnchain.pox_prepare_length.unwrap() as u64;
+    let mut start_height = 0;
+    for e in config.burnchain.epochs.as_mut().unwrap().iter_mut() {
+        if e.end_height == 0 {
+            continue;
+        }
+        e.start_height = prev_end;
+
+        if e.epoch_id == StacksEpochId::Epoch20 {
+            start_height = e.start_height;
+        }
+
+        if prev_end == 0 {
+            // wait long enough so the miner has the bitcoins it needs
+            e.end_height = 110;
+        } else if e.epoch_id == StacksEpochId::Epoch25 {
+            // epoch 2.5 must be at least two reward cycles
+            let mut end = prev_end + 2 * reward_cycle_length;
+            while PoxConstants::static_is_in_prepare_phase(
+                start_height,
+                reward_cycle_length,
+                prepare_length,
+                end,
+            ) || (end % reward_cycle_length <= 1)
+            {
+                end += 1;
+            }
+            e.end_height = end;
+        } else if e.end_height < STACKS_EPOCH_MAX {
+            e.end_height = prev_end + 1;
+        }
+
+        prev_end = e.end_height;
     }
 }
 
@@ -18893,4 +18935,288 @@ fn tenure_extend_no_commits() {
     run_loop_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();
+}
+
+/// A regression test for #6123, asserting that locked tokens are correctly
+/// accounted for when calling `stx-get-balance` inside `at-block`. That is
+/// the correct behavior and is what happens in Clarity 5. In previous Clarity
+/// versions, this was unfortunately broken, so this test also asserts that
+/// we're keeping the broken behavior in old version to ensure backwards
+/// compatibility.
+///
+/// Also see the `clarity_burn_state()` test, which tests a different symptom
+/// of the underlying problem.
+#[test]
+#[ignore]
+fn stx_balance_inside_at_block() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    let sender_sk = Secp256k1PrivateKey::random();
+    let delegate_sk = Secp256k1PrivateKey::random();
+
+    let sender_addr = tests::to_addr(&sender_sk);
+    let delegate_addr = tests::to_addr(&delegate_sk);
+    let tx_fee = 1000;
+    let deploy_fee = 3000;
+
+    let sender_start_balance: u128 = 1_729_344;
+    // The amount of STX the sender has after deploying the two contracts and making
+    // one contract call to delegate some STX.
+    let sender_base_balance: u128 = sender_start_balance - 2 * deploy_fee - tx_fee;
+    let sender_delegate_amount: u128 = 300_000;
+
+    let contract_name_clarity_4 = "balance-contract-v4";
+    let contract_name_clarity_5 = "balance-contract-v5";
+    let contract = r#"
+        (define-read-only (assert-balance (owner principal) (expected-balance uint))
+            (begin
+                (asserts! (is-eq expected-balance (stx-get-balance owner)) (err (stx-get-balance owner)))
+                (ok true)
+            )
+        )
+        (define-read-only (assert-balance-at-block (height uint) (owner principal) (expected-balance uint))
+            (at-block (unwrap-panic (get-stacks-block-info? id-header-hash height)) (assert-balance owner expected-balance))
+        )
+    "#;
+
+    // ###### initialize test ######
+
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        1,
+        vec![
+            (sender_addr.clone(), sender_start_balance as u64),
+            (delegate_addr.clone(), 100000),
+        ],
+        |_| {},
+        |naka_conf| {
+            naka_conf.miner.block_commit_delay = Duration::from_secs(0);
+            // make the reward cycle as short as possible to reduce test run time
+            naka_conf.burnchain.pox_reward_length = Some(7);
+            naka_conf.burnchain.pox_prepare_length = Some(3);
+            match_epochs_to_reward_cycle_settings(naka_conf);
+        },
+        None,
+        None,
+    );
+
+    let coord_channel = &signer_test.running_nodes.coord_channel;
+    let naka_conf = &signer_test.running_nodes.conf;
+    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
+    let epoch_34_start = epochs.get(StacksEpochId::Epoch34).unwrap().start_height;
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    // ###### helper functions ######
+
+    let deploy_contract = |name: &str,
+                           contract: &str,
+                           clarity_version: Option<ClarityVersion>,
+                           sender_nonce: u64|
+     -> u64 {
+        let contract_tx = make_contract_publish_versioned(
+            &sender_sk,
+            sender_nonce,
+            deploy_fee as u64,
+            naka_conf.burnchain.chain_id,
+            name,
+            contract,
+            clarity_version,
+        );
+        submit_tx(&http_origin, &contract_tx);
+        sender_nonce + 1
+    };
+
+    let cloned_sender_addr = sender_addr.clone();
+    let call_read_only_and_expect_ok =
+        |description: &str, contract_name: &str, function: &str, args: Vec<&Value>| {
+            let result = call_read_only(
+                &naka_conf,
+                &cloned_sender_addr,
+                contract_name,
+                function,
+                args,
+            )
+            .result();
+            info!("Read-only call result for {description}: {result:?}");
+            result
+                .unwrap()
+                .expect_result_ok()
+                .expect(&format!("Read-only call for {description} failed"));
+        };
+
+    let assert_sender_balance = |expected_balance: u128| {
+        let principal = &Value::Principal(sender_addr.clone().into());
+        call_read_only_and_expect_ok(
+            "balance according to the clarity 4 contract",
+            contract_name_clarity_4,
+            "assert-balance",
+            vec![principal, &Value::UInt(expected_balance)],
+        );
+        call_read_only_and_expect_ok(
+            "balance according to the clarity 5 contract",
+            contract_name_clarity_5,
+            "assert-balance",
+            vec![principal, &Value::UInt(expected_balance)],
+        );
+    };
+
+    let assert_sender_balance_at_block =
+        |block_height: u128, expected_balance_clarity_4: u128, expected_balance_clarity_5: u128| {
+            let principal = &Value::Principal(sender_addr.clone().into());
+            call_read_only_and_expect_ok(
+                "at-block balance according to the clarity 4 contract",
+                contract_name_clarity_4,
+                "assert-balance-at-block",
+                vec![
+                    &Value::UInt(block_height),
+                    principal,
+                    &Value::UInt(expected_balance_clarity_4),
+                ],
+            );
+            call_read_only_and_expect_ok(
+                "at-block balance according to the clarity 5 contract",
+                contract_name_clarity_5,
+                "assert-balance-at-block",
+                vec![
+                    &Value::UInt(block_height),
+                    principal,
+                    &Value::UInt(expected_balance_clarity_5),
+                ],
+            );
+        };
+
+    let wait_for_next_stack_block = || {
+        let blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        let blocks_processed_expected = blocks_processed_before + 1;
+        wait_for(20, || {
+            Ok(coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed()
+                >= blocks_processed_expected)
+        })
+        .unwrap();
+    };
+
+    // ###### Begin of test ######
+
+    // skip directly to epoch 3.4 so we can deploy the contract as clarity 5
+    signer_test.boot_to_epoch_3();
+    signer_test.run_until_burnchain_height_nakamoto(Duration::from_secs(60), epoch_34_start + 1, 1);
+
+    info!("------ deploying test contract twice, using Clarity 4 and Clarity 5 ------");
+    let mut sender_nonce = 0;
+    sender_nonce = deploy_contract(
+        contract_name_clarity_4,
+        contract,
+        Some(ClarityVersion::Clarity4),
+        sender_nonce,
+    );
+    sender_nonce = deploy_contract(
+        contract_name_clarity_5,
+        contract,
+        Some(ClarityVersion::Clarity5),
+        sender_nonce,
+    );
+
+    // the sender will delegate during the next reward cycle -- compute the burn heights
+    // that that corresponds to
+
+    let burn_block_height = get_chain_info(&naka_conf).burn_block_height;
+    let burnchain = naka_conf.get_burnchain();
+    let stacking_reward_cycle = burnchain
+        .block_height_to_reward_cycle(burn_block_height)
+        .unwrap()
+        + 1;
+
+    let stacking_start_height = (burn_block_height + 1) as u128;
+    let stacking_end_height =
+        burnchain.reward_cycle_to_block_height(stacking_reward_cycle + 1) as u128;
+
+    info!("------ delegating tokens ------");
+
+    let call_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        tx_fee as u64,
+        naka_conf.burnchain.chain_id,
+        &StacksAddress::burn_address(false),
+        "pox-4",
+        "delegate-stx",
+        &[
+            Value::UInt(sender_delegate_amount as u128),
+            Value::Principal(delegate_addr.into()),
+            Value::some(Value::UInt(stacking_end_height)).unwrap(),
+            Value::none(),
+        ],
+    );
+    submit_tx(&http_origin, &call_tx);
+
+    wait_for_next_stack_block();
+
+    // delegating doesn't lock the tokens, so the sender should still have the full balance
+    assert_sender_balance(sender_base_balance);
+
+    info!("------ calling delegate-stack-stx to lock the tokens ------");
+
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        tests::to_addr(&delegate_sk).bytes().clone(),
+    );
+    let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
+    let call_tx = make_contract_call(
+        &delegate_sk,
+        0,
+        tx_fee as u64,
+        naka_conf.burnchain.chain_id,
+        &StacksAddress::burn_address(false),
+        "pox-4",
+        "delegate-stack-stx",
+        &[
+            Value::Principal(sender_addr.clone().into()),
+            Value::UInt(sender_delegate_amount as u128),
+            pox_addr_tuple.clone(),
+            Value::UInt(stacking_start_height),
+            Value::UInt(1),
+        ],
+    );
+    submit_tx(&http_origin, &call_tx);
+
+    wait_for_next_stack_block();
+
+    // record the stacks height at which the tokens were locked -- we will time
+    // travel back to this point with `at-block`
+
+    let locked_stacks_block = signer_test.get_peer_info().stacks_tip_height;
+
+    // the tokens were locked, so the balance should now be less (and Clarity 4 and 5
+    // should agreee on that)
+    assert_sender_balance(sender_base_balance - sender_delegate_amount);
+
+    info!(
+        "------ skipping to burn block height {} after the end of the stacking reward cycle",
+        stacking_end_height + 1
+    );
+
+    signer_test.run_until_burnchain_height_nakamoto(
+        Duration::from_secs(60),
+        (stacking_end_height + 1) as u64,
+        1,
+    );
+
+    // we're in a new reward cycle, so the tokens should have been unlocked
+    assert_sender_balance(sender_base_balance);
+
+    // Using `at-block`, travel back to the block height we recorded earlier. The
+    // Clarity 5 contract should correctly show that the tokens were locked. The
+    // Clarity 4 contract will incorrectly show them as unlocked, a behavior we
+    // need to keep for backwards compatibility.
+    assert_sender_balance_at_block(
+        locked_stacks_block as u128,
+        sender_base_balance,
+        sender_base_balance - sender_delegate_amount,
+    );
 }

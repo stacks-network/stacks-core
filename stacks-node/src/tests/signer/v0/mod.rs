@@ -450,7 +450,7 @@ impl SignerTest<SpawnedSigner> {
     }
 
     // Only call after already past the epoch 3.0 boundary
-    fn run_until_burnchain_height_nakamoto(
+    pub fn run_until_burnchain_height_nakamoto(
         &self,
         timeout: Duration,
         burnchain_height: u64,
