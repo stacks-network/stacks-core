@@ -959,7 +959,38 @@ impl Value {
     }
 
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        TypeSignature::type_of(self)?.size()
+        match self {
+            Value::Int(_) | Value::UInt(_) => Ok(16),
+            Value::Bool(_) => Ok(1),
+            Value::Principal(_) => Ok(148),
+            Value::CallableContract(v) => {
+                if v.trait_identifier.is_some() {
+                    Ok(276)
+                } else {
+                    Ok(148)
+                }
+            }
+            Value::Tuple(data) => data.type_signature.size(),
+            Value::Sequence(SequenceData::List(data)) => data
+                .type_signature
+                .inner_size()?
+                .ok_or(ClarityTypeError::ValueTooLarge),
+            Value::Sequence(SequenceData::Buffer(data)) => {
+                Ok(4 + u32::try_from(data.data.len())
+                    .map_err(|_| ClarityTypeError::ValueTooLarge)?)
+            }
+            Value::Sequence(SequenceData::String(CharType::ASCII(data))) => {
+                Ok(4 + u32::try_from(data.data.len())
+                    .map_err(|_| ClarityTypeError::ValueTooLarge)?)
+            }
+            Value::Sequence(SequenceData::String(CharType::UTF8(data))) => Ok(4 + 4
+                * u32::try_from(data.data.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?),
+            Value::Optional(opt) => match &opt.data {
+                Some(v) => Ok(v.size()? + WRAPPER_VALUE_SIZE),
+                None => Ok(1 + WRAPPER_VALUE_SIZE),
+            },
+            Value::Response(resp) => Ok(resp.data.size()? + WRAPPER_VALUE_SIZE),
+        }
     }
 
     pub fn depth(&self) -> Result<u8, ClarityTypeError> {
