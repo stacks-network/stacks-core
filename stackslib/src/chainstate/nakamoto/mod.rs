@@ -604,25 +604,47 @@ impl MaturedMinerRewards {
     }
 }
 
-/// Struct for tracking the total amount of STX earned and BTC spent in each reward cycle, for
-/// calculating the STX/BTC ratio.
+/// Aggregate STX earned and BTC spent across all tenures in a single reward cycle.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StxBtcCycleTotals {
+    /// Reward cycle for which these totals apply.
     pub reward_cycle: u64,
+    /// Number of tenures that completed in this cycle.
     pub tenure_count: u64,
+    /// Total STX (coinbase + transaction fees) earned by miners in this cycle, in micro-STX.
     pub stx_earned_ustx: u128,
+    /// Total BTC burned by block-commit transactions in this cycle, in satoshis.
     pub btc_spent_sats: u64,
 }
 
-/// Struct for tracking the STX/BTC ratio for each reward cycle, both the raw ratio and the
-/// 5-cycle weighted geometric mean smoothed ratio.
+/// STX/BTC ratio for a single reward cycle, with an optional smoothed estimate.
+///
+/// ## Units
+/// All ratio fields are in **μSTX per satoshi** (micro-STX per satoshi).
+/// To convert to the more familiar STX/BTC: multiply by 100
+/// (since 1 BTC = 10⁸ sat and 1 STX = 10⁶ μSTX, μSTX/sat = STX/BTC × 100).
+///
+/// ## None semantics
+/// A ratio field is `None` when the cycle has no usable data (no tenures or no BTC burned).
+/// `Some(0)` means data exists but miners earned zero STX that cycle.
+///
+/// ## Smoothing
+/// `smoothed_stx_btc_ratio` is the weighted geometric mean of up to 5 consecutive cycles
+/// ending at `reward_cycle`, with weights [5, 4, 3, 2, 1] (most-recent cycle weighted
+/// highest). Cycles with no data are excluded and their weights are dropped.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StxBtcCycleRatio {
+    /// Reward cycle for which these totals and ratios apply.
     pub reward_cycle: u64,
+    /// Number of tenures that completed in this cycle.
     pub tenure_count: u64,
+    /// Total STX earned by miners in this cycle, in micro-STX.
     pub stx_earned_ustx: u128,
+    /// Total BTC burned by block-commit transactions in this cycle, in satoshis.
     pub btc_spent_sats: u64,
+    /// Raw ratio for this cycle in μSTX/sat, or `None` if the cycle has no data.
     pub stx_btc_ratio: Option<u128>,
+    /// 5-cycle weighted geometric mean in μSTX/sat, or `None` if the current cycle has no data.
     pub smoothed_stx_btc_ratio: Option<u128>,
 }
 

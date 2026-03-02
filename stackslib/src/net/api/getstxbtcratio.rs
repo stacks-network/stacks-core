@@ -37,13 +37,32 @@ impl GetStxBtcRatioRequestHandler {
     }
 }
 
+/// Response body for `GET /v3/stx_btc_ratio/:cycle_num`.
+///
+/// ## Units
+/// `stx_btc_ratio` and `smoothed_stx_btc_ratio` are in **μSTX per satoshi**.
+/// To convert to STX/BTC multiply by 100 (1 BTC = 10⁸ sat, 1 STX = 10⁶ μSTX).
+///
+/// ## None semantics
+/// A ratio field is `None` when the cycle has no usable data (no tenures, or no BTC burned).
+/// `Some(0)` means data exists but miners earned zero STX that cycle.
+///
+/// ## Smoothing window
+/// `smoothed_stx_btc_ratio` is the weighted geometric mean across up to 5 cycles ending at
+/// `reward_cycle`, with weights [5, 4, 3, 2, 1]. Cycles with no data are excluded.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetStxBtcRatioResponse {
+    /// The reward cycle this response describes.
     pub reward_cycle: u64,
+    /// Number of tenures that completed in this cycle.
     pub tenure_count: u64,
+    /// Total STX (coinbase + fees) earned by miners in this cycle, in micro-STX.
     pub stx_earned_ustx: u128,
+    /// Total BTC burned by block-commit transactions in this cycle, in satoshis.
     pub btc_spent_sats: u64,
+    /// Raw μSTX/sat ratio for this cycle, or `None` if the cycle has no data.
     pub stx_btc_ratio: Option<u128>,
+    /// 5-cycle weighted geometric mean in μSTX/sat, or `None` if this cycle has no data.
     pub smoothed_stx_btc_ratio: Option<u128>,
 }
 
