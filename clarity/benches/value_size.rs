@@ -15,11 +15,8 @@
 
 use std::hint::black_box;
 
-use clarity::vm::types::{
-    ListData, ListTypeData, SequenceSubtype, TupleData, TypeSignature, Value,
-};
+use clarity::vm::types::{TupleData, TypeSignature, Value};
 use clarity_types::representations::ClarityName;
-use clarity_types::types::{ASCIIData, BuffData, CharType, SequenceData, UTF8Data};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 // ---------------------------------------------------------------------------
@@ -77,15 +74,15 @@ fn bench_scalar_types(c: &mut Criterion) {
 
     group.bench_function("int", |b| {
         let v = Value::Int(42);
-        b.iter(|| black_box(v.size().unwrap()));
+        b.iter(|| black_box(black_box(&v).size().unwrap()));
     });
     group.bench_function("uint", |b| {
         let v = Value::UInt(42);
-        b.iter(|| black_box(v.size().unwrap()));
+        b.iter(|| black_box(black_box(&v).size().unwrap()));
     });
     group.bench_function("bool", |b| {
         let v = Value::Bool(true);
-        b.iter(|| black_box(v.size().unwrap()));
+        b.iter(|| black_box(black_box(&v).size().unwrap()));
     });
 
     group.finish();
@@ -100,7 +97,7 @@ fn bench_tuple_size(c: &mut Criterion) {
             BenchmarkId::new("flat/first_call", n_fields),
             &n_fields,
             |b, &n| {
-                b.iter_batched(
+                b.iter_batched_ref(
                     || make_flat_tuple(n),
                     |v| black_box(v.size().unwrap()),
                     criterion::BatchSize::SmallInput,
@@ -111,7 +108,7 @@ fn bench_tuple_size(c: &mut Criterion) {
             BenchmarkId::new("flat/cached_call", n_fields),
             &n_fields,
             |b, &n| {
-                b.iter_batched(
+                b.iter_batched_ref(
                     || {
                         let v = make_flat_tuple(n);
                         v.size().unwrap(); // prime the cache
@@ -130,7 +127,7 @@ fn bench_tuple_size(c: &mut Criterion) {
             BenchmarkId::new("nested/first_call", depth),
             &depth,
             |b, &d| {
-                b.iter_batched(
+                b.iter_batched_ref(
                     || make_nested_tuple(d),
                     |v| black_box(v.size().unwrap()),
                     criterion::BatchSize::SmallInput,
@@ -141,7 +138,7 @@ fn bench_tuple_size(c: &mut Criterion) {
             BenchmarkId::new("nested/cached_call", depth),
             &depth,
             |b, &d| {
-                b.iter_batched(
+                b.iter_batched_ref(
                     || {
                         let v = make_nested_tuple(d);
                         v.size().unwrap();
@@ -164,14 +161,14 @@ fn bench_list_size(c: &mut Criterion) {
     for len in [100, 1_000] {
         let v = Value::list_from((0..len).map(|i| Value::Int(i as i128)).collect()).unwrap();
         group.bench_with_input(BenchmarkId::new("int_list/first_call", len), &v, |b, v| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 || v.clone(),
                 |v| black_box(v.size().unwrap()),
                 criterion::BatchSize::SmallInput,
             );
         });
         group.bench_with_input(BenchmarkId::new("int_list/cached_call", len), &v, |b, v| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 || {
                     let v = v.clone();
                     v.size().unwrap();
@@ -187,14 +184,14 @@ fn bench_list_size(c: &mut Criterion) {
     for (len, fields) in [(100, 5), (50, 10)] {
         let label = format!("{len}x{fields}fields");
         group.bench_function(BenchmarkId::new("tuple_list/first_call", &label), |b| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 || make_list_of_tuples(len, fields),
                 |v| black_box(v.size().unwrap()),
                 criterion::BatchSize::SmallInput,
             );
         });
         group.bench_function(BenchmarkId::new("tuple_list/cached_call", &label), |b| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 || {
                     let v = make_list_of_tuples(len, fields);
                     v.size().unwrap();
@@ -218,7 +215,7 @@ fn bench_compound_wrappers(c: &mut Criterion) {
             BenchmarkId::new("optional_tuple", fields),
             &fields,
             |b, &f| {
-                b.iter_batched(
+                b.iter_batched_ref(
                     || make_optional_tuple(f),
                     |v| black_box(v.size().unwrap()),
                     criterion::BatchSize::SmallInput,
@@ -233,7 +230,7 @@ fn bench_compound_wrappers(c: &mut Criterion) {
             BenchmarkId::new("response_nested_tuple", depth),
             &depth,
             |b, &d| {
-                b.iter_batched(
+                b.iter_batched_ref(
                     || make_response_nested(d),
                     |v| black_box(v.size().unwrap()),
                     criterion::BatchSize::SmallInput,
@@ -245,7 +242,7 @@ fn bench_compound_wrappers(c: &mut Criterion) {
     // Optional(None)
     group.bench_function("optional_none", |b| {
         let v = Value::none();
-        b.iter(|| black_box(v.size().unwrap()));
+        b.iter(|| black_box(black_box(&v).size().unwrap()));
     });
 
     group.finish();
@@ -284,7 +281,7 @@ fn bench_old_vs_new(c: &mut Criterion) {
         // size() implementation path.
         group.bench_function(BenchmarkId::new("old", *label), |b| {
             let template = make();
-            b.iter_batched(
+            b.iter_batched_ref(
                 || template.clone(),
                 |v| black_box(old_value_size(&v)),
                 criterion::BatchSize::SmallInput,
@@ -293,7 +290,7 @@ fn bench_old_vs_new(c: &mut Criterion) {
 
         group.bench_function(BenchmarkId::new("new_first", *label), |b| {
             let template = make(); // never call .size() on this
-            b.iter_batched(
+            b.iter_batched_ref(
                 || template.clone(),
                 |v| black_box(v.size().unwrap()),
                 criterion::BatchSize::SmallInput,
@@ -304,7 +301,7 @@ fn bench_old_vs_new(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("new_cached", *label), |b| {
             let v = make();
             v.size().unwrap(); // prime cache
-            b.iter(|| black_box(v.size().unwrap()));
+            b.iter(|| black_box(black_box(&v).size().unwrap()));
         });
     }
 
@@ -323,7 +320,7 @@ fn bench_repeated_size(c: &mut Criterion) {
             b.iter(|| {
                 let mut total = 0u32;
                 for _ in 0..10 {
-                    total += black_box(old_value_size(&v));
+                    total += black_box(old_value_size(black_box(&v)));
                 }
                 black_box(total)
             });
@@ -333,7 +330,7 @@ fn bench_repeated_size(c: &mut Criterion) {
             b.iter(|| {
                 let mut total = 0u32;
                 for _ in 0..10 {
-                    total += black_box(v.size().unwrap());
+                    total += black_box(black_box(&v).size().unwrap());
                 }
                 black_box(total)
             });
