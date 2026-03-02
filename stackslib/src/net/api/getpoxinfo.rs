@@ -28,7 +28,7 @@ use stacks_common::types::StacksEpochId;
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::coordinator::OnChainRewardSetProvider;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::core::StacksEpoch;
@@ -186,6 +186,15 @@ impl RPCPoxInfoData {
             ))
             .ok_or(NetError::ChainstateError(
                 "PoX-4 first reward cycle begins before first burn block height".to_string(),
+            ))?
+            + 1;
+
+        let pox_5_first_cycle = burnchain
+            .block_height_to_reward_cycle(u64::from(
+                burnchain.pox_constants.pox_5_activation_height,
+            ))
+            .ok_or(NetError::ChainstateError(
+                "PoX-5 first reward cycle begins before first burn block height".to_string(),
             ))?
             + 1;
 
@@ -470,6 +479,14 @@ impl RPCPoxInfoData {
                         .pox_4_activation_height
                         as u64,
                     first_reward_cycle_id: pox_4_first_cycle,
+                },
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_5_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain
+                        .pox_constants
+                        .pox_5_activation_height
+                        as u64,
+                    first_reward_cycle_id: pox_5_first_cycle,
                 },
             ],
         })
