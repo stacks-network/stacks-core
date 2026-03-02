@@ -416,7 +416,7 @@ fn test_principals() {
 }
 
 #[test]
-fn test_serialize_to_vec_returns_serialization_failure() {
+fn test_serialize_to_vec_returns_serialization_error_bad_type_error() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
         data: vec![0; MAX_VALUE_SIZE as usize + 1],
     })));
@@ -428,7 +428,7 @@ fn test_serialize_to_vec_returns_serialization_failure() {
 }
 
 #[test]
-fn test_serialize_to_hex_returns_serialization_failure() {
+fn test_serialize_to_hex_returns_serialization_error_bad_type_error() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
         data: vec![0; MAX_VALUE_SIZE as usize + 1],
     })));
