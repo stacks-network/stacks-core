@@ -7730,7 +7730,18 @@ fn check_block_times() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
     // Keep this test in Epoch 3.3 so `at-block` remains available.
-    naka_conf.burnchain.epochs.as_mut().unwrap()[StacksEpochId::Epoch34].start_height = u64::MAX;
+    {
+        let epochs = naka_conf
+            .burnchain
+            .epochs
+            .as_mut()
+            .expect("Missing burnchain epochs in config");
+        epochs.truncate_after(StacksEpochId::Epoch33);
+        epochs
+            .get_mut(StacksEpochId::Epoch33)
+            .expect("Missing epoch 3.3 in config")
+            .end_height = STACKS_EPOCH_MAX;
+    }
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
