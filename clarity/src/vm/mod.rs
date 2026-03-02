@@ -218,30 +218,25 @@ fn lookup_variable<'a>(
         context.depth(),
     )?;
     if let Some(value) = context.lookup_variable(name) {
+        let value = ValueRef::Borrowed(value);
         if exec_state.epoch().uses_pre_sanitized_variables() {
             // If the epoch supports value refs, we can return a borrowed reference to the variable without cloning.
-            return Ok(ValueRef::Borrowed(value));
+            return Ok(value);
         } else {
-            runtime_cost(
-                ClarityCostFunction::LookupVariableSize,
-                exec_state,
-                value.size()?,
-            )?;
-            return Ok(ValueRef::Owned(value.clone()));
+            // Epochs that don't support borrowed refs must clone and pay the cost every time.
+            return Ok(ValueRef::Owned(value.clone_with_cost(exec_state)?));
         }
     }
     if let Some(value) = invoke_ctx.contract_context.lookup_variable(name) {
+        let value = ValueRef::Borrowed(value);
         if exec_state.epoch().uses_pre_sanitized_variables() {
             // Variables were sanitized at load time by canonicalize_types.
             // Borrow directly.
-            return Ok(ValueRef::Borrowed(value));
+            return Ok(value);
         }
-        let value = value.clone();
-        runtime_cost(
-            ClarityCostFunction::LookupVariableSize,
-            exec_state,
-            value.size()?,
-        )?;
+        // Variables were not sanitized at load time, so we need to sanitize them
+        // now before returning and pay for the clone.
+        let value = value.clone_with_cost(exec_state)?;
         let (value, _) =
             Value::sanitize_value(exec_state.epoch(), &TypeSignature::type_of(&value)?, value)
                 .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
