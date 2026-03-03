@@ -3850,10 +3850,21 @@ impl NakamotoChainState {
         Ok(Some(fallback_snapshot.consensus_hash))
     }
 
-    /// Sum the expected Bitcoin transaction fees for every block-commit in the sortition
-    /// identified by `consensus_hash`.  Returns 0 if the snapshot is not found or if none of the
-    /// commits have an `expected_btc_tx_fee`.
-    fn total_expected_btc_fees_for_sortition(
+    /// Sum all extra BTC spent by block-commits and missed commits for the sortition identified by
+    /// `consensus_hash`, beyond what is already captured in `burnchain_sortition_burn`.
+    ///
+    /// Concretely this adds:
+    /// - `expected_btc_tx_fee` for every regular block-commit (the Bitcoin tx fee estimate)
+    /// - `burn_fee` for every missed commit (BTC burned to PoX addresses that didn't land in
+    ///   the right sortition, so not included in `burnchain_sortition_burn`)
+    /// - `expected_btc_tx_fee` for every missed commit
+    /// And does NOT include:
+    /// - the burn_fee for regular commits, since those are already included in
+    ///   `burnchain_sortition_burn`
+    ///
+    /// Returns 0 if the snapshot is not found, or if the sortition's epoch does not yet
+    /// guarantee that this fee data is reliably stored (see [`StacksEpochId::saves_stx_btc_data`]).
+    fn total_extra_btc_for_sortition(
         sort_db: &SortitionDB,
         consensus_hash: &ConsensusHash,
     ) -> Result<u64, ChainstateError> {
@@ -3862,20 +3873,48 @@ impl NakamotoChainState {
         else {
             return Ok(0);
         };
+
+        // Gate: only include fee data for epochs where it is reliably present in the DB.
+        // Nodes that processed historical blocks before schema 11/12 have NULL/0 for these
+        // fields; including them before the gate epoch would cause disagreement across nodes.
+        let epoch = SortitionDB::get_stacks_epoch(sort_db.conn(), snapshot.block_height)?;
+        if !epoch
+            .map(|e| e.epoch_id.saves_stx_btc_data())
+            .unwrap_or(false)
+        {
+            return Ok(0);
+        }
+
         let commits =
             SortitionDB::get_block_commits_by_block(sort_db.conn(), &snapshot.sortition_id)?;
-        Ok(commits
+        let missed_commits =
+            SortitionDB::get_missed_commits_by_intended(sort_db.conn(), &snapshot.sortition_id)?;
+
+        // expected tx fees for regular commits
+        let regular_fees = commits
             .iter()
             .filter_map(|c| c.expected_btc_tx_fee)
-            .fold(0u64, |acc, fee| acc.saturating_add(fee)))
+            .fold(0u64, |acc, fee| acc.saturating_add(fee));
+
+        // burn_fee + expected tx fees for missed commits (burn_fee is not in burnchain_sortition_burn)
+        let missed_total = missed_commits
+            .iter()
+            .map(|c| {
+                c.burn_fee
+                    .saturating_add(c.expected_btc_tx_fee.unwrap_or(0))
+            })
+            .fold(0u64, |acc, v| acc.saturating_add(v));
+
+        Ok(regular_fees.saturating_add(missed_total))
     }
 
     /// Compute aggregate STX earned and BTC spent for each reward cycle in
     /// `[start_reward_cycle, end_reward_cycle]`.
     ///
     /// STX earned is the immediate per-tenure miner schedule (`coinbase + fees`).  BTC spent is
-    /// the per-tenure sortition total burn (`burnchain_sortition_burn`) plus the sum of expected
-    /// Bitcoin transaction fees for every block-commit in that sortition.
+    /// the per-tenure sortition total burn (`burnchain_sortition_burn`, i.e. `burn_fee` summed
+    /// over all regular block-commits) plus, for each sortition: the estimated Bitcoin tx fees
+    /// for regular commits, and both the `burn_fee` and estimated tx fees for missed commits.
     pub fn get_stx_btc_cycle_totals<SDBI: StacksDBIndexed>(
         conn: &mut SDBI,
         sort_db: &SortitionDB,
@@ -3958,7 +3997,7 @@ impl NakamotoChainState {
                     cycle_totals.btc_spent_sats = cycle_totals
                         .btc_spent_sats
                         .saturating_add(miner_info.burnchain_sortition_burn);
-                    let btc_fees = Self::total_expected_btc_fees_for_sortition(
+                    let btc_fees = Self::total_extra_btc_for_sortition(
                         sort_db,
                         &tenure_start_header.consensus_hash,
                     )?;

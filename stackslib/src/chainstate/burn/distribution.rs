@@ -470,6 +470,8 @@ mod tests {
             txid,
             input: (input_txid, 3),
             intended_sortition: SortitionId([0; 32]),
+            burn_fee: 0,
+            expected_btc_tx_fee: None,
         }
     }
 

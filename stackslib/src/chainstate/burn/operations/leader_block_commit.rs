@@ -515,6 +515,11 @@ pub struct MissedBlockCommit {
     pub txid: Txid,
     pub input: (Txid, u32),
     pub intended_sortition: SortitionId,
+    /// BTC burned (outputs sent to PoX addresses) by this commit, in satoshis.
+    pub burn_fee: u64,
+    /// Estimated Bitcoin transaction fee for this commit, in satoshis.
+    /// See [`LeaderBlockCommitOp::expected_btc_tx_fee`] for semantics.
+    pub expected_btc_tx_fee: Option<u64>,
 }
 
 impl MissedBlockCommit {
@@ -1096,6 +1101,8 @@ impl LeaderBlockCommitOp {
                 input: self.input.clone(),
                 txid: self.txid.clone(),
                 intended_sortition,
+                burn_fee: self.burn_fee,
+                expected_btc_tx_fee: self.expected_btc_tx_fee,
             };
 
             return Err(op_error::MissedBlockCommit(missed_data));
@@ -2331,6 +2338,8 @@ mod tests {
                     // miss distance from height 126 was 1, which corresponds to the hash at height
                     // 125 (intended modulus = ((124 % 5) + 1) % 5 = 0, actual = (126 % 5) = 1
                     intended_sortition: SortitionId(block_125_hash.0),
+                    burn_fee: 12345,
+                    expected_btc_tx_fee: Some(1000),
                 })),
             },
             CheckFixture {

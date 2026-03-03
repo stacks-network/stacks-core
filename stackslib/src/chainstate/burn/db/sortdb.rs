@@ -105,11 +105,20 @@ impl FromRow<MissedBlockCommit> for MissedBlockCommit {
         let input_json: String = row.get_unwrap("input");
         let input = serde_json::from_str(&input_json).map_err(db_error::SerializationError)?;
         let txid = Txid::from_column(row, "txid")?;
+        let burn_fee = u64::from_column(row, "burn_fee")?;
+        let expected_btc_tx_fee_str: Option<String> =
+            row.get("expected_btc_tx_fee").unwrap_or(None);
+        let expected_btc_tx_fee = expected_btc_tx_fee_str.map(|s| {
+            s.parse::<u64>()
+                .expect("CORRUPTION: expected_btc_tx_fee in missed_commits is not a u64")
+        });
 
         Ok(MissedBlockCommit {
             input,
             txid,
             intended_sortition,
+            burn_fee,
+            expected_btc_tx_fee,
         })
     }
 }
@@ -492,7 +501,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: u32 = 11;
+pub const SORTITION_DB_VERSION: u32 = 12;
 
 const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
@@ -733,6 +742,10 @@ static SORTITION_DB_SCHEMA_9: &[&str] =
 static SORTITION_DB_SCHEMA_10: &[&str] = &[r#"DROP TABLE IF EXISTS ast_rule_heights;"#];
 static SORTITION_DB_SCHEMA_11: &[&str] =
     &[r#"ALTER TABLE block_commits ADD expected_btc_tx_fee TEXT DEFAULT NULL;"#];
+static SORTITION_DB_SCHEMA_12: &[&str] = &[
+    r#"ALTER TABLE missed_commits ADD burn_fee INTEGER NOT NULL DEFAULT 0;"#,
+    r#"ALTER TABLE missed_commits ADD expected_btc_tx_fee TEXT DEFAULT NULL;"#,
+];
 
 const LAST_SORTITION_DB_INDEX: &str = "index_block_commits_by_sender";
 const SORTITION_DB_INDEXES: &[&str] = &[
@@ -2871,6 +2884,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_10(&db_tx)?;
         SortitionDB::apply_schema_11(&db_tx)?;
+        SortitionDB::apply_schema_12(&db_tx)?;
         db_tx.commit()?;
 
         self.add_indexes()?;
@@ -3380,6 +3394,19 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_12(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_12 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["12"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3448,6 +3475,10 @@ impl SortitionDB {
                     } else if version == 10 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_11(tx.deref())?;
+                        tx.commit()?;
+                    } else if version == 11 {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_12(tx.deref())?;
                         tx.commit()?;
                     } else if version == SORTITION_DB_VERSION {
                         // this transaction is almost never needed
@@ -5780,12 +5811,20 @@ impl SortitionHandleTx<'_> {
         // serialize tx input to JSON
         let tx_input_str =
             serde_json::to_string(&op.input).map_err(db_error::SerializationError)?;
+        let expected_btc_tx_fee_str = op.expected_btc_tx_fee.map(|fee| fee.to_string());
 
-        let args = params![op.txid, op.intended_sortition, tx_input_str];
+        let args = params![
+            op.txid,
+            op.intended_sortition,
+            tx_input_str,
+            u64_to_sql(op.burn_fee)?,
+            expected_btc_tx_fee_str,
+        ];
 
         self.execute(
-            "INSERT OR REPLACE INTO missed_commits (txid, intended_sortition_id, input) \
-                      VALUES (?1, ?2, ?3)",
+            "INSERT OR REPLACE INTO missed_commits \
+                      (txid, intended_sortition_id, input, burn_fee, expected_btc_tx_fee) \
+                      VALUES (?1, ?2, ?3, ?4, ?5)",
             args,
         )?;
         info!(

@@ -473,6 +473,19 @@ impl StacksEpochId {
         StacksEpochId::RELEASE_LATEST_EPOCH
     }
 
+    /// Returns whether this epoch guarantees that block-commit and missed-commit fee data
+    /// (`expected_btc_tx_fee`, missed-commit `burn_fee`) is reliably stored in the sortition DB.
+    /// This data was introduced in sortition DB schema 11/12; nodes that processed historical
+    /// blocks before those schemas will have NULL/0 for those fields.
+    ///
+    /// TODO: return `true` for Epoch 3.5 (or whichever epoch activates schema 11/12 for all
+    /// nodes). Until then, `total_extra_btc_for_sortition` returns 0 for all sortitions to
+    /// ensure consensus across nodes with different DB histories.
+    pub fn saves_stx_btc_data(&self) -> bool {
+        // TODO: update this when Epoch 3.5 is defined.
+        false
+    }
+
     /// In this epoch, how should the mempool perform garbage collection?
     pub fn mempool_garbage_behavior(&self) -> MempoolCollectionBehavior {
         match self {
