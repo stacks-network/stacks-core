@@ -173,56 +173,64 @@ pub fn special_map(
     let mut min_args_len = usize::MAX;
     for map_arg in args[1..].iter() {
         let mut sequence = eval(map_arg, env, context)?;
-        match sequence {
-            Value::Sequence(ref mut sequence_data) => {
-                min_args_len = min_args_len.min(sequence_data.len());
-                for (apply_index, value) in sequence_data
-                    .atom_values()
-                    .map_err(|_| {
-                        VmInternalError::Expect(
-                            "ERROR: Invalid sequence data successfully constructed".into(),
-                        )
-                    })?
-                    .into_iter()
-                    .enumerate()
-                {
-                    if apply_index > min_args_len {
-                        break;
-                    }
-                    if apply_index >= mapped_func_args.len() {
-                        mapped_func_args.push(vec![value]);
-                    } else {
-                        mapped_func_args[apply_index].push(value);
-                    }
-                }
+        let Value::Sequence(sequence_data) = &mut sequence else {
+            return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                "Expected sequence: {}",
+                TypeSignature::type_of(&sequence)?
+            ))
+            .into());
+        };
+        min_args_len = min_args_len.min(sequence_data.len());
+        for (apply_index, value) in sequence_data
+            .atom_values()
+            .map_err(|_| {
+                VmInternalError::Expect(
+                    "ERROR: Invalid sequence data successfully constructed".into(),
+                )
+            })?
+            .into_iter()
+            .enumerate()
+        {
+            if apply_index >= min_args_len {
+                break;
             }
-            _ => {
-                return Err(RuntimeCheckErrorKind::Unreachable(format!(
-                    "Expected sequence: {}",
-                    TypeSignature::type_of(&sequence)?
-                ))
-                .into());
+            if apply_index >= mapped_func_args.len() {
+                mapped_func_args.push(vec![value]);
+            } else {
+                mapped_func_args[apply_index].push(value);
             }
         }
     }
 
-    // We can now apply the map
+    // Apply the function to each zipped argument tuple and collect results.
+    // `min_args_len` is the length of the shortest input sequence; tuples beyond
+    // that index belong to longer sequences and should be ignored.
     let mut mapped_results = vec![];
-    let mut previous_len = None;
-    for arguments in mapped_func_args.iter() {
-        // Stop iterating when we are done with the shortest sequence
-        if let Some(previous_len) = previous_len {
-            if previous_len != arguments.len() {
-                break;
-            }
-        } else {
-            previous_len = Some(arguments.len());
-        }
+    // Track the least-supertype of all result element types so we can build the output
+    // list's type signature in a single pass, without iterating over `mapped_results` again.
+    let mut element_type_opt = None;
+    for arguments in mapped_func_args.iter().take(min_args_len) {
         let res = apply(&function, arguments, env, context)?;
+        let res_type = TypeSignature::type_of(&res)?;
+        // Widen the accumulated element type to include this result's type.
+        element_type_opt = Some(match element_type_opt.take() {
+            None => res_type,
+            Some(element_type) => {
+                TypeSignature::least_supertype(env.epoch(), &element_type, &res_type)?
+            }
+        });
         mapped_results.push(res);
     }
 
-    let value = Value::cons_list(mapped_results, env.epoch())?;
+    // If `element_type` is `None` the input sequences were all empty, so
+    // `mapped_results` is also empty; construct the empty list directly.
+    let value = match element_type_opt {
+        Some(element_type) => Value::cons_list_typed(mapped_results, element_type, env.epoch())?,
+        None => Value::Sequence(SequenceData::List(ListData {
+            data: vec![],
+            type_signature: TypeSignature::empty_list(),
+        })),
+    };
     Ok(value)
 }
 
@@ -250,7 +258,11 @@ pub fn special_append(
             )?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
-                return Ok(Value::cons_list(vec![element], env.epoch())?);
+                return Ok(Value::cons_list_typed(
+                    vec![element],
+                    element_type,
+                    env.epoch(),
+                )?);
             }
             let next_entry_type =
                 TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)?;
