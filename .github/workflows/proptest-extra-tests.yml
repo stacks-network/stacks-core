@@ -27,11 +27,10 @@ defaults:
   run:
     shell: bash
 
-## One run per PR at a time; do not cancel in progress — a new approval while
-## the job is running should queue rather than clobber the current run.
+## Allow the job to be canceled when in progress due to new approval
 concurrency:
   group: proptest-extra-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   RUST_BACKTRACE: full
@@ -85,15 +84,15 @@ jobs:
           ## Run only when approvals exactly match REQUIRED_APPROVALS.
           ## This helps avoid extra reruns triggered by later approvals
           ## that would otherwise be queued by the concurrency setting.
-          if [ "$count" -eq "${{ env.REQUIRED_APPROVALS }}" ]; then
+          if [ "$count" -ge "${{ env.REQUIRED_APPROVALS }}" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
 
-  ## Gate 2: scan for proptest tests (no compilation). 
-  ## Skips the expensive test listing/filtering job for PRs that do
-  ## not add any new proptest tests.
+  ## Gate 2: scan Git diff for newly added proptest tests (no compilation).
+  ## Skips the expensive test listing/filtering job when a PR does not
+  ## introduce any new proptest tests.
   check-changes:
     name: Detect New Proptest Tests
     needs: check-approvals
@@ -109,7 +108,7 @@ jobs:
 
       ## Quick diff scan: detect whether the PR introduces any new proptest test
       ## looking for functions starting with "prop_" or "proptest_",
-      ## so we can skip full discovery when there are none.
+      ## within files using "proptest!" macro, so we can skip full discovery when there are none.
       - name: Detect new proptest tests (git diff)
         id: detect
         run: |
@@ -195,7 +194,7 @@ jobs:
       ## unmodified stacks-core crates) is reused, so only the crates 
       ## that actually differ need recompiling.
       ##
-      ## NOTE: Overwriting HEAD binaries in target/ is harmless: the test-run step
+      ## NOTE: Overwriting HEAD binaries in target/ is harmless. The test-run step
       ## uses --archive-file, which extracts HEAD binaries from the archive into
       ## a temp dir and never reads from target/.
       - name: List BASE branch tests
