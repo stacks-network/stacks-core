@@ -197,7 +197,12 @@ fn test_try_make_response() {
 
     for (resp_tx, tip_tx) in resp.transactions.iter().zip(tip_block.receipts.iter()) {
         assert_eq!(resp_tx.txid, tip_tx.transaction.txid());
-        assert_eq!(resp_tx.events.len(), tip_tx.events.len());
+        let expected_events = if resp_tx.post_condition_aborted {
+            0
+        } else {
+            tip_tx.events.len()
+        };
+        assert_eq!(resp_tx.events.len(), expected_events);
         assert_eq!(resp_tx.result, tip_tx.result);
         assert_eq!(resp_tx.result_hex, tip_tx.result);
         assert!(!resp_tx.post_condition_aborted);
@@ -390,7 +395,12 @@ fn test_try_make_response_with_unsuccessful_transaction() {
 
     for (resp_tx, tip_tx) in resp.transactions.iter().zip(tip_block.receipts.iter()) {
         assert_eq!(resp_tx.txid, tip_tx.transaction.txid());
-        assert_eq!(resp_tx.events.len(), tip_tx.events.len());
+        let expected_events = if resp_tx.post_condition_aborted {
+            0
+        } else {
+            tip_tx.events.len()
+        };
+        assert_eq!(resp_tx.events.len(), expected_events);
         assert_eq!(resp_tx.result, tip_tx.result);
         assert_eq!(resp_tx.result_hex, tip_tx.result);
         assert!(!resp_tx.post_condition_aborted);
