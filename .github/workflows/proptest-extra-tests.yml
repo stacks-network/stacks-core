@@ -90,7 +90,7 @@ jobs:
   ## Skips the expensive test listing/filtering job for PRs that do
   ## not add any new proptest tests.
   check-changes:
-    name: Detect proptest changes
+    name: Detect New Proptest Tests
     needs: check-approvals
     if: needs.check-approvals.outputs.ready == 'true'
     runs-on: ubuntu-latest
@@ -105,7 +105,7 @@ jobs:
       ## Quick diff scan: detect whether the PR introduces any new proptest test
       ## looking for functions starting with "prop_" or "proptest_",
       ## so we can skip full discovery when there are none.
-      - name: Detect new proptest tests
+      - name: Detect new proptest tests (git diff)
         id: detect
         run: |
           BASE_REF="${{ github.event.pull_request.base.ref || inputs.base_ref }}"
@@ -234,9 +234,11 @@ jobs:
             > /tmp/new-prop-tests.txt || true
           count=$(wc -l < /tmp/new-prop-tests.txt | tr -d ' ')
           echo "count=$count" >> "$GITHUB_OUTPUT"
-          echo "New proptest tests found: $count"
           if [ "$count" -gt 0 ]; then
+            echo "New proptest tests found: $count"
             cat /tmp/new-prop-tests.txt
+          else 
+            echo "No new proptest tests discovered in this PR."
           fi
 
       ## Run each new proptest test with an elevated `PROPTEST_CASES` value.
@@ -255,7 +257,3 @@ jobs:
               -E "test(=$test_name)"
             echo "::endgroup::"
           done < /tmp/new-prop-tests.txt
-
-      - name: No new tests to run
-        if: steps.discover.outputs.count == '0'
-        run: echo "No new prop_/proptest_ tests discovered in this PR. Skipping."
