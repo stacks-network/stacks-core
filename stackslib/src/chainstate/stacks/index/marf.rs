@@ -112,7 +112,7 @@ struct WriteChainTip<T> {
 }
 
 /// Options for opening a MARF
-#[derive(Clone, Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct MARFOpenOpts {
     /// Hash calculation mode for calculating a trie root hash
     pub hash_calculation_mode: TrieHashCalculationMode,
@@ -769,7 +769,7 @@ impl<T: MarfTrieId> MARF<T> {
             TrieNodeType::Leaf(leaf) => get_leaf_hash(leaf),
             _ => {
                 node_copy_update_ptrs(node.ptrs_mut(), child_block_id);
-                TrieHash::from_data(&[])
+                TrieHash::EMPTY
             }
         };
 
