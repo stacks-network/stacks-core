@@ -64,7 +64,11 @@ fn bench_utf8(c: &mut Criterion) {
         // --- Construction: raw data structure comparison ---
         group.bench_function(format!("new_construct_ascii_{size}"), |b| {
             b.iter(|| {
-                black_box((0..size).map(|_| Utf8Char::from_char('A')).collect::<Vec<_>>());
+                black_box(
+                    (0..size)
+                        .map(|_| Utf8Char::from_char('A'))
+                        .collect::<Vec<_>>(),
+                );
             });
         });
         group.bench_function(format!("old_construct_ascii_{size}"), |b| {
@@ -75,12 +79,20 @@ fn bench_utf8(c: &mut Criterion) {
 
         group.bench_function(format!("new_construct_multibyte_{size}"), |b| {
             b.iter(|| {
-                black_box((0..size).map(|_| Utf8Char::from_char('\u{2603}')).collect::<Vec<_>>());
+                black_box(
+                    (0..size)
+                        .map(|_| Utf8Char::from_char('\u{2603}'))
+                        .collect::<Vec<_>>(),
+                );
             });
         });
         group.bench_function(format!("old_construct_multibyte_{size}"), |b| {
             b.iter(|| {
-                black_box((0..size).map(|_| vec![0xE2u8, 0x98, 0x83]).collect::<Vec<Vec<u8>>>());
+                black_box(
+                    (0..size)
+                        .map(|_| vec![0xE2u8, 0x98, 0x83])
+                        .collect::<Vec<Vec<u8>>>(),
+                );
             });
         });
 
