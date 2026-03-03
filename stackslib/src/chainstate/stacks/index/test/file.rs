@@ -48,7 +48,7 @@ fn setup_db(test_name: &str) -> Connection {
 fn test_load_store_trie_blob() {
     let mut db = setup_db("test_load_store_trie_blob");
     let mut blobs = TrieFile::from_db_path(&db_path("test_load_store_trie_blob"), false).unwrap();
-    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db, false).unwrap();
 
     blobs
         .store_trie_blob::<BlockHeaderHash>(&db, &BlockHeaderHash([0x01; 32]), &[1, 2, 3, 4, 5])

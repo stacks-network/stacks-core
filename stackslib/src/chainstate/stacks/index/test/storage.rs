@@ -126,18 +126,23 @@ fn trie_cmp<T: MarfTrieId>(
     return true;
 }
 
-fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
+fn load_store_trie_m_n_same_with_compression(m: u64, n: u64, same: bool, compress: bool) {
     let test_name = format!(
-        "/tmp/load_store_trie_{}_{}_{}",
+        "/tmp/load_store_trie_{}_{}_{}_{}",
         m,
         n,
-        if same { "same" } else { "unique" }
+        if same { "same" } else { "unique" },
+        if compress {
+            "compressed"
+        } else {
+            "uncompressed"
+        }
     );
     if fs::metadata(&test_name).is_ok() {
         fs::remove_file(&test_name).unwrap();
     }
 
-    let marf_opts = MARFOpenOpts::default();
+    let marf_opts = MARFOpenOpts::default().with_compression(compress);
     let confirmed_marf_storage =
         TrieFileStorage::<StacksBlockId>::open(&test_name, marf_opts).unwrap();
     let mut confirmed_marf = MARF::<StacksBlockId>::from_storage(confirmed_marf_storage);
@@ -162,7 +167,7 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
     let confirmed_tip = StacksBlockId([0x01; 32]);
     confirmed_marf.commit_to(&confirmed_tip).unwrap();
 
-    let marf_opts = MARFOpenOpts::default();
+    let marf_opts = MARFOpenOpts::default().with_compression(compress);
     let marf_storage =
         TrieFileStorage::<StacksBlockId>::open_unconfirmed(&test_name, marf_opts).unwrap();
     let mut marf = MARF::from_storage(marf_storage);
@@ -286,6 +291,10 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
     }
 }
 
+fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
+    load_store_trie_m_n_same_with_compression(m, n, same, false);
+}
+
 #[test]
 fn load_store_trie_4_4_same() {
     load_store_trie_m_n_same(4, 4, true);
@@ -324,4 +333,14 @@ fn load_store_trie_4_256_same() {
 #[test]
 fn load_store_trie_4_256_unique() {
     load_store_trie_m_n_same(4, 256, false);
+}
+
+#[test]
+fn load_store_trie_4_16_unique_compression_enabled_unconfirmed_stable() {
+    load_store_trie_m_n_same_with_compression(4, 16, false, true);
+}
+
+#[test]
+fn load_store_trie_4_48_same_compression_enabled_roundtrip() {
+    load_store_trie_m_n_same_with_compression(4, 48, true, true);
 }
