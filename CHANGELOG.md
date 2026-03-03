@@ -14,6 +14,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Increased allowed stack depth from 64 to 128, effective in epoch 3.4
 - Prepare for epoch 3.4's improved transaction inclusion, allowing transactions with certain errors to be included in blocks which would cause them to be rejected in earlier epochs.
 - Effective in epoch 3.4 `contract-call?`s can accept a constant as the contract to be called
+- New RPC endpoint `GET /v3/stx_btc_ratio/{cycle_num}` returns the per-cycle STX/BTC mining ratio: total STX earned by miners (coinbase + transaction fees) versus total BTC spent on block-commit transactions (PoX burn outputs + estimated Bitcoin tx fees) for the requested reward cycle, plus a 5-cycle weighted geometric mean smoothed ratio.
+- Sortition DB schema 12: adds `burn_fee` and `expected_btc_tx_fee` columns to the `missed_commits` table, preserving fee data for block-commit transactions that arrived too late and missed their intended sortition slot.
+- New `stacks-inspect get-stx-btc-ratio` command for querying the STX/BTC mining ratio for a given reward cycle directly from a local chainstate.
 
 ### Fixed
 
