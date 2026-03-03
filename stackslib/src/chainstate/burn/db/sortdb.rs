@@ -4699,7 +4699,7 @@ impl SortitionDB {
         conn: &Connection,
         tip: &BlockSnapshot,
     ) -> Result<Option<(ConsensusHash, ConsensusHash, BlockHeaderHash, u64)>, db_error> {
-        // Search stacks_chain_tips_by_burn_height, but give up after a (small) number of rows.
+        // Search stacks_chain_tips_by_burn_view, but give up after a (small) number of rows.
         // This "give up" condition should only be reached when `stacks_chain_tips_by_burn_height`
         // is empty -- i.e. on migration to schema 11.
         let mut cursor = tip.clone();
