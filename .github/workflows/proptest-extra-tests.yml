@@ -39,6 +39,8 @@ env:
   TEST_TIMEOUT: 30
   ## Minimum number of PR approvals required before running the tests
   REQUIRED_APPROVALS: 1  ## TODO: Set to 2
+  ## Number of generated cases to run per selected proptest.
+  PROPTEST_CASES: 2500
 
 jobs:
   ## Gate 1: count current (non-dismissed) approvals on the PR via
@@ -243,11 +245,9 @@ jobs:
 
       ## Run each new proptest test with an elevated `PROPTEST_CASES` value.
       ## The step fails if any individual test fails.
-      - name: Run new tests (PROPTEST_CASES=2500)
+      - name: Run new tests (PROPTEST_CASES=${{ env.PROPTEST_CASES }})
         if: steps.discover.outputs.count != '0'
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        env:
-          PROPTEST_CASES: 2500
         run: |
           while IFS= read -r test_name || [[ -n "$test_name" ]]; do
             [[ -z "$test_name" ]] && continue
