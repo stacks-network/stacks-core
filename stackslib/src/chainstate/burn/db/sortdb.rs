@@ -11137,4 +11137,68 @@ pub mod tests {
             .iter()
             .any(|col| col == "expected_btc_tx_fee"));
     }
+
+    /// Verify that `MissedBlockCommit` with the schema-12 fields (`burn_fee`,
+    /// `expected_btc_tx_fee`) round-trips correctly through `insert_missed_block_commit` and
+    /// `get_missed_commits_by_intended`.
+    #[test]
+    fn test_insert_missed_block_commit_roundtrip() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let first_block_height = 100u64;
+        let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
+
+        // Create a snapshot whose SortitionId will be the `intended_sortition`.
+        let snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0xaa; 32]), &[]);
+        let intended = snapshot.sortition_id.clone();
+
+        // Commit with both fee fields populated.
+        let commit_with_fees = MissedBlockCommit {
+            txid: Txid([0x01; 32]),
+            input: (Txid([0x02; 32]), 1),
+            intended_sortition: intended.clone(),
+            burn_fee: 12345,
+            expected_btc_tx_fee: Some(6789),
+        };
+
+        // Commit with `expected_btc_tx_fee` absent (None).
+        let commit_no_fee = MissedBlockCommit {
+            txid: Txid([0x03; 32]),
+            input: (Txid([0x04; 32]), 0),
+            intended_sortition: intended.clone(),
+            burn_fee: 42,
+            expected_btc_tx_fee: None,
+        };
+
+        // Insert both via a SortitionHandleTx.
+        {
+            let mut tx = SortitionHandleTx::begin(&mut db, &intended).unwrap();
+            tx.insert_missed_block_commit(&commit_with_fees).unwrap();
+            tx.insert_missed_block_commit(&commit_no_fee).unwrap();
+            tx.commit().unwrap();
+        }
+
+        // Read back and verify both structs survive the round-trip intact.
+        let mut results =
+            SortitionDB::get_missed_commits_by_intended(db.conn(), &intended).unwrap();
+        results.sort_by_key(|c| c.txid.clone());
+
+        assert_eq!(results.len(), 2);
+
+        // First result (txid [0x01; 32])
+        assert_eq!(results[0].txid, commit_with_fees.txid);
+        assert_eq!(results[0].input, commit_with_fees.input);
+        assert_eq!(results[0].intended_sortition, intended);
+        assert_eq!(results[0].burn_fee, 12345);
+        assert_eq!(results[0].expected_btc_tx_fee, Some(6789));
+
+        // Second result (txid [0x03; 32])
+        assert_eq!(results[1].txid, commit_no_fee.txid);
+        assert_eq!(results[1].input, commit_no_fee.input);
+        assert_eq!(results[1].intended_sortition, intended);
+        assert_eq!(results[1].burn_fee, 42);
+        assert_eq!(results[1].expected_btc_tx_fee, None);
+    }
 }
