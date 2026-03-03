@@ -430,6 +430,40 @@ fn test_variadic_map_list() {
     assert_eq!(expected, execute(test).unwrap().unwrap());
 }
 
+/// Tests for variadic map with sequences of unequal length where the longer
+/// sequence comes first.  These exercise the `apply_index >= min_args_len` break
+/// condition in `special_map` — the off-by-one that existed before the fix would
+/// have caused an extra element from the shorter sequence to be included.
+#[test]
+fn test_variadic_map_unequal_lengths() {
+    // Longer first, shorter second.
+    let test = "(map + (list 1 2 3 4) (list 10 20))";
+    let expected = Value::list_from(vec![Value::Int(11), Value::Int(22)]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // Longer first by a larger margin.
+    let test = "(map + (list 1 2 3 4 5 6 7) (list 10 20 30))";
+    let expected = Value::list_from(vec![Value::Int(11), Value::Int(22), Value::Int(33)]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // Three sequences: longest first, shortest last.
+    let test = "(map + (list 1 2 3 4 5) (list 10 20 30 40) (list 100 200))";
+    let expected = Value::list_from(vec![Value::Int(111), Value::Int(222)]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // Three sequences: shortest in the middle.
+    let test = "(map + (list 1 2 3 4 5) (list 10 20) (list 100 200 300 400))";
+    let expected = Value::list_from(vec![Value::Int(111), Value::Int(222)]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // All sequences empty — result is an empty list.
+    let test = "(map + (list) (list))";
+    assert_eq!(
+        Value::list_from(vec![]).unwrap(),
+        execute(test).unwrap().unwrap()
+    );
+}
+
 #[test]
 fn test_simple_map_append() {
     let tests = [
