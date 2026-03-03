@@ -1,0 +1,49 @@
+type: object
+required:
+  - reward_cycle
+  - tenure_count
+  - stx_earned_ustx
+  - btc_spent_sats
+  - stx_btc_ratio
+  - smoothed_stx_btc_ratio
+properties:
+  reward_cycle:
+    type: integer
+    description: The reward cycle this response describes.
+    example: 100
+  tenure_count:
+    type: integer
+    description: Number of tenures that completed in this cycle.
+    example: 2100
+  stx_earned_ustx:
+    type: integer
+    description: >
+      Total STX (coinbase + transaction fees) earned by miners in this cycle,
+      in micro-STX (μSTX). Note: this value may exceed 2^53 and should be
+      handled as a big integer by clients.
+    example: 2100000000000000
+  btc_spent_sats:
+    type: integer
+    description: >
+      Total BTC spent by all block-commit transactions in this cycle, in
+      satoshis. Includes PoX outputs plus estimated Bitcoin tx fees for every
+      competing commit.
+    example: 21000000
+  stx_btc_ratio:
+    type:
+      - integer
+      - "null"
+    description: >
+      Raw μSTX-per-satoshi ratio for this cycle, or null if the cycle has no
+      usable data (no tenures, or no BTC spent). A value of 0 means data
+      exists but miners earned zero STX that cycle.
+    example: 100000
+  smoothed_stx_btc_ratio:
+    type:
+      - integer
+      - "null"
+    description: >
+      5-cycle weighted geometric mean in μSTX/sat, ending at this cycle, with
+      weights [5, 4, 3, 2, 1] (most-recent cycle weighted highest). Cycles
+      with no data are excluded. Null if the current cycle itself has no data.
+    example: 98000
