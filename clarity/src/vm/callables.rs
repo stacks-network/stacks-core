@@ -260,7 +260,7 @@ impl DefinedFunction {
                         if !type_sig.admits(exec_state.epoch(), value)? {
                             return Err(RuntimeCheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
-                                Box::new(value.clone()),
+                                value.to_error_string(),
                             )
                             .into());
                         }
@@ -307,7 +307,7 @@ impl DefinedFunction {
                         if !type_sig.admits(exec_state.epoch(), &cast_value)? {
                             return Err(RuntimeCheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
-                                Box::new(cast_value),
+                                cast_value.to_error_string(),
                             )
                             .into());
                         }
@@ -500,7 +500,7 @@ fn clarity2_implicit_cast(
                         // This should be unreachable if the type-checker has already run successfully
                         return Err(RuntimeCheckErrorKind::TypeValueError(
                             Box::new(type_sig.clone()),
-                            Box::new(value.clone()),
+                            value.to_error_string(),
                         )
                         .into());
                     }

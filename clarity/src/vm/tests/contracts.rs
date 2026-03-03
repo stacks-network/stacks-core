@@ -115,12 +115,12 @@ fn test_get_block_info_eval(
         Ok(Value::none()),
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(Value::Int(-1)),
+            Value::Int(-1).to_error_string(),
         )
         .into()),
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(Value::Bool(true)),
+            Value::Bool(true).to_error_string(),
         )
         .into()),
         Ok(Value::none()),
@@ -1482,7 +1482,7 @@ fn test_contract_hash_type_check(
     assert_eq!(
         err,
         VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectedContractPrincipalValue(
-            Box::new(Value::UInt(123))
+            Value::UInt(123).to_error_string()
         ))
     );
 }

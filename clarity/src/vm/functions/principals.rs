@@ -77,7 +77,7 @@ pub fn special_is_standard(
     } else {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(owner.clone_with_cost(exec_state)?),
+            owner.as_ref().to_error_string(),
         )
         .into());
     };
@@ -188,7 +188,7 @@ pub fn special_principal_destruct(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::PrincipalType),
-                Box::new(principal),
+                principal.to_error_string(),
             )
             .into());
         }
@@ -232,7 +232,7 @@ pub fn special_principal_construct(
                 // This is an aborting error because this should have been caught in analysis pass.
                 Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_1),
-                    Box::new(version.clone_with_cost(exec_state)?),
+                    version.as_ref().to_error_string(),
                 )
                 .into())
             };
@@ -243,7 +243,7 @@ pub fn special_principal_construct(
         // should have been caught by the type-checker
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_1),
-            Box::new(version.clone_with_cost(exec_state)?),
+            version.as_ref().to_error_string(),
         )
         .into());
     } else if verified_version.is_empty() {
@@ -272,7 +272,7 @@ pub fn special_principal_construct(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_20),
-                Box::new(hash_bytes.clone_with_cost(exec_state)?),
+                hash_bytes.as_ref().to_error_string(),
             )
             .into());
         }
@@ -283,7 +283,7 @@ pub fn special_principal_construct(
     if verified_hash_bytes.len() > 20 {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_20),
-            Box::new(hash_bytes.clone_with_cost(exec_state)?),
+            hash_bytes.as_ref().to_error_string(),
         )
         .into());
     }
@@ -308,7 +308,7 @@ pub fn special_principal_construct(
             name => {
                 return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
-                    Box::new(name),
+                    name.to_error_string(),
                 )
                 .into());
             }
@@ -325,7 +325,7 @@ pub fn special_principal_construct(
         if name_bytes.data.len() > CONTRACT_MAX_NAME_LENGTH {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
-                Box::new(Value::from(name_bytes)),
+                Value::from(name_bytes).to_error_string(),
             )
             .into());
         }

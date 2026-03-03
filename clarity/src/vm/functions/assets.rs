@@ -111,7 +111,7 @@ pub fn special_stx_balance(
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(owner.clone_with_cost(exec_state)?),
+            owner.as_ref().to_error_string(),
         )
         .into())
     }
@@ -244,7 +244,7 @@ pub fn special_stx_account(
     } else {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(owner.clone_with_cost(exec_state)?),
+            owner.as_ref().to_error_string(),
         )
         .into());
     };
@@ -442,7 +442,7 @@ pub fn special_mint_asset_v200(
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset.clone_with_cost(exec_state)?),
+            asset.as_ref().to_error_string(),
         )
         .into());
     }
@@ -483,7 +483,7 @@ pub fn special_mint_asset_v200(
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(to.clone_with_cost(exec_state)?),
+            to.as_ref().to_error_string(),
         )
         .into())
     }
@@ -522,7 +522,7 @@ pub fn special_mint_asset_v205(
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset.clone_with_cost(exec_state)?),
+            asset.as_ref().to_error_string(),
         )
         .into());
     }
@@ -563,7 +563,7 @@ pub fn special_mint_asset_v205(
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(to.clone_with_cost(exec_state)?),
+            to.as_ref().to_error_string(),
         )
         .into())
     }
@@ -601,7 +601,7 @@ pub fn special_transfer_asset_v200(
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset.clone_with_cost(exec_state)?),
+            asset.as_ref().to_error_string(),
         )
         .into());
     }
@@ -702,7 +702,7 @@ pub fn special_transfer_asset_v205(
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset.clone_with_cost(exec_state)?),
+            asset.as_ref().to_error_string(),
         )
         .into());
     }
@@ -905,7 +905,7 @@ pub fn special_get_balance(
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(owner.clone_with_cost(exec_state)?),
+            owner.as_ref().to_error_string(),
         )
         .into())
     }
@@ -941,7 +941,7 @@ pub fn special_get_owner_v200(
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset.clone_with_cost(exec_state)?),
+            asset.as_ref().to_error_string(),
         )
         .into());
     }
@@ -992,7 +992,7 @@ pub fn special_get_owner_v205(
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset.clone_with_cost(exec_state)?),
+            asset.as_ref().to_error_string(),
         )
         .into());
     }
@@ -1142,7 +1142,7 @@ pub fn special_burn_asset_v200(
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset.clone_with_cost(exec_state)?),
+            asset.as_ref().to_error_string(),
         )
         .into());
     }
@@ -1195,7 +1195,7 @@ pub fn special_burn_asset_v200(
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(sender.clone_with_cost(exec_state)?),
+            sender.as_ref().to_error_string(),
         )
         .into())
     }
@@ -1236,7 +1236,7 @@ pub fn special_burn_asset_v205(
     if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
-            Box::new(asset.clone_with_cost(exec_state)?),
+            asset.as_ref().to_error_string(),
         )
         .into());
     }
@@ -1289,7 +1289,7 @@ pub fn special_burn_asset_v205(
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(sender.clone_with_cost(exec_state)?),
+            sender.as_ref().to_error_string(),
         )
         .into())
     }

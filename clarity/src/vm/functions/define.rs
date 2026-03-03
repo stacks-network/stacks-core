@@ -266,7 +266,7 @@ fn handle_define_fungible_token(
         } else {
             Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
-                Box::new(total_supply_value.clone_with_cost(exec_state)?),
+                total_supply_value.as_ref().to_error_string(),
             )
             .into())
         }

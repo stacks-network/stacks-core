@@ -560,7 +560,7 @@ pub fn special_at_block(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(value.clone_with_cost(exec_state)?),
+                value.as_ref().to_error_string(),
             )
             .into());
         }
@@ -948,7 +948,7 @@ pub fn special_get_block_info(
         Value::UInt(result) => Ok(*result),
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(height_eval.clone_with_cost(exec_state)?),
+            height_eval.as_ref().to_error_string(),
         )),
     }?;
 
@@ -1113,7 +1113,7 @@ pub fn special_get_burn_block_info(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
-                Box::new(height_eval.clone_with_cost(exec_state)?),
+                height_eval.as_ref().to_error_string(),
             )
             .into());
         }
@@ -1221,7 +1221,7 @@ pub fn special_get_stacks_block_info(
         Value::UInt(result) => Ok(*result),
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(height_eval.clone_with_cost(exec_state)?),
+            height_eval.as_ref().to_error_string(),
         )),
     }?;
 
@@ -1314,7 +1314,7 @@ pub fn special_get_tenure_info(
         Value::UInt(result) => Ok(*result),
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(height_eval.clone_with_cost(exec_state)?),
+            height_eval.as_ref().to_error_string(),
         )),
     }?;
 
@@ -1413,12 +1413,10 @@ pub fn special_contract_hash(
         Value::Principal(PrincipalData::Contract(contract_identifier)) => contract_identifier,
         _ => {
             // If the value is not a principal, we return a RuntimeCheckErrorKind.
-            return Err(
-                RuntimeCheckErrorKind::ExpectedContractPrincipalValue(Box::new(
-                    contract_value.clone_with_cost(exec_state)?,
-                ))
-                .into(),
-            );
+            return Err(RuntimeCheckErrorKind::ExpectedContractPrincipalValue(
+                contract_value.as_ref().to_error_string(),
+            )
+            .into());
         }
     };
 

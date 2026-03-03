@@ -153,7 +153,7 @@ fn eval_allowance(
             let contract_identifier = match contract {
                 PrincipalData::Standard(_) => {
                     return Err(RuntimeCheckErrorKind::ExpectedContractPrincipalValue(
-                        contract_value.into(),
+                        contract_value.to_error_string(),
                     )
                     .into());
                 }
@@ -199,7 +199,7 @@ fn eval_allowance(
             let contract_identifier = match contract {
                 PrincipalData::Standard(_) => {
                     return Err(RuntimeCheckErrorKind::ExpectedContractPrincipalValue(
-                        contract_value.into(),
+                        contract_value.to_error_string(),
                     )
                     .into());
                 }

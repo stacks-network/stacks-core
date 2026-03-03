@@ -27,7 +27,7 @@ fn type_force_bool(value: &Value) -> Result<bool, RuntimeCheckErrorKind> {
         Value::Bool(boolean) => Ok(boolean),
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
-            Box::new(value.clone()),
+            value.to_error_string(),
         )),
     }
 }

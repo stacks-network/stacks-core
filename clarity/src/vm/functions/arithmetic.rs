@@ -79,7 +79,7 @@ macro_rules! type_force_binary_arithmetic {
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
             (x, _) => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                Box::new(x),
+                x.to_error_string(),
             )
             .into()),
         }
@@ -94,7 +94,7 @@ macro_rules! type_force_binary_comparison_v1 {
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
             (_, _) => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                Box::new($x.clone_with_cost($e)?),
+                $x.as_ref().to_error_string(),
             )
             .into()),
         }
@@ -128,7 +128,7 @@ macro_rules! type_force_binary_comparison_v2 {
                     TypeSignature::STRING_UTF8_MAX,
                     TypeSignature::BUFFER_MAX,
                 ],
-                Box::new($x.clone_with_cost($e)?),
+                $x.as_ref().to_error_string(),
             )
             .into()),
         }
@@ -142,7 +142,7 @@ macro_rules! type_force_unary_arithmetic {
             Value::UInt(x) => U128Ops::$function(x),
             x => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                Box::new(x),
+                x.to_error_string(),
             )
             .into()),
         }
@@ -168,7 +168,7 @@ macro_rules! type_force_variadic_arithmetic {
                         Value::Int(value) => Ok(value),
                         _ => Err(RuntimeCheckErrorKind::TypeValueError(
                             Box::new(TypeSignature::IntType),
-                            Box::new(x.clone()),
+                            x.to_error_string(),
                         )),
                     })
                     .collect();
@@ -182,7 +182,7 @@ macro_rules! type_force_variadic_arithmetic {
                         Value::UInt(value) => Ok(value),
                         _ => Err(RuntimeCheckErrorKind::TypeValueError(
                             Box::new(TypeSignature::UIntType),
-                            Box::new(x.clone()),
+                            x.to_error_string(),
                         )),
                     })
                     .collect();
@@ -191,7 +191,7 @@ macro_rules! type_force_variadic_arithmetic {
             }
             _ => Err(RuntimeCheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                Box::new(first.clone()),
+                first.to_error_string(),
             )
             .into()),
         }
@@ -629,10 +629,11 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> Result<Value, VmEx
             .into()),
         }
     } else {
-        Err(
-            RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(pos))
-                .into(),
+        Err(RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            pos.to_error_string(),
         )
+        .into())
     }
 }
 
@@ -658,10 +659,11 @@ pub fn native_bitwise_right_shift(input: Value, pos: Value) -> Result<Value, VmE
             .into()),
         }
     } else {
-        Err(
-            RuntimeCheckErrorKind::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(pos))
-                .into(),
+        Err(RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            pos.to_error_string(),
         )
+        .into())
     }
 }
 
@@ -672,7 +674,7 @@ pub fn native_to_uint(input: Value) -> Result<Value, VmExecutionError> {
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::IntType),
-            Box::new(input),
+            input.to_error_string(),
         )
         .into())
     }
@@ -685,7 +687,7 @@ pub fn native_to_int(input: Value) -> Result<Value, VmExecutionError> {
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(input),
+            input.to_error_string(),
         )
         .into())
     }

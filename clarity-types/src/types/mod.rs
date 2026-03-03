@@ -1474,6 +1474,23 @@ impl fmt::Display for Value {
     }
 }
 
+/// Maximum byte length for Value string representations in error messages.
+const MAX_ERROR_VALUE_DISPLAY_LEN: usize = 512;
+
+impl Value {
+    /// Format as a truncated string for use in error messages.
+    /// Avoids cloning potentially large Values in error paths.
+    pub fn to_error_string(&self) -> String {
+        let full = format!("{self:?}");
+        if full.len() <= MAX_ERROR_VALUE_DISPLAY_LEN {
+            full
+        } else {
+            let end = full.floor_char_boundary(MAX_ERROR_VALUE_DISPLAY_LEN);
+            format!("{}...", &full[..end])
+        }
+    }
+}
+
 #[cfg(any(test, feature = "testing"))]
 impl From<&StacksPrivateKey> for Value {
     fn from(o: &StacksPrivateKey) -> Value {

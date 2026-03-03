@@ -65,7 +65,7 @@ pub fn buff_to_int_generic(
                         BufferLength::try_from(16_u32)
                             .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?,
                     ))),
-                    Box::new(value),
+                    value.to_error_string(),
                 )
                 .into())
             } else {
@@ -91,7 +91,7 @@ pub fn buff_to_int_generic(
                 BufferLength::try_from(16_u32)
                     .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?,
             ))),
-            Box::new(value),
+            value.to_error_string(),
         )
         .into()),
     }
@@ -157,7 +157,7 @@ pub fn native_string_to_int_generic(
                 TypeSignature::STRING_ASCII_MAX,
                 TypeSignature::STRING_UTF8_MAX,
             ],
-            Box::new(value),
+            value.to_error_string(),
         )
         .into()),
     }
@@ -210,7 +210,7 @@ pub fn native_int_to_string_generic(
         }
         _ => Err(RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(value),
+            value.to_error_string(),
         )
         .into()),
     }
@@ -287,7 +287,7 @@ pub fn special_to_ascii(
                 TypeSignature::TO_ASCII_BUFFER_MAX,
                 TypeSignature::STRING_UTF8_MAX,
             ],
-            Box::new(value.clone_with_cost(exec_state)?),
+            value.as_ref().to_error_string(),
         )
         .into()),
     }
@@ -334,7 +334,7 @@ pub fn from_consensus_buff(
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_MAX),
-            Box::new(value.clone_with_cost(exec_state)?),
+            value.as_ref().to_error_string(),
         ))
     }?;
 

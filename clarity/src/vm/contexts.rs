@@ -1230,7 +1230,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                         value.clone(),
                     ).ok_or_else(|| RuntimeCheckErrorKind::TypeValueError(
                             Box::new(expected_type),
-                            Box::new(value.clone()),
+                            value.to_error_string(),
                         )
                     )?;
 

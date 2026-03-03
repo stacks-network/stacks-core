@@ -89,7 +89,7 @@ pub fn special_filter(
                         } else {
                             Err(RuntimeCheckErrorKind::TypeValueError(
                                 Box::new(BoolType),
-                                Box::new(filter_eval),
+                                filter_eval.to_error_string(),
                             )
                             .into())
                         }
@@ -360,7 +360,7 @@ pub fn special_concat_v205(
             runtime_cost(ClarityCostFunction::Concat, exec_state, 1)?;
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(seq_data.type_signature()?),
-                Box::new(other_value),
+                other_value.to_error_string(),
             )
             .into());
         }
@@ -465,7 +465,7 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value, VmExecu
     } else {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(index),
+            index.to_error_string(),
         )
         .into());
     };
@@ -565,7 +565,7 @@ pub fn special_replace_at(
     {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_elem_type),
-            Box::new(new_element.clone_with_cost(exec_state)?),
+            new_element.as_ref().to_error_string(),
         )
         .into());
     }
@@ -579,7 +579,7 @@ pub fn special_replace_at(
     } else {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(index_val.clone_with_cost(exec_state)?),
+            index_val.as_ref().to_error_string(),
         )
         .into());
     };

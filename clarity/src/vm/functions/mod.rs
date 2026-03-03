@@ -688,7 +688,7 @@ fn special_if(
         }
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
-            Box::new(conditional.clone_with_cost(exec_state)?),
+            conditional.as_ref().to_error_string(),
         )
         .into()),
     }
@@ -718,7 +718,7 @@ fn special_asserts(
         }
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
-            Box::new(conditional.clone_with_cost(exec_state)?),
+            conditional.as_ref().to_error_string(),
         )
         .into()),
     }

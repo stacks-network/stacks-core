@@ -45,7 +45,7 @@ macro_rules! native_hash_func {
                         TypeSignature::UIntType,
                         TypeSignature::BUFFER_MAX,
                     ],
-                    Box::new(input),
+                    input.to_error_string(),
                 )),
             }?;
             let hash = <$module>::from_data(&bytes);
@@ -111,7 +111,7 @@ pub fn special_principal_of(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
-                Box::new(param0.clone_with_cost(exec_state)?),
+                param0.as_ref().to_error_string(),
             )
             .into());
         }
@@ -152,7 +152,7 @@ pub fn special_secp256k1_recover(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(param0.clone_with_cost(exec_state)?),
+                param0.as_ref().to_error_string(),
             )
             .into());
         }
@@ -164,7 +164,7 @@ pub fn special_secp256k1_recover(
             if data.len() > 65 {
                 return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_65),
-                    Box::new(param1.clone_with_cost(exec_state)?),
+                    param1.as_ref().to_error_string(),
                 )
                 .into());
             }
@@ -176,7 +176,7 @@ pub fn special_secp256k1_recover(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_65),
-                Box::new(param1.clone_with_cost(exec_state)?),
+                param1.as_ref().to_error_string(),
             )
             .into());
         }
@@ -210,7 +210,7 @@ pub fn special_secp256k1_verify(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(param0.clone_with_cost(exec_state)?),
+                param0.as_ref().to_error_string(),
             )
             .into());
         }
@@ -222,7 +222,7 @@ pub fn special_secp256k1_verify(
             if data.len() > 65 {
                 return Err(RuntimeCheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_65),
-                    Box::new(param1.clone_with_cost(exec_state)?),
+                    param1.as_ref().to_error_string(),
                 )
                 .into());
             }
@@ -237,7 +237,7 @@ pub fn special_secp256k1_verify(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_65),
-                Box::new(param1.clone_with_cost(exec_state)?),
+                param1.as_ref().to_error_string(),
             )
             .into());
         }
@@ -249,7 +249,7 @@ pub fn special_secp256k1_verify(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
-                Box::new(param2.clone_with_cost(exec_state)?),
+                param2.as_ref().to_error_string(),
             )
             .into());
         }
@@ -281,7 +281,7 @@ pub fn special_secp256r1_verify(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(message_value.clone_with_cost(exec_state)?),
+                message_value.as_ref().to_error_string(),
             )
             .into());
         }
@@ -301,7 +301,7 @@ pub fn special_secp256r1_verify(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_64),
-                Box::new(signature_value.clone_with_cost(exec_state)?),
+                signature_value.as_ref().to_error_string(),
             )
             .into());
         }
@@ -316,7 +316,7 @@ pub fn special_secp256r1_verify(
         _ => {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
-                Box::new(pubkey_value.clone_with_cost(exec_state)?),
+                pubkey_value.as_ref().to_error_string(),
             )
             .into());
         }
