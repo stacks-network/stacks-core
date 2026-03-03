@@ -275,7 +275,7 @@ fn test_try_make_response() {
     assert_eq!(preamble.status_code, 401);
 }
 
-/// Test that events are not emitted when the transaction is aborted by a post-condition.
+/// Test that post-condition aborted transactions are included in the response but with empty events.
 #[test]
 fn simulate_block_with_pc_failure() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
@@ -351,8 +351,6 @@ fn simulate_block_with_pc_failure() {
         tx_signer.get_tx().unwrap()
     };
 
-    let nakamoto_consensus_hash = rpc_test.consensus_hash.clone();
-
     let mut requests = vec![];
 
     let mut request = StacksHttpRequest::new_block_simulate(
@@ -373,21 +371,20 @@ fn simulate_block_with_pc_failure() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    let contents = response.clone().get_http_payload_ok().unwrap();
-    let response_json: serde_json::Value = contents.try_into().unwrap();
+    let resp = response.decode_simulated_block().unwrap();
+
+    // The post-condition aborted transaction should be present in the response (for fee
+    // reconciliation), but its events should be empty.
+    let aborted_tx = resp
+        .transactions
+        .iter()
+        .find(|tx| tx.post_condition_aborted)
+        .expect("Expected to find a post-condition aborted transaction in the response");
 
     assert!(
-        response_json
-            .get("transactions")
-            .expect("Expected JSON to have a transactions field")
-            .as_array()
-            .expect("Expected transactions to be an array")
-            .is_empty(),
-        "Expected no transactions in the response due to post-condition failure"
+        aborted_tx.events.is_empty(),
+        "Expected the post-condition aborted transaction to have empty events"
     );
-
-    let resp = response.decode_simulated_block().unwrap();
-    assert!(resp.transactions.is_empty());
 }
 
 #[test]

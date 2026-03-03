@@ -285,14 +285,7 @@ where
 
         let err = match tx_result {
             TransactionResult::Success(tx_result) => {
-                if tx_result.receipt.post_condition_aborted {
-                    debug!(
-                        "Transaction {} aborted by post-condition failure",
-                        tx.txid()
-                    );
-                } else {
-                    txs_receipts.push((tx_result.receipt, profiler_result));
-                }
+                txs_receipts.push((tx_result.receipt, profiler_result));
                 Ok(())
             }
             TransactionResult::ProcessingError(e) => {
@@ -410,20 +403,20 @@ impl RPCReplayedBlockTransaction {
         receipt: &StacksTransactionReceipt,
         profiler_result: &BlockReplayProfilerResult,
     ) -> Self {
-        let events = receipt
-            .events
-            .iter()
-            .enumerate()
-            .map(|(event_index, event)| {
-                event
-                    .json_serialize(
-                        event_index,
-                        &receipt.transaction.txid(),
-                        !receipt.post_condition_aborted,
-                    )
-                    .unwrap()
-            })
-            .collect();
+        let events = if receipt.post_condition_aborted {
+            vec![]
+        } else {
+            receipt
+                .events
+                .iter()
+                .enumerate()
+                .map(|(event_index, event)| {
+                    event
+                        .json_serialize(event_index, &receipt.transaction.txid(), true)
+                        .unwrap()
+                })
+                .collect()
+        };
 
         let transaction_data = match &receipt.transaction {
             TransactionOrigin::Stacks(stacks) => Some(stacks.clone()),
