@@ -82,7 +82,10 @@ jobs:
 
           echo "Current approval count: $count (required: ${{ env.REQUIRED_APPROVALS }})"
 
-          if [ "$count" -ge "${{ env.REQUIRED_APPROVALS }}" ]; then
+          ## Run only when approvals exactly match REQUIRED_APPROVALS.
+          ## This helps avoid extra reruns triggered by later approvals
+          ## that would otherwise be queued by the concurrency setting.
+          if [ "$count" -eq "${{ env.REQUIRED_APPROVALS }}" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
