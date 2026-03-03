@@ -57,6 +57,8 @@ pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
 pub const MAX_TYPE_DEPTH: u8 = 32;
 /// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
+/// Maximum byte length for Value string representations in error messages.
+const MAX_ERROR_VALUE_DISPLAY_LEN: usize = 512;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
@@ -1345,6 +1347,18 @@ impl Value {
             ))
         }
     }
+
+    /// Format as a truncated string for use in error messages.
+    /// Avoids cloning potentially large Values in error paths.
+    pub fn to_error_string(&self) -> String {
+        let full = format!("{self:?}");
+        if full.len() <= MAX_ERROR_VALUE_DISPLAY_LEN {
+            full
+        } else {
+            let end = full.floor_char_boundary(MAX_ERROR_VALUE_DISPLAY_LEN);
+            format!("{}...", &full[..end])
+        }
+    }
 }
 
 impl BuffData {
@@ -1470,23 +1484,6 @@ impl fmt::Display for Value {
                 write!(f, ")")
             }
             Value::CallableContract(callable_data) => write!(f, "{callable_data}"),
-        }
-    }
-}
-
-/// Maximum byte length for Value string representations in error messages.
-const MAX_ERROR_VALUE_DISPLAY_LEN: usize = 512;
-
-impl Value {
-    /// Format as a truncated string for use in error messages.
-    /// Avoids cloning potentially large Values in error paths.
-    pub fn to_error_string(&self) -> String {
-        let full = format!("{self:?}");
-        if full.len() <= MAX_ERROR_VALUE_DISPLAY_LEN {
-            full
-        } else {
-            let end = full.floor_char_boundary(MAX_ERROR_VALUE_DISPLAY_LEN);
-            format!("{}...", &full[..end])
         }
     }
 }
