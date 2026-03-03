@@ -22,6 +22,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Resolved several cases where a mock-miner would stop mining
 - /v2/pox endpoint now returns the `pox_ustx_threshold` stored in the reward set instead of a live computed value, which incorrectly accounts for STX locked during the prepare phase, after the reward set has been set.
 - Signer protocol version negotiation now properly handles downgrades based on majority consensus, not just upgrades
+- The sortition DB now tracks canonical Stacks tip by its burn view, allowing it to recover from a chain freeze if the Bitcoin block upon which the ongoing tenure is based is orphened before the last tenure block is processed.
 
 ## [3.3.0.0.5]
 
