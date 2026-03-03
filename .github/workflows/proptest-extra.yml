@@ -1,0 +1,265 @@
+## Github workflow to run new property tests with extra cases after PR approval
+##
+## Triggered when a PR review is submitted. A gate job checks that the PR has
+## reached the required number of approvals (REQUIRED_APPROVALS) before the
+## expensive test-discovery job is started.
+##
+## Discovery strategy:
+##   - HEAD branch: list tests from the nextest archive (restored from cache)
+##   - Base branch: compile and list tests in a temporary git worktree
+##   - New tests = tests in HEAD but not in base (comm -23 on sorted lists)
+
+name: Tests::Proptest Extra
+
+on:
+  pull_request_review:
+    types:
+      - submitted
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "Base branch to diff against (default: develop)"
+        required: false
+        default: "develop"
+        type: string
+
+defaults:
+  run:
+    shell: bash
+
+## One run per PR at a time; do not cancel in progress — a new approval while
+## the job is running should queue rather than clobber the current run.
+concurrency:
+  group: proptest-extra-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+## env vars are transferred to composite action steps
+env:
+  RUST_BACKTRACE: full
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
+  TEST_TIMEOUT: 30
+  ## Minimum number of PR approvals required before running the tests
+  REQUIRED_APPROVALS: 1
+
+jobs:
+  ## Lightweight gate: count current (non-dismissed) approvals on the PR via
+  ## the GitHub API and only allow the next job to proceed if the threshold
+  ## has been reached. For workflow_dispatch there is no PR context, so the
+  ## check is skipped and the job is always considered ready.
+  check-approvals:
+    name: Check Approval Count
+    if: github.event_name == 'workflow_dispatch' || github.event.review.state == 'approved'
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.count.outputs.ready }}
+    steps:
+      - name: Count current approvals
+        id: count
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "workflow_dispatch — skipping approval count check"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          ## Fetch all reviews and compute the latest state per reviewer.
+          ## A user who approved and then dismissed counts as dismissed (not approved).
+          count=$(gh api \
+            "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
+            --jq '
+              reduce .[] as $r ({};
+                .[$r.user.login] = $r.state
+              )
+              | to_entries
+              | map(select(.value == "APPROVED"))
+              | length
+            ')
+
+          echo "Current approval count: $count (required: ${{ env.REQUIRED_APPROVALS }})"
+
+          if [ "$count" -ge "${{ env.REQUIRED_APPROVALS }}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  ## Fast pre-check: scan only the diff for proptest macro calls (no
+  ## compilation). Skips the expensive proptest-extra job for PRs that do
+  ## not add any new proptest tests.
+  check-changes:
+    name: Detect proptest changes
+    needs: check-approvals
+    if: needs.check-approvals.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      found: ${{ steps.detect.outputs.found }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect new prop_/proptest_ functions in proptest files
+        id: detect
+        run: |
+          BASE_REF="${{ github.event.pull_request.base.ref || inputs.base_ref }}"
+          git fetch --depth=1 origin "$BASE_REF"
+
+          found=false
+          ## For each .rs file that was added or modified in the PR...
+          while IFS= read -r file; do
+            ## ...consider only files that already contain the proptest! macro
+            if grep -q 'proptest!' "$file" 2>/dev/null; then
+              ## ...check if any added line introduces a fn prop_ or fn proptest_
+              if git diff "origin/$BASE_REF" -- "$file" \
+                   | grep '^+[^+]' \
+                   | grep -qE 'fn\s+(prop_|proptest_)'; then
+                echo "Found new proptest function in: $file"
+                found=true
+                break
+              fi
+            fi
+          done < <(git diff "origin/$BASE_REF" --name-only --diff-filter=AM -- '*.rs')
+
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+          if [ "$found" = "true" ]; then
+            echo "New prop_/proptest_ function detected — running full test discovery"
+          else
+            echo "No new prop_/proptest_ functions detected — skipping test discovery"
+          fi
+
+  proptest-extra:
+    name: Run New Proptest Tests
+    needs: [check-approvals, check-changes]
+    if: |
+      needs.check-approvals.outputs.ready == 'true' &&
+      needs.check-changes.outputs.found == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      ## Setup test environment: checkout HEAD, restore cargo registry cache
+      ## and the pre-built nextest archive (saved by create-cache when the PR
+      ## was first opened or updated).
+      ## continue-on-error allows the job to proceed even if the cache restore
+      ## inside testenv fails (e.g. workflow_dispatch with no prior cache).
+      ## The fallback step below will build the archive from source in that case.
+      - name: Setup Test Environment
+        id: setup_tests
+        continue-on-error: true
+        uses: stacks-network/actions/stacks-core/testenv@main
+
+      ## If testenv failed (e.g. cache miss), cargo-nextest will not be installed.
+      ## Install it explicitly as a fallback using a pre-built binary.
+      - name: Install cargo-nextest (testenv fallback)
+        if: steps.setup_tests.outcome == 'failure'
+        uses: taiki-e/install-action@cargo-nextest
+
+      ## If the nextest archive was not in cache (e.g. first run or stale cache),
+      ## build it from the HEAD source so subsequent steps can use it.
+      - name: Build HEAD nextest archive (testenv fallback)
+        if: steps.setup_tests.outcome == 'failure'
+        run: |
+          echo "No cached nextest archive found — building from source"
+          cargo nextest archive \
+            --archive-file ~/test_archive.tar.zst \
+            --workspace \
+            --tests
+
+      ## List every test present on the HEAD (PR) branch.
+      ## Reading from the archive is fast — no recompilation needed.
+      - name: List HEAD branch tests
+        run: |
+          cargo nextest list \
+            --archive-file ~/test_archive.tar.zst \
+            -Tjson 2>/dev/null \
+          | jq -r '
+              .["rust-suites"]
+              | to_entries[]
+              | .value.testcases
+              | keys[]
+            ' \
+          | sort > /tmp/head-tests.txt
+          echo "HEAD tests: $(wc -l < /tmp/head-tests.txt)"
+
+      ## Check out the base branch into a temporary git worktree and compile
+      ## it to list its tests.
+      ##
+      ## CARGO_TARGET_DIR is pointed at the HEAD workspace's target/ directory.
+      ## Cargo fingerprints each crate; anything unchanged between HEAD and base
+      ## (all external deps and unmodified stacks-core crates) is reused, so only
+      ## the crates that actually differ need recompiling. In the fallback path
+      ## (testenv failure) this is a large win because the full dep graph was
+      ## already compiled when building the HEAD archive.
+      ##
+      ## Overwriting HEAD binaries in target/ is harmless: the test-run step
+      ## uses --archive-file, which extracts HEAD binaries from the archive into
+      ## a temp dir and never reads from target/.
+      - name: List base branch tests
+        run: |
+          BASE_REF="${{ github.event.pull_request.base.ref || inputs.base_ref }}"
+          echo "Base branch: $BASE_REF"
+
+          git fetch --depth=1 origin "$BASE_REF"
+          git worktree add --detach /tmp/base-worktree "origin/$BASE_REF"
+
+          ## Capture HEAD workspace root before entering the worktree
+          HEAD_TARGET="$(pwd)/target"
+
+          pushd /tmp/base-worktree
+          CARGO_TARGET_DIR="$HEAD_TARGET" \
+          cargo nextest list \
+            -Tjson 2>/dev/null \
+          | jq -r '
+              .["rust-suites"]
+              | to_entries[]
+              | .value.testcases
+              | keys[]
+            ' \
+          | sort > /tmp/base-tests.txt
+          popd
+
+          ## Worktree source files are clean (build output went to HEAD_TARGET)
+          git worktree remove /tmp/base-worktree
+          git worktree prune
+
+          echo "Base tests: $(wc -l < /tmp/base-tests.txt)"
+
+      ## comm -23 outputs lines that appear only in file 1 (HEAD) = new tests.
+      ## Then filter to only those whose function name (last :: segment) starts
+      ## with prop_ or proptest_, consistent with the detection step above.
+      - name: Discover new tests
+        id: discover
+        run: |
+          comm -23 /tmp/head-tests.txt /tmp/base-tests.txt \
+            | grep -E '(^|::)(prop_|proptest_)[^:]*$' \
+            > /tmp/new-prop-tests.txt || true
+          count=$(wc -l < /tmp/new-prop-tests.txt | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "New prop_/proptest_ tests found: $count"
+          if [ "$count" -gt 0 ]; then
+            cat /tmp/new-prop-tests.txt
+          fi
+
+      ## Run each new proptest function with an elevated PROPTEST_CASES value.
+      ## The step fails if any individual test fails.
+      - name: Run new tests (PROPTEST_CASES=2500)
+        if: steps.discover.outputs.count != '0'
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        env:
+          PROPTEST_CASES: 2500
+        run: |
+          while IFS= read -r test_name || [[ -n "$test_name" ]]; do
+            [[ -z "$test_name" ]] && continue
+            echo "::group::$test_name"
+            cargo nextest run \
+              --archive-file ~/test_archive.tar.zst \
+              -E "test(=$test_name)"
+            echo "::endgroup::"
+          done < /tmp/new-prop-tests.txt
+
+      - name: No new tests to run
+        if: steps.discover.outputs.count == '0'
+        run: echo "No new prop_/proptest_ tests discovered in this PR. Skipping."
