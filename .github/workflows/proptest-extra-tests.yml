@@ -5,9 +5,9 @@
 ## expensive test-discovery job is started.
 ##
 ## Discovery strategy:
-##   - HEAD branch: list tests from the nextest archive (restored from cache)
-##   - Base branch: compile and list tests in a temporary git worktree
-##   - New tests = tests in HEAD but not in base (comm -23 on sorted lists)
+##   - HEAD branch: list tests from the nextest archive (restored from cache, if possible)
+##   - BASE branch: compile and list tests in a temporary git worktree
+##   - New tests = check for prop tests present in HEAD but not in BASE
 
 name: Tests::Proptest Extra
 
@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       base_ref:
-        description: "Base branch to diff against (default: develop)"
+        description: "BASE branch to diff against (default: develop)"
         required: false
         default: "develop"
         type: string
@@ -33,16 +33,15 @@ concurrency:
   group: proptest-extra-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
-## env vars are transferred to composite action steps
 env:
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
   TEST_TIMEOUT: 30
   ## Minimum number of PR approvals required before running the tests
-  REQUIRED_APPROVALS: 1
+  REQUIRED_APPROVALS: 1  ## TODO: Set to 2
 
 jobs:
-  ## Lightweight gate: count current (non-dismissed) approvals on the PR via
+  ## Gate 1: count current (non-dismissed) approvals on the PR via
   ## the GitHub API and only allow the next job to proceed if the threshold
   ## has been reached. For workflow_dispatch there is no PR context, so the
   ## check is skipped and the job is always considered ready.
@@ -87,8 +86,8 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
 
-  ## Fast pre-check: scan only the diff for proptest macro calls (no
-  ## compilation). Skips the expensive proptest-extra job for PRs that do
+  ## Gate 2: scan for proptest tests (no compilation). 
+  ## Skips the expensive test listing/filtering job for PRs that do
   ## not add any new proptest tests.
   check-changes:
     name: Detect proptest changes
@@ -103,7 +102,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect new prop_/proptest_ functions in proptest files
+      ## Quick diff scan: detect whether the PR introduces any new proptest test
+      ## looking for functions starting with "prop_" or "proptest_",
+      ## so we can skip full discovery when there are none.
+      - name: Detect new proptest tests
         id: detect
         run: |
           BASE_REF="${{ github.event.pull_request.base.ref || inputs.base_ref }}"
@@ -127,12 +129,12 @@ jobs:
 
           echo "found=$found" >> "$GITHUB_OUTPUT"
           if [ "$found" = "true" ]; then
-            echo "New prop_/proptest_ function detected — running full test discovery"
+            echo "New proptest tests detected — running full test discovery"
           else
-            echo "No new prop_/proptest_ functions detected — skipping test discovery"
+            echo "No proptest tests detected — skipping test discovery"
           fi
 
-  proptest-extra:
+  proptests-run:
     name: Run New Proptest Tests
     needs: [check-approvals, check-changes]
     if: |
@@ -140,12 +142,9 @@ jobs:
       needs.check-changes.outputs.found == 'true'
     runs-on: ubuntu-latest
     steps:
-      ## Setup test environment: checkout HEAD, restore cargo registry cache
-      ## and the pre-built nextest archive (saved by create-cache when the PR
-      ## was first opened or updated).
-      ## continue-on-error allows the job to proceed even if the cache restore
-      ## inside testenv fails (e.g. workflow_dispatch with no prior cache).
-      ## The fallback step below will build the archive from source in that case.
+      ## Setup test environment: try restoring `testenv` for HEAD.
+      ## Allows the job to proceed even if the cache restore fails.
+      ## The fallback steps will build the archive from source in that case.
       - name: Setup Test Environment
         id: setup_tests
         continue-on-error: true
@@ -157,8 +156,8 @@ jobs:
         if: steps.setup_tests.outcome == 'failure'
         uses: taiki-e/install-action@cargo-nextest
 
-      ## If the nextest archive was not in cache (e.g. first run or stale cache),
-      ## build it from the HEAD source so subsequent steps can use it.
+      ## If the nextest archive was not in cache,
+      ## build it from the HEAD source.
       - name: Build HEAD nextest archive (testenv fallback)
         if: steps.setup_tests.outcome == 'failure'
         run: |
@@ -168,8 +167,7 @@ jobs:
             --workspace \
             --tests
 
-      ## List every test present on the HEAD (PR) branch.
-      ## Reading from the archive is fast — no recompilation needed.
+      ## List every test present on the HEAD branch.
       - name: List HEAD branch tests
         run: |
           cargo nextest list \
@@ -188,16 +186,14 @@ jobs:
       ## it to list its tests.
       ##
       ## CARGO_TARGET_DIR is pointed at the HEAD workspace's target/ directory.
-      ## Cargo fingerprints each crate; anything unchanged between HEAD and base
-      ## (all external deps and unmodified stacks-core crates) is reused, so only
-      ## the crates that actually differ need recompiling. In the fallback path
-      ## (testenv failure) this is a large win because the full dep graph was
-      ## already compiled when building the HEAD archive.
+      ## Anything unchanged between HEAD and BASE (external deps and 
+      ## unmodified stacks-core crates) is reused, so only the crates 
+      ## that actually differ need recompiling.
       ##
-      ## Overwriting HEAD binaries in target/ is harmless: the test-run step
+      ## NOTE: Overwriting HEAD binaries in target/ is harmless: the test-run step
       ## uses --archive-file, which extracts HEAD binaries from the archive into
       ## a temp dir and never reads from target/.
-      - name: List base branch tests
+      - name: List BASE branch tests
         run: |
           BASE_REF="${{ github.event.pull_request.base.ref || inputs.base_ref }}"
           echo "Base branch: $BASE_REF"
@@ -227,9 +223,9 @@ jobs:
 
           echo "Base tests: $(wc -l < /tmp/base-tests.txt)"
 
-      ## comm -23 outputs lines that appear only in file 1 (HEAD) = new tests.
+      ## Compare the HEAD and base test lists and keep only tests that are new in HEAD.
       ## Then filter to only those whose function name (last :: segment) starts
-      ## with prop_ or proptest_, consistent with the detection step above.
+      ## with "prop_" or "proptest_", consistent with the detection step above.
       - name: Discover new tests
         id: discover
         run: |
@@ -238,12 +234,12 @@ jobs:
             > /tmp/new-prop-tests.txt || true
           count=$(wc -l < /tmp/new-prop-tests.txt | tr -d ' ')
           echo "count=$count" >> "$GITHUB_OUTPUT"
-          echo "New prop_/proptest_ tests found: $count"
+          echo "New proptest tests found: $count"
           if [ "$count" -gt 0 ]; then
             cat /tmp/new-prop-tests.txt
           fi
 
-      ## Run each new proptest function with an elevated PROPTEST_CASES value.
+      ## Run each new proptest test with an elevated `PROPTEST_CASES` value.
       ## The step fails if any individual test fails.
       - name: Run new tests (PROPTEST_CASES=2500)
         if: steps.discover.outputs.count != '0'
