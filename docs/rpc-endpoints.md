@@ -608,9 +608,6 @@ tenure, `tip_block_id` identifies the highest-known block in this tenure, and
 
 Get number of blocks signed by signer during a given reward cycle.
 
-This endpoint accepts a querystring parameter `?tip=` to control which chain tip state is queried.
-See the [OpenAPI spec](./rpc/openapi.yaml) `tip` parameter for details.
-
 Returns a non-negative integer
 
 ### GET /v3/transaction/[Transaction ID]

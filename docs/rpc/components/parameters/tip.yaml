@@ -10,6 +10,7 @@ description: |
   - (empty/omitted): Use latest anchored tip (canonical confirmed state)
   - `latest`: Use latest known tip including unconfirmed microblocks.
     If no unconfirmed state is available, falls back to the confirmed canonical tip.
+    If the unconfirmed state check fails with an error, returns 404.
   - `{block_id}`: Use specific block ID (64 hex characters, case-insensitive)
 
   **Note:** If `tip` is present but contains an invalid or malformed value

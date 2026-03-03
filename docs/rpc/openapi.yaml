@@ -1444,7 +1444,6 @@ paths:
           schema:
             type: integer
             minimum: 0
-        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Number of blocks signed
@@ -1636,7 +1635,6 @@ paths:
           schema:
             type: string
             pattern: "^[0-9a-f]{64}$"
-        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Stream of confirmed microblocks
