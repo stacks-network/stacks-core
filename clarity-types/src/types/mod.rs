@@ -1355,7 +1355,10 @@ impl Value {
         if full.len() <= MAX_ERROR_VALUE_DISPLAY_LEN {
             full
         } else {
-            let end = full.floor_char_boundary(MAX_ERROR_VALUE_DISPLAY_LEN);
+            let end = (0..=MAX_ERROR_VALUE_DISPLAY_LEN)
+                .rev()
+                .find(|&i| full.is_char_boundary(i))
+                .unwrap_or(0);
             format!("{}...", &full[..end])
         }
     }
