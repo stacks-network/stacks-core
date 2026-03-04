@@ -1,20 +1,19 @@
-## Github workflow to run new property tests with extra cases after PR approval
+## GitHub workflow to run newly introduced proptests with higher case counts.
 ##
-## Triggered when a PR review is submitted. A gate job checks that the PR has
-## reached the required number of approvals (REQUIRED_APPROVALS) before the
-## expensive test-discovery job is started.
+## Triggered by PR review events (submitted/dismissed) and manual dispatch.
+## It uses two gates: approval threshold first, then quick diff detection of
+## new proptest tests, to avoid expensive runs when not needed.
 ##
 ## Discovery strategy:
-##   - HEAD branch: list tests from the nextest archive (restored from cache, if possible)
-##   - BASE branch: compile and list tests in a temporary git worktree
-##   - New tests = check for prop tests present in HEAD but not in BASE
+##   - HEAD: list tests from nextest archive (cache restore when available)
+##   - BASE: compile/list tests in a temporary git worktree
+##   - New tests: tests present in HEAD but not in BASE
 
 name: Tests::Proptest Extra
 
 on:
   pull_request_review:
-    types:
-      - submitted
+    types: [submitted, dismissed]
   workflow_dispatch:
     inputs:
       base_ref:
