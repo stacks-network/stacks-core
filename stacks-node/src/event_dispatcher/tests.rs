@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@ use clarity::boot_util::boot_code_id;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::SmartContractEventData;
 use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::Value;
+use clarity::vm::{ClarityName, ContractName, Value};
 use rusqlite::Connection;
 use serial_test::serial;
 use stacks::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
@@ -32,11 +32,13 @@ use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{StacksBlockEventData, TransactionOrigin};
 use stacks::chainstate::stacks::{
-    SinglesigHashMode, SinglesigSpendingCondition, StacksBlock, TenureChangeCause,
-    TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-    TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
-    TransactionSpendingCondition, TransactionVersion,
+    SinglesigHashMode, SinglesigSpendingCondition, StacksBlock, StacksTransactionSigner,
+    TenureChangeCause, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    TransactionPublicKeyEncoding, TransactionSpendingCondition, TransactionVersion,
 };
+use stacks::core::test_util::{make_unsigned_tx, to_addr};
+use stacks::core::CHAIN_ID_TESTNET;
 use stacks::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
@@ -49,6 +51,110 @@ use tiny_http::{Method, Response, Server, StatusCode};
 
 use crate::event_dispatcher::payloads::*;
 use crate::event_dispatcher::*;
+
+#[test]
+fn test_post_condition_aborted_transaction_does_not_emit_events() {
+    // Create a transaction receipt with post_condition_aborted = true and a dummy event
+    let tx = {
+        let private_key = StacksPrivateKey::from_seed("PostConditionFailure".as_bytes());
+        let addr = to_addr(&private_key);
+
+        let contract_name = ContractName::from("test");
+        let function_name = ClarityName::from("test");
+
+        let payload = TransactionContractCall {
+            address: addr.clone(),
+            contract_name,
+            function_name,
+            function_args: vec![],
+        };
+        let mut unsigned_tx = make_unsigned_tx(
+            TransactionPayload::ContractCall(payload),
+            &private_key,
+            None,
+            1,
+            None,
+            1000,
+            CHAIN_ID_TESTNET,
+            TransactionAnchorMode::Any,
+            TransactionVersion::Testnet,
+        );
+        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Deny;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(&private_key).unwrap();
+        tx_signer.get_tx().unwrap()
+    };
+    let txid = tx.txid();
+    let mut receipt = StacksTransactionReceipt {
+        transaction: TransactionOrigin::Stacks(tx),
+        events: vec![StacksTransactionEvent::SmartContractEvent(
+            SmartContractEventData {
+                key: (
+                    clarity::boot_util::boot_code_id("dummy", false),
+                    "dummy".into(),
+                ),
+                value: Value::Bool(true),
+            },
+        )],
+        post_condition_aborted: true,
+        result: Value::okay_true(),
+        stx_burned: 0,
+        contract_analysis: None,
+        execution_cost: ExecutionCost::ZERO,
+        microblock_header: None,
+        tx_index: 0,
+        vm_error: None,
+    };
+
+    let receipts = vec![receipt.clone()];
+
+    // Set up a dispatcher with a dummy observer
+    let dir = tempfile::tempdir().unwrap();
+    let mut dispatcher = EventDispatcher::new(dir.path().to_path_buf());
+    dispatcher.register_observer(&EventObserverConfig {
+        endpoint: "dummy-endpoint".to_string(),
+        events_keys: vec![EventKeyType::AnyEvent],
+        timeout_ms: 1000,
+        disable_retries: true,
+    });
+
+    // Call create_dispatch_matrix_and_event_vector with the aborted receipt
+    let (dispatch_matrix, events) = dispatcher.create_dispatch_matrix_and_event_vector(&receipts);
+
+    // There should be no events emitted for post-condition aborted transactions
+    assert!(
+        events.is_empty(),
+        "No events should be emitted for post-condition aborted transactions"
+    );
+    for observer_events in dispatch_matrix {
+        assert!(
+            observer_events.is_empty(),
+            "No observer should receive events for post-condition aborted transactions"
+        );
+    }
+
+    receipt.post_condition_aborted = false;
+    let receipts = vec![receipt];
+    // Call create_dispatch_matrix_and_event_vector with a successful receipt
+    let (dispatch_matrix, events) = dispatcher.create_dispatch_matrix_and_event_vector(&receipts);
+
+    // There should be events emitted for successful transactions
+    assert_eq!(
+        events.len(),
+        1,
+        "Events should be emitted for successful transactions"
+    );
+
+    assert_eq!(events.first().unwrap().0, txid);
+    for observer_events in dispatch_matrix {
+        assert_eq!(
+            observer_events.len(),
+            1,
+            "Observers should receive events for successful transactions"
+        );
+    }
+}
 
 #[test]
 fn build_block_processed_event() {

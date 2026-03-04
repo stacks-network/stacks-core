@@ -23,6 +23,11 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - /v2/pox endpoint now returns the `pox_ustx_threshold` stored in the reward set instead of a live computed value, which incorrectly accounts for STX locked during the prepare phase, after the reward set has been set.
 - Signer protocol version negotiation now properly handles downgrades based on majority consensus, not just upgrades
 
+### Changed
+
+- `/v3/blocks/simulate/{block_id}` and `/v3/block/replay ` no longer emit transaction events for post condition aborted transactions.
+- `EventDispatcher` no longer emits transaction events for post condition aborted transactions.
+
 ## [3.3.0.0.5]
 
 ### Added
