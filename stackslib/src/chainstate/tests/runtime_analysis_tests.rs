@@ -1185,7 +1185,7 @@ fn arithmetic_zero_n_log_n_ccall() {
     );
 }
 
-/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::Unreachable`]
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TraitReferenceUnknown`]
 /// Caused by: a transitive `use-trait` reference where the intermediate contract only
 /// *imports* the trait rather than *defining* it.
 ///
@@ -1195,13 +1195,14 @@ fn arithmetic_zero_n_log_n_ccall() {
 ///   - `foo-impl`   — `(impl-trait .foo.foo)`
 ///   - `call-foo`   — `(use-trait foo .transitive.foo)` + `(define-public (call-do-it (f <foo>)) …)`
 ///
-/// All four contracts pass static analysis without error.  At runtime, when the
+/// All four contracts pass static analysis without error in Clarity 1. Later versions
+/// successfully catch this error during static analysis. At runtime, when the
 /// dispatcher calls `check_trait_expectations` for `call-do-it`, it resolves the
 /// trait identifier to `.transitive.foo` and loads `transitive`'s `ContractContext`.
 /// `ContractContext::lookup_trait_definition` only searches `defined_traits`; because
 /// `transitive` used `use-trait` (which populates `referenced_traits`), the lookup
 /// returns `None` and the function returns
-/// `RuntimeCheckErrorKind::TraitReferenceUknown("foo")`.
+/// `RuntimeCheckErrorKind::TraitReferenceUnknown("foo")`.
 ///
 /// Outcome: block accepted.
 #[test]
