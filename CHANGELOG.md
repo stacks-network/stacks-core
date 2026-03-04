@@ -25,6 +25,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
+- **Breaking**: Removed duplicate `value` field from NFT and SmartContract observer event payloads. Use `raw_value` (hex-encoded Clarity value) instead.
+- **Breaking**: Removed `result` field from block replay/simulate transaction responses. Use `result_hex` (hex-encoded Clarity value) instead.
 - `/v3/blocks/simulate/{block_id}` and `/v3/block/replay ` no longer emit transaction events for post condition aborted transactions.
 - `EventDispatcher` no longer emits transaction events for post condition aborted transactions.
 

@@ -227,7 +227,6 @@ impl NFTTransferEventData {
             "asset_identifier": format!("{}", self.asset_identifier),
             "sender": format!("{}",self.sender),
             "recipient": format!("{}",self.recipient),
-            "value": self.value,
             "raw_value": raw_value,
         }))
     }
@@ -248,7 +247,6 @@ impl NFTMintEventData {
         Ok(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "recipient": format!("{}",self.recipient),
-            "value": self.value,
             "raw_value": raw_value,
         }))
     }
@@ -269,7 +267,6 @@ impl NFTBurnEventData {
         Ok(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "sender": format!("{}",self.sender),
-            "value": self.value,
             "raw_value": raw_value,
         }))
     }
@@ -342,7 +339,6 @@ impl SmartContractEventData {
         Ok(json!({
             "contract_identifier": self.key.0.to_string(),
             "topic": self.key.1,
-            "value": self.value,
             "raw_value": raw_value,
         }))
     }
