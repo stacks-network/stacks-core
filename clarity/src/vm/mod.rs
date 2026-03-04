@@ -102,14 +102,9 @@ impl<'a> ValueRef<'a> {
         self,
         tracker: &mut T,
     ) -> Result<Value, VmExecutionError> {
-        let value = self.as_ref();
         match self {
             ValueRef::Borrowed(r) => {
-                runtime_cost(
-                    ClarityCostFunction::LookupVariableSize,
-                    tracker,
-                    value.size()?,
-                )?;
+                runtime_cost(ClarityCostFunction::LookupVariableSize, tracker, r.size()?)?;
                 Ok(r.clone())
             }
             ValueRef::Owned(o) => Ok(o),
