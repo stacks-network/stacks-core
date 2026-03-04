@@ -1758,7 +1758,7 @@ mod tests {
                     burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash,
                     treatment: vec![],
-                    expected_btc_tx_fee: Some(1000),
+                    expected_btc_tx_fee: None,
                 })
             },
             OpFixture {
