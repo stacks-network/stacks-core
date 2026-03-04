@@ -1,6 +1,9 @@
 ## GitHub workflow to run newly introduced proptests with higher case counts.
 ##
 ## Triggered by PR review events (submitted/dismissed) and manual dispatch.
+## Manual dispatch always runs; PR-review runs proceed only for approved
+## reviews targeting the develop base branch.
+##
 ## It uses two gates: approval threshold first, then quick diff detection of
 ## new proptest tests, to avoid expensive runs when not needed.
 ##
@@ -41,13 +44,15 @@ env:
   PROPTEST_CASES: 2500
 
 jobs:
-  ## Gate 1: count current (non-dismissed) approvals on the PR via
-  ## the GitHub API and only allow the next job to proceed if the threshold
-  ## has been reached. For workflow_dispatch there is no PR context, so the
-  ## check is skipped and the job is always considered ready.
+  ## Gate 1: on manual dispatch, always proceed.
+  ## On pull_request_review, proceed only for approved reviews targeting
+  ## the `develop` base branch, then count current (non-dismissed) approvals
+  ## via the GitHub API and enforce `REQUIRED_APPROVALS`.
   check-approvals:
     name: Check Approval Count
-    if: github.event_name == 'workflow_dispatch' || github.event.review.state == 'approved'
+    if: > 
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'develop')
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.count.outputs.ready }}
