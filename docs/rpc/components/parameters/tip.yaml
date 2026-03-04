@@ -2,7 +2,7 @@ name: tip
 in: query
 schema:
   type: string
-  pattern: "^(latest|[0-9a-fA-F]{64})?$"
+  pattern: "^(latest|[0-9a-f]{64})?$"
   maxLength: 64
   example: latest
 description: |
@@ -11,7 +11,7 @@ description: |
   - `latest`: Use latest known tip including unconfirmed microblocks.
     If no unconfirmed state is available, falls back to the confirmed canonical tip.
     If the unconfirmed state check fails with an error, returns 404.
-  - `{block_id}`: Use specific block ID (64 hex characters, case-insensitive)
+  - `{block_id}`: Use specific block ID (64 lowercase hex characters)
 
   **Note:** If `tip` is present but contains an invalid or malformed value
   (i.e., not `latest` and not a valid 64-character hex block ID),
