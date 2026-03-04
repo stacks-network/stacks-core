@@ -344,6 +344,60 @@ pub enum RetainValuesError<E> {
     Predicate(E),
 }
 
+/// A lazy iterator over the elements of a [`SequenceData`], yielding owned [`Value`]s.
+///
+/// Obtained via the [`IntoIterator`] impl on [`SequenceData`], which consumes the sequence
+/// and moves List elements without cloning.
+///
+/// Implements [`ExactSizeIterator`] so callers can query `len()` without pre-collecting.
+pub enum SequenceIter {
+    Buffer(std::vec::IntoIter<u8>),
+    List(std::vec::IntoIter<Value>),
+    ASCII(std::vec::IntoIter<u8>),
+    UTF8(std::vec::IntoIter<Vec<u8>>),
+}
+
+impl Iterator for SequenceIter {
+    type Item = Result<Value, ClarityTypeError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            SequenceIter::Buffer(iter) => iter.next().map(|v| BuffData::to_value(&v)),
+            SequenceIter::List(iter) => iter.next().map(ListData::into_value),
+            SequenceIter::ASCII(iter) => iter.next().map(|v| ASCIIData::to_value(&v)),
+            SequenceIter::UTF8(iter) => iter.next().map(UTF8Data::into_value),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = match self {
+            SequenceIter::Buffer(iter) => iter.len(),
+            SequenceIter::List(iter) => iter.len(),
+            SequenceIter::ASCII(iter) => iter.len(),
+            SequenceIter::UTF8(iter) => iter.len(),
+        };
+        (len, Some(len))
+    }
+}
+
+impl ExactSizeIterator for SequenceIter {}
+
+impl IntoIterator for SequenceData {
+    type Item = Result<Value, ClarityTypeError>;
+    type IntoIter = SequenceIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            SequenceData::Buffer(data) => SequenceIter::Buffer(data.data.into_iter()),
+            SequenceData::List(data) => SequenceIter::List(data.data.into_iter()),
+            SequenceData::String(CharType::ASCII(data)) => {
+                SequenceIter::ASCII(data.data.into_iter())
+            }
+            SequenceData::String(CharType::UTF8(data)) => SequenceIter::UTF8(data.data.into_iter()),
+        }
+    }
+}
+
 impl SequenceData {
     pub fn type_signature(&self) -> Result<TypeSignature, ClarityTypeError> {
         match self {
@@ -549,7 +603,7 @@ impl SequenceData {
     /// is aborted and the original sequence is left unmodified. The first error is propagated.
     pub fn retain_values<E, F>(&mut self, mut predicate: F) -> Result<(), RetainValuesError<E>>
     where
-        F: FnMut(SymbolicExpression) -> Result<bool, E>,
+        F: FnMut(Value) -> Result<bool, E>,
     {
         // Note: this macro can probably get removed once
         // ```Vec::drain_filter<F>(&mut self, filter: F) -> DrainFilter<T, F>```
@@ -558,10 +612,9 @@ impl SequenceData {
             ($data:expr, $seq_type:ident) => {{
                 let mut i = 0;
                 while i != $data.data.len() {
-                    let atom_value = SymbolicExpression::atom_value(
-                        $seq_type::to_value(&$data.data[i]).map_err(RetainValuesError::Internal)?,
-                    );
-                    let keep = predicate(atom_value).map_err(RetainValuesError::Predicate)?;
+                    let value =
+                        $seq_type::to_value(&$data.data[i]).map_err(RetainValuesError::Internal)?;
+                    let keep = predicate(value).map_err(RetainValuesError::Predicate)?;
                     if keep {
                         i += 1;
                     } else {

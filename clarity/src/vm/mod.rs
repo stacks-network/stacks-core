@@ -59,7 +59,7 @@ use self::analysis::ContractAnalysis;
 use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
-use crate::vm::callables::CallableType;
+use crate::vm::callables::{CallableType, FunctionIdentifier};
 pub use crate::vm::contexts::{CallStack, ContractContext, LocalContext, MAX_CONTEXT_DEPTH};
 use crate::vm::contexts::{ExecutionState, ExecutionTimeTracker, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -278,6 +278,66 @@ fn add_stack_trace(result: &mut Result<Value, VmExecutionError>, exec_state: &mu
     }
 }
 
+/// Validates recursion and stack-depth invariants common to both [`apply`] and
+/// [`apply_evaluated`], returning the function's identifier and whether recursion is tracked.
+fn check_call_preconditions(
+    function: &CallableType,
+    exec_state: &ExecutionState,
+) -> Result<(FunctionIdentifier, bool), VmExecutionError> {
+    // Aaron: in non-debug executions, we shouldn't track a full call-stack.
+    //        only enough to do recursion detection.
+    let identifier = function.get_identifier();
+    let track_recursion = matches!(function, CallableType::UserFunction(_));
+    if track_recursion && exec_state.call_stack.contains(&identifier) {
+        return Err(RuntimeCheckErrorKind::CircularReference(vec![identifier.to_string()]).into());
+    }
+    if exec_state.call_stack.depth() >= max_call_stack_depth_for_epoch(*exec_state.epoch()) {
+        return Err(RuntimeError::MaxStackDepthReached.into());
+    }
+    Ok((identifier, track_recursion))
+}
+
+/// Dispatches a pre-evaluated argument list to a non-special [`CallableType`], handling
+/// call-stack bookkeeping, cost charging, and memory cleanup.
+///
+/// Both [`apply`] and [`apply_evaluated`] converge here after preparing their arguments.
+/// `used_memory` is the total already charged via [`ExecutionState::add_memory`] for the
+/// argument values; it is released before returning.
+fn dispatch_args(
+    function: &CallableType,
+    identifier: FunctionIdentifier,
+    track_recursion: bool,
+    args: Vec<Value>,
+    used_memory: u64,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+) -> Result<Value, VmExecutionError> {
+    exec_state.call_stack.insert(&identifier, track_recursion);
+    let mut resp = match function {
+        CallableType::NativeFunction(_, function, cost_function) => {
+            runtime_cost(cost_function.clone(), exec_state, args.len())
+                .map_err(VmExecutionError::from)
+                .and_then(|_| function.apply(args, exec_state, invoke_ctx))
+        }
+        CallableType::NativeFunction205(_, function, cost_function, cost_input_handle) => {
+            let cost_input = if exec_state.epoch() >= &StacksEpochId::Epoch2_05 {
+                cost_input_handle(args.as_slice())?
+            } else {
+                args.len() as u64
+            };
+            runtime_cost(cost_function.clone(), exec_state, cost_input)
+                .map_err(VmExecutionError::from)
+                .and_then(|_| function.apply(args, exec_state, invoke_ctx))
+        }
+        CallableType::UserFunction(function) => function.apply(&args, exec_state, invoke_ctx),
+        _ => return Err(VmInternalError::Expect("Should be unreachable.".into()).into()),
+    };
+    add_stack_trace(&mut resp, exec_state);
+    exec_state.drop_memory(used_memory)?;
+    exec_state.call_stack.remove(&identifier, track_recursion)?;
+    resp
+}
+
 pub fn apply(
     function: &CallableType,
     args: &[SymbolicExpression],
@@ -285,82 +345,110 @@ pub fn apply(
     invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    let identifier = function.get_identifier();
-    // Aaron: in non-debug executions, we shouldn't track a full call-stack.
-    //        only enough to do recursion detection.
-
-    // do recursion check on user functions.
-    let track_recursion = matches!(function, CallableType::UserFunction(_));
-    if track_recursion && exec_state.call_stack.contains(&identifier) {
-        return Err(RuntimeCheckErrorKind::CircularReference(vec![identifier.to_string()]).into());
-    }
-
-    if exec_state.call_stack.depth() >= max_call_stack_depth_for_epoch(*exec_state.epoch()) {
-        return Err(RuntimeError::MaxStackDepthReached.into());
-    }
+    let (identifier, track_recursion) = check_call_preconditions(function, exec_state)?;
 
     if let CallableType::SpecialFunction(_, function) = function {
         exec_state.call_stack.insert(&identifier, track_recursion);
         let mut resp = function(args, exec_state, invoke_ctx, context);
         add_stack_trace(&mut resp, exec_state);
         exec_state.call_stack.remove(&identifier, track_recursion)?;
-        resp
-    } else {
-        let mut used_memory = 0;
-        let mut evaluated_args = Vec::with_capacity(args.len());
-        exec_state.call_stack.incr_apply_depth();
-        for arg_x in args.iter() {
-            let arg_value = match eval(arg_x, exec_state, invoke_ctx, context)
-                .and_then(|v| v.clone_with_cost(exec_state))
-            {
-                Ok(x) => x,
-                Err(e) => {
-                    exec_state.drop_memory(used_memory)?;
-                    exec_state.call_stack.decr_apply_depth();
-                    return Err(e);
-                }
-            };
-            let arg_use = arg_value.get_memory_use()?;
-            match exec_state.add_memory(arg_use) {
-                Ok(_x) => {}
-                Err(e) => {
-                    exec_state.drop_memory(used_memory)?;
-                    exec_state.call_stack.decr_apply_depth();
-                    return Err(VmExecutionError::from(e));
-                }
-            };
-            used_memory += arg_use;
-            evaluated_args.push(arg_value);
-        }
-        exec_state.call_stack.decr_apply_depth();
-
-        exec_state.call_stack.insert(&identifier, track_recursion);
-        let mut resp = match function {
-            CallableType::NativeFunction(_, function, cost_function) => {
-                runtime_cost(cost_function.clone(), exec_state, evaluated_args.len())
-                    .map_err(VmExecutionError::from)
-                    .and_then(|_| function.apply(evaluated_args, exec_state, invoke_ctx))
-            }
-            CallableType::NativeFunction205(_, function, cost_function, cost_input_handle) => {
-                let cost_input = if exec_state.epoch() >= &StacksEpochId::Epoch2_05 {
-                    cost_input_handle(evaluated_args.as_slice())?
-                } else {
-                    evaluated_args.len() as u64
-                };
-                runtime_cost(cost_function.clone(), exec_state, cost_input)
-                    .map_err(VmExecutionError::from)
-                    .and_then(|_| function.apply(evaluated_args, exec_state, invoke_ctx))
-            }
-            CallableType::UserFunction(function) => {
-                function.apply(&evaluated_args, exec_state, invoke_ctx)
-            }
-            _ => return Err(VmInternalError::Expect("Should be unreachable.".into()).into()),
-        };
-        add_stack_trace(&mut resp, exec_state);
-        exec_state.drop_memory(used_memory)?;
-        exec_state.call_stack.remove(&identifier, track_recursion)?;
-        resp
+        return resp;
     }
+
+    let mut used_memory = 0;
+    let mut evaluated_args = Vec::with_capacity(args.len());
+    exec_state.call_stack.incr_apply_depth();
+    for arg_x in args.iter() {
+        let arg_value = match eval(arg_x, exec_state, invoke_ctx, context)
+            .and_then(|v| v.clone_with_cost(exec_state))
+        {
+            Ok(x) => x,
+            Err(e) => {
+                exec_state.drop_memory(used_memory)?;
+                exec_state.call_stack.decr_apply_depth();
+                return Err(e);
+            }
+        };
+        let arg_use = arg_value.get_memory_use()?;
+        match exec_state.add_memory(arg_use) {
+            Ok(_x) => {}
+            Err(e) => {
+                exec_state.drop_memory(used_memory)?;
+                exec_state.call_stack.decr_apply_depth();
+                return Err(VmExecutionError::from(e));
+            }
+        };
+        used_memory += arg_use;
+        evaluated_args.push(arg_value);
+    }
+    exec_state.call_stack.decr_apply_depth();
+
+    dispatch_args(
+        function,
+        identifier,
+        track_recursion,
+        evaluated_args,
+        used_memory,
+        exec_state,
+        invoke_ctx,
+    )
+}
+
+/// Like `apply`, but takes pre-evaluated `Value`s, skipping the `eval` + `clone_with_cost`
+/// round-trip for every argument.
+///
+/// `fold` and `map` already have the element value and accumulator as owned `Value`s; wrapping
+/// them in `SymbolicExpression::atom_value` just to have `eval` clone them back out wastes N
+/// allocations per step.  This function performs the same recursion/stack/memory bookkeeping
+/// as `apply` while bypassing the eval pass entirely.
+pub fn apply_evaluated(
+    function: &CallableType,
+    args: Vec<Value>,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+) -> Result<Value, VmExecutionError> {
+    let (identifier, track_recursion) = check_call_preconditions(function, exec_state)?;
+    // SpecialFunctions require unevaluated SymbolicExpressions. They cannot appear as
+    // fold/map step functions after type-checking, so this branch is unreachable in practice.
+    if matches!(function, CallableType::SpecialFunction(..)) {
+        return Err(VmInternalError::Expect(
+            "apply_evaluated: SpecialFunction cannot receive pre-evaluated args".into(),
+        )
+        .into());
+    }
+
+    let mut used_memory = 0;
+    exec_state.call_stack.incr_apply_depth();
+    for arg in args.iter() {
+        let arg_use = match arg.get_memory_use() {
+            Ok(x) => x,
+            Err(e) => {
+                exec_state.drop_memory(used_memory)?;
+                exec_state.call_stack.decr_apply_depth();
+                return Err(e.into());
+            }
+        };
+        match exec_state.add_memory(arg_use) {
+            Ok(_) => {}
+            Err(e) => {
+                exec_state.drop_memory(used_memory)?;
+                exec_state.call_stack.decr_apply_depth();
+                return Err(VmExecutionError::from(e));
+            }
+        };
+        used_memory += arg_use;
+    }
+    exec_state.call_stack.decr_apply_depth();
+
+    dispatch_args(
+        function,
+        identifier,
+        track_recursion,
+        args,
+        used_memory,
+        exec_state,
+        invoke_ctx,
+    )
 }
 
 fn check_max_execution_time_expired(
