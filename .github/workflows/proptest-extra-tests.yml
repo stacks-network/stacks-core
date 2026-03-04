@@ -68,12 +68,10 @@ jobs:
             exit 0
           fi
 
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-
           ## Fetch all reviews and compute the latest state per reviewer.
           ## A user who approved and then dismissed counts as dismissed (not approved).
           count=$(gh api \
-            "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
             --jq '
               reduce .[] as $r ({};
                 .[$r.user.login] = $r.state
@@ -116,8 +114,8 @@ jobs:
       - name: Detect new proptest tests (git diff)
         id: detect
         run: |
-          BASE_REF="${{ github.event.pull_request.base.ref || inputs.base_ref }}"
-          git fetch --depth=1 origin "$BASE_REF"
+          base_ref="${{ github.event.pull_request.base.ref || inputs.base_ref }}"
+          git fetch --depth=1 origin "$base_ref"
 
           found=false
           ## For each .rs file that was added or modified in the PR...
@@ -125,7 +123,7 @@ jobs:
             ## ...consider only files that already contain the proptest! macro
             if grep -q 'proptest!' "$file" 2>/dev/null; then
               ## ...check if any added line introduces a fn prop_ or fn proptest_
-              if git diff "origin/$BASE_REF" -- "$file" \
+              if git diff "origin/$base_ref" -- "$file" \
                    | grep '^+[^+]' \
                    | grep -qE 'fn\s+(prop_|proptest_)'; then
                 echo "Found new proptest function in: $file"
@@ -133,7 +131,7 @@ jobs:
                 break
               fi
             fi
-          done < <(git diff "origin/$BASE_REF" --name-only --diff-filter=AM -- '*.rs')
+          done < <(git diff "origin/$base_ref" --name-only --diff-filter=AM -- '*.rs')
 
           echo "found=$found" >> "$GITHUB_OUTPUT"
           if [ "$found" = "true" ]; then
@@ -169,7 +167,6 @@ jobs:
       - name: Build HEAD nextest archive (testenv fallback)
         if: steps.setup_tests.outcome == 'failure'
         run: |
-          echo "No cached nextest archive found — building from source"
           cargo nextest archive \
             --archive-file ~/test_archive.tar.zst \
             --workspace \
@@ -203,17 +200,17 @@ jobs:
       ## a temp dir and never reads from target/.
       - name: List BASE branch tests
         run: |
-          BASE_REF="${{ github.event.pull_request.base.ref || inputs.base_ref }}"
-          echo "Base branch: $BASE_REF"
+          base_ref="${{ github.event.pull_request.base.ref || inputs.base_ref }}"
+          echo "Base branch: $base_ref"
 
-          git fetch --depth=1 origin "$BASE_REF"
-          git worktree add --detach /tmp/base-worktree "origin/$BASE_REF"
+          git fetch --depth=1 origin "$base_ref"
+          git worktree add --detach /tmp/base-worktree "origin/$base_ref"
 
           ## Capture HEAD workspace root before entering the worktree
-          HEAD_TARGET="$(pwd)/target"
+          head_target="$(pwd)/target"
 
           pushd /tmp/base-worktree
-          CARGO_TARGET_DIR="$HEAD_TARGET" \
+          CARGO_TARGET_DIR="$head_target" \
           cargo nextest list \
             -Tjson 2>/dev/null \
           | jq -r '
