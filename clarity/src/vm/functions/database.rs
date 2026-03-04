@@ -184,6 +184,7 @@ pub fn special_contract_call(
                             .into());
                         }
 
+                        // If this check succeeds, the subsequent trait reference and method checks cannot fail
                         function_to_check.check_trait_expectations(
                             env.epoch(),
                             &contract_context_defining_trait,
