@@ -1995,6 +1995,8 @@ fn bitcoind_forking_test() {
             epochs[StacksEpochId::Epoch33].start_height = 3_065;
             epochs[StacksEpochId::Epoch33].end_height = 3_075;
             epochs[StacksEpochId::Epoch34].start_height = 3_075;
+            epochs[StacksEpochId::Epoch34].end_height = 3_085;
+            epochs[StacksEpochId::Epoch35].start_height = 3_085;
         },
         None,
         None,
@@ -4900,6 +4902,8 @@ fn btc_fork_on_midtenure_accept() {
             epochs[StacksEpochId::Epoch33].start_height = 3_065;
             epochs[StacksEpochId::Epoch33].end_height = 3_075;
             epochs[StacksEpochId::Epoch34].start_height = 3_075;
+            epochs[StacksEpochId::Epoch34].end_height = 3_085;
+            epochs[StacksEpochId::Epoch35].start_height = 3_085;
         },
         None,
         None,

@@ -2693,6 +2693,7 @@ fn static_problematic_txs_pre_epoch21(#[case] epoch_id: StacksEpochId) {
 #[case::epoch_32(StacksEpochId::Epoch32)]
 #[case::epoch_33(StacksEpochId::Epoch33)]
 #[case::epoch_34(StacksEpochId::Epoch34)]
+#[case::epoch_35(StacksEpochId::Epoch35)]
 fn static_problematic_txs_post_epoch21(#[case] epoch_id: StacksEpochId) {
     let DeepTransactions {
         tx_high,

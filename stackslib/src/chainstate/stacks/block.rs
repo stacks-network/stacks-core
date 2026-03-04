@@ -2112,6 +2112,10 @@ mod test {
             &tx_future_clarity,
             StacksEpochId::Epoch34
         ));
+        assert!(StacksBlock::validate_transaction_static_epoch(
+            &tx_future_clarity,
+            StacksEpochId::Epoch35
+        ));
     }
 
     // TODO:

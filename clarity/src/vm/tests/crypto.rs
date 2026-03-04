@@ -200,6 +200,18 @@ fn secp256r1_verify_valid_signatures_nist() {
             .expect("execution should succeed")
             .expect("should return a value")
         );
+
+        assert_eq!(
+            Value::Bool(true),
+            execute_with_parameters(
+                program.as_str(),
+                ClarityVersion::Clarity5,
+                StacksEpochId::Epoch35,
+                false
+            )
+            .expect("execution should succeed")
+            .expect("should return a value")
+        );
     }
 }
 
