@@ -216,3 +216,6 @@ The environment variable `PROPTEST_CASES` can be set to a higher number (e.g., `
 1. Executes once a PR has been approved.
 2. Discovers the set of new tests (this is probably easiest to achieve by running `cargo nextest list` on the source and target branches and then diffing the outputs).
 3. Executes only the new tests with the environment variable `PROPTEST_CASES` set to 2500.
+
+
+TODO: Update documentation about CI and test filtering
