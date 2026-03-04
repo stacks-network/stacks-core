@@ -87,7 +87,7 @@ impl BlockSnapshot {
             sortition_hash: SortitionHash::initial(),
             winning_block_txid: Txid([0u8; 32]),
             winning_stacks_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
-            index_root: TrieHash::from_empty_data(),
+            index_root: TrieHash::EMPTY,
             num_sortitions: 0,
             stacks_block_accepted: false,
             stacks_block_height: 0,
@@ -264,7 +264,7 @@ impl BlockSnapshot {
             sortition_hash: sortition_hash.clone(),
             winning_block_txid: non_winning_block_txid,
             winning_stacks_block_hash: non_winning_block_hash,
-            index_root: TrieHash::from_empty_data(), // will be overwritten
+            index_root: TrieHash::EMPTY, // will be overwritten
             num_sortitions: parent_snapshot.num_sortitions,
             stacks_block_accepted: false,
             stacks_block_height: 0,
@@ -749,7 +749,7 @@ impl BlockSnapshot {
             sortition_hash: final_sortition_hash,
             winning_block_txid: winning_block.txid,
             winning_stacks_block_hash: winning_block.block_header_hash,
-            index_root: TrieHash::from_empty_data(), // will be overwritten,
+            index_root: TrieHash::EMPTY, // will be overwritten,
             num_sortitions: parent_snapshot.num_sortitions + 1,
             stacks_block_accepted: false,
             stacks_block_height: 0,
@@ -826,6 +826,7 @@ mod test {
             first_block_height,
             initial_reward_start_block: first_block_height,
             first_block_hash: first_burn_hash.clone(),
+            marf_opts: None,
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
@@ -1092,6 +1093,7 @@ mod test {
             first_block_height,
             initial_reward_start_block: first_block_height,
             first_block_hash: first_burn_hash.clone(),
+            marf_opts: None,
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();

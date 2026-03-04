@@ -499,7 +499,7 @@ mod tests {
                         "0000000000000000000000000000000000000000000000000000000000000000",
                     )
                     .unwrap(),
-                    index_root: TrieHash::from_empty_data(), // will be overwritten
+                    index_root: TrieHash::EMPTY, // will be overwritten
                     num_sortitions: i,
                     stacks_block_accepted: false,
                     stacks_block_height: 0,

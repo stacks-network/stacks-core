@@ -601,9 +601,7 @@ impl NakamotoBlockProposal {
             tenure_change,
             coinbase,
             tenure_cause,
-            chainstate.mainnet,
-            chainstate.chain_id,
-            &chainstate.root_path.clone(),
+            chainstate,
             &burn_dbconn,
         )?;
 
@@ -746,15 +744,14 @@ impl NakamotoBlockProposal {
     /// Returns a boolean indicating whether this block exhausts the replay set.
     ///
     /// Returns `false` if there is no replay set.
-    pub fn validate_replay(
+    fn validate_replay(
         &self,
         parent_stacks_header: &StacksHeaderInfo,
         tenure_change: Option<&StacksTransaction>,
         coinbase: Option<&StacksTransaction>,
         tenure_cause: MinerTenureInfoCause,
-        mainnet: bool,
-        chain_id: u32,
-        chainstate_path: &str,
+        // not directly used; used as a handle to open other chainstates
+        chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
     ) -> Result<bool, BlockValidateRejectReason> {
         let mut replay_txs_maybe: Option<VecDeque<StacksTransaction>> =
@@ -776,8 +773,7 @@ impl NakamotoBlockProposal {
             Some(self.block.header.timestamp),
             u64::from(DEFAULT_MAX_TENURE_BYTES),
         )?;
-        let (mut replay_chainstate, _) =
-            StacksChainState::open(mainnet, chain_id, chainstate_path, None)?;
+        let (mut replay_chainstate, _) = chainstate_handle.reopen()?;
         let mut replay_miner_tenure_info =
             replay_builder.load_tenure_info(&mut replay_chainstate, &burn_dbconn, tenure_cause)?;
         let mut replay_tenure_tx =
