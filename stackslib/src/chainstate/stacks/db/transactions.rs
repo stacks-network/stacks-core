@@ -10760,9 +10760,13 @@ pub mod test {
             runtime_check_err,
         ))) = err
         {
+            assert!(
+                matches!(runtime_check_err, RuntimeCheckErrorKind::TraitReferenceUnknown(ref name) if name == "foo"),
+                "Expected TraitReferenceUnknown(\"foo\") runtime check error"
+            );
         } else {
             panic!("Did not get unchecked interpreter error");
-        }
+        };
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
@@ -10855,23 +10859,17 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let err = validate_transactions_static_epoch_and_process_transaction(
+        let (_fee, receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
         )
-        .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            runtime_check_err,
-        ))) = err
-        {
-            assert_eq!(
-                RuntimeCheckErrorKind::Unreachable("Trait reference unknown: foo".to_string()),
-                runtime_check_err
-            );
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        .unwrap();
+        assert_eq!(
+            receipt.vm_error.as_deref(),
+            Some("TraitReferenceUnknown(\"foo\")"),
+            "Expected TraitReferenceUnknown vm_error"
+        );
 
         conn.commit_block();
 
@@ -10916,23 +10914,17 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let err = validate_transactions_static_epoch_and_process_transaction(
+        let (_fee, receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
         )
-        .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            runtime_check_err,
-        ))) = err
-        {
-            assert_eq!(
-                RuntimeCheckErrorKind::Unreachable("Trait reference unknown: foo".to_string()),
-                runtime_check_err
-            );
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        .unwrap();
+        assert_eq!(
+            receipt.vm_error.as_deref(),
+            Some("TraitReferenceUnknown(\"foo\")"),
+            "Expected TraitReferenceUnknown vm_error"
+        );
 
         conn.commit_block();
 

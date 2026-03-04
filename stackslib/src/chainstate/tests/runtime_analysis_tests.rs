@@ -86,7 +86,13 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             runtime_check_error_kind_type_signature_too_deep_cdeploy,
             runtime_check_error_kind_type_signature_too_deep_ccall
         ]),
-        Unreachable(_) => Unreachable_ExpectLike,
+        TraitReferenceUnknown(_) => Tested(vec![
+            trait_reference_unknown_transitive_use_trait_ccall,
+        ]),
+        TraitMethodUnknown(_, _) => Tested(vec![
+            trait_method_unknown_transitive_use_trait_ccall,
+        ]),
+        Unreachable(_) => Unreachable_ExpectLike, // This error is used in places where we expect the code to be unreachable, so if we hit it, it indicates a bug.
         ListTypesMustMatch => Tested(vec![runtime_check_error_kind_list_types_must_match_cdeploy]),
         TypeError(_, _) => Tested(vec![
             runtime_check_error_kind_type_error_cdeploy,
@@ -1176,5 +1182,156 @@ fn arithmetic_zero_n_log_n_ccall() {
         function_args: &[],
         deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
         exclude_clarity_versions: &[ClarityVersion::Clarity1],
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::Unreachable`]
+/// Caused by: a transitive `use-trait` reference where the intermediate contract only
+/// *imports* the trait rather than *defining* it.
+///
+/// Scenario:
+///   - `foo`        — `(define-trait foo …)`
+///   - `transitive` — `(use-trait foo .foo.foo)` (imports, does NOT define)
+///   - `foo-impl`   — `(impl-trait .foo.foo)`
+///   - `call-foo`   — `(use-trait foo .transitive.foo)` + `(define-public (call-do-it (f <foo>)) …)`
+///
+/// All four contracts pass static analysis without error.  At runtime, when the
+/// dispatcher calls `check_trait_expectations` for `call-do-it`, it resolves the
+/// trait identifier to `.transitive.foo` and loads `transitive`'s `ContractContext`.
+/// `ContractContext::lookup_trait_definition` only searches `defined_traits`; because
+/// `transitive` used `use-trait` (which populates `referenced_traits`), the lookup
+/// returns `None` and the function returns
+/// `RuntimeCheckErrorKind::TraitReferenceUknown("foo")`.
+///
+/// Outcome: block accepted.
+#[test]
+fn trait_reference_unknown_transitive_use_trait_ccall() {
+    let foo = SetupContract::new(
+        "foo",
+        "
+(define-trait foo
+    ((do-it () (response bool uint))))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    // transitive imports foo via use-trait — it does NOT define it.
+    // lookup_trait_definition will therefore return None for "foo" on this context.
+    let transitive = SetupContract::new(
+        "transitive",
+        "
+(use-trait foo .foo.foo)
+(define-trait poo
+    ((do-it () (response bool uint))))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    let foo_impl = SetupContract::new(
+        "foo-impl",
+        "
+(impl-trait .foo.foo)
+(define-public (do-it)
+    (ok true))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    contract_call_consensus_test!(
+        contract_name: "call-foo",
+        // Resolves <foo> through .transitive.foo, not .foo.foo directly.
+        // Static analysis accepts this; runtime check_trait_expectations fails.
+        contract_code: "
+(use-trait foo .transitive.foo)
+(define-public (call-do-it (f <foo>))
+    (contract-call? f do-it))
+(define-public (trigger-error)
+    (call-do-it .foo-impl))",
+        function_name: "trigger-error",
+        function_args: &[],
+        setup_contracts: &[foo, transitive, foo_impl],
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TraitMethodUnknown`]
+/// Caused by a divergence between what the analysis DB stores for a trait and what
+/// the runtime `ContractContext` stores, caused by a `use-trait` silently overwriting
+/// a `define-trait` entry during analysis.
+///
+/// In Clarity 1, the v2_05 type checker's `UseTrait` handler calls
+/// `contract_context.add_trait(trait_identifier.name.clone(), trait_sig)`, where
+/// `trait_identifier.name` is the **remote** trait name (not the local alias).
+/// When `into_contract_analysis` drains `self.traits` into `ContractAnalysis.defined_traits`,
+/// the use-trait's overwritten value is persisted.
+///
+/// At runtime, only `DefineResult::Trait` (from `define-trait`) populates
+/// `ContractContext.defined_traits`; `DefineResult::UseTrait` is ignored.
+///
+/// Scenario:
+///   - `foo`        — `(define-trait foo ((do-it () (response bool uint))))`
+///   - `transitive` — `(define-trait foo ((other-method () ...)))` comes first, then
+///                    `(use-trait alias .foo.foo)` (remote name also "foo").
+///                    Analysis: use-trait overwrites `defined_traits["foo"]` → `{do-it}`.
+///                    Runtime:  `defined_traits["foo"]` = `{other-method}` (define-trait only).
+///   - `foo-impl`   — `(impl-trait .foo.foo)` + `(define-public (do-it) ...)`.
+///                    Does NOT impl-trait `.transitive.foo`, so the short-circuit is bypassed.
+///   - `call-foo`   — `(use-trait foo .transitive.foo)`.
+///                    Analysis sees `do-it` in `.transitive.foo` and accepts the call.
+///                    Runtime: `lookup_trait_definition("foo")` finds `{other-method}`;
+///                    `get("do-it")` returns `None` → `TraitMethodUnknown`.
+///
+/// Outcome: block accepted.
+#[test]
+fn trait_method_unknown_transitive_use_trait_ccall() {
+    let foo = SetupContract::new(
+        "foo",
+        "
+(define-trait foo
+    ((do-it () (response bool uint))))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    // define-trait foo comes FIRST (with other-method), then use-trait alias .foo.foo.
+    // During analysis:
+    //   1. define-trait → self.traits["foo"] = {other-method}
+    //   2. use-trait alias .foo.foo → add_trait("foo", {do-it}) overwrites
+    //   → ContractAnalysis.defined_traits["foo"] = {do-it}
+    // At runtime:
+    //   1. define-trait → ContractContext.defined_traits["foo"] = {other-method}
+    //   2. use-trait → DefineResult::UseTrait → nothing inserted
+    //   → ContractContext.defined_traits["foo"] = {other-method}
+    let transitive = SetupContract::new(
+        "transitive",
+        "
+(define-trait foo
+    ((other-method () (response bool uint))))
+(use-trait alias .foo.foo)",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    // Explicitly implements .foo.foo (not .transitive.foo), so
+    // is_explicitly_implementing_trait(.transitive.foo) = false and the dynamic
+    // check_trait_expectations runs instead of short-circuiting.
+    let foo_impl = SetupContract::new(
+        "foo-impl",
+        "
+(impl-trait .foo.foo)
+(define-public (do-it)
+    (ok true))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    contract_call_consensus_test!(
+        contract_name: "call-foo",
+        // Analysis resolves .transitive.foo to {do-it} (from the overwritten analysis DB entry)
+        // and accepts (contract-call? f do-it). At runtime, .transitive's
+        // ContractContext.defined_traits["foo"] = {other-method}, so lookup_trait_definition
+        // succeeds but get("do-it") returns None → TraitMethodUnknown.
+        contract_code: "
+(use-trait foo .transitive.foo)
+(define-public (call-do-it (f <foo>))
+    (contract-call? f do-it))
+(define-public (trigger-error)
+    (call-do-it .foo-impl))",
+        function_name: "trigger-error",
+        function_args: &[],
+        setup_contracts: &[foo, transitive, foo_impl],
     );
 }
