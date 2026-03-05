@@ -251,12 +251,17 @@ impl StacksChainState {
     }
 
     /// Get a stacks header info by its sortition's burnchain header hash.
-    /// If there are multiple at a given burn view, all will be returned.
+    /// If there are multiple at a given burn view, all will be returned by stacks block height descending.
     pub fn get_stacks_block_header_info_by_burn_header_hash(
         conn: &Connection,
         burnchain_header_hash: &BurnchainHeaderHash,
     ) -> Result<Vec<StacksHeaderInfo>, Error> {
-        let sql = "SELECT * FROM block_headers WHERE burn_header_hash = ?1";
+        let sql = "
+            SELECT *
+            FROM block_headers
+            WHERE burn_header_hash = ?1
+            ORDER BY block_height DESC
+        ";
         let out = query_rows(conn, sql, &[&burnchain_header_hash])?;
         if !out.is_empty() {
             return Ok(out);
@@ -265,12 +270,17 @@ impl StacksChainState {
     }
 
     /// Get a stacks header info by its sortition's burn block height
-    /// If there are multiple at a given burn view, all will be returned.
+    /// If there are multiple at a given burn height, all will be returned by stacks block height descending.
     pub fn get_stacks_block_header_info_by_burn_header_height(
         conn: &Connection,
         burn_header_height: u64,
     ) -> Result<Vec<StacksHeaderInfo>, Error> {
-        let sql = "SELECT * FROM block_headers WHERE burn_header_height = ?1";
+        let sql = "
+            SELECT * 
+            FROM block_headers 
+            WHERE burn_header_height = ?1
+            ORDER BY block_height DESC
+        ";
         let out = query_rows(conn, sql, &[&burn_header_height])?;
         if !out.is_empty() {
             return Ok(out);
