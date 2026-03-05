@@ -262,7 +262,6 @@ pub fn special_match(
 ) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(1, args)?;
 
-    // TODO: Should this be clone_with_cost? We do need the internal ResponseData which also has clones the internal value
     let input =
         { vm::eval(&args[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)? };
 
