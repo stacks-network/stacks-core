@@ -38,6 +38,8 @@ use std::path::Path;
 use std::time::{self, SystemTime, UNIX_EPOCH};
 use std::{error, fmt, thread};
 
+use hash::hex_bytes;
+
 /// Given a relative path inside the Cargo workspace, return the absolute path
 #[cfg(any(test, feature = "testing"))]
 pub fn cargo_workspace<P>(relative_path: P) -> std::path::PathBuf
@@ -124,6 +126,31 @@ impl error::Error for HexError {
 
 pub trait HexDeser: Sized {
     fn try_from_hex(hex: &str) -> Result<Self, HexError>;
+}
+
+/// Trait for lower-hex serialization
+pub trait HexSer {
+    fn fmt_hex(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error>;
+}
+
+impl<const N: usize> HexSer for [u8; N] {
+    fn fmt_hex(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", hash::to_hex(self))
+    }
+}
+
+impl<const N: usize> HexDeser for [u8; N] {
+    fn try_from_hex(hex: &str) -> Result<Self, HexError> {
+        if hex.len() != N * 2 {
+            return Err(HexError::BadLength(hex.len()));
+        }
+        let bytes = hex_bytes(hex)?;
+        bytes.try_into().map_err(|_|
+                                 // error should be unreachable because of the length check above 
+                                 HexError::BadLength(
+                                     hex.len(),
+                                 ))
+    }
 }
 
 /// Write any `serde_json` object directly to a file

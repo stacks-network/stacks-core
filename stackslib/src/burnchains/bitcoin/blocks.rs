@@ -29,7 +29,7 @@ use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::{
     bits, BitcoinBlock, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
-    Error as btc_error, PeerMessage, WatchedOutput, WitnessScriptHash,
+    Error as btc_error, PeerMessage, WatchedP2WSHOutput, WitnessScriptHash,
 };
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser,
@@ -476,7 +476,7 @@ impl BitcoinBlockParser {
         }
 
         // Extract transactions with P2WSH outputs
-        let mut watched_outputs = vec![];
+        let mut watched_p2wsh_outputs = vec![];
         for tx in block.txdata.iter() {
             for (vout_index, output) in tx.output.iter().enumerate() {
                 let Some(parsed_output) =
@@ -491,7 +491,7 @@ impl BitcoinBlockParser {
                 else {
                     continue;
                 };
-                watched_outputs.push(WatchedOutput {
+                watched_p2wsh_outputs.push(WatchedP2WSHOutput {
                     witness_script_hash: WitnessScriptHash(witness_script_hash),
                     amount: parsed_output.units,
                     txid: Txid::from_bitcoin_tx_hash(&tx.txid()),
@@ -508,7 +508,7 @@ impl BitcoinBlockParser {
             parent_block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.header.prev_blockhash),
             txs: accepted_txs,
             timestamp: block.header.time as u64,
-            watched_outputs,
+            watched_p2wsh_outputs,
         }
     }
 
@@ -1088,7 +1088,7 @@ mod tests {
                             ]
                         }
                     ],
-                    watched_outputs: vec![],
+                    watched_p2wsh_outputs: vec![],
                     timestamp: 1543267060,
                 })
             },
@@ -1244,7 +1244,7 @@ mod tests {
                             ]
                         }
                     ],
-                    watched_outputs: vec![],
+                    watched_p2wsh_outputs: vec![],
                 })
             },
             BlockFixture {

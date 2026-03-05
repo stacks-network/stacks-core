@@ -33,15 +33,16 @@ pub mod prefix_opt_hex {
     }
 }
 
-/// This module serde encodes and decodes byte fields in RPC
-/// responses as a String where the String is a `0x` prefixed
-/// hex string.
+/// This module serde encodes and decodes implementations of
+/// `HexSer` and `HexDeser` in RPC responses as a String where the
+/// String is a `0x` prefixed hex string.
 pub mod prefix_hex {
-    pub fn serialize<S: serde::Serializer, T: std::fmt::LowerHex>(
+    pub fn serialize<S: serde::Serializer, T: crate::util::HexSer>(
         val: &T,
         s: S,
     ) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&format!("0x{val:x}"))
+        let val_fmter = std::fmt::from_fn(|f| T::fmt_hex(val, f));
+        s.serialize_str(&format!("0x{val_fmter}"))
     }
 
     pub fn deserialize<'de, D: serde::Deserializer<'de>, T: crate::util::HexDeser>(
@@ -54,46 +55,10 @@ pub mod prefix_hex {
                 &"at least length 2 string",
             ));
         };
-        T::try_from_hex(hex_str).map_err(serde::de::Error::custom)
-    }
-}
-
-/// This module serde encodes and decodes byte fields in RPC
-/// responses as a String where the String is a `0x` prefixed
-/// hex string.
-pub mod prefix_hex_byte_array {
-    use crate::util::hash::{hex_bytes, to_hex};
-
-    pub fn serialize<S: serde::Serializer>(val: &[u8], s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&format!("0x{}", to_hex(val)))
-    }
-
-    pub fn deserialize<'de, D: serde::Deserializer<'de>, const N: usize>(
-        d: D,
-    ) -> Result<[u8; N], D::Error> {
-        let inst_str: String = serde::Deserialize::deserialize(d)?;
-        let Some(hex_str) = inst_str.get(2..) else {
-            return Err(serde::de::Error::invalid_length(
-                inst_str.len(),
-                &"at least length 2 string",
-            ));
-        };
         if inst_str.get(0..2) != Some("0x") {
             return Err(serde::de::Error::custom("must supply 0x-prefix"));
         }
-        if hex_str.len() != N * 2 {
-            return Err(serde::de::Error::invalid_length(
-                inst_str.len(),
-                &"expected length 2 * expected array length",
-            ));
-        }
-        let bytes = hex_bytes(hex_str).map_err(serde::de::Error::custom)?;
-        bytes.try_into().map_err(|b: Vec<u8>|
-                                 // error should be unreachable because of the length check above 
-                                 serde::de::Error::invalid_length(
-                                     b.len(),
-                                     &"expected exact array length",
-                                 ))
+        T::try_from_hex(hex_str).map_err(serde::de::Error::custom)
     }
 }
 
@@ -195,7 +160,7 @@ pub mod prefix_string_0x {
 mod tests {
     fn ser_helper<const N: usize>(bytes: &[u8; N]) -> Result<String, serde_json::Error> {
         let mut ser = serde_json::Serializer::new(vec![]);
-        super::prefix_hex_byte_array::serialize(bytes, &mut ser)?;
+        super::prefix_hex::serialize(bytes, &mut ser)?;
         // read the json string (i.e., "\"0x00\"") into the hex string ("0x00")
         let out = serde_json::from_slice(&ser.into_inner()).unwrap();
         Ok(out)
@@ -204,7 +169,7 @@ mod tests {
     fn deser_helper<const N: usize>(hex: &str) -> Result<[u8; N], serde_json::Error> {
         let json_str = format!("\"{hex}\"");
         let mut deser = serde_json::Deserializer::from_str(&json_str);
-        super::prefix_hex_byte_array::deserialize(&mut deser)
+        super::prefix_hex::deserialize(&mut deser)
     }
 
     #[test]
@@ -214,11 +179,11 @@ mod tests {
         let err = deser_helper::<1>("00aa").unwrap_err();
         assert!(err.to_string().contains("must supply 0x-prefix"));
         let err = deser_helper::<1>("0x").unwrap_err();
-        assert!(err.to_string().contains("invalid length 2"));
+        assert!(err.to_string().contains("bad length 0"));
         let err = deser_helper::<2>("0x00").unwrap_err();
-        assert!(err.to_string().contains("invalid length 4"));
+        assert!(err.to_string().contains("bad length 2"));
         let err = deser_helper::<3>("0x000").unwrap_err();
-        assert!(err.to_string().contains("invalid length 5"));
+        assert!(err.to_string().contains("bad length 3"));
         let err = deser_helper::<3>("0x00aaq1").unwrap_err();
         assert!(err.to_string().contains("bad character q for hex string"));
     }

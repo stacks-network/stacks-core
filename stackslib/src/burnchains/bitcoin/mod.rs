@@ -21,7 +21,7 @@ use std::{error, fmt, io};
 
 use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialize_error;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::util::serde_serializers::prefix_hex_byte_array;
+use stacks_common::util::serde_serializers::prefix_hex;
 use stacks_common::util::HexError as btc_hex_error;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
@@ -227,10 +227,10 @@ pub struct BitcoinTransaction {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct WitnessScriptHash(#[serde(with = "prefix_hex_byte_array")] pub [u8; 32]);
+pub struct WitnessScriptHash(#[serde(with = "prefix_hex")] pub [u8; 32]);
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct WatchedOutput {
+pub struct WatchedP2WSHOutput {
     /// Watched outputs are all P2WSH. This field is the P2WSH.
     pub witness_script_hash: WitnessScriptHash,
     /// Satoshis paid to this output
@@ -247,7 +247,7 @@ pub struct BitcoinBlock {
     pub block_hash: BurnchainHeaderHash,
     pub parent_block_hash: BurnchainHeaderHash,
     pub txs: Vec<BitcoinTransaction>,
-    pub watched_outputs: Vec<WatchedOutput>,
+    pub watched_p2wsh_outputs: Vec<WatchedP2WSHOutput>,
     pub timestamp: u64,
 }
 
@@ -263,7 +263,7 @@ impl BitcoinBlock {
             block_height: height,
             block_hash: hash.clone(),
             parent_block_hash: parent.clone(),
-            watched_outputs: Vec::new(),
+            watched_p2wsh_outputs: Vec::new(),
             txs,
             timestamp,
         }
