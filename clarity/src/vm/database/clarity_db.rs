@@ -2424,7 +2424,7 @@ impl<'a> ClarityDatabase<'a> {
         principal: &PrincipalData,
     ) -> Result<STXBalanceSnapshot<'a, 'conn>, VmExecutionError> {
         let cur_burn_height = u64::from(self.get_current_burnchain_block_height()?);
-        self.get_stx_balance_snapshot_at_burn_height(principal, cur_burn_height)
+        self.get_stx_balance_snapshot_given_burn_height(principal, cur_burn_height)
     }
 
     pub fn get_stx_balance_snapshot_at_current_burn_height<'conn>(
@@ -2435,10 +2435,15 @@ impl<'a> ClarityDatabase<'a> {
         let cur_burn_height = u64::from(
             self.get_current_burnchain_block_height_for_clarity_version(clarity_version)?,
         );
-        self.get_stx_balance_snapshot_at_burn_height(principal, cur_burn_height)
+        self.get_stx_balance_snapshot_given_burn_height(principal, cur_burn_height)
     }
 
-    fn get_stx_balance_snapshot_at_burn_height<'conn>(
+    /// Careful! This function assumes that the given burn height (which is used to check
+    /// for unlockable tokens) matches the MARF (which is where the snapshot comes from).
+    ///
+    /// Do not assume you can pass any old burn height and assume you'll get the STX balance
+    /// at the burn block (whatever that would mean).
+    fn get_stx_balance_snapshot_given_burn_height<'conn>(
         &'conn mut self,
         principal: &PrincipalData,
         burn_block_height: u64,
