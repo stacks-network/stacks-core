@@ -136,6 +136,11 @@ pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
+    /// Cached epoch version — lazily populated on first
+    /// `get_clarity_epoch_version()` call and updated by
+    /// `set_clarity_epoch_version()`.  The epoch never changes
+    /// mid-block except through `set_clarity_epoch_version()`
+    cached_epoch: Option<StacksEpochId>,
 }
 
 pub trait HeadersDB {
@@ -449,6 +454,7 @@ impl<'a> ClarityDatabase<'a> {
             store: RollbackWrapper::new(store),
             headers_db,
             burn_state_db,
+            cached_epoch: None,
         }
     }
 
@@ -461,6 +467,7 @@ impl<'a> ClarityDatabase<'a> {
             store,
             headers_db,
             burn_state_db,
+            cached_epoch: None,
         }
     }
 
@@ -482,6 +489,7 @@ impl<'a> ClarityDatabase<'a> {
 
     /// Drop current key-value wrapper layer
     pub fn roll_back(&mut self) -> Result<(), VmExecutionError> {
+        self.cached_epoch = None;
         self.store.rollback().map_err(|e| e.into())
     }
 
@@ -863,12 +871,16 @@ impl<'a> ClarityDatabase<'a> {
     /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
     /// Clarity is updated in that epoch.
     pub fn get_clarity_epoch_version(&mut self) -> Result<StacksEpochId, VmExecutionError> {
+        if let Some(epoch) = self.cached_epoch {
+            return Ok(epoch);
+        }
         let out = match self.get_data(Self::clarity_state_epoch_key())? {
             Some(x) => u32::try_into(x).map_err(|_| {
                 VmInternalError::Expect("Bad Clarity epoch version in stored Clarity state".into())
             })?,
             None => StacksEpochId::Epoch20,
         };
+        self.cached_epoch = Some(out);
         Ok(out)
     }
 
@@ -877,7 +889,9 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         epoch: StacksEpochId,
     ) -> Result<(), VmExecutionError> {
-        self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))
+        self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))?;
+        self.cached_epoch = Some(epoch);
+        Ok(())
     }
 
     /// Setup block metadata at the beginning of a block
