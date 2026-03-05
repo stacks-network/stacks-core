@@ -75,8 +75,8 @@ impl BitcoinCoreContainer {
             .add_arg("-rpcbind=0.0.0.0")
             .add_arg("-rpcallowip=0.0.0.0/0")
             .add_arg("-rpcallowip=::/0")
-            .add_arg(&format!("-rpcuser={}", BITCOIN_RPC_USERNAME))
-            .add_arg(&format!("-rpcpassword={}", BITCOIN_RPC_PASSWORD))
+            .add_arg(&format!("-rpcuser={BITCOIN_RPC_USERNAME}"))
+            .add_arg(&format!("-rpcpassword={BITCOIN_RPC_PASSWORD}"))
             .add_arg("-fallbackfee=0.00001");
         result
     }
