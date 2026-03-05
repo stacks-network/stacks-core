@@ -3627,10 +3627,26 @@ mod test {
             .consensus_serialize(&mut postcondition_bytes)
             .unwrap();
 
-        assert_eq!(
-            postcondition_bytes.last().copied(),
-            Some(NonfungibleConditionCode::MaybeSent as u8)
-        );
+        #[rustfmt::skip]
+        let expected_bytes = vec![
+            // asset info id
+            0x02,
+            // principal id (origin)
+            0x01,
+            // contract address (version 1, Hash160([0x11; 20]))
+            0x01,
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            // contract name "contract-name"
+            0x0d, b'c', b'o', b'n', b't', b'r', b'a', b'c', b't', b'-', b'n', b'a', b'm', b'e',
+            // asset name "hello-asset"
+            0x0b, b'h', b'e', b'l', b'l', b'o', b'-', b'a', b's', b's', b'e', b't',
+            // clarity value: buffer (type prefix 0x02, length 4, data [0,1,2,3])
+            0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x01, 0x02, 0x03,
+            // condition code (MaybeSent)
+            0x12,
+        ];
+        assert_eq!(postcondition_bytes, expected_bytes);
 
         check_codec_and_corruption::<TransactionPostCondition>(
             &postcondition,
@@ -3669,20 +3685,36 @@ mod test {
         let mut tx_bytes = vec![];
         tx.consensus_serialize(&mut tx_bytes).unwrap();
 
-        let decoded = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-        assert_eq!(
-            decoded.post_condition_mode,
-            TransactionPostConditionMode::Originator
+        // Check the post-condition bytes directly within the serialized transaction
+        #[rustfmt::skip]
+        let expected_pc_bytes: &[u8] = &[
+            // post-condition mode (Originator)
+            0x03,
+            // post-conditions length prefix (1 item)
+            0x00, 0x00, 0x00, 0x01,
+            // asset info id (NonfungibleAsset)
+            0x02,
+            // principal id (origin)
+            0x01,
+            // contract address (version 1, Hash160([0x33; 20]))
+            0x01,
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            // contract name "contract-name"
+            0x0d, b'c', b'o', b'n', b't', b'r', b'a', b'c', b't', b'-', b'n', b'a', b'm', b'e',
+            // asset name "hello-asset"
+            0x0b, b'h', b'e', b'l', b'l', b'o', b'-', b'a', b's', b's', b'e', b't',
+            // clarity value: buffer (type prefix 0x02, length 4, data [4,5,6,7])
+            0x02, 0x00, 0x00, 0x00, 0x04, 0x04, 0x05, 0x06, 0x07,
+            // condition code (MaybeSent)
+            0x12,
+        ];
+        assert!(
+            tx_bytes
+                .windows(expected_pc_bytes.len())
+                .any(|w| w == expected_pc_bytes),
+            "Expected post-condition bytes not found in serialized transaction"
         );
-        assert!(matches!(
-            decoded.post_conditions.first(),
-            Some(TransactionPostCondition::Nonfungible(
-                _,
-                _,
-                _,
-                NonfungibleConditionCode::MaybeSent
-            ))
-        ));
 
         check_codec_and_corruption::<StacksTransaction>(&tx, &tx_bytes);
     }
