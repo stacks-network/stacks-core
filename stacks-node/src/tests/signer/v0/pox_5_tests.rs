@@ -15,32 +15,91 @@
 use std::env;
 use std::time::Duration;
 
-use clarity::vm::types::PrincipalData;
-use libsigner::v0::messages::RejectCode;
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::stacks::TenureChangeCause;
-use stacks::core::test_util::{make_stacks_transfer_serialized, to_addr};
-use stacks::core::StacksEpochId;
+use stacks::address::AddressHashMode;
+use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::core::test_util::make_contract_call;
+use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks_signer::v0::tests::{
-    TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_REJECT_ALL_BLOCK_PROPOSAL,
-    TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING,
+use stacks::util_lib::boot::boot_code_id;
+use stacks::util_lib::signed_structured_data::pox4::{
+    make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
 use crate::tests::nakamoto_integrations::wait_for;
-use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
-use crate::tests::signer::v0::{
-    wait_for_block_acceptance_from_signers, wait_for_block_global_acceptance_from_signers,
-    wait_for_block_pre_commits_from_signers, wait_for_block_proposal, wait_for_block_pushed,
-    wait_for_block_pushed_by_miner_key, wait_for_block_rejections_from_signers, MultipleMinerTest,
-};
+use crate::tests::neon_integrations::{get_account, get_chain_info, submit_tx};
 use crate::tests::signer::SignerTest;
 use crate::tests::{self};
+use crate::BurnchainController;
+
+/// Submit `stake` transactions to pox-5 for each signer
+fn stake_pox_5(signer_test: &SignerTest<SpawnedSigner>) {
+    let block_height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+    let reward_cycle = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+    let lock_period = 12;
+    for stacker_sk in signer_test.signer_stacks_private_keys.iter() {
+        let stacker_addr = tests::to_addr(stacker_sk);
+        let pox_addr = PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            stacker_addr.bytes().clone(),
+        );
+        let pox_addr_tuple: clarity::vm::Value =
+            pox_addr.clone().as_clarity_tuple().unwrap().into();
+        // TODO: update to use pox-5 signature
+        let signature = make_pox_4_signer_key_signature(
+            &pox_addr,
+            stacker_sk,
+            reward_cycle.into(),
+            &Pox4SignatureTopic::StackStx,
+            CHAIN_ID_TESTNET,
+            lock_period,
+            u128::MAX,
+            1,
+        )
+        .unwrap()
+        .to_rsv();
+
+        let signer_pk = StacksPublicKey::from_private(stacker_sk);
+        let nonce = get_account(&signer_test.running_nodes.rpc_origin(), &stacker_addr).nonce;
+        info!("---- Submitting pox-5 stake ----";
+            "stacker_addr" => %stacker_addr,
+        );
+        let stacking_tx = make_contract_call(
+            stacker_sk,
+            nonce,
+            1000,
+            signer_test.running_nodes.conf.burnchain.chain_id,
+            &StacksAddress::burn_address(false),
+            "pox-5",
+            "stake",
+            &[
+                // TODO: use a real amount once we have unlocking from pox-4
+                clarity::vm::Value::UInt(1000),
+                pox_addr_tuple.clone(),
+                clarity::vm::Value::UInt(block_height as u128),
+                clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                    .unwrap(),
+                clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+                clarity::vm::Value::UInt(u128::MAX),
+                clarity::vm::Value::UInt(1),
+                clarity::vm::Value::UInt(lock_period),
+                clarity::vm::Value::buff_from(vec![]).unwrap(),
+            ],
+        );
+        submit_tx(&signer_test.running_nodes.rpc_origin(), &stacking_tx);
+    }
+}
 
 #[test]
 #[ignore]
@@ -71,44 +130,19 @@ fn test_pox_5_activation() {
             Some(function_name!()),
         );
 
+    let conf = &signer_test.running_nodes.conf;
+    let epochs = conf.burnchain.epochs.clone().unwrap();
+    let epoch_35_start = epochs[StacksEpochId::Epoch35].start_height;
+
     info!("---- Bootstrap Snapshot ----");
-    if signer_test.bootstrap_snapshot() {
+    if signer_test.bootstrap_snapshot_to_height(Some(epoch_35_start - 2)) {
         signer_test.shutdown_and_snapshot();
         return;
     }
-
-    let conf = &signer_test.running_nodes.conf;
-    let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
-    let epochs = conf.burnchain.epochs.clone().unwrap();
-    let epoch_35_start = epochs[StacksEpochId::Epoch35].start_height;
     let mut bh = get_chain_info(conf).burn_block_height;
     info!("---- Starting test ----";
         "epoch_3_5" => epoch_35_start,
         "start_burn_block_height" => bh,
-    );
-
-    // quickly mine to 3.1 start
-    let block_diff = epochs[StacksEpochId::Epoch31].start_height - bh;
-    btc_controller.build_next_block(block_diff);
-    wait_for(30, || {
-        Ok(get_chain_info(conf).burn_block_height >= epochs[StacksEpochId::Epoch31].start_height)
-    })
-    .expect("Timed out waiting for burn block height to increase");
-    bh = get_chain_info(conf).burn_block_height;
-    info!("---- Mined to 3.1 start ----";
-        "burn_block_height" => bh,
-    );
-
-    // quickly mine to 3.2 start
-    let block_diff = epochs[StacksEpochId::Epoch32].start_height - bh;
-    btc_controller.build_next_block(block_diff);
-    wait_for(30, || {
-        Ok(get_chain_info(conf).burn_block_height >= epochs[StacksEpochId::Epoch32].start_height)
-    })
-    .expect("Timed out waiting for burn block height to increase");
-    bh = get_chain_info(conf).burn_block_height;
-    info!("---- Mined to 3.2 start ----";
-        "burn_block_height" => bh,
     );
 
     while bh < epoch_35_start {
@@ -139,8 +173,33 @@ fn test_pox_5_activation() {
     )
     .expect("Failed to get contract source");
 
-    info!("---- Contract source ----";
-        "source" => source,
+    info!("---- Got contract source ----";
+        "source" => source.split('\n').collect::<Vec<&str>>()[0..3].join("\n"),
+    );
+
+    info!("---- Staking in pox-5 ----");
+
+    let signer_addr = tests::to_addr(&signer_test.signer_stacks_private_keys[0]);
+    let nonce = get_account(&signer_test.running_nodes.rpc_origin(), &signer_addr).nonce;
+    stake_pox_5(&signer_test);
+    signer_test
+        .wait_for_nonce_increase(&signer_addr, nonce)
+        .unwrap();
+
+    let staker_info = signer_test
+        .eval_read_only(
+            &boot_code_id("pox-5", false),
+            &format!("(get-staker-info '{})", signer_addr),
+        )
+        .expect("Failed to call read-only function get-staker-info")
+        .expect_optional()
+        .expect("Fatal: expected optional result")
+        .expect("Expected Some result from get-staker-info, got None")
+        .expect_tuple()
+        .expect("Expected tuple type from get-staker-info");
+
+    info!("---- Staker info ----";
+        "staker_info" => ?staker_info,
     );
 
     info!("---- Shutdown ----");

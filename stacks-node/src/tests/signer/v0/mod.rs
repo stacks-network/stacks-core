@@ -20,8 +20,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::PrincipalData;
+use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, PeerInfo, RejectCode,
     RejectReason, SignerMessage, StateMachineUpdateContent, StateMachineUpdateMinerState,
@@ -356,6 +357,10 @@ impl SignerTest<SpawnedSigner> {
     ///
     /// Returns `true` if the snapshot was created.
     pub fn bootstrap_snapshot(&self) -> bool {
+        self.bootstrap_snapshot_to_height(None)
+    }
+
+    pub fn bootstrap_snapshot_to_height(&self, bitcoin_height: Option<u64>) -> bool {
         if self.snapshot_path.is_none() {
             self.boot_to_epoch_3();
             return false;
@@ -363,6 +368,19 @@ impl SignerTest<SpawnedSigner> {
 
         if self.needs_snapshot() {
             self.boot_to_epoch_3();
+            if let Some(snapshot_height) = bitcoin_height {
+                info!("Snapshot: Mining to snapshot height {snapshot_height}");
+                let mut height = get_chain_info(&self.running_nodes.conf).burn_block_height;
+                while height < snapshot_height {
+                    self.mine_nakamoto_block(Duration::from_secs(30), true);
+                    wait_for(30, || {
+                        Ok(get_chain_info(&self.running_nodes.conf).burn_block_height > height)
+                    })
+                    .expect("Timed out waiting for bitcoin block height to increase");
+                    height = get_chain_info(&self.running_nodes.conf).burn_block_height;
+                    info!("Snapshot: Mined to bitcoin block height {height}");
+                }
+            }
             warn!("Snapshot created. Shutdown and try again.");
             return true;
         }
@@ -532,6 +550,47 @@ impl SignerTest<SpawnedSigner> {
                 "Timed out waiting for block proposal to be accepted"
             );
         }
+    }
+
+    /// Evaluate a Clarity program with a read-only connection
+    fn eval_read_only(
+        &self,
+        contract_identifier: &QualifiedContractIdentifier,
+        program: &str,
+    ) -> Option<clarity::vm::Value> {
+        let conf = &self.running_nodes.conf;
+        let burnchain = conf.get_burnchain();
+        let sortdb = burnchain.open_sortition_db(false).unwrap();
+        let (mut chainstate, _) = StacksChainState::open(
+            conf.is_mainnet(),
+            conf.burnchain.chain_id,
+            &conf.get_chainstate_path_str(),
+            None,
+        )
+        .unwrap();
+
+        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap();
+
+        chainstate.with_read_only_clarity_tx(
+            &sortdb
+                .index_handle_at_block(&chainstate, &tip.index_block_hash())
+                .unwrap(),
+            &tip.index_block_hash(),
+            |clarity_tx| {
+                clarity_tx
+                    .with_readonly_clarity_env(
+                        false,
+                        0x80000000,
+                        PrincipalData::Standard(StandardPrincipalData::transient()),
+                        None,
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_read_only(contract_identifier, program),
+                    )
+                    .unwrap()
+            },
+        )
     }
 }
 
