@@ -596,6 +596,11 @@ macro_rules! impl_byte_array_newtype {
                 write!(f, "{}", self.to_hex())
             }
         }
+        impl $crate::util::HexSer for $thing {
+            fn fmt_hex(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                std::fmt::LowerHex::fmt(self, f)
+            }
+        }
         impl std::fmt::Display for $thing {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 write!(f, "{}", self.to_hex())

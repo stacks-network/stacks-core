@@ -24,7 +24,7 @@ use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use crate::burnchains::bitcoin::{WatchedOutput, WitnessScriptHash};
+use crate::burnchains::bitcoin::{WatchedP2WSHOutput, WitnessScriptHash};
 use crate::burnchains::{
     Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError, Txid,
 };
@@ -125,14 +125,14 @@ impl rusqlite::types::FromSql for WitnessScriptHash {
     }
 }
 
-impl FromRow<WatchedOutput> for WatchedOutput {
-    fn from_row(row: &Row) -> Result<WatchedOutput, DBError> {
+impl FromRow<WatchedP2WSHOutput> for WatchedP2WSHOutput {
+    fn from_row(row: &Row) -> Result<WatchedP2WSHOutput, DBError> {
         let txid: Txid = row.get("txid")?;
         let vout: u32 = row.get("vout")?;
         let witness_script_hash: WitnessScriptHash = row.get("witness_script_hash")?;
         let amount_i64: i64 = row.get("amount")?;
 
-        Ok(WatchedOutput {
+        Ok(WatchedP2WSHOutput {
             witness_script_hash,
             amount: amount_i64 as u64,
             txid,
@@ -386,7 +386,7 @@ pub static SCHEMA_3: &[&str] = &[
 
 const BURNCHAIN_DB_SCHEMA_4: &[&str] = &[
     r#"
-    CREATE TABLE IF NOT EXISTS watched_outputs (
+    CREATE TABLE IF NOT EXISTS watched_p2wsh_outputs (
         txid TEXT NOT NULL,
         vout INTEGER NOT NULL,
         block_hash TEXT NOT NULL,
@@ -398,11 +398,11 @@ const BURNCHAIN_DB_SCHEMA_4: &[&str] = &[
     );
     "#,
     r#"CREATE INDEX IF NOT EXISTS index_watched_outputs_block_hash
-       ON watched_outputs(block_hash);"#,
+       ON watched_p2wsh_outputs(block_hash);"#,
     r#"CREATE INDEX IF NOT EXISTS index_watched_outputs_witness_script_hash
-       ON watched_outputs(witness_script_hash);"#,
+       ON watched_p2wsh_outputs(witness_script_hash);"#,
     r#"CREATE INDEX IF NOT EXISTS index_watched_outputs_txid
-       ON watched_outputs(txid);"#,
+       ON watched_p2wsh_outputs(txid);"#,
     "INSERT OR REPLACE INTO db_config (version) VALUES (4);",
 ];
 
@@ -542,17 +542,17 @@ impl BurnchainDBTransaction<'_> {
     pub(crate) fn store_watched_outputs(
         &self,
         block_header: &BurnchainBlockHeader,
-        watched_outputs: &[WatchedOutput],
+        watched_p2wsh_outputs: &[WatchedP2WSHOutput],
     ) -> Result<(), BurnchainError> {
-        if watched_outputs.is_empty() {
+        if watched_p2wsh_outputs.is_empty() {
             return Ok(());
         }
 
-        let sql = "INSERT INTO watched_outputs
+        let sql = "INSERT INTO watched_p2wsh_outputs
                    (txid, vout, block_hash, block_height, witness_script_hash, amount)
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
 
-        for output in watched_outputs {
+        for output in watched_p2wsh_outputs {
             let args = params![
                 &output.txid,
                 output.vout,
@@ -567,7 +567,7 @@ impl BurnchainDBTransaction<'_> {
 
         test_debug!(
             "Stored {} watched outputs for block {} at height {}",
-            watched_outputs.len(),
+            watched_p2wsh_outputs.len(),
             &block_header.block_hash,
             block_header.block_height
         );
@@ -579,7 +579,7 @@ impl BurnchainDBTransaction<'_> {
     pub fn prune_watched_outputs(&self, reward_cycle_length: u32) -> Result<(), BurnchainError> {
         // Use integer arithmetic: threshold = (3 * reward_cycle_length) / 2
         let threshold = (3u64 * u64::from(reward_cycle_length)) / 2;
-        let sql = "DELETE FROM watched_outputs WHERE block_height < ?1";
+        let sql = "DELETE FROM watched_p2wsh_outputs WHERE block_height < ?1";
         let deleted = self.sql_tx.execute(sql, [u64_to_sql(threshold)?])?;
         if deleted > 0 {
             test_debug!(
@@ -1110,8 +1110,8 @@ impl BurnchainDB {
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
         // Extract watched outputs from the block
-        let watched_outputs = match block {
-            BurnchainBlock::Bitcoin(bitcoin_block) => &bitcoin_block.watched_outputs,
+        let watched_p2wsh_outputs = match block {
+            BurnchainBlock::Bitcoin(bitcoin_block) => &bitcoin_block.watched_p2wsh_outputs,
         };
 
         // Store block header, blockstack ops, and watched outputs in a single transaction
@@ -1121,11 +1121,11 @@ impl BurnchainDB {
             &header.block_hash,
             header.block_height,
             blockstack_ops.len(),
-            watched_outputs.len()
+            watched_p2wsh_outputs.len()
         );
         db_tx.store_burnchain_db_entry(&header)?;
         db_tx.store_blockstack_ops(&header, &blockstack_ops)?;
-        db_tx.store_watched_outputs(&header, watched_outputs)?;
+        db_tx.store_watched_outputs(&header, watched_p2wsh_outputs)?;
         db_tx.prune_watched_outputs(burnchain.pox_constants.reward_cycle_length)?;
         db_tx.commit()?;
 
@@ -1150,9 +1150,9 @@ impl BurnchainDB {
     pub fn get_watched_outputs_at_block(
         &self,
         block_hash: &BurnchainHeaderHash,
-    ) -> Result<Vec<WatchedOutput>, BurnchainError> {
+    ) -> Result<Vec<WatchedP2WSHOutput>, BurnchainError> {
         let sql = "SELECT txid, vout, witness_script_hash, amount
-                   FROM watched_outputs
+                   FROM watched_p2wsh_outputs
                    WHERE block_hash = ?1
                    ORDER BY txid, vout";
         query_rows(self.conn(), sql, [block_hash]).map_err(BurnchainError::DBError)
@@ -1162,9 +1162,9 @@ impl BurnchainDB {
     pub fn get_watched_outputs_by_script_hash(
         &self,
         witness_script_hash: &WitnessScriptHash,
-    ) -> Result<Vec<WatchedOutput>, BurnchainError> {
+    ) -> Result<Vec<WatchedP2WSHOutput>, BurnchainError> {
         let sql = "SELECT txid, vout, witness_script_hash, amount
-                   FROM watched_outputs
+                   FROM watched_p2wsh_outputs
                    WHERE witness_script_hash = ?1
                    ORDER BY block_height, txid, vout";
 

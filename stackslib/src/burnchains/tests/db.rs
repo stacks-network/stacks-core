@@ -1347,13 +1347,13 @@ fn store_watched_outputs() {
     };
 
     let outputs = vec![
-        WatchedOutput {
+        WatchedP2WSHOutput {
             txid: Txid([1u8; 32]),
             vout: 0,
             witness_script_hash: WitnessScriptHash([0xaau8; 32]),
             amount: 1_000,
         },
-        WatchedOutput {
+        WatchedP2WSHOutput {
             txid: Txid([2u8; 32]),
             vout: 0,
             witness_script_hash: WitnessScriptHash([0xbbu8; 32]),
@@ -1442,7 +1442,7 @@ fn prune_watched_outputs() {
             num_txs: 0,
             timestamp: height,
         };
-        let output = WatchedOutput {
+        let output = WatchedP2WSHOutput {
             txid: Txid(hash_bytes),
             vout: 0,
             witness_script_hash: WitnessScriptHash(hash_bytes),
