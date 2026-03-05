@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -479,20 +479,21 @@ impl EventDispatcher {
     fn create_dispatch_matrix_and_event_vector<'a>(
         &self,
         receipts: &'a [StacksTransactionReceipt],
-    ) -> (
-        Vec<HashSet<usize>>,
-        Vec<(bool, Txid, &'a StacksTransactionEvent)>,
-    ) {
+    ) -> (Vec<HashSet<usize>>, Vec<(Txid, &'a StacksTransactionEvent)>) {
         let mut dispatch_matrix: Vec<HashSet<usize>> = self
             .registered_observers
             .iter()
             .map(|_| HashSet::new())
             .collect();
-        let mut events: Vec<(bool, Txid, &StacksTransactionEvent)> = vec![];
+        let mut events: Vec<(Txid, &StacksTransactionEvent)> = vec![];
         let mut i: usize = 0;
 
         for receipt in receipts {
             let tx_hash = receipt.transaction.txid();
+            if receipt.post_condition_aborted {
+                debug!("Transaction {tx_hash} aborted by post-condition, skipping events");
+                continue;
+            }
             for event in receipt.events.iter() {
                 match event {
                     StacksTransactionEvent::SmartContractEvent(event_data) => {
@@ -557,7 +558,7 @@ impl EventDispatcher {
                         );
                     }
                 }
-                events.push((!receipt.post_condition_aborted, tx_hash.clone(), event));
+                events.push((tx_hash.clone(), event));
                 for o_i in &self.any_event_observers_lookup {
                     dispatch_matrix[*o_i as usize].insert(i);
                 }
@@ -1305,7 +1306,7 @@ impl EventDispatcher {
         &self,
         event_observer: &EventObserver,
         parent_index_block_hash: &StacksBlockId,
-        filtered_events: &[(usize, &(bool, Txid, &StacksTransactionEvent))],
+        filtered_events: &[(usize, &(Txid, &StacksTransactionEvent))],
         serialized_txs: &[TransactionEventPayload],
         burn_block_hash: &BurnchainHeaderHash,
         burn_block_height: u32,
@@ -1314,10 +1315,10 @@ impl EventDispatcher {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
             .iter()
-            .map(|(event_index, (committed, txid, event))| {
-                event
-                    .json_serialize(*event_index, txid, *committed)
-                    .unwrap()
+            .map(|(event_index, (txid, event))| {
+                // Since we no longer send events for post condition aborted transactions,
+                // all events we serialize here are committed events, so we can set the `committed` field to `true`.
+                event.json_serialize(*event_index, txid, true).unwrap()
             })
             .collect();
 
