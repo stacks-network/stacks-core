@@ -128,6 +128,7 @@ lazy_static! {
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{BOOT_CODE_POX_TESTNET_CONSTS}\n{POX_3_BODY}");
     pub static ref POX_4_CODE: String = POX_4_BODY.to_string();
+    pub static ref POX_5_CODE: String = POX_5_BODY.to_string();
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),

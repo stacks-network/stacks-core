@@ -467,7 +467,7 @@ impl StacksEpochId {
 
     #[cfg(any(test, feature = "testing"))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch34
+        StacksEpochId::Epoch35
     }
 
     #[cfg(not(any(test, feature = "testing")))]
