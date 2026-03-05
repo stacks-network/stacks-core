@@ -498,6 +498,7 @@ impl<'a> ClarityDatabase<'a> {
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> Result<StacksBlockId, VmExecutionError> {
+        self.cached_epoch = None;
         self.store.set_block_hash(bhh, query_pending_data)
     }
 
