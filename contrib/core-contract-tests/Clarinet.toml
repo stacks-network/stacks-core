@@ -59,11 +59,6 @@ path = "./contracts/pox-5.clar"
 clarity_version = 4
 epoch = 3.3
 
-[contracts.pox-5-pool-owner-trait]
-path = "./contracts/pox-5-pool-owner-trait.clar"
-clarity_version = 4
-epoch = 3.3
-
 [contracts.test-pox-5-pool]
 path = "./contracts/test-pox-5-pool.clar"
 clarity_version = 4

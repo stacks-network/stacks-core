@@ -14,7 +14,21 @@
 (define-constant ERR_INVALID_POX_ADDRESS (err u13))
 (define-constant ERR_POOL_NOT_FOUND (err u14))
 
-(use-trait pool-owner-trait .pox-5-pool-owner-trait.pool-owner-trait)
+(define-trait pool-owner-trait (
+    (validate-stake!
+        ;; caller, amount-ustx, num-cycles, unlock-bytes
+        (principal uint uint (buff 683))
+        (response bool uint)
+    )
+    (validate-management!
+        ;; caller, signer-key, pox-addr
+        (principal (buff 33) {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        })
+        (response bool uint)
+    )
+))
 
 ;; Values for stacks address versions
 ;; #[allow(unused_const)]

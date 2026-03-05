@@ -1,4 +1,4 @@
-(impl-trait .pox-5-pool-owner-trait.pool-owner-trait)
+(impl-trait .pox-5.pool-owner-trait)
 
 ;; default to allowing deployer to register as a pool
 (define-data-var allowed-caller principal tx-sender)

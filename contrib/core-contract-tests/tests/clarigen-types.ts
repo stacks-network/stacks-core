@@ -5364,17 +5364,6 @@ export const contracts = {
     clarity_version: 'Clarity4',
     contractName: 'pox-5',
   },
-  pox5PoolOwnerTrait: {
-    functions: {},
-    maps: {},
-    variables: {},
-    constants: {},
-    non_fungible_tokens: [],
-    fungible_tokens: [],
-    epoch: 'Epoch33',
-    clarity_version: 'Clarity4',
-    contractName: 'pox-5-pool-owner-trait',
-  },
   pox_4_test: {
     functions: {
       checkPoxAddrHashbytesIter: {
@@ -6719,8 +6708,6 @@ export const identifiers = {
   bns_test: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.bns_test',
   pox4: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-4',
   pox5: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
-  pox5PoolOwnerTrait:
-    'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5-pool-owner-trait',
   pox_4_test: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox_4_test',
   signers: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signers',
   signersVoting: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signers-voting',
@@ -6757,12 +6744,6 @@ export const deployments = {
   pox5: {
     devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
     simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5',
-    testnet: null,
-    mainnet: null,
-  },
-  pox5PoolOwnerTrait: {
-    devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5-pool-owner-trait',
-    simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.pox-5-pool-owner-trait',
     testnet: null,
     mainnet: null,
   },
