@@ -168,6 +168,7 @@ epochs_template! {
     Epoch32,
     Epoch33,
     Epoch34,
+    Epoch35,
 }
 #[cfg(any(test, feature = "testing"))]
 clarity_template! {
@@ -201,6 +202,11 @@ clarity_template! {
     Epoch34_Clarity3: (Epoch34, Clarity3),
     Epoch34_Clarity4: (Epoch34, Clarity4),
     Epoch34_Clarity5: (Epoch34, Clarity5),
+    Epoch35_Clarity1: (Epoch35, Clarity1),
+    Epoch35_Clarity2: (Epoch35, Clarity2),
+    Epoch35_Clarity3: (Epoch35, Clarity3),
+    Epoch35_Clarity4: (Epoch35, Clarity4),
+    Epoch35_Clarity5: (Epoch35, Clarity5),
 }
 
 #[fixture]

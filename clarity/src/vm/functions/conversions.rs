@@ -357,7 +357,7 @@ pub fn from_consensus_buff(
                 return Ok(Value::none());
             }
             return Err(
-                RuntimeCheckErrorKind::ExpectsRejectable("UnexpectedSerialization".into()).into(),
+                RuntimeCheckErrorKind::Unreachable("UnexpectedSerialization".into()).into(),
             );
         }
         Err(_) => return Ok(Value::none()),

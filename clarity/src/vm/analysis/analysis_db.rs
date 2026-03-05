@@ -51,11 +51,11 @@ impl<'a> AnalysisDatabase<'a> {
         self.begin();
         let result = f(self).or_else(|e| {
             self.roll_back()
-                .map_err(|e| StaticCheckErrorKind::ExpectsRejectable(format!("{e:?}")))?;
+                .map_err(|e| StaticCheckErrorKind::Unreachable(format!("{e:?}")))?;
             Err(e)
         })?;
         self.commit()
-            .map_err(|e| StaticCheckErrorKind::ExpectsRejectable(format!("{e:?}")))?;
+            .map_err(|e| StaticCheckErrorKind::Unreachable(format!("{e:?}")))?;
         Ok(result)
     }
 
@@ -66,13 +66,13 @@ impl<'a> AnalysisDatabase<'a> {
     pub fn commit(&mut self) -> Result<(), StaticCheckError> {
         self.store
             .commit()
-            .map_err(|e| StaticCheckErrorKind::ExpectsRejectable(format!("{e:?}")).into())
+            .map_err(|e| StaticCheckErrorKind::Unreachable(format!("{e:?}")).into())
     }
 
     pub fn roll_back(&mut self) -> Result<(), StaticCheckError> {
         self.store
             .rollback()
-            .map_err(|e| StaticCheckErrorKind::ExpectsRejectable(format!("{e:?}")).into())
+            .map_err(|e| StaticCheckErrorKind::Unreachable(format!("{e:?}")).into())
     }
 
     pub fn storage_key() -> &'static str {
@@ -108,8 +108,7 @@ impl<'a> AnalysisDatabase<'a> {
             .flatten()
             .map(|x| {
                 ContractAnalysis::deserialize(&x).map_err(|_| {
-                    StaticCheckErrorKind::ExpectsRejectable("Bad data deserialized from DB".into())
-                        .into()
+                    StaticCheckErrorKind::Unreachable("Bad data deserialized from DB".into()).into()
                 })
             })
             .transpose()
@@ -129,7 +128,7 @@ impl<'a> AnalysisDatabase<'a> {
             .flatten()
             .map(|x| {
                 ContractAnalysis::deserialize(&x).map_err(|_| {
-                    StaticCheckErrorKind::ExpectsRejectable("Bad data deserialized from DB".into())
+                    StaticCheckErrorKind::Unreachable("Bad data deserialized from DB".into())
                 })
             })
             .transpose()?
@@ -154,7 +153,7 @@ impl<'a> AnalysisDatabase<'a> {
 
         self.store
             .insert_metadata(contract_identifier, key, &contract.serialize())
-            .map_err(|e| StaticCheckErrorKind::ExpectsRejectable(format!("{e:?}")))?;
+            .map_err(|e| StaticCheckErrorKind::Unreachable(format!("{e:?}")))?;
         Ok(())
     }
 

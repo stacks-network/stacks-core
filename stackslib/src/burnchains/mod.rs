@@ -36,7 +36,8 @@ use crate::chainstate::burn::operations::{
     BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME};
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::core::*;
 #[cfg(test)]
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
@@ -255,7 +256,7 @@ pub struct BurnchainBlockHeader {
     pub timestamp: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Burnchain {
     pub peer_version: u32,
     pub network_id: u32,
@@ -269,9 +270,10 @@ pub struct Burnchain {
     pub first_block_timestamp: u32,
     pub pox_constants: PoxConstants,
     pub initial_reward_start_block: u64,
+    pub marf_opts: Option<MARFOpenOpts>,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct PoxConstants {
     /// the length (in burn blocks) of the reward cycle
     pub reward_cycle_length: u32,
@@ -303,6 +305,8 @@ pub struct PoxConstants {
     /// After this burn height, reward cycles use pox-4 for reward set data
     pub pox_4_activation_height: u32,
     _shadow: PhantomData<()>,
+    /// After this burn height, reward cycles use pox-5 for reward set data
+    pub pox_5_activation_height: u32,
 }
 
 impl PoxConstants {
@@ -318,6 +322,7 @@ impl PoxConstants {
         v2_unlock_height: u32,
         v3_unlock_height: u32,
         pox_3_activation_height: u32,
+        v4_unlock_height: u32,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
         assert!(prepare_length < reward_cycle_length);
@@ -340,6 +345,7 @@ impl PoxConstants {
             pox_3_activation_height,
             pox_4_activation_height: v3_unlock_height,
             _shadow: PhantomData,
+            pox_5_activation_height: v4_unlock_height,
         }
     }
     #[cfg(test)]
@@ -353,6 +359,7 @@ impl PoxConstants {
             5,
             5000,
             10000,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -377,6 +384,7 @@ impl PoxConstants {
             u32::MAX,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
         )
     }
 
@@ -385,9 +393,12 @@ impl PoxConstants {
         v1_unlock_height: u64,
         pox_3_activation_height: u64,
         pox_4_activation_height: u64,
+        pox_5_activation_height: u64,
         burn_height: u64,
     ) -> &'static str {
-        if burn_height > pox_4_activation_height {
+        if burn_height > pox_5_activation_height {
+            POX_5_NAME
+        } else if burn_height > pox_4_activation_height {
             POX_4_NAME
         } else if burn_height > pox_3_activation_height {
             POX_3_NAME
@@ -404,6 +415,7 @@ impl PoxConstants {
             u64::from(self.v1_unlock_height),
             u64::from(self.pox_3_activation_height),
             u64::from(self.pox_4_activation_height),
+            u64::from(self.pox_5_activation_height),
             burn_height,
         )
     }
@@ -438,6 +450,7 @@ impl PoxConstants {
             BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
+            u32::MAX, // PLACEHOLDER (rob-stacks)
         )
     }
 
@@ -457,11 +470,25 @@ impl PoxConstants {
             BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
+            u32::MAX, // PLACEHOLDER (rob-stacks)
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
     pub fn nakamoto_testnet_default() -> PoxConstants {
-        PoxConstants::new(900, 100, 51, 100, 0, u64::MAX, u64::MAX, 242, 243, 246, 244)
+        PoxConstants::new(
+            900,
+            100,
+            51,
+            100,
+            0,
+            u64::MAX,
+            u64::MAX,
+            242,
+            243,
+            246,
+            244,
+            247,
+        )
     }
 
     // TODO: add tests from mutation testing results #4838
@@ -479,6 +506,7 @@ impl PoxConstants {
             2_000_000,
             4_000_000,
             3_000_000,
+            5_000_000,
         )
     }
 

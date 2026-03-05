@@ -1491,7 +1491,8 @@ fn forked_tenure_invalid() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
-    let Some(result) = forked_tenure_testing(Duration::from_secs(5), Duration::from_secs(7), false)
+    let Some(result) =
+        forked_tenure_testing(Duration::from_secs(10), Duration::from_secs(15), false)
     else {
         warn!("Snapshot created. Run test again.");
         return;
@@ -1994,6 +1995,8 @@ fn bitcoind_forking_test() {
             epochs[StacksEpochId::Epoch33].start_height = 3_065;
             epochs[StacksEpochId::Epoch33].end_height = 3_075;
             epochs[StacksEpochId::Epoch34].start_height = 3_075;
+            epochs[StacksEpochId::Epoch34].end_height = 3_085;
+            epochs[StacksEpochId::Epoch35].start_height = 3_085;
         },
         None,
         None,
@@ -2380,6 +2383,7 @@ fn partial_tenure_fork() {
         &conf.get_burn_db_file_path(),
         false,
         conf.get_burnchain().pox_constants,
+        None,
     )
     .unwrap();
 
@@ -3293,6 +3297,7 @@ fn bitcoin_reorg_extended_tenure() {
         &conf_1.get_burn_db_file_path(),
         false,
         conf_1.get_burnchain().pox_constants,
+        None,
     )
     .unwrap();
 
@@ -3755,7 +3760,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
 /// Miner 1 proposes block N+1'
 /// 3 signers approve N+1', saying "Miner is not building off of most recent tenure. A tenure they
 ///   reorg has already mined blocks, but the block was poorly timed, allowing the reorg."
-/// The other 3 signers reject N+1', because their `first_proposal_burn_block_timing_secs` is
+/// The other 2 signers reject N+1', because their `first_proposal_burn_block_timing_secs` is
 ///   shorter and has been exceeded.
 /// Miner 1 proposes N+1' again, and all signers reject it this time.
 /// Miner 2 proposes N+2, a tenure extend block and it is accepted by all signers.
@@ -3899,7 +3904,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
         .check_signer_states_reorg(&approving_signers, &rejecting_signers);
 
     let signer_signature_hash = block_n_1_prime.header.signer_signature_hash();
-    info!("------------------------- Wait for 3 acceptances and 2 rejections of {signer_signature_hash} -------------------------");
+    info!("------------------------- Wait for rejections for {signer_signature_hash} -------------------------");
     let rejections =
         wait_for_block_rejections_from_signers(30, &signer_signature_hash, &rejecting_signers)
             .expect("Timed out waiting for block rejection from rejecting signers");
@@ -3910,8 +3915,13 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
             "Reject reason is not ReorgNotAllowed"
         );
     }
-    wait_for_block_pre_commits_from_signers(30, &signer_signature_hash, &approving_signers)
-        .expect("Timed out waiting for block pre-commits from approving signers");
+    // Since the block may be globally rejected by the time approving signers see the block, we cannot guarantee that they issue a pre-commit.
+    // They may simply ignore the block. However, they should NOT issue a rejection either (regardless of order of receiving rejecting_signers responses).
+    assert!(
+        wait_for_block_rejections_from_signers(15, &signer_signature_hash, &approving_signers)
+            .is_err(),
+        "Approving signers should have simply ignored the block with no rejection."
+    );
 
     info!("------------------------- Miner 1 Proposes N+1' Again -------------------------");
     test_observer::clear();
@@ -4318,6 +4328,7 @@ fn revalidate_unknown_parent() {
         &conf.get_burn_db_file_path(),
         false,
         conf.get_burnchain().pox_constants,
+        None,
     )
     .unwrap();
 
@@ -4891,6 +4902,8 @@ fn btc_fork_on_midtenure_accept() {
             epochs[StacksEpochId::Epoch33].start_height = 3_065;
             epochs[StacksEpochId::Epoch33].end_height = 3_075;
             epochs[StacksEpochId::Epoch34].start_height = 3_075;
+            epochs[StacksEpochId::Epoch34].end_height = 3_085;
+            epochs[StacksEpochId::Epoch35].start_height = 3_085;
         },
         None,
         None,
@@ -4919,6 +4932,7 @@ fn btc_fork_on_midtenure_accept() {
         &conf.get_burn_db_file_path(),
         false,
         conf.get_burnchain().pox_constants,
+        None,
     )
     .unwrap();
 

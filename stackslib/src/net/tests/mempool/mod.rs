@@ -758,7 +758,7 @@ fn test_mempool_sync_2_peers_problematic() {
         let pk = &pks[i];
 
         let exceeds_repeat_factor =
-            StackDepthLimits::for_epoch(StacksEpochId::Epoch34).max_nesting_depth();
+            StackDepthLimits::for_epoch(StacksEpochId::Epoch35).max_nesting_depth();
         let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
         let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
         let tx_exceeds_body = format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}");

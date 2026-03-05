@@ -98,6 +98,13 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity4,
             ClarityVersion::Clarity5,
         ],
+        StacksEpochId::Epoch35 => &[
+            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity2,
+            ClarityVersion::Clarity3,
+            ClarityVersion::Clarity4,
+            ClarityVersion::Clarity5,
+        ],
     }
 }
 
@@ -381,7 +388,8 @@ impl ConsensusChain<'_> {
                 StacksEpochId::Epoch30
                 | StacksEpochId::Epoch31
                 | StacksEpochId::Epoch32
-                | StacksEpochId::Epoch33 => {
+                | StacksEpochId::Epoch33
+                | StacksEpochId::Epoch34 => {
                     // Only need 1 block per Epoch
                     if num_blocks_per_epoch.contains_key(epoch_id) {
                         start_height + 1
@@ -392,7 +400,7 @@ impl ConsensusChain<'_> {
                     }
                 }
                 // The last Epoch height never ends
-                StacksEpochId::Epoch34 => STACKS_EPOCH_MAX,
+                StacksEpochId::Epoch35 => STACKS_EPOCH_MAX,
             };
 
             // Special case the Epoch 2.5 -> Epoch 3.0 transition
@@ -769,7 +777,7 @@ impl ConsensusChain<'_> {
                 consensus_hash: chain_tip.consensus_hash.clone(),
                 parent_block_id: chain_tip.index_block_hash(),
                 tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
-                state_index_root: TrieHash::from_empty_data(),
+                state_index_root: TrieHash::EMPTY,
                 timestamp: 1,
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
@@ -1138,7 +1146,7 @@ impl ContractConsensusTest<'_> {
 
                 let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
 
-                // Each deployment is a seperate TestBlock
+                // Each deployment is a separate TestBlock
                 for &version in clarity_versions {
                     let version_tag = version.to_string().replace(' ', "");
                     let name = format!("{contract_name}-{epoch_name}-{version_tag}");

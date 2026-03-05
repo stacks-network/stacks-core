@@ -64,6 +64,7 @@ pub const POX_1_NAME: &str = "pox";
 pub const POX_2_NAME: &str = "pox-2";
 pub const POX_3_NAME: &str = "pox-3";
 pub const POX_4_NAME: &str = "pox-4";
+pub const POX_5_NAME: &str = "pox-5";
 pub const SIGNERS_NAME: &str = "signers";
 pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
@@ -77,6 +78,7 @@ pub const SIGNERS_PK_LEN: usize = 33;
 const POX_2_BODY: &str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &str = std::include_str!("pox-4.clar");
+const POX_5_BODY: &str = std::include_str!("pox-5.clar");
 pub const SIGNERS_BODY: &str = std::include_str!("signers.clar");
 pub const SIGNERS_DB_0_BODY: &str = std::include_str!("signers-0-xxx.clar");
 pub const SIGNERS_DB_1_BODY: &str = std::include_str!("signers-1-xxx.clar");
@@ -220,6 +222,7 @@ define_named_enum!(PoxVersions {
     Pox2("pox-2"),
     Pox3("pox-3"),
     Pox4("pox-4"),
+    Pox5("pox-5"),
 });
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -756,6 +759,13 @@ impl StacksChainState {
         })
     }
 
+    pub fn make_signer_set_pox_5(
+        _threshold: u128,
+        _entries: &[RawRewardSetEntry],
+    ) -> Option<Vec<NakamotoSignerEntry>> {
+        None
+    }
+
     pub fn make_signer_set(
         threshold: u128,
         entries: &[RawRewardSetEntry],
@@ -821,6 +831,7 @@ impl StacksChainState {
         threshold: u128,
         mut addresses: Vec<RawRewardSetEntry>,
         epoch_id: StacksEpochId,
+        pox_version: PoxVersions,
     ) -> RewardSet {
         let mut reward_set = vec![];
         let mut missed_slots = vec![];
@@ -831,7 +842,10 @@ impl StacksChainState {
             addresses.sort_by_cached_key(|k| k.reward_address.to_burnchain_repr());
         }
 
-        let signer_set = Self::make_signer_set(threshold, &addresses);
+        let signer_set = match pox_version {
+            PoxVersions::Pox5 => Self::make_signer_set_pox_5(threshold, &addresses),
+            _ => Self::make_signer_set(threshold, &addresses),
+        };
 
         while let Some(RawRewardSetEntry {
             reward_address: address,
@@ -1490,9 +1504,14 @@ pub mod test {
             },
         ];
         assert_eq!(
-            StacksChainState::make_reward_set(threshold, addresses, StacksEpochId::Epoch2_05)
-                .rewarded_addresses
-                .len(),
+            StacksChainState::make_reward_set(
+                threshold,
+                addresses,
+                StacksEpochId::Epoch2_05,
+                PoxVersions::Pox4
+            )
+            .rewarded_addresses
+            .len(),
             3
         );
     }
@@ -1511,6 +1530,7 @@ pub mod test {
             5,
             5000,
             10000,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,

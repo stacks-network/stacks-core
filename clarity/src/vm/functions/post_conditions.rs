@@ -102,27 +102,26 @@ fn eval_allowance(
 ) -> Result<Allowance, VmExecutionError> {
     let list = allowance_expr
         .match_list()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Non functional application".to_string(),
         ))?;
     let (name_expr, rest) = list
         .split_first()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Non functional application".to_string(),
         ))?;
     let name = name_expr
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Bad function name".to_string(),
         ))?;
     let Some(ref native_function) = NativeFunctions::lookup_by_name_at_version(
         name,
         env.contract_context.get_clarity_version(),
     ) else {
-        return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
-            "Expected allowance expr: {name}"
-        ))
-        .into());
+        return Err(
+            RuntimeCheckErrorKind::Unreachable(format!("Expected allowance expr: {name}")).into(),
+        );
     };
 
     match native_function {
@@ -238,10 +237,9 @@ fn eval_allowance(
             }
             Ok(Allowance::All)
         }
-        _ => Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
-            "Expected allowance expr: {name}"
-        ))
-        .into()),
+        _ => Err(
+            RuntimeCheckErrorKind::Unreachable(format!("Expected allowance expr: {name}")).into(),
+        ),
     }
 }
 
@@ -260,7 +258,7 @@ pub fn special_restrict_assets(
     let asset_owner_expr = &args[0];
     let allowance_list = args[1]
         .match_list()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Expected list of allowances: for restrict-assets? as argument 2".to_string(),
         ))?;
     let body_exprs = &args[2..];
@@ -274,7 +272,7 @@ pub fn special_restrict_assets(
     runtime_cost(ClarityCostFunction::RestrictAssets, env, allowance_len)?;
 
     if allowance_len > MAX_ALLOWANCES {
-        return Err(RuntimeCheckErrorKind::ExpectsAcceptable(format!(
+        return Err(RuntimeCheckErrorKind::Unreachable(format!(
             "Too many allowances: got {allowance_len}, allowed {MAX_ALLOWANCES}"
         ))
         .into());
@@ -350,7 +348,7 @@ pub fn special_as_contract(
 
     let allowance_list = args[0]
         .match_list()
-        .ok_or(RuntimeCheckErrorKind::ExpectsAcceptable(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
             "Expected list of allowances: for as-contract? as argument 1".to_string(),
         ))?;
     let body_exprs = &args[1..];
@@ -642,7 +640,7 @@ pub fn special_allowance(
     _env: &mut Environment,
     _context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    Err(RuntimeCheckErrorKind::ExpectsAcceptable("Allowance expr not allowed".to_string()).into())
+    Err(RuntimeCheckErrorKind::Unreachable("Allowance expr not allowed".to_string()).into())
 }
 
 #[cfg(test)]
@@ -693,7 +691,7 @@ mod test {
         let err = eval_allowance(&allowance_expr, &mut env, &context).unwrap_err();
 
         assert_eq!(
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectsAcceptable(
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
                 "Non functional application".to_string()
             )),
             err
