@@ -366,6 +366,8 @@ impl HeadersDB for NullHeadersDB {
         None
     }
 }
+const FIRST_NULL_SORTITION_ID: &str =
+    "C0FFEE600DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 #[allow(clippy::panic)]
 impl BurnStateDB for NullBurnStateDB {
@@ -377,8 +379,12 @@ impl BurnStateDB for NullBurnStateDB {
         None
     }
 
-    fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
-        None
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+        if *sortition_id == SortitionId::from_hex(FIRST_NULL_SORTITION_ID).unwrap() {
+            Some(0)
+        } else {
+            Some(1)
+        }
     }
 
     fn get_burn_start_height(&self) -> u32 {
@@ -387,9 +393,18 @@ impl BurnStateDB for NullBurnStateDB {
 
     fn get_sortition_id_from_consensus_hash(
         &self,
-        _consensus_hash: &ConsensusHash,
+        consensus_hash: &ConsensusHash,
     ) -> Option<SortitionId> {
-        None
+        if *consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
+            Some(SortitionId::from_hex(FIRST_NULL_SORTITION_ID).unwrap())
+        } else {
+            Some(
+                SortitionId::from_hex(
+                    "DECAFBAD00000000000000000000000000000000000000000000000000000000",
+                )
+                .unwrap(),
+            )
+        }
     }
 
     fn get_burn_header_hash(
