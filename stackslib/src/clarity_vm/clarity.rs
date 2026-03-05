@@ -42,8 +42,8 @@ use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
     BOOT_CODE_POX_TESTNET, COSTS_2_NAME, COSTS_3_NAME, COSTS_4_NAME, POX_2_MAINNET_CODE,
     POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE,
-    POX_4_NAME, POX_5_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME,
-    SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_NAME,
+    POX_4_NAME, POX_5_CODE, POX_5_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY,
+    SIGNERS_NAME, SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1960,7 +1960,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch34)?;
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch35)?;
                         Ok(())
                     })
                     .unwrap();
@@ -1984,12 +1984,13 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
             // POX-5 contract setup
+            let pox_5_code = &*POX_5_CODE;
             let pox_5_contract_id = boot_code_id(POX_5_NAME, mainnet);
             let payload = TransactionPayload::SmartContract(
                 TransactionSmartContract {
                     name: ContractName::try_from(POX_5_NAME)
                         .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(&make_sip_031_body(mainnet))
+                    code_body: StacksString::from_str(pox_5_code)
                         .expect("FATAL: invalid boot code body"),
                 },
                 Some(ClarityVersion::Clarity5),
