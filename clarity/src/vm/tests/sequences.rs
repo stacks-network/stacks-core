@@ -433,7 +433,8 @@ fn test_variadic_map_list() {
 /// Tests for variadic map with sequences of unequal length where the longer
 /// sequence comes first.  These exercise the `apply_index >= min_args_len` break
 /// condition in `special_map` — the off-by-one that existed before the fix would
-/// have caused an extra element from the shorter sequence to be included.
+/// have caused an extra element from the shorter sequence to be included and then
+/// subsequently trimmed (unnecessary work).
 #[test]
 fn test_variadic_map_unequal_lengths() {
     // Longer first, shorter second.

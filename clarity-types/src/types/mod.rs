@@ -1026,6 +1026,12 @@ impl Value {
         element_type: TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<Value, ClarityTypeError> {
+        debug_assert!(
+            TypeSignature::construct_parent_list_type(&list_data)
+                .map(|computed| *computed.get_list_item_type() == element_type)
+                .unwrap_or(list_data.is_empty()),
+            "cons_list_typed: provided element_type does not match computed least-supertype"
+        );
         let len = u32::try_from(list_data.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?;
         let type_sig = ListTypeData::new_list(element_type, len)?;
         Value::finalize_list(list_data, type_sig, epoch)

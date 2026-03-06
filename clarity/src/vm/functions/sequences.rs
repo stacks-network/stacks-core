@@ -205,7 +205,7 @@ pub fn special_map(
     // Apply the function to each zipped argument tuple and collect results.
     // `min_args_len` is the length of the shortest input sequence; tuples beyond
     // that index belong to longer sequences and should be ignored.
-    let mut mapped_results = vec![];
+    let mut mapped_results = Vec::with_capacity(min_args_len);
     // Track the least-supertype of all result element types so we can build the output
     // list's type signature in a single pass, without iterating over `mapped_results` again.
     let mut element_type_opt = None;
