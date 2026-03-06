@@ -1158,6 +1158,7 @@ impl Config {
                 .max_execution_time_secs
                 .map(Duration::from_secs),
             max_tenure_bytes: miner_config.max_tenure_bytes,
+            excluded_txids: HashSet::new(),
         }
     }
 
@@ -1207,6 +1208,7 @@ impl Config {
                 .max_execution_time_secs
                 .map(Duration::from_secs),
             max_tenure_bytes: miner_config.max_tenure_bytes,
+            excluded_txids: HashSet::new(),
         }
     }
 

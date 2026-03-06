@@ -91,7 +91,10 @@ pub enum Error {
     StacksTipChanged,
     /// Signers rejected a block
     #[error("Signers rejected a block")]
-    SignersRejected,
+    SignersRejected {
+        /// Transaction IDs that signers reported as causing block validation failure
+        failed_txids: HashSet<Txid>,
+    },
     /// Error while spawning a subordinate thread
     #[error("Error while spawning a subordinate thread: {0}")]
     SpawnError(std::io::Error),

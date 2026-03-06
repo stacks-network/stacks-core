@@ -511,7 +511,9 @@ impl SignerCoordinator {
                     "signer_signature_hash" => %block_signer_sighash,
                 );
                 counters.bump_naka_rejected_blocks();
-                return Err(NakamotoNodeError::SignersRejected);
+                return Err(NakamotoNodeError::SignersRejected {
+                    failed_txids: block_status.failed_txids,
+                });
             } else if block_status.total_weight_approved >= self.weight_threshold {
                 info!("Received enough signatures, block accepted";
                     "signer_signature_hash" => %block_signer_sighash,

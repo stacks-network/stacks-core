@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 #[cfg(test)]
@@ -26,7 +27,7 @@ use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{MinerSlotID, SignerMessage};
 use libsigner::StackerDBSession;
 use rand::{thread_rng, Rng};
-use stacks::burnchains::Burnchain;
+use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
@@ -285,6 +286,9 @@ pub struct BlockMinerThread {
     reset_mempool_caches: bool,
     /// Storage for persisting non-confidential miner information
     miner_db: MinerDB,
+    /// Transaction IDs that signers have flagged as causing block rejection.
+    /// Excluded from future block proposals within this tenure.
+    excluded_txids: HashSet<Txid>,
 }
 
 /// Trait for the coordinator's read count extend timestamp check.
@@ -334,6 +338,7 @@ impl BlockMinerThread {
             tenure_budget: ExecutionCost::ZERO,
             reset_mempool_caches: true,
             miner_db: MinerDB::open_with_config(&rt.config)?,
+            excluded_txids: HashSet::new(),
         })
     }
 
@@ -822,6 +827,17 @@ impl BlockMinerThread {
                         return Err(e);
                     }
                     self.pause_and_retry(&new_block, last_block_rejected, e);
+                    return Ok(false);
+                }
+                NakamotoNodeError::SignersRejected { failed_txids } => {
+                    self.pause_and_retry(
+                        &new_block,
+                        last_block_rejected,
+                        NakamotoNodeError::SignersRejected {
+                            failed_txids: failed_txids.clone(),
+                        },
+                    );
+                    self.excluded_txids.extend(failed_txids);
                     return Ok(false);
                 }
                 _ => {
@@ -1601,8 +1617,18 @@ impl BlockMinerThread {
             &self.burn_election_block.consensus_hash,
             self.burn_block.total_burn,
             tenure_start_info,
-            self.config
-                .make_nakamoto_block_builder_settings(self.globals.get_miner_status()),
+            {
+                let mut settings = self
+                    .config
+                    .make_nakamoto_block_builder_settings(self.globals.get_miner_status());
+                if !self.excluded_txids.is_empty() {
+                    info!("Miner: excluding signer-rejected transaction(s) from block building";
+                        "count" => self.excluded_txids.len(),
+                    );
+                    settings.excluded_txids = self.excluded_txids.clone();
+                }
+                settings
+            },
             // we'll invoke the event dispatcher ourselves so that it calculates the
             //  correct signer_signature_hash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
@@ -2121,6 +2147,7 @@ fn should_read_count_extend_units() {
         abort_flag: Arc::new(AtomicBool::new(false)),
         reset_mempool_caches: false,
         miner_db: MinerDB::open("/tmp/should_read_count_extend_units.db").unwrap(),
+        excluded_txids: HashSet::new(),
     };
     miner.config.miner.read_count_extend_cost_threshold = 20;
 

@@ -36,7 +36,7 @@ use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::tests::TestFlag;
 use stacks_common::util::vrf::*;
 
-use crate::burnchains::Burnchain;
+use crate::burnchains::{Burnchain, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
@@ -243,6 +243,8 @@ pub struct BlockBuilderSettings {
     pub confirm_microblocks: bool,
     pub max_execution_time: Option<std::time::Duration>,
     pub max_tenure_bytes: u64,
+    /// Transaction IDs to exclude from block building (e.g., signer-rejected txs)
+    pub excluded_txids: HashSet<Txid>,
 }
 
 impl BlockBuilderSettings {
@@ -256,6 +258,7 @@ impl BlockBuilderSettings {
             confirm_microblocks: true,
             max_execution_time: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            excluded_txids: HashSet::new(),
         }
     }
 
@@ -269,6 +272,7 @@ impl BlockBuilderSettings {
             confirm_microblocks: true,
             max_execution_time: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            excluded_txids: HashSet::new(),
         }
     }
 }
@@ -2640,6 +2644,18 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                             .convert_to_event(),
                         ));
                     }
+                }
+
+                // skip transactions that signers have rejected
+                if settings.excluded_txids.contains(&txinfo.tx.txid()) {
+                    info!("Skipping signer-rejected transaction {}", txinfo.tx.txid());
+                    return Ok(Some(
+                        TransactionResult::skipped(
+                            &txinfo.tx,
+                            "Transaction was rejected by signers".to_string(),
+                        )
+                        .convert_to_event(),
+                    ));
                 }
 
                 // skip transactions early if we can
