@@ -15,6 +15,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Prepare for epoch 3.4's improved transaction inclusion, allowing transactions with certain errors to be included in blocks which would cause them to be rejected in earlier epochs.
 - Added `marf_compress` as a node configuration parameter to enable MARF compression feature ([#6811](https://github.com/stacks-network/stacks-core/pull/6811))
 - Effective in epoch 3.4 `contract-call?`s can accept a constant as the contract to be called
+- Added post-condition enhancements for epoch 3.4 (SIP-040): `Originator` post-condition mode (`0x03`) and NFT `MAY SEND` condition code (`0x12`), including serialization support and epoch-gated validation/enforcement.
 - Miners now track `failed_txid` from signer block rejections. When a blocking minority (>30%) of signers report the same transaction as failed, the miner excludes it from the next block proposal. A new `ProblematicTransaction` validation reject code distinguishes genuinely broken transactions (permanently blacklisted from the mempool) from context-dependent failures like deadline exceeded (excluded until a successful block only).
 
 ### Fixed
