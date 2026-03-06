@@ -30,21 +30,21 @@ use crate::vm::types::Value;
 use crate::vm::{eval, Environment, LocalContext};
 
 pub struct StxAllowance {
-    amount: u128,
+    pub amount: u128,
 }
 
 pub struct FtAllowance {
-    asset: AssetIdentifier,
-    amount: u128,
+    pub asset: AssetIdentifier,
+    pub amount: u128,
 }
 
 pub struct NftAllowance {
-    asset: AssetIdentifier,
-    asset_ids: Vec<Value>,
+    pub asset: AssetIdentifier,
+    pub asset_ids: Vec<Value>,
 }
 
 pub struct StackingAllowance {
-    amount: u128,
+    pub amount: u128,
 }
 
 pub enum Allowance {
