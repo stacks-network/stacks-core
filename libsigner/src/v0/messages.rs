@@ -28,6 +28,7 @@ use std::hash::Hash;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 
+use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
@@ -1502,10 +1503,12 @@ impl SignerMessageMetadata {
 }
 
 /// The latest version of the block response data
-pub const BLOCK_RESPONSE_DATA_VERSION: u8 = 4;
+pub const BLOCK_RESPONSE_DATA_VERSION: u8 = 5;
 /// The first version of the block response data that added the tenure read count extend
 ///  timestamp.
 pub const FIRST_RESPONSE_DATA_VERSION_WITH_READ_COUNT: u8 = 4;
+/// The first version of the block response data that added the failed txid field.
+pub const FIRST_RESPONSE_DATA_VERSION_WITH_FAILED_TXID: u8 = 5;
 
 /// Versioned, backwards-compatible struct for block response data
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1518,6 +1521,8 @@ pub struct BlockResponseData {
     pub reject_reason: RejectReason,
     /// Timestamp for when this signer would accept a read-count only TenureExtend
     pub tenure_extend_read_count_timestamp: u64,
+    /// The txid of the transaction that caused block validation to fail, if any
+    pub failed_txid: Option<Txid>,
     /// When deserializing future versions,
     /// there may be extra bytes that we don't know about
     pub unknown_bytes: Vec<u8>,
@@ -1535,6 +1540,7 @@ impl BlockResponseData {
             tenure_extend_timestamp,
             reject_reason,
             tenure_extend_read_count_timestamp,
+            failed_txid: None,
             unknown_bytes: vec![],
         }
     }
@@ -1549,6 +1555,15 @@ impl BlockResponseData {
         write_next(fd, &self.tenure_extend_timestamp)?;
         write_next(fd, &self.reject_reason)?;
         write_next(fd, &self.tenure_extend_read_count_timestamp)?;
+        match &self.failed_txid {
+            Some(txid) => {
+                write_next(fd, &1u8)?;
+                write_next(fd, txid)?;
+            }
+            None => {
+                write_next(fd, &0u8)?;
+            }
+        }
         fd.write_all(&self.unknown_bytes)
             .map_err(CodecError::WriteError)?;
         Ok(())
@@ -1587,11 +1602,22 @@ impl StacksMessageCodec for BlockResponseData {
             } else {
                 read_next(&mut inner_reader)?
             };
+        let failed_txid = if version < FIRST_RESPONSE_DATA_VERSION_WITH_FAILED_TXID {
+            None
+        } else {
+            let has_txid: u8 = read_next(&mut inner_reader)?;
+            if has_txid != 0 {
+                Some(read_next::<Txid, _>(&mut inner_reader)?)
+            } else {
+                None
+            }
+        };
         Ok(Self {
             version,
             tenure_extend_timestamp,
             reject_reason,
             tenure_extend_read_count_timestamp,
+            failed_txid,
             unknown_bytes: inner_reader.to_vec(),
         })
     }
@@ -1721,18 +1747,17 @@ impl BlockRejection {
             CHAIN_ID_TESTNET
         };
         let reject_code = RejectCode::ValidationFailed(reject.reason_code);
+        let mut response_data =
+            BlockResponseData::new(full_extend_ts, (&reject_code).into(), read_count_extend_ts);
+        response_data.failed_txid = reject.failed_txid;
         let mut rejection = Self {
             reason: reject.reason,
-            reason_code: reject_code.clone(),
+            reason_code: reject_code,
             signer_signature_hash: reject.signer_signature_hash,
             chain_id,
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
-            response_data: BlockResponseData::new(
-                full_extend_ts,
-                (&reject_code).into(),
-                read_count_extend_ts,
-            ),
+            response_data,
         };
         rejection
             .sign(private_key)
@@ -2409,8 +2434,9 @@ mod test {
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
         // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp
-        //   + 1 byte reject code + 8 bytes read_count_timestamp + 4 bytes unknown_bytes
-        assert_eq!(bytes.len(), 26);
+        //   + 1 byte reject code + 8 bytes read_count_timestamp + 1 byte failed_txid flag
+        //   + 4 bytes unknown_bytes
+        assert_eq!(bytes.len(), 27);
         let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
             .expect("Failed to deserialize BlockResponseData");
         assert_eq!(response_data, deserialized_data);
@@ -2419,8 +2445,9 @@ mod test {
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
         // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp
-        //   + 8 bytes read_count_timestamp + 0 bytes unknown_bytes
-        assert_eq!(bytes.len(), 22);
+        //   + 1 byte reject code + 8 bytes read_count_timestamp + 1 byte failed_txid flag
+        //   + 0 bytes unknown_bytes
+        assert_eq!(bytes.len(), 23);
         let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
             .expect("Failed to deserialize BlockResponseData");
         assert_eq!(response_data, deserialized_data);
@@ -2432,6 +2459,7 @@ mod test {
         pub tenure_extend_timestamp: u64,
         pub reject_reason: RejectReason,
         pub read_count_timestamp: u64,
+        pub failed_txid: Option<Txid>,
         pub some_other_field: u64,
         pub yet_another_field: u64,
     }
@@ -2441,6 +2469,15 @@ mod test {
             write_next(fd, &self.tenure_extend_timestamp)?;
             write_next(fd, &self.reject_reason)?;
             write_next(fd, &self.read_count_timestamp)?;
+            match &self.failed_txid {
+                Some(txid) => {
+                    write_next(fd, &1u8)?;
+                    write_next(fd, txid)?;
+                }
+                None => {
+                    write_next(fd, &0u8)?;
+                }
+            }
             write_next(fd, &self.some_other_field)?;
             write_next(fd, &self.yet_another_field)?;
             Ok(())
@@ -2463,9 +2500,10 @@ mod test {
             version: 11,
             tenure_extend_timestamp: 2,
             reject_reason: RejectReason::ReorgNotAllowed,
+            read_count_timestamp: 3,
+            failed_txid: None,
             some_other_field: 3,
             yet_another_field: 4,
-            read_count_timestamp: 3,
         };
 
         let mut bytes = vec![];
@@ -2899,6 +2937,7 @@ mod test {
                         tenure_extend_timestamp: 11,
                         reject_reason: RejectReason::InvalidParentBlock,
                         tenure_extend_read_count_timestamp: u64::MAX,
+                        failed_txid: None,
                         unknown_bytes: vec![],
                     },
                 })),
@@ -2919,6 +2958,7 @@ mod test {
                         tenure_extend_timestamp: 21,
                         reject_reason: RejectReason::NotRejected,
                         tenure_extend_read_count_timestamp: u64::MAX,
+                        failed_txid: None,
                         unknown_bytes: vec![],
                     },
                 })),
