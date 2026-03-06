@@ -109,8 +109,8 @@ jobs:
           fetch-depth: 0
 
       ## Quick diff scan: detect whether the PR introduces any new proptest test
-      ## looking for functions starting with "prop_" or "proptest_",
-      ## within files using "proptest!" macro, so we can skip full discovery when there are none.
+      ## looking for the attribute #[tag(..., prop, ...)] on added lines,
+      ## so we can skip full discovery when there are none.
       - name: Detect new proptest tests (git diff)
         id: detect
         run: |
@@ -120,16 +120,14 @@ jobs:
           found=false
           ## For each .rs file that was added or modified in the PR...
           while IFS= read -r file; do
-            ## ...consider only files that already contain the proptest! macro
-            if grep -q 'proptest!' "$file" 2>/dev/null; then
-              ## ...check if any added line introduces a fn prop_ or fn proptest_
-              if git diff "origin/$base_ref" -- "$file" \
-                   | grep '^+[^+]' \
-                   | grep -qE 'fn\s+(prop_|proptest_)'; then
-                echo "Found new proptest function in: $file"
-                found=true
-                break
-              fi
+            ## ...check if any added line contains #[tag(..., prop, ...)]
+            ## The tag list may have multiple comma-separated keywords with optional spaces.
+            if git diff "origin/$base_ref" -- "$file" \
+                 | grep '^+[^+]' \
+                 | grep -qP '#\[tag\([^)]*\bprop\b[^)]*\)\]'; then
+              echo "Found new proptest tag in: $file"
+              found=true
+              break
             fi
           done < <(git diff "origin/$base_ref" --name-only --diff-filter=AM -- '*.rs')
 
@@ -240,13 +238,14 @@ jobs:
           echo "Base tests: $(wc -l < /tmp/base-tests.txt)"
 
       ## Compare the HEAD and base test lists and keep only tests that are new in HEAD.
-      ## Then filter to only those whose function name (last :: segment) starts
-      ## with "prop_" or "proptest_", consistent with the detection step above.
+      ## Then filter to only those tagged with :t::...:prop:, i.e. test names of the form:
+      ##   mod1::mod2::testname::t::prop::t
+      ##   mod1::mod2::testname::t::other::prop::t
       - name: Discover new tests
         id: discover
         run: |
           comm -23 /tmp/head-tests.txt /tmp/base-tests.txt \
-            | grep -E '(^|::)(prop_|proptest_)[^:]*$' \
+            | grep -P ':t::(?:.*::)?prop::' \
             > /tmp/new-prop-tests.txt || true
           count=$(wc -l < /tmp/new-prop-tests.txt | tr -d ' ')
           echo "count=$count" >> "$GITHUB_OUTPUT"
