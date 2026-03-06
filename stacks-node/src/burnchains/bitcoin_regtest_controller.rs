@@ -2240,11 +2240,11 @@ impl BitcoinRegtestController {
     /// and does not affect which UTXOs are included in the result.
     ///
     /// # Arguments
-    /// - `address`: The Bitcoin address whose UTXOs should be retrieved.  
-    /// - `include_unsafe`: Whether to include unsafe UTXOs.  
-    /// - `minimum_sum_amount`: Minimum amount (in satoshis) that a UTXO must have to be included in the final set.  
-    /// - `utxos_to_exclude`: Optional set of UTXOs to exclude from the final result.  
-    /// - `block_height`: The block height at which to resolve the block hash used in the result.  
+    /// - `address`: The Bitcoin address whose UTXOs should be retrieved.
+    /// - `include_unsafe`: Whether to include unsafe UTXOs.
+    /// - `minimum_sum_amount`: Minimum amount (in satoshis) that a UTXO must have to be included in the final set.
+    /// - `utxos_to_exclude`: Optional set of UTXOs to exclude from the final result.
+    /// - `block_height`: The block height at which to resolve the block hash used in the result.
     ///
     /// # Returns
     /// A [`UTXOSet`] containing the filtered UTXOs and the block hash corresponding to `block_height`.
@@ -2394,7 +2394,12 @@ impl BurnchainController for BitcoinRegtestController {
         op_signer: &mut BurnchainOpSigner,
     ) -> Result<Txid, BurnchainControllerError> {
         let transaction = self.make_operation_tx(epoch_id, operation, op_signer)?;
-        self.send_transaction(&transaction)
+        self.send_transaction(&transaction).map_err(|e| {
+            // If the transaction was never successfully submitted,
+            // clear the ongoing block commit so it can be resubmitted.
+            self.ongoing_block_commit = None;
+            e
+        })
     }
 
     #[cfg(test)]
