@@ -36,24 +36,24 @@ use crate::vm::{LocalContext, eval};
 
 #[derive(Debug)]
 pub struct StxAllowance {
-    amount: u128,
+    pub amount: u128,
 }
 
 #[derive(Debug)]
 pub struct FtAllowance {
-    asset: AssetIdentifier,
-    amount: u128,
+    pub asset: AssetIdentifier,
+    pub amount: u128,
 }
 
 #[derive(Debug)]
 pub struct NftAllowance {
-    asset: AssetIdentifier,
-    asset_ids: Vec<Value>,
+    pub asset: AssetIdentifier,
+    pub asset_ids: Vec<Value>,
 }
 
 #[derive(Debug)]
 pub struct StackingAllowance {
-    amount: u128,
+    pub amount: u128,
 }
 
 #[derive(Debug)]
