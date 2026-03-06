@@ -286,9 +286,12 @@ pub struct BlockMinerThread {
     reset_mempool_caches: bool,
     /// Storage for persisting non-confidential miner information
     miner_db: MinerDB,
-    /// Transaction IDs that signers have flagged as causing block rejection.
-    /// Excluded from future block proposals within this tenure.
+    /// Transaction IDs to exclude from the next block proposal only.
+    /// Replaced (not accumulated) on each signer rejection.
     excluded_txids: HashSet<Txid>,
+    /// Transaction IDs that signers identified as genuinely problematic.
+    /// Drained and blacklisted from the mempool in mine_block().
+    problematic_txids: HashSet<Txid>,
 }
 
 /// Trait for the coordinator's read count extend timestamp check.
@@ -339,6 +342,7 @@ impl BlockMinerThread {
             reset_mempool_caches: true,
             miner_db: MinerDB::open_with_config(&rt.config)?,
             excluded_txids: HashSet::new(),
+            problematic_txids: HashSet::new(),
         })
     }
 
@@ -660,6 +664,9 @@ impl BlockMinerThread {
             return Ok(());
         }
 
+        // Block was accepted — clear any single-block exclusions
+        self.excluded_txids.clear();
+
         // Wait until the last block has been mined and processed
         self.wait_for_last_block_mined_and_processed(&mut chain_state)?;
 
@@ -829,15 +836,25 @@ impl BlockMinerThread {
                     self.pause_and_retry(&new_block, last_block_rejected, e);
                     return Ok(false);
                 }
-                NakamotoNodeError::SignersRejected { failed_txids } => {
+                NakamotoNodeError::SignersRejected {
+                    excluded_txids: rejected_txids,
+                    problematic_txids: rejected_problematic_txids,
+                } => {
                     self.pause_and_retry(
                         &new_block,
                         last_block_rejected,
                         NakamotoNodeError::SignersRejected {
-                            failed_txids: failed_txids.clone(),
+                            excluded_txids: rejected_txids.clone(),
+                            problematic_txids: rejected_problematic_txids.clone(),
                         },
                     );
-                    self.excluded_txids.extend(failed_txids);
+                    // Replace (not extend) excluded_txids so the ban only applies
+                    // to the next block proposal — transient failures may resolve
+                    // after one block.
+                    self.excluded_txids = rejected_txids;
+                    // Problematic txids will be blacklisted from the mempool
+                    // when mine_block opens the mempool connection.
+                    self.problematic_txids.extend(rejected_problematic_txids);
                     return Ok(false);
                 }
                 _ => {
@@ -1511,6 +1528,17 @@ impl BlockMinerThread {
             .connect_mempool_db()
             .expect("Database failure opening mempool");
 
+        // Blacklist problematic transactions reported by signers
+        if !self.problematic_txids.is_empty() {
+            let txids: Vec<Txid> = self.problematic_txids.drain().collect();
+            info!("Miner: blacklisting problematic transaction(s) from mempool";
+                "count" => txids.len(),
+            );
+            if let Err(e) = mem_pool.drop_and_blacklist_txs(&txids) {
+                warn!("Miner: failed to blacklist problematic transactions: {e:?}");
+            }
+        }
+
         let target_epoch_id =
             SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1)
                 .map_err(|_| NakamotoNodeError::SnapshotNotFoundForChainTip)?
@@ -2148,6 +2176,7 @@ fn should_read_count_extend_units() {
         reset_mempool_caches: false,
         miner_db: MinerDB::open("/tmp/should_read_count_extend_units.db").unwrap(),
         excluded_txids: HashSet::new(),
+        problematic_txids: HashSet::new(),
     };
     miner.config.miner.read_count_extend_cost_threshold = 20;
 

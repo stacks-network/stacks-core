@@ -514,9 +514,12 @@ fn test_try_make_response() {
     }
 }
 
+/// Test that when block validation exceeds the deadline, the rejection
+/// includes the txid of the transaction at which the deadline was exceeded
+/// so the miner can exclude it from the next block proposal.
 #[test]
 #[ignore]
-fn test_block_proposal_validation_timeout() {
+fn test_block_proposal_validation_timeout_blames_tx() {
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
@@ -692,9 +695,9 @@ fn test_block_proposal_validation_timeout() {
             ..
         }) => {
             assert_eq!(reason_code, ValidateRejectCode::BadTransaction);
-            assert_eq!(
-                failed_txid, None,
-                "Timeout rejection must not blame any transaction (failed_txid should be None)"
+            assert!(
+                failed_txid.is_some(),
+                "Timeout rejection should blame the tx at which the deadline was exceeded"
             );
             assert!(
                 reason.contains("exceeded deadline"),

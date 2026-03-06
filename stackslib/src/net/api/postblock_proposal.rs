@@ -90,7 +90,8 @@ define_u8_enum![ValidateRejectCode {
     InvalidParentBlock = 8,
     InvalidTimestamp = 9,
     NetworkChainMismatch = 10,
-    NotFoundError = 11
+    NotFoundError = 11,
+    ProblematicTransaction = 12
 }];
 
 pub static TOO_MANY_REQUESTS_STATUS: u16 = 429;
@@ -653,13 +654,13 @@ impl NakamotoBlockProposal {
         for (i, tx) in self.block.txs.iter().enumerate() {
             let now = Instant::now();
             if now >= block_deadline {
-                // Short circuit early if we know we have no more time left
+                // Short circuit early if we know we have no more time left.
+                // Blame the current tx so the miner can exclude it from the
+                // next proposal and make potentially make progress.
                 return Err(BlockValidateRejectReason {
-                    reason: format!(
-                        "Block validation exceeded deadline at tx {i} (caused by previous tx)"
-                    ),
+                    reason: format!("Block validation exceeded deadline at tx {i}"),
                     reason_code: ValidateRejectCode::BadTransaction,
-                    failed_txid: None,
+                    failed_txid: Some(tx.txid()),
                 });
             }
             let remaining = block_deadline.saturating_duration_since(now);
@@ -674,25 +675,22 @@ impl NakamotoBlockProposal {
                 Some(remaining),
                 &mut receipts_total,
             );
-            // If the block deadline was exceeded, the failure may have been
-            // caused by running out of time rather than the transaction being
-            // inherently bad. Don't blame the transaction in that case, since
-            // it could succeed in a later block with a full time budget.
-            let deadline_exceeded = Instant::now() >= block_deadline;
-            let (reason, is_tx_fault) = match tx_result {
-                TransactionResult::Success(_) => (None, false),
-                TransactionResult::Skipped(s) => {
-                    (Some(format!("tx {i} skipped: {}", s.error)), false)
-                }
-                TransactionResult::ProcessingError(e) => (
-                    Some(format!("Error processing tx {i}: {}", e.error)),
-                    !deadline_exceeded,
-                ),
-                TransactionResult::Problematic(p) => {
-                    (Some(format!("Problematic tx {i}: {}", p.error)), true)
-                }
+            let reason = match tx_result {
+                TransactionResult::Success(_) => None,
+                TransactionResult::Skipped(s) => Some((
+                    format!("tx {i} skipped: {}", s.error),
+                    ValidateRejectCode::BadTransaction,
+                )),
+                TransactionResult::ProcessingError(e) => Some((
+                    format!("Error processing tx {i}: {}", e.error),
+                    ValidateRejectCode::BadTransaction,
+                )),
+                TransactionResult::Problematic(p) => Some((
+                    format!("Problematic tx {i}: {}", p.error),
+                    ValidateRejectCode::ProblematicTransaction,
+                )),
             };
-            if let Some(reason) = reason {
+            if let Some((reason, reject_code)) = reason {
                 warn!(
                     "Rejected block proposal";
                     "reason" => %reason,
@@ -700,8 +698,8 @@ impl NakamotoBlockProposal {
                 );
                 return Err(BlockValidateRejectReason {
                     reason,
-                    reason_code: ValidateRejectCode::BadTransaction,
-                    failed_txid: if is_tx_fault { Some(tx.txid()) } else { None },
+                    reason_code: reject_code,
+                    failed_txid: Some(tx.txid()),
                 });
             }
         }

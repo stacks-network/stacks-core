@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Bound::Included;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -511,8 +511,26 @@ impl SignerCoordinator {
                     "signer_signature_hash" => %block_signer_sighash,
                 );
                 counters.bump_naka_rejected_blocks();
+
+                // Only act on failed txids that a blocking minority (>30% weight) agrees on
+                let blocking_minority = self.total_weight.saturating_sub(self.weight_threshold);
+                let mut excluded_txids = HashSet::new();
+                let mut problematic_txids = HashSet::new();
+                for (txid, info) in &block_status.failed_txids {
+                    if info.total_weight > blocking_minority {
+                        // Do not perma ban txids that only a small minority of signers reported as problematic
+                        // But make sure its removed from the next block proposal
+                        if info.problematic_weight > blocking_minority {
+                            problematic_txids.insert(txid.clone());
+                        } else {
+                            excluded_txids.insert(txid.clone());
+                        }
+                    }
+                }
+
                 return Err(NakamotoNodeError::SignersRejected {
-                    failed_txids: block_status.failed_txids,
+                    excluded_txids,
+                    problematic_txids,
                 });
             } else if block_status.total_weight_approved >= self.weight_threshold {
                 info!("Received enough signatures, block accepted";

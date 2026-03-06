@@ -56,6 +56,16 @@ pub static TEST_IGNORE_SIGNERS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFla
 /// waking up to check timeouts?
 pub static EVENT_RECEIVER_POLL: Duration = Duration::from_millis(500);
 
+/// Tracks per-txid rejection data from signers
+#[derive(Debug, Clone, Default)]
+pub struct FailedTxInfo {
+    /// The total weight of signers who reported this txid as failed
+    pub total_weight: u32,
+    /// The weight of signers who specifically reported this txid as
+    /// genuinely problematic (e.g. DDoS vector, parse error, Clarity crash)
+    pub problematic_weight: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct BlockStatus {
     /// Set of the slot ids of signers who have responded
@@ -66,8 +76,8 @@ pub struct BlockStatus {
     pub total_weight_approved: u32,
     /// Total weight of signers who have rejected the block
     pub total_weight_rejected: u32,
-    /// Transaction IDs reported by signers as causing block validation failure
-    pub failed_txids: HashSet<Txid>,
+    /// Per-txid rejection tracking from signers
+    pub failed_txids: HashMap<Txid, FailedTxInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -480,17 +490,36 @@ impl StackerDBListener {
                                 .checked_add(signer_entry.weight)
                                 .expect("FATAL: total weight rejected exceeds u32::MAX");
 
-                            // Only exclude transactions that genuinely failed validation
-                            // (BadTransaction), not contextual failures like replay set
-                            // mismatches which resolve once replay ends.
+                            // Track transactions that failed validation, accumulating
+                            // per-txid signer weight and whether any signer flagged
+                            // the tx as genuinely problematic.
                             if let Some(txid) = &rejected_data.response_data.failed_txid {
-                                if matches!(
-                                    rejected_data.reason_code,
+                                match &rejected_data.reason_code {
                                     RejectCode::ValidationFailed(
                                         ValidateRejectCode::BadTransaction
-                                    )
-                                ) {
-                                    block.failed_txids.insert(txid.clone());
+                                        | ValidateRejectCode::ProblematicTransaction,
+                                    ) => {
+                                        let info =
+                                            block.failed_txids.entry(txid.clone()).or_default();
+                                        info.total_weight = info
+                                            .total_weight
+                                            .checked_add(signer_entry.weight)
+                                            .expect("FATAL: failed txid weight exceeds u32::MAX");
+                                        if matches!(
+                                            rejected_data.reason_code,
+                                            RejectCode::ValidationFailed(
+                                                ValidateRejectCode::ProblematicTransaction
+                                            )
+                                        ) {
+                                            info.problematic_weight = info
+                                                .problematic_weight
+                                                .checked_add(signer_entry.weight)
+                                                .expect(
+                                                    "FATAL: problematic txid weight exceeds u32::MAX",
+                                                );
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             }
 
@@ -647,7 +676,7 @@ impl StackerDBListenerComms {
             gathered_signatures: BTreeMap::new(),
             total_weight_approved: 0,
             total_weight_rejected: 0,
-            failed_txids: HashSet::new(),
+            failed_txids: HashMap::new(),
         };
         blocks.insert(block.signer_signature_hash(), block_status);
     }

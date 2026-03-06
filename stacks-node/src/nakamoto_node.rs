@@ -92,8 +92,10 @@ pub enum Error {
     /// Signers rejected a block
     #[error("Signers rejected a block")]
     SignersRejected {
-        /// Transaction IDs that signers reported as causing block validation failure
-        failed_txids: HashSet<Txid>,
+        /// Transaction IDs to exclude from the next block build (e.g., due to contextual rejections)
+        excluded_txids: HashSet<Txid>,
+        /// Transaction IDs to permaban from the mempool (genuinely problematic)
+        problematic_txids: HashSet<Txid>,
     },
     /// Error while spawning a subordinate thread
     #[error("Error while spawning a subordinate thread: {0}")]
