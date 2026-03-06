@@ -4004,7 +4004,7 @@ fn read_write_node4_hashes() {
     }
 
     // no final child
-    child_hashes.push(TrieHash::from_data(&[]));
+    child_hashes.push(TrieHash::EMPTY);
 
     let node4_ptr = trie_io.last_ptr().unwrap();
     let node4_hash = get_node_hash(&node4, &child_hashes, &mut trie_io);
@@ -4048,7 +4048,7 @@ fn read_write_node16_hashes() {
     }
 
     // no final child
-    child_hashes.push(TrieHash::from_data(&[]));
+    child_hashes.push(TrieHash::EMPTY);
 
     let node16_ptr = trie_io.last_ptr().unwrap();
     let node16_hash = get_node_hash(&node16, &child_hashes, &mut trie_io);
@@ -4094,7 +4094,7 @@ fn read_write_node48_hashes() {
     }
 
     // no final child
-    child_hashes.push(TrieHash::from_data(&[]));
+    child_hashes.push(TrieHash::EMPTY);
 
     let node48_ptr = trie_io.last_ptr().unwrap();
     let node48_hash = get_node_hash(&node48, &child_hashes, &mut trie_io);
@@ -4140,7 +4140,7 @@ fn read_write_node256_hashes() {
     }
 
     // no final child
-    child_hashes.push(TrieHash::from_data(&[]));
+    child_hashes.push(TrieHash::EMPTY);
 
     let node256_ptr = trie_io.last_ptr().unwrap();
     let node256_hash = get_node_hash(&node256, &child_hashes, &mut trie_io);

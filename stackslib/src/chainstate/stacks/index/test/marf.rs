@@ -14,11 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+
 use clarity::types::chainstate::{BlockHeaderHash, TrieHash};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::to_hex;
 
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
+use crate::chainstate::stacks::index::marf::{
+    MARFOpenOpts, MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
+    BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF, OWN_BLOCK_HEIGHT_KEY,
+};
 use crate::chainstate::stacks::index::node::{TrieNodeID, TrieNodeType, TriePtr};
 use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
@@ -1233,7 +1239,7 @@ fn marf_split_leaf_path() {
 #[test]
 #[ignore]
 fn marf_insert_random_65536_2048() {
-    let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+    let mut seed = TrieHash::EMPTY.as_bytes().to_vec();
     marf_insert(
         |i| {
             let mut path = [0; 32];
@@ -1305,7 +1311,7 @@ fn marf_insert_random_4096_128_merkle_proof() {
 
         let mut block_header = BlockHeaderHash::sentinel();
 
-        let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+        let mut seed = TrieHash::EMPTY.as_bytes().to_vec();
         let mut prev_block_header = block_header.clone();
 
         let mut i = 1;
@@ -1368,7 +1374,7 @@ fn marf_insert_random_4096_128_merkle_proof() {
         }
 
         i = 1;
-        seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+        seed = TrieHash::EMPTY.as_bytes().to_vec();
 
         let mut block_table_cache = None;
         while i <= 4096 {
@@ -2152,5 +2158,388 @@ fn test_marf_commit_to_other_block_hash() {
         None,
         marf.get_open_chain_tip_height(),
         "Open tip block height after commit"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// for_each_leaf tests
+// ---------------------------------------------------------------------------
+
+/// Verify that the expected MARF metadata keys are present in the leaf set
+/// for a MARF with blocks at heights 0..=`height`.
+///
+/// Expected metadata keys at height H with (H+1) blocks:
+/// - `OWN_BLOCK_HEIGHT_KEY` (1 key)
+/// - `BLOCK_HEIGHT_TO_HASH_MAPPING_KEY::<h>` for h in 0..=H (H+1 keys)
+/// - `BLOCK_HASH_TO_HEIGHT_MAPPING_KEY::<block_hash>` for each block (H+1 keys)
+///
+/// Total metadata keys = 1 + (H+1) + (H+1) = 2H + 3
+fn assert_metadata_keys_present(
+    seen: &HashMap<TrieHash, MARFValue>,
+    height: u32,
+    blocks: &[StacksBlockId],
+) {
+    // OWN_BLOCK_HEIGHT_KEY
+    let own_height_hash = TrieHash::from_key(OWN_BLOCK_HEIGHT_KEY);
+    assert!(
+        seen.contains_key(&own_height_hash),
+        "missing metadata key: {OWN_BLOCK_HEIGHT_KEY}"
+    );
+    assert_eq!(
+        seen[&own_height_hash],
+        MARFValue::from(height),
+        "OWN_BLOCK_HEIGHT_KEY should equal {height}"
+    );
+
+    // BLOCK_HEIGHT_TO_HASH_MAPPING_KEY::<h> for each height 0..=H
+    for h in 0..=height {
+        let key = format!("{BLOCK_HEIGHT_TO_HASH_MAPPING_KEY}::{h}");
+        let hash = TrieHash::from_key(&key);
+        assert!(seen.contains_key(&hash), "missing metadata key: {key}");
+    }
+
+    // BLOCK_HASH_TO_HEIGHT_MAPPING_KEY::<block_hash> for each block 0..=H
+    for (i, bh) in blocks.iter().enumerate().take((height + 1) as usize) {
+        let key = format!("{BLOCK_HASH_TO_HEIGHT_MAPPING_KEY}::{bh}");
+        let hash = TrieHash::from_key(&key);
+        assert!(
+            seen.contains_key(&hash),
+            "missing metadata key for block {i}: {key}"
+        );
+    }
+}
+
+/// Create a configurable multi-block MARF for `for_each_leaf` tests.
+///
+/// `k1` is updated at every block (exercises backpointers at every depth).
+/// For each block at height h > 0, inserts `keys_per_block` new keys.
+/// Also creates:
+/// - 10 common keys updated at every block
+/// - 10 common keys updated only on some blocks
+fn setup_for_each_leaf_marf(
+    path: &str,
+    num_blocks: usize,
+    keys_per_block: usize,
+) -> (
+    MARF<StacksBlockId>,
+    Vec<StacksBlockId>,
+    HashMap<String, String>,
+) {
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut marf = MARF::<StacksBlockId>::from_path(path, open_opts).unwrap();
+
+    assert!(num_blocks > 0, "num_blocks must be > 0");
+    let blocks: Vec<StacksBlockId> = (0..num_blocks)
+        .map(|i| {
+            let mut bytes = [0u8; 32];
+            bytes[28..32].copy_from_slice(&((i as u32) + 1).to_be_bytes());
+            StacksBlockId::from_bytes(&bytes).unwrap()
+        })
+        .collect();
+    let mut expected_keys: HashMap<String, String> = HashMap::new();
+    let common_always = 10;
+    let common_sometimes = 10;
+
+    // Block at height 0
+    marf.begin(&StacksBlockId::sentinel(), &blocks[0]).unwrap();
+    marf.insert("k1", MARFValue::from_value("v1_at_0")).unwrap();
+    expected_keys.insert("k1".to_string(), "v1_at_0".to_string());
+    for c in 0..common_always {
+        let key = format!("common_all_{c}");
+        let val = format!("common_all_{c}_at_0");
+        marf.insert(&key, MARFValue::from_value(&val)).unwrap();
+        expected_keys.insert(key, val);
+    }
+    for c in 0..common_sometimes {
+        let key = format!("common_some_{c}");
+        let val = format!("common_some_{c}_at_0");
+        marf.insert(&key, MARFValue::from_value(&val)).unwrap();
+        expected_keys.insert(key, val);
+    }
+    marf.seal().unwrap();
+    marf.commit().unwrap();
+
+    // Heights 1..(num_blocks-1)
+    for i in 1..blocks.len() {
+        marf.begin(&blocks[i - 1], &blocks[i]).unwrap();
+
+        // Insert newly-introduced keys for this height.
+        for j in 0..keys_per_block {
+            let key_index = 2 + (i - 1) * keys_per_block + j;
+            let key = format!("k{key_index}");
+            let val = format!("v{key_index}_at_{i}");
+            marf.insert(&key, MARFValue::from_value(&val)).unwrap();
+            expected_keys.insert(key, val);
+        }
+
+        let k1_val = format!("v1_at_{i}");
+        marf.insert("k1", MARFValue::from_value(&k1_val)).unwrap();
+        expected_keys.insert("k1".to_string(), k1_val);
+        for c in 0..common_always {
+            let key = format!("common_all_{c}");
+            let val = format!("common_all_{c}_at_{i}");
+            marf.insert(&key, MARFValue::from_value(&val)).unwrap();
+            expected_keys.insert(key, val);
+        }
+        for c in 0..common_sometimes {
+            // each key updates on some heights, but not all heights
+            if (i + c) % 3 == 0 {
+                let key = format!("common_some_{c}");
+                let val = format!("common_some_{c}_at_{i}");
+                marf.insert(&key, MARFValue::from_value(&val)).unwrap();
+                expected_keys.insert(key, val);
+            }
+        }
+        marf.seal().unwrap();
+        marf.commit().unwrap();
+    }
+
+    (marf, blocks, expected_keys)
+}
+
+#[test]
+fn test_for_each_leaf_yields_all_keys() {
+    let (mut marf, blocks, expected_keys) = setup_for_each_leaf_marf(":memory:", 2, 1);
+    let b1 = blocks[0].clone();
+    let b2 = blocks[1].clone();
+
+    // b2 is the tip (last committed block = height 1).
+    let seen: RefCell<HashMap<TrieHash, MARFValue>> = RefCell::new(HashMap::new());
+    let leaf_count = marf
+        .with_conn(|conn| {
+            MARF::for_each_leaf(conn, &b2, |path, value| {
+                seen.borrow_mut().insert(path, value);
+                Ok(())
+            })
+        })
+        .unwrap();
+    let seen = seen.into_inner();
+
+    assert_eq!(leaf_count, seen.len() as u64);
+
+    // User keys: k1 and the first per-height key.
+    assert_eq!(
+        seen.get(&TrieHash::from_key("k1")).cloned().unwrap(),
+        MARFValue::from_value("v1_at_1")
+    );
+    assert_eq!(
+        seen.get(&TrieHash::from_key("k2")).cloned().unwrap(),
+        MARFValue::from_value("v2_at_1")
+    );
+    for (key, val) in &expected_keys {
+        let hash = TrieHash::from_key(key);
+        assert!(seen.contains_key(&hash), "missing key {key} from walk");
+        assert_eq!(
+            seen[&hash],
+            MARFValue::from_value(val),
+            "value mismatch for key {key}"
+        );
+    }
+
+    // Metadata keys: height 1 MARF with 2 blocks (b1, b2).
+    // Expected: OWN_BLOCK_HEIGHT_KEY + 2 height-to-hash + 2 hash-to-height = 5 metadata.
+    assert_metadata_keys_present(&seen, 1, &[b1, b2]);
+
+    let expected_metadata = 1 + 2 * blocks.len();
+    let expected_total = expected_keys.len() + expected_metadata;
+    assert_eq!(
+        leaf_count,
+        expected_total as u64,
+        "expected {expected_total} leaves ({} user + {expected_metadata} metadata)",
+        expected_keys.len()
+    );
+}
+
+#[test]
+fn test_for_each_leaf_large_scale_resolves_backpointers_and_values() {
+    let (mut marf, blocks, expected_keys) = setup_for_each_leaf_marf(":memory:", 300, 150);
+
+    let block_at_tip = &blocks[299];
+
+    let seen: RefCell<HashMap<TrieHash, MARFValue>> = RefCell::new(HashMap::new());
+    let leaf_count = marf
+        .with_conn(|conn| {
+            MARF::for_each_leaf(conn, block_at_tip, |path, value| {
+                seen.borrow_mut().insert(path, value);
+                Ok(())
+            })
+        })
+        .unwrap();
+    let seen = seen.into_inner();
+
+    assert_eq!(leaf_count, seen.len() as u64);
+
+    // User keys: inserted keys + common keys.
+    assert_eq!(
+        seen.get(&TrieHash::from_key("k1")).cloned().unwrap(),
+        MARFValue::from_value("v1_at_299"),
+        "k1 should have latest value"
+    );
+    // Validate all inserted/common keys for both presence and value.
+    for (key, val) in &expected_keys {
+        let hash = TrieHash::from_key(key);
+        assert!(seen.contains_key(&hash), "missing key {key} from walk");
+        assert_eq!(
+            seen[&hash],
+            MARFValue::from_value(val),
+            "value mismatch for key {key}"
+        );
+    }
+
+    // Metadata keys: height 299 MARF with 300 blocks.
+    assert_metadata_keys_present(&seen, 299, &blocks);
+
+    // Total: all user keys + metadata (1 + 2 * num_blocks).
+    let expected_metadata = 1 + 2 * 300;
+    let expected_total = expected_keys.len() + expected_metadata;
+    assert_eq!(
+        leaf_count,
+        expected_total as u64,
+        "expected {expected_total} leaves ({} user + {expected_metadata} metadata)",
+        expected_keys.len()
+    );
+}
+
+#[test]
+fn test_for_each_leaf_single_block() {
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let mut marf = MARF::<StacksBlockId>::from_path(":memory:", open_opts).unwrap();
+
+    let b1 = StacksBlockId::from_bytes(&[1u8; 32]).unwrap();
+    marf.begin(&StacksBlockId::sentinel(), &b1).unwrap();
+    marf.insert("alpha", MARFValue::from_value("a1")).unwrap();
+    marf.insert("beta", MARFValue::from_value("b1")).unwrap();
+    marf.insert("gamma", MARFValue::from_value("g1")).unwrap();
+    marf.seal().unwrap();
+    marf.commit().unwrap();
+
+    let seen: RefCell<HashMap<TrieHash, MARFValue>> = RefCell::new(HashMap::new());
+    let leaf_count = marf
+        .with_conn(|conn| {
+            MARF::for_each_leaf(conn, &b1, |path, value| {
+                seen.borrow_mut().insert(path, value);
+                Ok(())
+            })
+        })
+        .unwrap();
+    let seen = seen.into_inner();
+
+    assert_eq!(leaf_count, seen.len() as u64);
+
+    // User keys.
+    assert_eq!(
+        seen.get(&TrieHash::from_key("alpha")).cloned().unwrap(),
+        MARFValue::from_value("a1")
+    );
+    assert_eq!(
+        seen.get(&TrieHash::from_key("beta")).cloned().unwrap(),
+        MARFValue::from_value("b1")
+    );
+    assert_eq!(
+        seen.get(&TrieHash::from_key("gamma")).cloned().unwrap(),
+        MARFValue::from_value("g1")
+    );
+
+    // Metadata keys: height 0, 1 block.
+    // Expected: OWN_BLOCK_HEIGHT_KEY + 1 height-to-hash + 1 hash-to-height = 3 metadata.
+    assert_metadata_keys_present(&seen, 0, &[b1]);
+
+    // Total: 3 user + 3 metadata = 6.
+    assert_eq!(leaf_count, 6, "expected 6 leaves (3 user + 3 metadata)");
+}
+
+#[test]
+fn test_for_each_leaf_at_intermediate_height() {
+    let (mut marf, blocks, _expected_keys) = setup_for_each_leaf_marf(":memory:", 300, 150);
+
+    // Walk at height 4 (blocks[4]), NOT the tip.
+    let block_at_4 = &blocks[4];
+
+    let seen: RefCell<HashMap<TrieHash, MARFValue>> = RefCell::new(HashMap::new());
+    let leaf_count = marf
+        .with_conn(|conn| {
+            MARF::for_each_leaf(conn, block_at_4, |path, value| {
+                seen.borrow_mut().insert(path, value);
+                Ok(())
+            })
+        })
+        .unwrap();
+    let seen = seen.into_inner();
+
+    // k1 should have its height-4 value.
+    assert_eq!(
+        seen.get(&TrieHash::from_key("k1")).cloned().unwrap(),
+        MARFValue::from_value("v1_at_4"),
+        "k1 should have value from height 4"
+    );
+    for c in 0..10 {
+        let key = format!("common_all_{c}");
+        let val = format!("common_all_{c}_at_4");
+        assert_eq!(
+            seen.get(&TrieHash::from_key(&key)).cloned().unwrap(),
+            MARFValue::from_value(&val),
+            "{key} should have value from height 4"
+        );
+    }
+
+    // k2..k601 should be present (150 inserted at each of heights 1-4).
+    for i in 2..=601 {
+        let key = format!("k{i}");
+        assert!(
+            seen.contains_key(&TrieHash::from_key(&key)),
+            "expected key {key} at height 4"
+        );
+    }
+
+    // k602+ should be absent at height 4.
+    for i in 602..=610 {
+        let key = format!("k{i}");
+        assert!(
+            !seen.contains_key(&TrieHash::from_key(&key)),
+            "key {key} should NOT be visible at height 4"
+        );
+    }
+
+    // Metadata keys: height 4, 5 blocks (blocks[0..=4]).
+    // Expected: OWN_BLOCK_HEIGHT_KEY + 5 height-to-hash + 5 hash-to-height = 11 metadata.
+    assert_metadata_keys_present(&seen, 4, &blocks[..5]);
+
+    // Total: 621 user (k1 + 600 inserted + 20 common) + 11 metadata = 632.
+    assert_eq!(leaf_count, seen.len() as u64);
+    assert_eq!(
+        leaf_count, 632,
+        "expected 632 leaves (621 user + 11 metadata)"
+    );
+}
+
+#[test]
+fn test_for_each_leaf_callback_error_propagates() {
+    let (mut marf, blocks, _expected_keys) = setup_for_each_leaf_marf(":memory:", 10, 10);
+    let tip = &blocks[9];
+
+    let call_count = Cell::new(0u64);
+    let result = marf.with_conn(|conn| {
+        MARF::for_each_leaf(conn, tip, |_path, _value| {
+            call_count.set(call_count.get() + 1);
+            if call_count.get() >= 1 {
+                return Err(Error::CorruptionError(
+                    "test error from callback".to_string(),
+                ));
+            }
+            Ok(())
+        })
+    });
+
+    assert!(result.is_err(), "expected error from callback");
+    match result.unwrap_err() {
+        Error::CorruptionError(msg) => {
+            assert_eq!(msg, "test error from callback");
+        }
+        other => panic!("unexpected error type: {other:?}"),
+    }
+    assert_eq!(
+        call_count.get(),
+        1,
+        "callback should have been called exactly once"
     );
 }

@@ -853,7 +853,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         } else {
             // inductive case: calculate children hashes, hash them, and return that hash.
             let mut hasher = TrieHasher::new();
-            let empty_node_hash = TrieHash::from_data(&[]);
+            let empty_node_hash = TrieHash::EMPTY;
 
             node.write_consensus_bytes(storage_tx, &mut hasher)
                 .expect("IO Failure pushing to hasher.");
@@ -2989,7 +2989,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                     &node,
                     &ptr
                 );
-                w.write_all(TrieHash::from_data(&[]).as_bytes())?;
+                w.write_all(TrieHash::EMPTY.as_bytes())?;
 
                 bench.write_children_hashes_empty_finish(start_time);
             } else if !is_backptr(ptr.id()) {
