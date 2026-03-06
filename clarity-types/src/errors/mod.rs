@@ -185,7 +185,7 @@ impl fmt::Display for WasmError {
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
             WasmError::Expect(s) => write!(f, "{s}"),
             WasmError::AllowanceIndexOverflow => write!(f, "Index couldn't fit into u128"),
-            WasmError::AllowanceViolation(idx) => write!(f, "Index {idx} couldn't fit into u128")
+            WasmError::AllowanceViolation(idx) => write!(f, "Index {idx} couldn't fit into u128"),
         }
     }
 }

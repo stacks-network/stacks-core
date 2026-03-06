@@ -1,7 +1,7 @@
-use clarity_types::types::MAX_VALUE_SIZE;
-use hashbrown::HashMap;
 use std::io::{Cursor, Write as _};
 
+use clarity_types::types::MAX_VALUE_SIZE;
+use hashbrown::HashMap;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
@@ -27,7 +27,9 @@ use crate::vm::analysis::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::contexts::{AssetMap, GlobalContext};
 use crate::vm::errors::{Error, WasmError};
-use crate::vm::functions::post_conditions::{Allowance, FtAllowance, NftAllowance, StackingAllowance, StxAllowance};
+use crate::vm::functions::post_conditions::{
+    Allowance, FtAllowance, NftAllowance, StackingAllowance, StxAllowance,
+};
 use crate::vm::types::{
     BufferLength, SequenceSubtype, SequencedValue, StringSubtype, TypeSignature, TypeSignatureExt,
 };
@@ -3874,11 +3876,8 @@ fn link_with_stacking_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         .func_wrap(
             "clarity",
             "with_stacking",
-            |mut caller: Caller<'_, ClarityWasmContext>,
-             allowance_lo: i64,
-             allowance_hi: i64| {
-                let allowance =
-                    ((allowance_hi as u128) << 64) | ((allowance_lo as u64) as u128);
+            |mut caller: Caller<'_, ClarityWasmContext>, allowance_lo: i64, allowance_hi: i64| {
+                let allowance = ((allowance_hi as u128) << 64) | ((allowance_lo as u64) as u128);
 
                 caller.data_mut().push_asset_context_stacking(allowance);
                 Ok(())
@@ -3902,8 +3901,7 @@ fn link_with_stx_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
             "clarity",
             "with_stx",
             |mut caller: Caller<'_, ClarityWasmContext>, amount_lo: i64, amount_hi: i64| {
-                let allowed_amount =
-                    ((amount_hi as u128) << 64) | ((amount_lo as u64) as u128);
+                let allowed_amount = ((amount_hi as u128) << 64) | ((amount_lo as u64) as u128);
 
                 caller.data_mut().push_asset_context_stx(allowed_amount);
                 Ok(())
