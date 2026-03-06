@@ -15,6 +15,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Prepare for epoch 3.4's improved transaction inclusion, allowing transactions with certain errors to be included in blocks which would cause them to be rejected in earlier epochs.
 - Added `marf_compress` as a node configuration parameter to enable MARF compression feature ([#6811](https://github.com/stacks-network/stacks-core/pull/6811))
 - Effective in epoch 3.4 `contract-call?`s can accept a constant as the contract to be called
+- Disabled `at-block` starting from Epoch 3.4 (see SIP-042). New contracts referencing `at-block` are rejected during static analysis. Existing contracts that invoke it will fail at runtime with an `AtBlockUnavailable` error.
 
 ### Fixed
 
