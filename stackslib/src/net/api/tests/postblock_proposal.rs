@@ -688,10 +688,18 @@ fn test_block_proposal_validation_timeout() {
         Err(postblock_proposal::BlockValidateReject {
             reason_code,
             reason,
+            failed_txid,
             ..
         }) => {
             assert_eq!(reason_code, ValidateRejectCode::BadTransaction);
-            info!("Transaction failed validation: {reason}");
+            assert_eq!(
+                failed_txid, None,
+                "Timeout rejection must not blame any transaction (failed_txid should be None)"
+            );
+            assert!(
+                reason.contains("exceeded deadline"),
+                "Expected rejection reason to mention deadline, got: {reason}"
+            );
         }
     }
 }
