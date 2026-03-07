@@ -15,6 +15,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Prepare for epoch 3.4's improved transaction inclusion, allowing transactions with certain errors to be included in blocks which would cause them to be rejected in earlier epochs.
 - Added `marf_compress` as a node configuration parameter to enable MARF compression feature ([#6811](https://github.com/stacks-network/stacks-core/pull/6811))
 - Effective in epoch 3.4 `contract-call?`s can accept a constant as the contract to be called
+- Added post-condition enhancements for epoch 3.4 (SIP-040): `Originator` post-condition mode (`0x03`) and NFT `MAY SEND` condition code (`0x12`), including serialization support and epoch-gated validation/enforcement.
 - New RPC endpoint `GET /v3/stx_btc_ratio/{cycle_num}` returns the per-cycle STX/BTC mining ratio: total STX earned by miners (coinbase + transaction fees) versus total BTC spent on block-commit transactions (PoX burn outputs + estimated Bitcoin tx fees) for the requested reward cycle, plus a 5-cycle weighted geometric mean smoothed ratio.
 - Sortition DB schema 12: adds `burn_fee` and `expected_btc_tx_fee` columns to the `missed_commits` table, preserving fee data for block-commit transactions that arrived too late and missed their intended sortition slot.
 - New `stacks-inspect get-stx-btc-ratio` command for querying the STX/BTC mining ratio for a given reward cycle directly from a local chainstate.

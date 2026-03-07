@@ -376,7 +376,7 @@ paths:
 
         The arguments to the function are supplied via the POST body.
         This should be a JSON object with two main properties:
-        - `sender` which should be a standard Stacks address
+        - `sender` which should be a Stacks address or contract principal
         - `arguments` which should be an array of hex-encoded Clarity values.
       tags:
         - Smart Contracts
@@ -427,7 +427,7 @@ paths:
 
         The arguments to the function are supplied via the POST body.
         This should be a JSON object with two main properties:
-        - `sender` which should be a standard Stacks address
+        - `sender` which should be a Stacks address or contract principal
         - `arguments` which should be an array of hex-encoded Clarity values.
 
         **This API endpoint requires a basic Authorization header.**
@@ -1446,7 +1446,6 @@ paths:
           schema:
             type: integer
             minimum: 0
-        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Number of blocks signed
@@ -1638,7 +1637,6 @@ paths:
           schema:
             type: string
             pattern: "^[0-9a-f]{64}$"
-        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Stream of confirmed microblocks
