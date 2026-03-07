@@ -4297,3 +4297,228 @@ fn test_stacks_on_burnchain_ops() {
     peer.check_nakamoto_migration();
     peer.check_malleablized_blocks(all_blocks, 2);
 }
+
+/// Test that `get_stx_btc_ratio_for_cycle` correctly uses the incremental cache path.
+///
+/// 1. After booting Nakamoto and mining several tenures, query a completed Nakamoto
+///    cycle (full scan → cached as complete).
+/// 2. Query again — should return the same result from cache.
+/// 3. Query the current (in-progress) cycle — caches as incomplete.
+/// 4. Mine a new tenure.
+/// 5. Query the current cycle again — incremental update picks up the new tenure.
+#[test]
+fn test_stx_btc_ratio_incremental_cache() {
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+
+    let pox_constants = peer.config.chain_config.burnchain.pox_constants.clone();
+    let first_burn_height = peer.config.chain_config.burnchain.first_block_height;
+
+    // Mine enough Nakamoto tenures to span at least 2 full reward cycles.
+    // Reward cycle length is 5 and boot leaves us at cycle 8 boundary (burn height ~37).
+    // We need ~12 tenures to fill cycle 8 and get partway into cycle 9+.
+    for _ in 0..12 {
+        let (burn_ops, mut tenure_change, miner_key) =
+            peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
+        let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+        let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
+        peer.make_nakamoto_tenure(
+            tenure_change_tx,
+            coinbase_tx,
+            &mut test_signers,
+            |_miner, _chainstate, _sort_dbconn, _blocks| vec![],
+        );
+    }
+
+    // Determine the current tip and reward cycle.
+    let (tip_id, current_cycle) = {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+            .unwrap()
+            .unwrap();
+        let tip_id = tip.index_block_hash();
+        let current_cycle = pox_constants
+            .block_height_to_reward_cycle(first_burn_height, u64::from(tip.burn_header_height))
+            .unwrap();
+        (tip_id, current_cycle)
+    };
+
+    // Pick a past Nakamoto cycle. Nakamoto starts at cycle ~8, so current_cycle - 1
+    // should have Nakamoto tenures.
+    let past_cycle = current_cycle.saturating_sub(1);
+    assert!(
+        past_cycle >= 8,
+        "Expected enough Nakamoto cycles; past_cycle={past_cycle}"
+    );
+
+    // --- Step 1: Query the past cycle (full scan, should cache as complete) ---
+    let ratio_first = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &tip_id,
+            &pox_constants,
+            first_burn_height,
+            past_cycle,
+        )
+        .unwrap()
+    };
+    assert!(
+        ratio_first.tenure_count > 0,
+        "Past Nakamoto cycle {} should have tenures, got 0",
+        past_cycle,
+    );
+    assert!(ratio_first.stx_btc_ratio.is_some());
+
+    // Verify it was cached as complete.
+    {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let (complete, incomplete) = NakamotoChainState::load_cached_cycle_totals(
+            chainstate.db(),
+            past_cycle,
+            past_cycle,
+            &tip_id,
+        )
+        .unwrap();
+        assert!(
+            complete.contains_key(&past_cycle),
+            "Past cycle should be in complete cache"
+        );
+        assert!(incomplete.is_empty());
+    }
+
+    // --- Step 2: Query again — should return the same values from cache ---
+    let ratio_cached = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &tip_id,
+            &pox_constants,
+            first_burn_height,
+            past_cycle,
+        )
+        .unwrap()
+    };
+    assert_eq!(ratio_first.tenure_count, ratio_cached.tenure_count);
+    assert_eq!(ratio_first.stx_earned_ustx, ratio_cached.stx_earned_ustx);
+    assert_eq!(ratio_first.btc_spent_sats, ratio_cached.btc_spent_sats);
+
+    // --- Step 3: Query the current (in-progress) cycle ---
+    let ratio_current_before = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &tip_id,
+            &pox_constants,
+            first_burn_height,
+            current_cycle,
+        )
+        .unwrap()
+    };
+    let tenure_count_before = ratio_current_before.tenure_count;
+
+    // --- Step 4: Mine another tenure ---
+    let (burn_ops, mut tenure_change, miner_key) =
+        peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+    let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
+    let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+    tenure_change.tenure_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+    let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
+    peer.make_nakamoto_tenure(
+        tenure_change_tx,
+        coinbase_tx,
+        &mut test_signers,
+        |_miner, _chainstate, _sort_dbconn, _blocks| vec![],
+    );
+
+    // Get the new tip and cycle.
+    let (new_tip_id, new_cycle) = {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+            .unwrap()
+            .unwrap();
+        let cycle = pox_constants
+            .block_height_to_reward_cycle(first_burn_height, u64::from(tip.burn_header_height))
+            .unwrap();
+        (tip.index_block_hash(), cycle)
+    };
+
+    // --- Step 5: Query the current cycle again at the new tip ---
+    // If we're still in the same cycle, the incremental path should pick up the new tenure.
+    // If we crossed into a new cycle, the old current_cycle is now complete.
+    let ratio_current_after = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &new_tip_id,
+            &pox_constants,
+            first_burn_height,
+            current_cycle,
+        )
+        .unwrap()
+    };
+
+    if new_cycle == current_cycle {
+        // Same cycle — incremental update should have added the new tenure.
+        assert!(
+            ratio_current_after.tenure_count > tenure_count_before,
+            "Incremental update should have picked up the new tenure: before={}, after={}",
+            tenure_count_before,
+            ratio_current_after.tenure_count
+        );
+        assert!(
+            ratio_current_after.stx_earned_ustx >= ratio_current_before.stx_earned_ustx,
+            "STX earned should not decrease after adding a tenure"
+        );
+    } else {
+        // Crossed into next cycle — current_cycle is now complete, tenure count should
+        // be >= what it was (the full scan or incremental may find the same or more tenures).
+        assert!(
+            ratio_current_after.tenure_count >= tenure_count_before,
+            "Completed cycle should have at least as many tenures as before"
+        );
+    }
+
+    // The past cycle result should still be unchanged.
+    let ratio_past_after = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &new_tip_id,
+            &pox_constants,
+            first_burn_height,
+            past_cycle,
+        )
+        .unwrap()
+    };
+    assert_eq!(ratio_first.tenure_count, ratio_past_after.tenure_count);
+    assert_eq!(
+        ratio_first.stx_earned_ustx,
+        ratio_past_after.stx_earned_ustx
+    );
+    assert_eq!(ratio_first.btc_spent_sats, ratio_past_after.btc_spent_sats);
+}
