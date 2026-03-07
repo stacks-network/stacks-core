@@ -29,15 +29,11 @@ use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 #[derive(Clone)]
 pub struct GetStxBtcRatioRequestHandler {
     pub reward_cycle: Option<u64>,
-    pub auth: Option<String>,
 }
 
 impl GetStxBtcRatioRequestHandler {
-    pub fn new(auth: Option<String>) -> Self {
-        Self {
-            reward_cycle: None,
-            auth,
-        }
+    pub fn new() -> Self {
+        Self { reward_cycle: None }
     }
 }
 
@@ -104,16 +100,6 @@ impl HttpRequest for GetStxBtcRatioRequestHandler {
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
-        let Some(password) = &self.auth else {
-            return Err(Error::Http(400, "Bad Request.".into()));
-        };
-        let Some(auth_header) = preamble.headers.get("authorization") else {
-            return Err(Error::Http(401, "Unauthorized".into()));
-        };
-        if auth_header != password {
-            return Err(Error::Http(401, "Unauthorized".into()));
-        }
-
         if preamble.get_content_length() != 0 {
             return Err(Error::DecodeError(
                 "Invalid Http request: expected 0-length body".into(),

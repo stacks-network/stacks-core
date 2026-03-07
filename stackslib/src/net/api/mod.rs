@@ -128,9 +128,7 @@ impl StacksHttp {
             getstackerdbmetadata::RPCGetStackerDBMetadataRequestHandler::new(),
         );
         self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
-        self.register_rpc_endpoint(getstxbtcratio::GetStxBtcRatioRequestHandler::new(
-            self.auth_token.clone(),
-        ));
+        self.register_rpc_endpoint(getstxbtcratio::GetStxBtcRatioRequestHandler::new());
         self.register_rpc_endpoint(getsortition::GetSortitionHandler::new());
         self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
         self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());
