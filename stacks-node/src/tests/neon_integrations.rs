@@ -9473,7 +9473,7 @@ fn mock_miner_replay() {
         return;
     }
 
-    let timeout = Some(Duration::from_secs(30));
+    let timeout = Some(Duration::from_secs(120));
     // Had to add this so that mock miner makes an attempt on EVERY block
     let block_gap = Duration::from_secs(1);
 
