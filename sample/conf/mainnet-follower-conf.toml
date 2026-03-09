@@ -7,7 +7,7 @@
 # or serve RPC requests.
 #
 # For mining, see mainnet-miner-conf.toml.
-# For signing, see mainnet-signer-conf.toml + mainnet-signer.toml.
+# For signing, see signer/mainnet-signer-conf.toml + mainnet-signer.toml.
 
 [node]
 # IMPORTANT: For production, set this to a persistent path.

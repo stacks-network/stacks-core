@@ -10,7 +10,7 @@ requires two configuration files:
 
 | File                                                                  | Binary          | Purpose                                                     |
 | --------------------------------------------------------------------- | --------------- | ----------------------------------------------------------- |
-| [`mainnet-signer-conf.toml`](../sample/conf/mainnet-signer-conf.toml) | `stacks-signer` | Signer process settings (keys, timeouts, tenure management) |
+| [`mainnet-signer-conf.toml`](../sample/conf/signer/mainnet-signer-conf.toml) | `stacks-signer` | Signer process settings (keys, timeouts, tenure management) |
 | [`mainnet-signer.toml`](../sample/conf/mainnet-signer.toml)           | `stacks-node`   | Node-side settings (events, auth, networking)               |
 
 For testnet, use [`testnet-signer.toml`](../sample/conf/testnet-signer.toml) for the node-side config.
@@ -36,7 +36,7 @@ auth_token = "your-secret-token"
 
 ### 2. Configure the Signer
 
-Use [`mainnet-signer-conf.toml`](../sample/conf/mainnet-signer-conf.toml) as a starting point.
+Use [`mainnet-signer-conf.toml`](../sample/conf/signer/mainnet-signer-conf.toml) as a starting point.
 Key settings:
 
 ```toml
@@ -63,7 +63,7 @@ These settings **must** match between the node and signer configs:
 If you are running both a miner and a signer, several timeout settings must be
 coordinated to avoid block rejections. See the WARNING comments in
 [`mainnet-miner-conf.toml`](../sample/conf/mainnet-miner-conf.toml) and
-[`mainnet-signer-conf.toml`](../sample/conf/mainnet-signer-conf.toml) for details.
+[`mainnet-signer-conf.toml`](../sample/conf/signer/mainnet-signer-conf.toml) for details.
 
 Key interactions:
 
@@ -90,7 +90,7 @@ stacks-signer run --config mainnet-signer-conf.toml
 
 ## Further Reading
 
-- [Comprehensive signer config reference](../sample/conf/mainnet-signer-conf.toml)
+- [Comprehensive signer config reference](../sample/conf/signer/mainnet-signer-conf.toml)
 - [Comprehensive miner config reference](../sample/conf/mainnet-miner-conf.toml)
 - [Mining documentation](mining.md)
 - [Follower documentation](follower.md)

@@ -4,7 +4,7 @@
 #
 # This configures the stacks-node to work with a signer on testnet.
 # This is the NODE-SIDE config. For the signer binary config, see
-# mainnet-signer-conf.toml (or create a testnet variant).
+# signer/mainnet-signer-conf.toml (or create a testnet variant).
 #
 # Key coordination points between this config and the signer binary:
 #   - [[events_observer]] endpoint must match signer's `endpoint`
