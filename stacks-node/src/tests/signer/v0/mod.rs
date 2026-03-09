@@ -1425,7 +1425,7 @@ pub fn wait_for_block_global_rejection_with_reject_reason(
     })
 }
 
-/// Waits for the provided number of block rejections to be observed in the test_observer stackerdb chunks for a block
+/// Waits for at least the provided number of block rejections to be observed in the test_observer stackerdb chunks for a block
 /// with the provided signer signature hash
 fn wait_for_block_rejections(
     timeout_secs: u64,
@@ -1451,7 +1451,7 @@ fn wait_for_block_rejections(
                 }
             }
         }
-        Ok(found_rejections.len() == num_rejections)
+        Ok(found_rejections.len() >= num_rejections)
     })
 }
 

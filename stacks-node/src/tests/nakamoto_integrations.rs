@@ -16190,7 +16190,6 @@ fn check_sip040_post_conditions() {
         get_tx_result_by_id(&mint_and_send_as_contract_originator_txid),
         Some(Value::okay_true())
     );
-    sender_nonce += 1;
 
     coord_channel
         .lock()
