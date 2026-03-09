@@ -8,10 +8,10 @@ requires two configuration files:
 
 ## Configuration Files
 
-| File                                                                  | Binary          | Purpose                                                     |
-| --------------------------------------------------------------------- | --------------- | ----------------------------------------------------------- |
+| File                                                                         | Binary          | Purpose                                                     |
+| ---------------------------------------------------------------------------- | --------------- | ----------------------------------------------------------- |
 | [`mainnet-signer-conf.toml`](../sample/conf/signer/mainnet-signer-conf.toml) | `stacks-signer` | Signer process settings (keys, timeouts, tenure management) |
-| [`mainnet-signer.toml`](../sample/conf/mainnet-signer.toml)           | `stacks-node`   | Node-side settings (events, auth, networking)               |
+| [`mainnet-signer.toml`](../sample/conf/mainnet-signer.toml)                  | `stacks-node`   | Node-side settings (events, auth, networking)               |
 
 For testnet, use [`testnet-signer.toml`](../sample/conf/testnet-signer.toml) for the node-side config.
 

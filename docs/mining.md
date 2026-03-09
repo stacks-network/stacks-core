@@ -50,17 +50,17 @@ signer configuration and the critical miner-signer coordination settings.
 
 ## Configuration Files
 
-| File                                                                  | Purpose                                                 |
-| --------------------------------------------------------------------- | ------------------------------------------------------- |
-| [`mainnet-miner-conf.toml`](../sample/conf/mainnet-miner-conf.toml)           | Comprehensive miner reference (all settings documented) |
-| [`mainnet-signer-conf.toml`](../sample/conf/signer/mainnet-signer-conf.toml)         | Signer binary config reference                          |
-| [`mainnet-signer.toml`](../sample/conf/mainnet-signer.toml)                   | Node-side signer config                                 |
-| [`testnet-miner-conf.toml`](../sample/conf/testnet-miner-conf.toml)           | Testnet miner config                                    |
-| [`mainnet-mockminer-conf.toml`](../sample/conf/mainnet-mockminer-conf.toml)   | Mock miner (test mining without spending BTC)            |
-| [`mainnet-follower-conf.toml`](../sample/conf/mainnet-follower-conf.toml)     | Mainnet follower (read-only node)                        |
-| [`testnet-follower-conf.toml`](../sample/conf/testnet-follower-conf.toml)     | Testnet follower                                         |
-| [`testnet-signer.toml`](../sample/conf/testnet-signer.toml)                   | Testnet node-side signer config                          |
-| [`mocknet.toml`](../sample/conf/mocknet.toml)                                 | Local mocknet development                                |
+| File                                                                         | Purpose                                                 |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------- |
+| [`mainnet-miner-conf.toml`](../sample/conf/mainnet-miner-conf.toml)          | Comprehensive miner reference (all settings documented) |
+| [`mainnet-signer-conf.toml`](../sample/conf/signer/mainnet-signer-conf.toml) | Signer binary config reference                          |
+| [`mainnet-signer.toml`](../sample/conf/mainnet-signer.toml)                  | Node-side signer config                                 |
+| [`testnet-miner-conf.toml`](../sample/conf/testnet-miner-conf.toml)          | Testnet miner config                                    |
+| [`mainnet-mockminer-conf.toml`](../sample/conf/mainnet-mockminer-conf.toml)  | Mock miner (test mining without spending BTC)           |
+| [`mainnet-follower-conf.toml`](../sample/conf/mainnet-follower-conf.toml)    | Mainnet follower (read-only node)                       |
+| [`testnet-follower-conf.toml`](../sample/conf/testnet-follower-conf.toml)    | Testnet follower                                        |
+| [`testnet-signer.toml`](../sample/conf/testnet-signer.toml)                  | Testnet node-side signer config                         |
+| [`mocknet.toml`](../sample/conf/mocknet.toml)                                | Local mocknet development                               |
 
 ## RBF Configuration
 
