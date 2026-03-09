@@ -44,7 +44,7 @@ env:
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
   TEST_TIMEOUT: 30
   ## Minimum number of PR approvals required before running the tests
-  REQUIRED_APPROVALS: 1  ## TODO: Set to 2
+  REQUIRED_APPROVALS: 2
   ## Number of generated cases to run per selected proptest.
   PROPTEST_CASES: 2500
 
