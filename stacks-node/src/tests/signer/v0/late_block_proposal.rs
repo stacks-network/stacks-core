@@ -18,7 +18,6 @@ use std::time::Duration;
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{BlockResponse, SignerMessage};
 use pinny::tag;
-use stacks::codec::StacksMessageCodec;
 use stacks::core::test_util::{make_stacks_transfer_serialized, to_addr};
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::types::PublicKey;
@@ -31,7 +30,9 @@ use tracing_subscriber::{fmt, EnvFilter};
 use super::SignerTest;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
-use crate::tests::signer::v0::{wait_for_block_proposal, wait_for_block_pushed};
+use crate::tests::signer::v0::{
+    get_stackerdb_messages, wait_for_block_proposal, wait_for_block_pushed_by_miner_key,
+};
 
 #[tag(bitcoind)]
 #[test]
@@ -107,7 +108,7 @@ fn signer_rejects_proposal_after_block_pushed() {
         wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N+1 to be proposed");
     let signer_signature_hash = block_n_proposal.block.header.signer_signature_hash();
-    let _ = wait_for_block_pushed(30, &signer_signature_hash)
+    let _ = wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
         .expect("Failed to get BlockPushed for block N");
     info!("------------------------- Advance Chain to Include Block N -------------------------");
     // Shouldn't have to wait long for the chain to advance
@@ -118,11 +119,8 @@ fn signer_rejects_proposal_after_block_pushed() {
     .expect("Chain did not advance to block N+1");
 
     info!("------------------------- Verify Signer 1 did NOT respond to the Block Proposal -------------------------");
-    let chunks = test_observer::get_stackerdb_chunks();
-    for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-        let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice()) else {
-            continue;
-        };
+    let messages = get_stackerdb_messages();
+    for (_chunk, message) in messages {
         match message {
             SignerMessage::BlockResponse(BlockResponse::Rejected(rejected)) => {
                 if rejected.signer_signature_hash == signer_signature_hash {
@@ -165,14 +163,8 @@ fn signer_rejects_proposal_after_block_pushed() {
         "------------------------- Verify Signer 1 Rejected the Proposal -------------------------"
     );
     wait_for(30, || {
-        let chunks: Vec<_> = test_observer::get_stackerdb_chunks()
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .collect();
-        for chunk in chunks {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
-
+        let messages = get_stackerdb_messages();
+        for (_chunk, message) in messages {
             let SignerMessage::BlockResponse(BlockResponse::Rejected(rejected)) = message else {
                 continue;
             };

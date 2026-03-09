@@ -1000,7 +1000,7 @@ fn interrupt_miner_on_new_stacks_tip() {
 
     info!("------------------------- Signers Accept Block N+1 -------------------------");
     let miner_2_block_n_1 =
-        wait_for_block_pushed(30, &miner_2_block_n_1.header.signer_signature_hash())
+        wait_for_block_pushed_by_miner_key(30, stacks_height_before + 2, &miner_pk_2)
             .expect("Failed to see block acceptance of Miner 2's Block N+1");
     assert_eq!(
         miner_2_block_n_1.header.block_hash(),

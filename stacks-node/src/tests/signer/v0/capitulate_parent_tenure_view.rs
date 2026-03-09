@@ -16,7 +16,6 @@ use std::env;
 use std::time::Duration;
 
 use clarity::vm::types::PrincipalData;
-use stacks::codec::StacksMessageCodec;
 use stacks::core::test_util::make_stacks_transfer_serialized;
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
@@ -204,17 +203,9 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
         .collect();
     let signer_addresses = signer_test.signer_addresses_versions();
     wait_for(30, || {
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
         let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (chunk, message) in get_stackerdb_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -268,16 +259,8 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     );
     std::thread::sleep(time_to_wait);
     wait_for(30, || {
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (chunk, message) in get_stackerdb_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -493,17 +476,9 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
         .collect();
     let signer_addresses = signer_test.signer_addresses_versions();
     wait_for(30, || {
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
         let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (chunk, message) in get_stackerdb_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -561,16 +536,8 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     );
     std::thread::sleep(time_to_wait);
     wait_for(30, || {
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
         let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (chunk, message) in get_stackerdb_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };

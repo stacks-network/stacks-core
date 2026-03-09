@@ -1230,6 +1230,20 @@ pub fn wait_for_block_proposal_block(
         .and_then(|proposal| Ok(proposal.block))
 }
 
+/// Returns all successfully deserialized (StackerDBChunkData, SignerMessage) pairs
+/// from the test_observer stackerdb chunks.
+pub fn get_stackerdb_messages() -> Vec<(StackerDBChunkData, SignerMessage)> {
+    test_observer::get_stackerdb_chunks()
+        .into_iter()
+        .flat_map(|chunk| chunk.modified_slots)
+        .filter_map(|chunk| {
+            SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                .ok()
+                .map(|msg| (chunk, msg))
+        })
+        .collect()
+}
+
 /// Waits for a block proposal to be observed in the test_observer stackerdb chunks at the expected height
 /// and signed by the expected miner. Returns the BlockProposal.
 pub fn wait_for_block_proposal(
@@ -1239,12 +1253,7 @@ pub fn wait_for_block_proposal(
 ) -> Result<BlockProposal, String> {
     let mut proposed_block = None;
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_messages() {
             let SignerMessage::BlockProposal(proposal) = message else {
                 continue;
             };
@@ -1263,32 +1272,6 @@ pub fn wait_for_block_proposal(
     proposed_block.ok_or_else(|| "Failed to find block proposal".to_string())
 }
 
-/// Waits for a BlockPushed to be observed in the test_observer stackerdb chunks for a block
-/// with the provided signer signature hash
-fn wait_for_block_pushed(
-    timeout_secs: u64,
-    block_signer_signature_hash: &Sha512Trunc256Sum,
-) -> Result<NakamotoBlock, String> {
-    let mut block = None;
-    wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
-            if let SignerMessage::BlockPushed(pushed_block) = message {
-                if &pushed_block.header.signer_signature_hash() == block_signer_signature_hash {
-                    block = Some(pushed_block);
-                    return Ok(true);
-                }
-            }
-        }
-        Ok(false)
-    })?;
-    block.ok_or_else(|| "Failed to find block pushed".to_string())
-}
-
 /// Waits for a block with the provided expected height to be proposed and pushed by the miner with the provided public key.
 pub fn wait_for_block_pushed_by_miner_key(
     timeout_secs: u64,
@@ -1299,12 +1282,7 @@ pub fn wait_for_block_pushed_by_miner_key(
     // if the signers haven't yet updated their miner viewpoint before a miner proposes a block.
     let mut block = None;
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_messages() {
             if let SignerMessage::BlockPushed(pushed_block) = message {
                 let block_stacks_height = pushed_block.header.chain_length;
                 if block_stacks_height != expected_height {
@@ -1331,16 +1309,13 @@ pub fn wait_for_block_pre_commits_from_signers(
     expected_signers: &[StacksPublicKey],
 ) -> Result<(), String> {
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks()
+        let chunks = get_stackerdb_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
+            .filter_map(|(chunk, message)| {
                 let pk = chunk.recover_pk().expect("Failed to recover pk");
                 if !expected_signers.contains(&pk) {
                     return None;
                 }
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
 
                 if let SignerMessage::BlockPreCommit(hash) = message {
                     if hash == *signer_signature_hash {
@@ -1363,12 +1338,7 @@ fn wait_for_block_global_rejection(
 ) -> Result<(), String> {
     let mut found_rejections = HashSet::new();
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_messages() {
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 signer_signature_hash,
                 signature,
@@ -1394,12 +1364,7 @@ pub fn wait_for_block_global_rejection_with_reject_reason(
 ) -> Result<(), String> {
     let mut found_rejections = HashSet::new();
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_messages() {
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 signer_signature_hash,
                 signature,
@@ -1431,12 +1396,7 @@ fn wait_for_block_rejections(
 ) -> Result<(), String> {
     let mut found_rejections = HashSet::new();
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_messages() {
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 signer_signature_hash,
                 signature,
@@ -1461,12 +1421,9 @@ pub fn wait_for_block_global_acceptance_from_signers(
 ) -> Result<(), String> {
     // Make sure that at least 70% of signers accepted the block proposal
     wait_for(timeout_secs, || {
-        let signatures = test_observer::get_stackerdb_chunks()
+        let signatures = get_stackerdb_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
+            .filter_map(|(_chunk, message)| {
                 if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
                     if &accepted.signer_signature_hash == signer_signature_hash
                         && expected_signers.iter().any(|pk| {
@@ -1493,12 +1450,9 @@ pub fn wait_for_block_acceptance_from_signers(
 ) -> Result<Vec<BlockAccepted>, String> {
     let mut result = vec![];
     wait_for(timeout_secs, || {
-        let signatures = test_observer::get_stackerdb_chunks()
+        let signatures = get_stackerdb_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
+            .filter_map(|(_chunk, message)| {
                 if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
                     if &accepted.signer_signature_hash == signer_signature_hash
                         && expected_signers.iter().any(|pk| {
@@ -1530,28 +1484,22 @@ pub fn wait_for_block_rejections_from_signers(
 ) -> Result<Vec<BlockRejection>, String> {
     let mut result = Vec::new();
     wait_for(timeout_secs, || {
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        let block_rejections: HashMap<_, _> = stackerdb_events
+        let block_rejections: HashMap<_, _> = get_stackerdb_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
-                match message {
-                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
-                        let rejected_pubkey = rejection
-                            .recover_public_key()
-                            .expect("Failed to recover public key from rejection");
-                        if &rejection.signer_signature_hash == signer_signature_hash
-                            && expected_signers.contains(&rejected_pubkey)
-                        {
-                            Some((rejected_pubkey, rejection))
-                        } else {
-                            None
-                        }
+            .filter_map(|(_chunk, message)| match message {
+                SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                    let rejected_pubkey = rejection
+                        .recover_public_key()
+                        .expect("Failed to recover public key from rejection");
+                    if &rejection.signer_signature_hash == signer_signature_hash
+                        && expected_signers.contains(&rejected_pubkey)
+                    {
+                        Some((rejected_pubkey, rejection))
+                    } else {
+                        None
                     }
-                    _ => None,
                 }
+                _ => None,
             })
             .collect();
         if block_rejections.len() == expected_signers.len() {
@@ -1572,15 +1520,7 @@ pub fn wait_for_state_machine_update(
 ) -> Result<(), String> {
     wait_for(timeout_secs, || {
         let mut found_updates: HashSet<StacksAddress> = HashSet::new();
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (chunk, message) in get_stackerdb_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -1668,15 +1608,7 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
 ) -> Result<(), String> {
     wait_for(timeout_secs, || {
         let mut found_updates: HashSet<StacksAddress> = HashSet::new();
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (chunk, message) in get_stackerdb_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -1823,12 +1755,7 @@ fn block_proposal_rejection() {
     };
     while !found_signer_signature_hash_1 && !found_signer_signature_hash_2 {
         std::thread::sleep(Duration::from_secs(1));
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_messages() {
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason: _reason,
                 reason_code,
@@ -3547,12 +3474,9 @@ fn duplicate_signers() {
     let start_polling = Instant::now();
     while start_polling.elapsed() <= timeout {
         std::thread::sleep(Duration::from_secs(1));
-        let messages = test_observer::get_stackerdb_chunks()
+        let messages = get_stackerdb_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                SignerMessage::consensus_deserialize(&mut chunk.data.as_slice()).ok()
-            })
+            .map(|(_chunk, message)| message)
             .filter_map(|message| match message {
                 SignerMessage::BlockResponse(BlockResponse::Accepted(m)) => {
                     info!("Message(accepted): {m:?}");
@@ -4687,12 +4611,7 @@ fn block_validation_response_timeout() {
     info!("------------------------- Wait for Block Rejection Due to Timeout -------------------------");
     // Verify that the signer that submits the block to the node will issue a ConnectivityIssues rejection
     wait_for(30, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_messages() {
             let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason: _reason,
                 reason_code,
@@ -5108,14 +5027,7 @@ fn block_proposal_max_age_rejections() {
     // Verify the signers rejected only the SECOND block proposal. The first was not even processed.
     wait_for(120, || {
         let mut status_map = HashMap::new();
-        for chunk in test_observer::get_stackerdb_chunks()
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_messages() {
             match message {
                 SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                     signer_signature_hash,
@@ -5798,12 +5710,9 @@ fn injected_signatures_are_ignored_across_boundaries() {
     info!("Submitted tx {tx} in attempt to mine block N");
     let mut new_signature_hash = None;
     wait_for(30, || {
-        let accepted_signers: HashSet<_> = test_observer::get_stackerdb_chunks()
+        let accepted_signers: HashSet<_> = get_stackerdb_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
+            .filter_map(|(_chunk, message)| {
                 if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
                     new_signature_hash = Some(accepted.signer_signature_hash.clone());
                     return non_ignoring_signers.iter().find(|key| {
@@ -5829,12 +5738,9 @@ fn injected_signatures_are_ignored_across_boundaries() {
     );
 
     // Get the last block proposal
-    let block_proposal = test_observer::get_stackerdb_chunks()
-        .iter()
-        .flat_map(|chunk| chunk.modified_slots.clone())
-        .filter_map(|chunk| {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
+    let block_proposal = get_stackerdb_messages()
+        .into_iter()
+        .filter_map(|(_chunk, message)| {
             if let SignerMessage::BlockProposal(proposal) = message {
                 assert_eq!(proposal.reward_cycle, curr_reward_cycle);
                 assert_eq!(
@@ -7745,13 +7651,7 @@ fn multiversioned_signer_protocol_version_calculation() {
     info!("------------------------- Verifying Signers ONLY Sends Acceptances -------------------------");
     wait_for(30, || {
         let mut nmb_accept = 0;
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
+        for (_chunk, message) in get_stackerdb_messages() {
             let SignerMessage::BlockResponse(response) = message else {
                 continue;
             };
@@ -8064,12 +7964,7 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
         .expect("Timed out waiting for pre-commits");
     assert!(
         wait_for(30, || {
-            for chunk in test_observer::get_stackerdb_chunks()
-                .into_iter()
-                .flat_map(|chunk| chunk.modified_slots)
-            {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
+            for (_chunk, message) in get_stackerdb_messages() {
                 if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
                     if accepted.signer_signature_hash == hash {
                         return Ok(true);
@@ -8222,12 +8117,7 @@ fn signers_treat_signatures_as_precommits() {
             info!("------------------------- Verifying Operating Signer Issues a Signature ------------------------");
         }
         let result = wait_for(20, || {
-            for chunk in test_observer::get_stackerdb_chunks()
-                .into_iter()
-                .flat_map(|chunk| chunk.modified_slots)
-            {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
+            for (_chunk, message) in get_stackerdb_messages() {
                 let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message
                 else {
                     continue;

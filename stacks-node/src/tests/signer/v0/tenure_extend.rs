@@ -329,21 +329,15 @@ fn tenure_extend_after_idle_signers_with_buffer() {
     // Check the tenure extend timestamps to verify that they have factored in the buffer
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let last_block = blocks.last().expect("No blocks mined");
-    let timestamps: HashSet<_> = test_observer::get_stackerdb_chunks()
+    let timestamps: HashSet<_> = get_stackerdb_messages()
         .into_iter()
-        .flat_map(|chunk| chunk.modified_slots)
-        .filter_map(|chunk| {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
-
-            match message {
-                SignerMessage::BlockResponse(BlockResponse::Accepted(accepted))
-                    if accepted.signer_signature_hash == last_block.signer_signature_hash =>
-                {
-                    Some(accepted.response_data.tenure_extend_timestamp)
-                }
-                _ => None,
+        .filter_map(|(_chunk, message)| match message {
+            SignerMessage::BlockResponse(BlockResponse::Accepted(accepted))
+                if accepted.signer_signature_hash == last_block.signer_signature_hash =>
+            {
+                Some(accepted.response_data.tenure_extend_timestamp)
             }
+            _ => None,
         })
         .collect();
     for timestamp in timestamps {

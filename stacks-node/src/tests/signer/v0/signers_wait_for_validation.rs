@@ -17,16 +17,15 @@ use std::env;
 use libsigner::v0::messages::{BlockResponse, SignerMessage};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::TenureChangeCause;
-use stacks::codec::StacksMessageCodec;
 use stacks::net::api::postblock_proposal::TEST_VALIDATE_STALL;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::tests::nakamoto_integrations::wait_for;
-use crate::tests::neon_integrations::test_observer;
 use crate::tests::signer::v0::{
-    wait_for_block_pre_commits_from_signers, wait_for_block_pushed_by_miner_key, MultipleMinerTest,
+    get_stackerdb_messages, wait_for_block_pre_commits_from_signers,
+    wait_for_block_pushed_by_miner_key, MultipleMinerTest,
 };
 
 #[test]
@@ -153,13 +152,7 @@ fn signer_waits_for_validation_before_signing() {
     let stalled_pk = stalled_signer[0].clone();
     assert!(
         wait_for(15, || {
-            for chunk in test_observer::get_stackerdb_chunks()
-                .into_iter()
-                .flat_map(|chunk| chunk.modified_slots)
-            {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
-
+            for (chunk, message) in get_stackerdb_messages() {
                 let pk = chunk.recover_pk().expect("Failed to recover pk");
                 if stalled_pk != pk {
                     continue;
@@ -202,13 +195,7 @@ fn signer_waits_for_validation_before_signing() {
     let mut found_commit = false;
     let mut found_accept = false;
     wait_for(15, || {
-        for chunk in test_observer::get_stackerdb_chunks()
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
-
+        for (chunk, message) in get_stackerdb_messages() {
             let pk = chunk.recover_pk().expect("Failed to recover pk");
             if stalled_pk != pk {
                 continue;

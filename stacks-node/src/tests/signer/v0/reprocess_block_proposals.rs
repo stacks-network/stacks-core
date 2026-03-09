@@ -21,7 +21,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::tests::signer::v0::{
-    MultipleMinerTest, wait_for_block_pre_commits_from_signers, wait_for_block_proposal, wait_for_block_pushed, wait_for_block_rejections_from_signers
+    MultipleMinerTest, wait_for_block_pre_commits_from_signers, wait_for_block_proposal, wait_for_block_pushed_by_miner_key, wait_for_block_rejections_from_signers
 };
 
 #[test]
@@ -142,7 +142,7 @@ fn signers_reprocess_bitcoin_block_not_found_proposals() {
     // Now that validation is resumed, the stalled signer should issue an approval
     wait_for_block_pre_commits_from_signers(30, &signer_signature_hash, &stalled_signers)
         .expect("Stalled signers failed to issue commits");
-    wait_for_block_pushed(30, &signer_signature_hash).expect("Failed to mine block N+1");
+    wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk_1).expect("Failed to mine block N+1");
     info!("------------------------- Shutting down -------------------------");
     miners.shutdown();
 }

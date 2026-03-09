@@ -35,7 +35,7 @@ use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{submit_tx, test_observer};
 use crate::tests::signer::v0::{
     wait_for_block_acceptance_from_signers, wait_for_block_global_acceptance_from_signers,
-    wait_for_block_pre_commits_from_signers, wait_for_block_proposal, wait_for_block_pushed,
+    wait_for_block_pre_commits_from_signers, wait_for_block_proposal,
     wait_for_block_pushed_by_miner_key, wait_for_block_rejections_from_signers, MultipleMinerTest,
 };
 use crate::tests::signer::SignerTest;
@@ -153,7 +153,8 @@ fn signers_do_not_reconsider_globally_accepted_and_responded_blocks() {
     let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
     // The 4 signers on miner 1 should have validated and sent pre-commits
     // The 1 signer on miner 2 should immediately issue a block rejection.
-    wait_for_block_pushed(30, &signer_signature_hash).expect("Failed to mine block N+1");
+    wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk_1)
+        .expect("Failed to mine block N+1");
     info!("------------------------- Check Signer Rejected Due to TestingDirective -------------------------");
     let rejections =
         wait_for_block_rejections_from_signers(30, &signer_signature_hash, &rejecting_signer)
@@ -257,7 +258,8 @@ fn signers_respond_to_unprocessed_globally_accepted_block_proposals() {
     let block_proposal = wait_for_block_proposal(30, expected_height, &miner_pk_1)
         .expect("Miner failed to propose tenure start block");
     let sighash = block_proposal.block.header.signer_signature_hash();
-    wait_for_block_pushed(30, &sighash).expect("Block proposal was not globally accepted");
+    wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pk_1)
+        .expect("Block proposal was not globally accepted");
     info!(
         "------------------------- Wait for block pre-commits/signatures -------------------------"
     );
