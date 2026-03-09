@@ -144,25 +144,22 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
         let reward_cycle = self.get_current_reward_cycle() + 1;
-        let mut last_probe = Instant::now();
-        wait_for(120, || {
+        wait_for(240, || {
             match self.stacks_client.get_reward_set_signers(reward_cycle).unwrap_or_default() {
                 Some(reward_set) => {
                     debug!("Signer set: {reward_set:?}");
                     Ok(true)
                 }
                 None => {
-                    // If we've been waiting ~30s since the last probe, maybe the last block failed
-                    // so we should try to mine another block
-                    if last_probe.elapsed() >= Duration::from_secs(30) {
-                        warn!(
-                            "Timed out waiting for reward set calculation. Mining another block to try again."
-                        );
-                        self.running_nodes
-                            .btc_regtest_controller
-                            .build_next_block(1);
-                        last_probe = Instant::now();
-                    }
+                    // Mine another block and wait for it to be processed before retrying.
+                    // This ensures the Stacks chain advances (not just the burn chain).
+                    warn!(
+                        "Reward set not yet available. Mining another block and waiting for it to process."
+                    );
+                    next_block_and_wait(
+                        &self.running_nodes.btc_regtest_controller,
+                        &self.running_nodes.counters.blocks_processed,
+                    );
                     Ok(false)
                 }
             }
