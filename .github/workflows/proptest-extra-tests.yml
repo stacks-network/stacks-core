@@ -50,9 +50,9 @@ env:
 
 jobs:
   ## Gate 1: on manual dispatch, always proceed.
-  ## On pull_request_review, proceed only for approved reviews targeting
-  ## the `develop` base branch, then count current (non-dismissed) approvals
-  ## via the GitHub API and enforce `REQUIRED_APPROVALS`.
+  ## On pull_request_review, proceed only when the triggering review is an
+  ## approval targeting the `develop` base branch and check approvals 
+  ## from users with write+ permission to be at least `REQUIRED_APPROVALS`.
   check-approvals:
     name: Check Approval Count
     if: > 
@@ -75,7 +75,7 @@ jobs:
 
           ## Fetch all reviews and compute the latest state per reviewer.
           ## A user who approved and then dismissed counts as dismissed (not approved).
-          count=$(gh api \
+          approvers=$(gh api \
             "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
             --jq '
               reduce .[] as $r ({};
@@ -83,12 +83,26 @@ jobs:
               )
               | to_entries
               | map(select(.value == "APPROVED"))
-              | length
+              | .[].key
             ')
+
+          ## Count only approvals from users with write+ permission.
+          count=0
+          for user in $approvers; do
+            perm=$(gh api \
+              "repos/${{ github.repository }}/collaborators/$user/permission" \
+              --jq '.permission' 2>/dev/null || echo "none")
+            if [[ "$perm" == "write" || "$perm" == "maintain" || "$perm" == "admin" ]]; then
+              echo "Counting approval from $user (permission: $perm)"
+              count=$((count + 1))
+            else
+              echo "Skipping approval from $user (permission: $perm)"
+            fi
+          done
 
           echo "Current approval count: $count (required: ${{ env.REQUIRED_APPROVALS }})"
 
-          ## Run only when approvals exactly match REQUIRED_APPROVALS.
+          ## Run only when approvals reach REQUIRED_APPROVALS.
           ## This helps avoid extra reruns triggered by later approvals
           ## that would otherwise be queued by the concurrency setting.
           if [ "$count" -ge "${{ env.REQUIRED_APPROVALS }}" ]; then
