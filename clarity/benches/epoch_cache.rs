@@ -78,9 +78,11 @@ fn setup_store() -> MemoryBackingStore {
 }
 
 /// Execute `parsed` in a fresh environment.
-/// `marf` is provided by the caller (created in `iter_batched` setup) so that
-/// SQLite initialisation is excluded from the timing window.
-fn run(parsed: &[SymbolicExpression], mut marf: MemoryBackingStore) {
+/// `marf` is provided by the caller (created in `iter_batched_ref` setup) so
+/// that SQLite initialisation and cleanup are excluded from the timing window.
+/// `GlobalContext::new` is cheap (no DB calls), so including it in the timing
+/// window should be negligible.
+fn run(parsed: &[SymbolicExpression], marf: &mut MemoryBackingStore) {
     let contract_id = QualifiedContractIdentifier::transient();
     let db = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(
@@ -194,10 +196,10 @@ fn bench_map_set_get(c: &mut Criterion) {
         let parsed = parse(&program);
 
         group.bench_function(BenchmarkId::new("iters", iters), |b| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 setup_store,
                 |marf| run(&parsed, marf),
-                BatchSize::SmallInput,
+                BatchSize::PerIteration,
             );
         });
     }
@@ -211,10 +213,10 @@ fn bench_var_set_get(c: &mut Criterion) {
         let parsed = parse(&program);
 
         group.bench_function(BenchmarkId::new("iters", iters), |b| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 setup_store,
                 |marf| run(&parsed, marf),
-                BatchSize::SmallInput,
+                BatchSize::PerIteration,
             );
         });
     }
@@ -228,10 +230,10 @@ fn bench_call_heavy(c: &mut Criterion) {
         let parsed = parse(&program);
 
         group.bench_function(BenchmarkId::new("iters", iters), |b| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 setup_store,
                 |marf| run(&parsed, marf),
-                BatchSize::SmallInput,
+                BatchSize::PerIteration,
             );
         });
     }
@@ -245,10 +247,10 @@ fn bench_map_insert_delete(c: &mut Criterion) {
         let parsed = parse(&program);
 
         group.bench_function(BenchmarkId::new("iters", iters), |b| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 setup_store,
                 |marf| run(&parsed, marf),
-                BatchSize::SmallInput,
+                BatchSize::PerIteration,
             );
         });
     }
