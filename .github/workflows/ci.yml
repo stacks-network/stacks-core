@@ -57,9 +57,13 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            // Check for "no changelog" label on PR
-            const labels = context.payload.pull_request.labels.map(l => l.name);
-            core.info('labels: ' + labels.join(', '));
+            // Fetch current labels (payload labels are stale on re-runs)
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            const labels = pr.labels.map(l => l.name);
             if (labels.includes('no changelog')) {
               core.info('PR has "no changelog" label — skipping changelog check.');
               return;
