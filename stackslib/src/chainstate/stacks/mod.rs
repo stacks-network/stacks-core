@@ -1025,6 +1025,7 @@ impl FungibleConditionCode {
 pub enum NonfungibleConditionCode {
     Sent = 0x10,
     NotSent = 0x11,
+    MaybeSent = 0x12,
 }
 
 impl NonfungibleConditionCode {
@@ -1032,6 +1033,7 @@ impl NonfungibleConditionCode {
         match b {
             0x10 => Some(NonfungibleConditionCode::Sent),
             0x11 => Some(NonfungibleConditionCode::NotSent),
+            0x12 => Some(NonfungibleConditionCode::MaybeSent),
             _ => None,
         }
     }
@@ -1053,6 +1055,10 @@ impl NonfungibleConditionCode {
             }
             NonfungibleConditionCode::NotSent => {
                 !NonfungibleConditionCode::was_sent(nft_sent_condition, nfts_sent)
+            }
+            NonfungibleConditionCode::MaybeSent => {
+                // always true
+                true
             }
         }
     }
@@ -1113,8 +1119,12 @@ pub enum TransactionPostCondition {
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
 pub enum TransactionPostConditionMode {
-    Allow = 0x01, // allow any other changes not specified
-    Deny = 0x02,  // deny any other changes not specified
+    /// allow any other changes not specified
+    Allow = 0x01,
+    /// deny any other changes not specified
+    Deny = 0x02,
+    /// deny mode for originator's assets, allow for others
+    Originator = 0x03,
 }
 
 /// Stacks transaction versions

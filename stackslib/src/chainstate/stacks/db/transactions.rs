@@ -617,6 +617,29 @@ impl StacksChainState {
             }
         }
 
+        // check if post-condition mode is supported in this epoch
+        if tx.post_condition_mode == TransactionPostConditionMode::Originator
+            && !epoch_id.supports_sip040_post_conditions()
+        {
+            let msg = "Invalid Stacks transaction: Originator post-condition mode is not supported before Stacks 3.4".to_string();
+            info!("{}", &msg; "txid" => %tx.txid());
+            return Err(Error::InvalidStacksTransaction(msg, false));
+        }
+        // check if MaybeSent NFT post-conditions are supported in this epoch
+        if !epoch_id.supports_sip040_post_conditions() {
+            for post_condition in tx.post_conditions.iter() {
+                if let TransactionPostCondition::Nonfungible(_, _, _, condition_code) =
+                    post_condition
+                {
+                    if *condition_code == NonfungibleConditionCode::MaybeSent {
+                        let msg = "Invalid Stacks transaction: NFT MaybeSent post-condition is not supported before Stacks 3.4".to_string();
+                        info!("{}", &msg; "txid" => %tx.txid());
+                        return Err(Error::InvalidStacksTransaction(msg, false));
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -637,7 +660,12 @@ impl StacksChainState {
             PrincipalData,
             HashMap<AssetIdentifier, HashSet<HashableClarityValue>>,
         > = HashMap::new();
-        let allow_unchecked_assets = *post_condition_mode == TransactionPostConditionMode::Allow;
+        let enforce_unchecked_assets_for_principal =
+            |principal: &PrincipalData| match post_condition_mode {
+                TransactionPostConditionMode::Allow => false,
+                TransactionPostConditionMode::Deny => true,
+                TransactionPostConditionMode::Originator => principal == &origin_account.principal,
+            };
 
         for postcond in post_conditions {
             match postcond {
@@ -702,7 +730,9 @@ impl StacksChainState {
                         .get_fungible_tokens(&account_principal, &asset_id)
                         .unwrap_or(0);
                     if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
-                        let reason = format!("Post-condition check failure on fungible asset {asset_id} owned by {account_principal}: {amount_sent_condition} {condition_code:?} {amount_sent}");
+                        let reason = format!(
+                            "Post-condition check failure on fungible asset {asset_id} owned by {account_principal}: {amount_sent_condition} {condition_code:?} {amount_sent}"
+                        );
                         info!("{reason}"; "txid" => %txid);
                         return Ok(Some(reason));
                     }
@@ -765,65 +795,66 @@ impl StacksChainState {
             }
         }
 
-        if !allow_unchecked_assets {
-            // make sure every asset transferred is covered by a postcondition
-            let asset_map_copy = (*asset_map).clone();
-            let mut all_assets_sent = asset_map_copy.to_table();
-            for (principal, mut assets) in all_assets_sent.drain() {
-                for (asset_identifier, asset_entry) in assets.drain() {
-                    match asset_entry {
-                        AssetMapEntry::Asset(values) => {
-                            // this is a NFT
-                            if let Some(checked_nft_asset_map) =
-                                checked_nonfungible_assets.get(&principal)
-                            {
-                                if let Some(nfts) = checked_nft_asset_map.get(&asset_identifier) {
-                                    // each value must be covered
-                                    for v in values {
-                                        if !nfts.contains(&v.clone().try_into()?) {
-                                            let reason = format!(
-                                                "Post-condition check failure: Non-fungible asset {asset_identifier} value {v:?} was moved by {principal} but not checked"
-                                            );
-                                            info!("{reason}"; "txid" => %txid);
-                                            return Ok(Some(reason));
-                                        }
+        // make sure every asset transferred is covered by a postcondition, if the current mode
+        // requires it.
+        let asset_map_copy = (*asset_map).clone();
+        let mut all_assets_sent = asset_map_copy.to_table();
+        for (principal, mut assets) in all_assets_sent.drain() {
+            if !enforce_unchecked_assets_for_principal(&principal) {
+                continue;
+            }
+            for (asset_identifier, asset_entry) in assets.drain() {
+                match asset_entry {
+                    AssetMapEntry::Asset(values) => {
+                        // this is a NFT
+                        if let Some(checked_nft_asset_map) =
+                            checked_nonfungible_assets.get(&principal)
+                        {
+                            if let Some(nfts) = checked_nft_asset_map.get(&asset_identifier) {
+                                // each value must be covered
+                                for v in values {
+                                    if !nfts.contains(&v.clone().try_into()?) {
+                                        let reason = format!(
+                                            "Post-condition check failure: Non-fungible asset {asset_identifier} value {v:?} was moved by {principal} but not checked"
+                                        );
+                                        info!("{reason}"; "txid" => %txid);
+                                        return Ok(Some(reason));
                                     }
-                                } else {
-                                    // no values covered
-                                    let reason = format!(
-                                        "Post-condition check failure: Non-fungible asset {asset_identifier} was moved by {principal} but not checked"
-                                    );
-                                    info!("{reason}"; "txid" => %txid);
-                                    return Ok(Some(reason));
                                 }
                             } else {
-                                // no NFT for this principal
+                                // no values covered
                                 let reason = format!(
-                                    "Post-condition check failure: No checks for non-fungible asset {asset_identifier} moved by {principal}"
+                                    "Post-condition check failure: Non-fungible asset {asset_identifier} was moved by {principal} but not checked"
                                 );
                                 info!("{reason}"; "txid" => %txid);
                                 return Ok(Some(reason));
                             }
+                        } else {
+                            // no NFT for this principal
+                            let reason = format!(
+                                "Post-condition check failure: No checks for non-fungible asset {asset_identifier} moved by {principal}"
+                            );
+                            info!("{reason}"; "txid" => %txid);
+                            return Ok(Some(reason));
                         }
-                        _ => {
-                            // This is STX or a fungible token
-                            if let Some(checked_ft_asset_ids) =
-                                checked_fungible_assets.get(&principal)
-                            {
-                                if !checked_ft_asset_ids.contains(&asset_identifier) {
-                                    let reason = format!(
-                                        "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
-                                    );
-                                    info!("{reason}"; "txid" => %txid);
-                                    return Ok(Some(reason));
-                                }
-                            } else {
+                    }
+                    _ => {
+                        // This is STX or a fungible token
+                        if let Some(checked_ft_asset_ids) = checked_fungible_assets.get(&principal)
+                        {
+                            if !checked_ft_asset_ids.contains(&asset_identifier) {
                                 let reason = format!(
                                     "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
                                 );
                                 info!("{reason}"; "txid" => %txid);
                                 return Ok(Some(reason));
                             }
+                        } else {
+                            let reason = format!(
+                                "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
+                            );
+                            info!("{reason}"; "txid" => %txid);
+                            return Ok(Some(reason));
                         }
                     }
                 }
@@ -939,7 +970,10 @@ impl StacksChainState {
                     .expect("BUG: too many blocks")
                     < current_height
                 {
-                    let msg = format!("Invalid Stacks transaction: microblock public key hash from height {} has matured relative to current height {}", height, current_height);
+                    let msg = format!(
+                        "Invalid Stacks transaction: microblock public key hash from height {} has matured relative to current height {}",
+                        height, current_height
+                    );
                     warn!("{}", &msg;
                           "microblock_pubkey_hash" => %pubkh
                     );
@@ -1277,7 +1311,13 @@ impl StacksChainState {
                     Err(e) => {
                         match e {
                             ClarityError::CostError(ref cost_after, ref budget) => {
-                                warn!("Block compute budget exceeded on {}: cost before={}, after={}, budget={}", tx.txid(), &cost_before, cost_after, budget);
+                                warn!(
+                                    "Block compute budget exceeded on {}: cost before={}, after={}, budget={}",
+                                    tx.txid(),
+                                    &cost_before,
+                                    cost_after,
+                                    budget
+                                );
                                 return Err(Error::CostOverflowError(
                                     cost_before,
                                     cost_after.clone(),
@@ -1287,13 +1327,19 @@ impl StacksChainState {
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {
                                     if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                        info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
+                                        info!(
+                                            "Transaction {} is problematic and should have prevented this block from being relayed",
+                                            tx.txid()
+                                        );
                                         return Err(Error::ClarityError(other_error));
                                     }
                                 }
                                 if let ClarityError::StaticCheck(err) = &other_error {
                                     if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                        info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
+                                        info!(
+                                            "Transaction {} is problematic and should have prevented this block from being relayed",
+                                            tx.txid()
+                                        );
                                         return Err(Error::ClarityError(other_error));
                                     }
                                 }
@@ -1512,8 +1558,7 @@ impl StacksChainState {
                 {
                     let msg = format!(
                         "Invalid Stacks transaction: TenureChange cause variant {:?} is not supported in epoch {:?}",
-                        &payload.cause,
-                        &epoch_id
+                        &payload.cause, &epoch_id
                     );
                     info!("{msg}");
                     return Err(Error::InvalidStacksTransaction(msg, false));
@@ -1669,7 +1714,9 @@ pub mod test {
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
     use clarity::vm::types::ResponseData;
+    use proptest::prelude::*;
     use rand::Rng;
+    use rstest::rstest;
     use stacks_common::types::chainstate::SortitionId;
     use stacks_common::util::hash::*;
 
@@ -1812,6 +1859,172 @@ pub mod test {
 
         assert_eq!(receipt.result, Value::err_none());
         assert!(receipt.vm_error.unwrap().starts_with("DivisionByZero"));
+    }
+
+    fn run_process_transaction_payload_at_epoch(
+        epoch_id: StacksEpochId,
+        tx: &StacksTransaction,
+    ) -> Result<StacksTransactionReceipt, Error> {
+        let marf_kv = MarfedKV::temporary();
+        let chain_id = 0x80000000;
+        let mut clarity_instance = ClarityInstance::new(false, chain_id, marf_kv);
+        let mut genesis = clarity_instance.begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
+        );
+
+        genesis.initialize_epoch_2_05().unwrap();
+        genesis.initialize_epoch_2_1().unwrap();
+        genesis.initialize_epoch_3_0().unwrap();
+        genesis.initialize_epoch_3_1().unwrap();
+        genesis.initialize_epoch_3_2().unwrap();
+        genesis.initialize_epoch_3_3().unwrap();
+        if epoch_id >= StacksEpochId::Epoch34 {
+            genesis.initialize_epoch_3_4().unwrap();
+        }
+        genesis.commit_block();
+
+        let burn_db = match epoch_id {
+            StacksEpochId::Epoch30 => &TestBurnStateDB_30 as &dyn BurnStateDB,
+            StacksEpochId::Epoch31 => &TestBurnStateDB_31 as &dyn BurnStateDB,
+            StacksEpochId::Epoch32 => &TestBurnStateDB_32 as &dyn BurnStateDB,
+            StacksEpochId::Epoch33 => &TestBurnStateDB_33 as &dyn BurnStateDB,
+            StacksEpochId::Epoch34 => &TestBurnStateDB_34 as &dyn BurnStateDB,
+            _ => panic!("Unsupported epoch in test helper: {epoch_id}"),
+        };
+
+        let next_block = clarity_instance.begin_block(
+            &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            ),
+            &StacksBlockId([3; 32]),
+            &TEST_HEADER_DB,
+            burn_db,
+        );
+
+        let mut clarity_tx = ClarityTx {
+            block: next_block,
+            config: DBConfig {
+                version: CHAINSTATE_VERSION.to_string(),
+                mainnet: false,
+                chain_id,
+            },
+        };
+
+        let (_fee, receipt) =
+            validate_transactions_static_epoch_and_process_transaction(&mut clarity_tx, tx, false)?;
+        Ok(receipt)
+    }
+
+    #[rstest]
+    #[case(StacksEpochId::Epoch30, false)]
+    #[case(StacksEpochId::Epoch31, false)]
+    #[case(StacksEpochId::Epoch32, false)]
+    #[case(StacksEpochId::Epoch33, false)]
+    #[case(StacksEpochId::Epoch34, true)]
+    fn process_transaction_payload_originator_mode_epoch_gate(
+        #[case] epoch_id: StacksEpochId,
+        #[case] should_succeed: bool,
+    ) {
+        let sk = Secp256k1PrivateKey::random();
+        let auth = TransactionAuth::from_p2pkh(&sk).unwrap();
+        let chain_id = 0x80000000;
+
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id,
+            auth,
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Originator,
+            post_conditions: vec![],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "test-contract".into(),
+                    code_body: StacksString::from_str("(define-public (ping) (ok true))").unwrap(),
+                },
+                None,
+            ),
+        };
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&sk).unwrap();
+        let tx = signer.get_tx().unwrap();
+
+        let result = run_process_transaction_payload_at_epoch(epoch_id, &tx);
+        if should_succeed {
+            let receipt = result.unwrap();
+            assert_eq!(receipt.result, Value::okay_true());
+            assert!(!receipt.post_condition_aborted);
+        } else {
+            match result.unwrap_err() {
+                Error::InvalidStacksTransaction(msg, false) => {
+                    assert!(msg.contains("target epoch is not activated"), "{msg}");
+                }
+                _ => panic!("Expected InvalidStacksTransaction for epoch {epoch_id:?}"),
+            }
+        };
+    }
+
+    #[rstest]
+    #[case(StacksEpochId::Epoch30, false)]
+    #[case(StacksEpochId::Epoch31, false)]
+    #[case(StacksEpochId::Epoch32, false)]
+    #[case(StacksEpochId::Epoch33, false)]
+    #[case(StacksEpochId::Epoch34, true)]
+    fn process_transaction_payload_nft_maybe_sent_epoch_gate(
+        #[case] epoch_id: StacksEpochId,
+        #[case] should_succeed: bool,
+    ) {
+        let sk = Secp256k1PrivateKey::random();
+        let auth = TransactionAuth::from_p2pkh(&sk).unwrap();
+        let chain_id = 0x80000000;
+
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id,
+            auth,
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![TransactionPostCondition::Nonfungible(
+                PostConditionPrincipal::Origin,
+                AssetInfo {
+                    contract_address: StacksAddress::new(1, Hash160([0x11; 20])).unwrap(),
+                    contract_name: ContractName::try_from("hello-world").unwrap(),
+                    asset_name: ClarityName::try_from("asset").unwrap(),
+                },
+                Value::Int(1),
+                NonfungibleConditionCode::MaybeSent,
+            )],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "test-contract".into(),
+                    code_body: StacksString::from_str("(define-public (ping) (ok true))").unwrap(),
+                },
+                None,
+            ),
+        };
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&sk).unwrap();
+        let tx = signer.get_tx().unwrap();
+
+        let result = run_process_transaction_payload_at_epoch(epoch_id, &tx);
+        if should_succeed {
+            let receipt = result.unwrap();
+            assert_eq!(receipt.result, Value::okay_true());
+            assert!(!receipt.post_condition_aborted);
+        } else {
+            match result.unwrap_err() {
+                Error::InvalidStacksTransaction(msg, false) => {
+                    assert!(msg.contains("target epoch is not activated"), "{msg}");
+                }
+                _ => panic!("Expected InvalidStacksTransaction for epoch {epoch_id:?}"),
+            }
+        };
     }
 
     #[test]
@@ -7111,6 +7324,321 @@ pub mod test {
     }
 
     #[test]
+    fn test_check_postconditions_originator_mode_coverage() {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let origin_addr = auth.origin().address_testnet();
+        let origin = origin_addr.to_account_principal();
+        let other_addr = StacksAddress::new(1, Hash160([0xee; 20])).unwrap();
+        let other = other_addr.to_account_principal();
+
+        let mut mixed_stx_transfer = AssetMap::new();
+        mixed_stx_transfer.add_stx_transfer(&origin, 50).unwrap();
+        mixed_stx_transfer.add_stx_transfer(&other, 75).unwrap();
+
+        let tests = vec![
+            // in originator mode, uncovered transfers from non-origin principals are permitted
+            (
+                true,
+                vec![TransactionPostCondition::STX(
+                    PostConditionPrincipal::Origin,
+                    FungibleConditionCode::SentEq,
+                    50,
+                )],
+                TransactionPostConditionMode::Originator,
+            ),
+            // in originator mode, uncovered transfers from origin are forbidden
+            (
+                false,
+                vec![TransactionPostCondition::STX(
+                    PostConditionPrincipal::Standard(other_addr.clone()),
+                    FungibleConditionCode::SentEq,
+                    75,
+                )],
+                TransactionPostConditionMode::Originator,
+            ),
+            // in originator mode, covering both should pass
+            (
+                true,
+                vec![
+                    TransactionPostCondition::STX(
+                        PostConditionPrincipal::Origin,
+                        FungibleConditionCode::SentEq,
+                        50,
+                    ),
+                    TransactionPostCondition::STX(
+                        PostConditionPrincipal::Standard(other_addr.clone()),
+                        FungibleConditionCode::SentEq,
+                        75,
+                    ),
+                ],
+                TransactionPostConditionMode::Originator,
+            ),
+            // sanity check: deny mode still requires all principals to be covered
+            (
+                false,
+                vec![TransactionPostCondition::STX(
+                    PostConditionPrincipal::Origin,
+                    FungibleConditionCode::SentEq,
+                    50,
+                )],
+                TransactionPostConditionMode::Deny,
+            ),
+        ];
+
+        for (expected_result, post_conditions, mode) in tests {
+            let result = StacksChainState::check_transaction_postconditions(
+                &post_conditions,
+                &mode,
+                &make_account(&origin, 1, 123),
+                &mixed_stx_transfer,
+                Txid([0; 32]),
+            )
+            .unwrap();
+            assert_eq!(
+                result.is_none(),
+                expected_result,
+                "test failed:\nasset map: {mixed_stx_transfer:?}\nscenario: {post_conditions:?} mode={mode:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_check_postconditions_nft_maybe_sent() {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let origin_addr = auth.origin().address_testnet();
+        let origin = origin_addr.to_account_principal();
+        let contract_addr = StacksAddress::new(1, Hash160([0x01; 20])).unwrap();
+
+        let asset_info = AssetInfo {
+            contract_address: contract_addr.clone(),
+            contract_name: ContractName::try_from("hello-world").unwrap(),
+            asset_name: ClarityName::try_from("test-asset").unwrap(),
+        };
+
+        let asset_id = AssetIdentifier {
+            contract_identifier: QualifiedContractIdentifier::new(
+                StandardPrincipalData::from(asset_info.contract_address.clone()),
+                asset_info.contract_name.clone(),
+            ),
+            asset_name: asset_info.asset_name.clone(),
+        };
+
+        let mut nft_sent_value_1 = AssetMap::new();
+        nft_sent_value_1.add_asset_transfer(&origin, asset_id.clone(), Value::Int(1));
+
+        let nft_not_sent = AssetMap::new();
+
+        let mut nft_sent_value_2 = AssetMap::new();
+        nft_sent_value_2.add_asset_transfer(&origin, asset_id, Value::Int(2));
+
+        let tests = vec![
+            // MAY-SEND should pass if the specified NFT is sent
+            (
+                true,
+                vec![TransactionPostCondition::Nonfungible(
+                    PostConditionPrincipal::Origin,
+                    asset_info.clone(),
+                    Value::Int(1),
+                    NonfungibleConditionCode::MaybeSent,
+                )],
+                TransactionPostConditionMode::Deny,
+                &nft_sent_value_1,
+            ),
+            // MAY-SEND should also pass if the specified NFT is not sent
+            (
+                true,
+                vec![TransactionPostCondition::Nonfungible(
+                    PostConditionPrincipal::Origin,
+                    asset_info.clone(),
+                    Value::Int(1),
+                    NonfungibleConditionCode::MaybeSent,
+                )],
+                TransactionPostConditionMode::Deny,
+                &nft_not_sent,
+            ),
+            // MAY-SEND covers only the specific NFT instance (value 1 does not cover value 2)
+            (
+                false,
+                vec![TransactionPostCondition::Nonfungible(
+                    PostConditionPrincipal::Origin,
+                    asset_info.clone(),
+                    Value::Int(1),
+                    NonfungibleConditionCode::MaybeSent,
+                )],
+                TransactionPostConditionMode::Deny,
+                &nft_sent_value_2,
+            ),
+            // allow mode remains permissive regardless
+            (
+                true,
+                vec![TransactionPostCondition::Nonfungible(
+                    PostConditionPrincipal::Origin,
+                    asset_info,
+                    Value::Int(1),
+                    NonfungibleConditionCode::MaybeSent,
+                )],
+                TransactionPostConditionMode::Allow,
+                &nft_sent_value_2,
+            ),
+        ];
+
+        for (expected_result, post_conditions, mode, asset_map) in tests {
+            let result = StacksChainState::check_transaction_postconditions(
+                &post_conditions,
+                &mode,
+                &make_account(&origin, 1, 123),
+                asset_map,
+                Txid([0; 32]),
+            )
+            .unwrap();
+            assert_eq!(
+                result.is_none(),
+                expected_result,
+                "test failed:\nasset map: {asset_map:?}\nscenario: {post_conditions:?} mode={mode:?}"
+            );
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_check_postconditions_originator_mode_coverage(
+            origin_sent in 1u64..10_000,
+            other_sent in 1u64..10_000,
+            include_origin_check in any::<bool>(),
+            include_other_check in any::<bool>(),
+            origin_check_matches in any::<bool>(),
+        ) {
+            let privk = StacksPrivateKey::from_hex(
+                "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+            )
+            .unwrap();
+            let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+            let origin_addr = auth.origin().address_testnet();
+            let origin = origin_addr.to_account_principal();
+            let other_addr = StacksAddress::new(1, Hash160([0xee; 20])).unwrap();
+            let other = other_addr.to_account_principal();
+
+            let mut asset_map = AssetMap::new();
+            asset_map
+                .add_stx_transfer(&origin, u128::from(origin_sent))
+                .unwrap();
+            asset_map
+                .add_stx_transfer(&other, u128::from(other_sent))
+                .unwrap();
+
+            let mut post_conditions = vec![];
+            if include_origin_check {
+                let checked_amt = if origin_check_matches {
+                    origin_sent
+                } else {
+                    origin_sent.saturating_add(1)
+                };
+                post_conditions.push(TransactionPostCondition::STX(
+                    PostConditionPrincipal::Origin,
+                    FungibleConditionCode::SentEq,
+                    checked_amt,
+                ));
+            }
+            if include_other_check {
+                post_conditions.push(TransactionPostCondition::STX(
+                    PostConditionPrincipal::Standard(other_addr.clone()),
+                    FungibleConditionCode::SentEq,
+                    other_sent,
+                ));
+            }
+
+            let result = StacksChainState::check_transaction_postconditions(
+                &post_conditions,
+                &TransactionPostConditionMode::Originator,
+                &make_account(&origin, 1, 123),
+                &asset_map,
+                Txid([0; 32]),
+            )
+            .unwrap();
+
+            let expected_pass = include_origin_check && origin_check_matches;
+            prop_assert_eq!(result.is_none(), expected_pass);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn proptest_check_postconditions_nft_maybe_sent_variety(
+            checked_id in 0u16..500,
+            moved_id in 0u16..500,
+            move_asset in any::<bool>(),
+            mode_is_allow in any::<bool>(),
+        ) {
+            let privk = StacksPrivateKey::from_hex(
+                "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+            )
+            .unwrap();
+            let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+            let origin_addr = auth.origin().address_testnet();
+            let origin = origin_addr.to_account_principal();
+
+            let asset_info = AssetInfo {
+                contract_address: StacksAddress::new(1, Hash160([0x01; 20])).unwrap(),
+                contract_name: ContractName::try_from("hello-world").unwrap(),
+                asset_name: ClarityName::try_from("test-asset").unwrap(),
+            };
+            let asset_id = AssetIdentifier {
+                contract_identifier: QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(asset_info.contract_address.clone()),
+                    asset_info.contract_name.clone(),
+                ),
+                asset_name: asset_info.asset_name.clone(),
+            };
+
+            let mut asset_map = AssetMap::new();
+            if move_asset {
+                asset_map.add_asset_transfer(
+                    &origin,
+                    asset_id,
+                    Value::UInt(u128::from(moved_id)),
+                );
+            }
+
+            let mode = if mode_is_allow {
+                TransactionPostConditionMode::Allow
+            } else {
+                TransactionPostConditionMode::Deny
+            };
+
+            let post_conditions = vec![TransactionPostCondition::Nonfungible(
+                PostConditionPrincipal::Origin,
+                asset_info,
+                Value::UInt(u128::from(checked_id)),
+                NonfungibleConditionCode::MaybeSent,
+            )];
+
+            let result = StacksChainState::check_transaction_postconditions(
+                &post_conditions,
+                &mode,
+                &make_account(&origin, 1, 123),
+                &asset_map,
+                Txid([0; 32]),
+            )
+            .unwrap();
+
+            let expected_pass = if mode_is_allow {
+                true
+            } else {
+                !move_asset || checked_id == moved_id
+            };
+            prop_assert_eq!(result.is_none(), expected_pass);
+        }
+    }
+
+    #[test]
     fn test_check_postconditions_stx() {
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -8692,7 +9220,9 @@ pub mod test {
                 .find("asks for Clarity 2, but current epoch 2.05 only supports up to Clarity 1")
                 .is_some());
         } else {
-            panic!("FATAL: did not recieve the appropriate error in processing a clarity2 tx in pre-2.1 epoch");
+            panic!(
+                "FATAL: did not recieve the appropriate error in processing a clarity2 tx in pre-2.1 epoch"
+            );
         }
 
         conn.commit_block();
