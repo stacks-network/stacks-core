@@ -775,20 +775,20 @@ pub fn wait_for<F>(timeout_secs: u64, mut check: F) -> Result<(), String>
 where
     F: FnMut() -> Result<bool, String>,
 {
-    let start = Instant::now();
-    let desired_end = start + Duration::from_secs(timeout_secs);
-    let extended_end = start + Duration::from_secs(2 * timeout_secs);
+    let desired_timeout = Duration::from_secs(timeout_secs);
+    let extended_timeout = Duration::from_secs(2 * timeout_secs);
+    let stopwatch = Instant::now();
     while !check()? {
-        if Instant::now() > extended_end {
+        if stopwatch.elapsed() > extended_timeout {
             break;
         }
         thread::sleep(Duration::from_millis(500));
     }
-    let end = Instant::now();
-    if end > desired_end {
-        if end <= extended_end {
-            let seconds_taken = (end - start).as_secs();
-            info!("TIMEOUT POSSIBLY TOO LOW: Operation failed to complete in the allotted {} seconds but would have succeed after {}", timeout_secs, seconds_taken);
+    let elapsed = stopwatch.elapsed();
+    if elapsed > desired_timeout {
+        if elapsed <= extended_timeout {
+            let seconds_taken = elapsed.as_secs();
+            info!("TIMEOUT POSSIBLY TOO LOW: Operation failed to complete in the allotted {timeout_secs} seconds but would have succeeded after {seconds_taken}");
         }
         error!("Timed out waiting for check to process");
         return Err("Timed out".into());
