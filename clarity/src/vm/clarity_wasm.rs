@@ -523,9 +523,19 @@ pub fn call_function<'a>(
         .i32()
         .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
 
+    let workspace_size = instance
+        .get_global(&mut store, "workspace-size")
+        .ok_or_else(|| Error::Wasm(WasmError::GlobalNotFound("workspace-size".to_owned())))?;
+
     let memory = instance
         .get_memory(&mut store, "memory")
         .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+    let return_type = func_types
+        .get_return_type()
+        .as_ref()
+        .ok_or(Error::Wasm(WasmError::ExpectedReturnValue))?
+        .clone();
 
     // Validate argument count
     let expected_args = func_types.get_arg_types();
@@ -546,41 +556,25 @@ pub fn call_function<'a>(
         }
     }
 
-    // Determine how much space is needed for arguments
-    let mut arg_size = 0;
-    for arg in func_types.get_arg_types() {
-        arg_size += get_type_in_memory_size(arg, false);
-    }
-    let mut in_mem_offset = offset + arg_size;
-
     // Ensure that the memory has enough space for the arguments
-    let mut total_required_bytes = 0;
+    let mut total_required_bytes = workspace_size
+        .get(&mut store)
+        .i32()
+        .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?
+        as usize;
     for (arg, ty) in args.iter().zip(expected_args) {
         total_required_bytes += get_required_bytes(ty, arg)?;
     }
-    ensure_memory(
-        &memory,
-        &mut store,
-        total_required_bytes + in_mem_offset as usize,
-    )?;
+
+    ensure_memory(&memory, &mut store, total_required_bytes + offset as usize)?;
 
     // Convert the args into wasmtime values
     let mut wasm_args = vec![];
     for (arg, ty) in args.iter().zip(expected_args) {
-        let (arg_vec, new_offset, new_in_mem_offset) =
-            pass_argument_to_wasm(memory, &mut store, ty, arg, offset, in_mem_offset)?;
+        let (arg_vec, new_offset) = pass_argument_to_wasm(memory, &mut store, ty, arg, offset)?;
         wasm_args.extend(arg_vec);
         offset = new_offset;
-        in_mem_offset = new_in_mem_offset;
     }
-
-    // Reserve stack space for the return value, if necessary.
-    let return_type = func_types
-        .get_return_type()
-        .as_ref()
-        .ok_or(Error::Wasm(WasmError::ExpectedReturnValue))?
-        .clone();
-    let (mut results, offset) = reserve_space_for_return(in_mem_offset, &return_type)?;
 
     // Update the stack pointer after space is reserved for the arguments and
     // return values.
@@ -589,6 +583,10 @@ pub fn call_function<'a>(
         .map_err(|e| Error::Wasm(WasmError::Runtime(e)))?;
 
     // Call the function
+    let mut results: Vec<_> = clar2wasm_ty(&return_type)
+        .into_iter()
+        .map(placeholder_for_type)
+        .collect();
     func.call(&mut store, &wasm_args, &mut results)
         .map_err(|e| {
             error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
@@ -1599,26 +1597,21 @@ fn pass_argument_to_wasm(
     ty: &TypeSignature,
     value: &Value,
     offset: i32,
-    in_mem_offset: i32,
-) -> Result<(Vec<Val>, i32, i32), Error> {
+) -> Result<(Vec<Val>, i32), Error> {
     match value {
         Value::UInt(n) => {
             let high = (n >> 64) as u64;
             let low = (n & 0xffff_ffff_ffff_ffff) as u64;
             let buffer = vec![Val::I64(low as i64), Val::I64(high as i64)];
-            Ok((buffer, offset, in_mem_offset))
+            Ok((buffer, offset))
         }
         Value::Int(n) => {
             let high = (n >> 64) as u64;
             let low = (n & 0xffff_ffff_ffff_ffff) as u64;
             let buffer = vec![Val::I64(low as i64), Val::I64(high as i64)];
-            Ok((buffer, offset, in_mem_offset))
+            Ok((buffer, offset))
         }
-        Value::Bool(b) => Ok((
-            vec![Val::I32(if *b { 1 } else { 0 })],
-            offset,
-            in_mem_offset,
-        )),
+        Value::Bool(b) => Ok((vec![Val::I32(if *b { 1 } else { 0 })], offset)),
         Value::Optional(o) => {
             let TypeSignature::OptionalType(inner_ty) = ty else {
                 return Err(Error::Wasm(WasmError::ValueTypeMismatch));
@@ -1626,16 +1619,10 @@ fn pass_argument_to_wasm(
 
             if let Some(inner_value) = o.data.as_ref() {
                 let mut buffer = vec![Val::I32(1)];
-                let (inner_buffer, new_offset, new_in_mem_offset) = pass_argument_to_wasm(
-                    memory,
-                    store,
-                    inner_ty,
-                    inner_value,
-                    offset,
-                    in_mem_offset,
-                )?;
+                let (inner_buffer, new_offset) =
+                    pass_argument_to_wasm(memory, store, inner_ty, inner_value, offset)?;
                 buffer.extend(inner_buffer);
-                Ok((buffer, new_offset, new_in_mem_offset))
+                Ok((buffer, new_offset))
             } else {
                 let buffer = clar2wasm_ty(ty)
                     .into_iter()
@@ -1645,7 +1632,7 @@ fn pass_argument_to_wasm(
                         _ => unreachable!("No other types used in Clarity-Wasm"),
                     })
                     .collect();
-                Ok((buffer, offset, in_mem_offset))
+                Ok((buffer, offset))
             }
         }
         Value::Response(r) => {
@@ -1653,7 +1640,7 @@ fn pass_argument_to_wasm(
                 return Err(Error::Wasm(WasmError::ValueTypeMismatch));
             };
             let mut buffer = vec![Val::I32(r.committed as i32)];
-            let (value_buffer, new_offset, new_in_mem_offset) = pass_argument_to_wasm(
+            let (value_buffer, new_offset) = pass_argument_to_wasm(
                 memory,
                 store,
                 if r.committed {
@@ -1663,7 +1650,6 @@ fn pass_argument_to_wasm(
                 },
                 &r.data,
                 offset,
-                in_mem_offset,
             )?;
             let empty_buffer = clar2wasm_ty(if r.committed {
                 &inner_tys.1
@@ -1685,21 +1671,16 @@ fn pass_argument_to_wasm(
                 buffer.extend(value_buffer);
             }
 
-            Ok((buffer, new_offset, new_in_mem_offset))
+            Ok((buffer, new_offset))
         }
         Value::Sequence(SequenceData::String(CharType::ASCII(s))) => {
             // For a string, write the bytes into the memory, then pass the
             // offset and length to the Wasm function.
-            let buffer = vec![Val::I32(in_mem_offset), Val::I32(s.data.len() as i32)];
+            let buffer = vec![Val::I32(offset), Val::I32(s.data.len() as i32)];
             memory
-                .write(
-                    store.as_context_mut(),
-                    in_mem_offset as usize,
-                    s.data.as_slice(),
-                )
+                .write(store.as_context_mut(), offset as usize, s.data.as_slice())
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            let adjusted_in_mem_offset = in_mem_offset + s.data.len() as i32;
-            Ok((buffer, offset, adjusted_in_mem_offset))
+            Ok((buffer, offset + s.data.len() as i32))
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(s))) => {
             // For a utf8 string, convert the chars to big-endian i32, convert this into a list of
@@ -1709,32 +1690,27 @@ fn pass_argument_to_wasm(
                 .chars()
                 .flat_map(|c| (c as u32).to_be_bytes())
                 .collect();
-            let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
+            let buffer = vec![Val::I32(offset), Val::I32(bytes.len() as i32)];
             memory
-                .write(&mut store, in_mem_offset as usize, &bytes)
+                .write(&mut store, offset as usize, &bytes)
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
-            Ok((buffer, offset, adjusted_in_mem_offset))
+            Ok((buffer, offset + bytes.len() as i32))
         }
         Value::Sequence(SequenceData::Buffer(b)) => {
             // For a buffer, write the bytes into the memory, then pass the
             // offset and length to the Wasm function.
-            let buffer = vec![Val::I32(in_mem_offset), Val::I32(b.data.len() as i32)];
+            let buffer = vec![Val::I32(offset), Val::I32(b.data.len() as i32)];
             memory
-                .write(
-                    store.as_context_mut(),
-                    in_mem_offset as usize,
-                    b.data.as_slice(),
-                )
+                .write(store.as_context_mut(), offset as usize, b.data.as_slice())
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            let adjusted_in_mem_offset = in_mem_offset + b.data.len() as i32;
-            Ok((buffer, offset, adjusted_in_mem_offset))
+            Ok((buffer, offset + b.data.len() as i32))
         }
         Value::Sequence(SequenceData::List(l)) => {
             let TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) = ty else {
                 return Err(Error::Wasm(WasmError::ValueTypeMismatch));
             };
-            let mut buffer = vec![Val::I32(offset)];
+            let in_mem_offset =
+                offset + get_type_size(ltd.get_list_item_type()) * l.data.len() as i32;
             let mut written = 0;
             let mut in_mem_written = 0;
             for item in &l.data {
@@ -1750,8 +1726,10 @@ fn pass_argument_to_wasm(
                 written += len;
                 in_mem_written += in_mem_len;
             }
-            buffer.push(Val::I32(written));
-            Ok((buffer, offset + written, in_mem_offset + in_mem_written))
+            Ok((
+                vec![Val::I32(offset), Val::I32(written)],
+                in_mem_offset + in_mem_written,
+            ))
         }
         Value::Principal(PrincipalData::Standard(data)) => {
             let mut bytes: Vec<u8> = Vec::with_capacity(22);
@@ -1760,12 +1738,11 @@ fn pass_argument_to_wasm(
             bytes.push(v);
             bytes.extend(h);
             bytes.push(0);
-            let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
+            let buffer = vec![Val::I32(offset), Val::I32(bytes.len() as i32)];
             memory
-                .write(&mut store, in_mem_offset as usize, &bytes)
+                .write(&mut store, offset as usize, &bytes)
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
-            Ok((buffer, offset, adjusted_in_mem_offset))
+            Ok((buffer, offset + bytes.len() as i32))
         }
         Value::Principal(PrincipalData::Contract(p))
         | Value::CallableContract(CallableData {
@@ -1783,12 +1760,11 @@ fn pass_argument_to_wasm(
                 .chain(name.as_bytes().iter().copied())
                 .collect();
 
-            let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
+            let buffer = vec![Val::I32(offset), Val::I32(bytes.len() as i32)];
             memory
-                .write(&mut store, in_mem_offset as usize, &bytes)
+                .write(&mut store, offset as usize, &bytes)
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
-            Ok((buffer, offset, adjusted_in_mem_offset))
+            Ok((buffer, offset + bytes.len() as i32))
         }
         Value::Tuple(TupleData { data_map, .. }) => {
             let TypeSignature::TupleType(tuple_ty) = ty else {
@@ -1797,20 +1773,18 @@ fn pass_argument_to_wasm(
 
             let mut buffer = vec![];
             let mut offset = offset;
-            let mut in_mem_offset = in_mem_offset;
             for (name, ty) in tuple_ty.get_type_map() {
                 let b;
-                (b, offset, in_mem_offset) = pass_argument_to_wasm(
+                (b, offset) = pass_argument_to_wasm(
                     memory,
                     store.as_context_mut(),
                     ty,
                     &data_map[name],
                     offset,
-                    in_mem_offset,
                 )?;
                 buffer.extend(b);
             }
-            Ok((buffer, offset, in_mem_offset))
+            Ok((buffer, offset))
         }
     }
 }
