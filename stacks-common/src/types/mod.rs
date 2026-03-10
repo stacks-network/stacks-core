@@ -699,6 +699,12 @@ impl StacksEpochId {
         }
     }
 
+    /// Does this epoch support the post-condition enhancements from SIP-040?
+    /// This includes support for `Originator` mode and the `MaySend` NFT condition.
+    pub fn supports_sip040_post_conditions(&self) -> bool {
+        self >= &StacksEpochId::Epoch34
+    }
+
     /// What is the coinbase (in uSTX) to award for the given burnchain height?
     /// Applies prior to SIP-029
     fn coinbase_reward_pre_sip029(
@@ -912,6 +918,10 @@ impl StacksEpochId {
             | StacksEpochId::Epoch33 => false,
             StacksEpochId::Epoch34 => true,
         }
+    }
+
+    pub fn supports_call_with_constant(&self) -> bool {
+        self >= &StacksEpochId::Epoch34
     }
 
     /// Return the network epoch associated with the StacksEpochId

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -174,6 +174,33 @@ impl TryFrom<&str> for BlockState {
     }
 }
 
+/// Pending responses for a block proposal we had not yet seen
+#[derive(Debug, Clone)]
+pub struct PendingBlockResponses {
+    /// Pre-commit responses for this block signer_addr
+    pub pre_commits: Vec<StacksAddress>,
+    /// Signature responses for this block (signer_addr, signature)
+    pub signatures: Vec<(StacksAddress, MessageSignature)>,
+    /// Rejection responses for this block (signer_addr, reject_code)
+    pub rejections: Vec<(StacksAddress, RejectReasonPrefix)>,
+}
+
+impl PendingBlockResponses {
+    /// Create an empty PendingBlockResponses
+    pub fn empty() -> Self {
+        Self {
+            pre_commits: Vec::new(),
+            signatures: Vec::new(),
+            rejections: Vec::new(),
+        }
+    }
+
+    /// Check if this pending responses collection contains any entries
+    pub fn is_empty(&self) -> bool {
+        self.pre_commits.is_empty() && self.signatures.is_empty() && self.rejections.is_empty()
+    }
+}
+
 /// Additional Info about a proposed block
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct BlockInfo {
@@ -185,13 +212,13 @@ pub struct BlockInfo {
     pub reward_cycle: u64,
     /// Our vote on the block if we have one yet
     pub vote: Option<NakamotoBlockVote>,
-    /// Whether the block contents are valid
+    /// Whether the block contents are valid according to our local and node validation. None if not yet validated.
     pub valid: Option<bool>,
-    /// Whether this block is already being signed over (pre-committed or signed by self or group)
-    pub signed_over: bool,
     /// Time at which the proposal was received by this signer (epoch time in seconds)
     pub proposed_time: u64,
-    /// Time at which the proposal was pre-committed or signed by this signer (epoch time in seconds)
+    /// Time at which the proposal was pre-commited to by this signer (epoch time in seconds)
+    pub approved_time: Option<u64>,
+    /// Time at which the proposal was signed by this signer (epoch time in seconds)
     pub signed_self: Option<u64>,
     /// Time at which the proposal was signed by a threshold in the signer set (epoch time in seconds)
     pub signed_group: Option<u64>,
@@ -213,8 +240,8 @@ impl From<BlockProposal> for BlockInfo {
             reward_cycle: value.reward_cycle,
             vote: None,
             valid: None,
-            signed_over: false,
             proposed_time: get_epoch_time_secs(),
+            approved_time: None,
             signed_self: None,
             signed_group: None,
             ext: ExtraBlockInfo::default(),
@@ -244,53 +271,40 @@ impl BlockInfo {
         Some(tenure_change.cause)
     }
 
-    /// Mark this block as locally accepted, valid, signed over, and records either the self or group signed timestamp in the block info if it wasn't
-    ///  already set.
-    pub fn mark_locally_accepted(&mut self, group_signed: bool) -> Result<(), String> {
-        self.move_to(BlockState::LocallyAccepted)?;
+    /// Mark this block as valid, record the approved time timestamp if not already set and attempt to mark it as pre-committed.
+    pub fn mark_pre_committed(&mut self) -> Result<(), String> {
         self.valid = Some(true);
-        self.signed_over = true;
+        self.approved_time.get_or_insert(get_epoch_time_secs());
+        self.move_to(BlockState::PreCommitted)
+    }
+
+    /// Mark this block as valid and the appropriate timestamps if they aren't already set, and attempt to mark it as locally accepted.
+    pub fn mark_locally_accepted(&mut self, group_signed: bool) -> Result<(), String> {
         if group_signed {
             self.signed_group.get_or_insert(get_epoch_time_secs());
         } else {
+            self.valid = Some(true);
+            self.approved_time.get_or_insert(get_epoch_time_secs());
             self.signed_self.get_or_insert(get_epoch_time_secs());
         }
-        Ok(())
+        self.move_to(BlockState::LocallyAccepted)
     }
 
-    /// Mark this block as valid and pre-committed. We set the `signed_self`
-    /// timestamp here because pre-committing to a block implies the same
-    /// behavior as a local acceptance from the signer's perspective.
-    pub fn mark_pre_committed(&mut self) -> Result<(), String> {
-        self.move_to(BlockState::PreCommitted)?;
-        self.valid = Some(true);
-        self.signed_over = true;
-        self.signed_self.get_or_insert(get_epoch_time_secs());
-        Ok(())
-    }
-
-    /// Mark this block as valid, signed over, and records a group timestamp in the block info if it wasn't
-    ///  already set.
-    fn mark_globally_accepted(&mut self) -> Result<(), String> {
-        self.move_to(BlockState::GloballyAccepted)?;
-        self.valid = Some(true);
-        self.signed_over = true;
+    /// Mark this block's signed group time if not already set and attempt to mark it as globally accepted.
+    pub fn mark_globally_accepted(&mut self) -> Result<(), String> {
         self.signed_group.get_or_insert(get_epoch_time_secs());
-        Ok(())
+        self.move_to(BlockState::GloballyAccepted)
     }
 
-    /// Mark the block as locally rejected and invalid
+    /// Mark this block as invalid and attempt to mark it as locally rejected
     pub fn mark_locally_rejected(&mut self) -> Result<(), String> {
-        self.move_to(BlockState::LocallyRejected)?;
         self.valid = Some(false);
-        Ok(())
+        self.move_to(BlockState::LocallyRejected)
     }
 
-    /// Mark the block as globally rejected and invalid
-    fn mark_globally_rejected(&mut self) -> Result<(), String> {
-        self.move_to(BlockState::GloballyRejected)?;
-        self.valid = Some(false);
-        Ok(())
+    /// Attempt to mark the block as globally rejected
+    pub fn mark_globally_rejected(&mut self) -> Result<(), String> {
+        self.move_to(BlockState::GloballyRejected)
     }
 
     /// Return the block's signer signature hash
@@ -342,6 +356,12 @@ impl BlockInfo {
             self.state,
             BlockState::PreCommitted | BlockState::LocallyAccepted | BlockState::LocallyRejected
         )
+    }
+
+    /// Check if the block is globally accepted and this signer has responded to it
+    pub fn globally_approved_and_responded(&self) -> bool {
+        matches!(self.state, BlockState::GloballyAccepted)
+            && (self.signed_self.is_some() || self.valid == Some(false))
     }
 }
 
@@ -661,7 +681,7 @@ static ADD_BURN_BLOCK_RECEIVED_TIMES_CONSENSUS_HASH_INDEX: &str = r#"
 CREATE INDEX IF NOT EXISTS burn_block_updates_received_times_consensus_hash ON burn_block_updates_received_times(burn_block_consensus_hash, received_time ASC);
 "#;
 
-// Used by get_last_globally_accepted_block_signed_self
+// Used by get_last_globally_accepted_block_approved_time
 static ADD_BLOCK_SIGNED_SELF_INDEX: &str = r#"
 CREATE INDEX idx_blocks_query_opt ON blocks (consensus_hash, state, signed_self, burn_block_height DESC);
 "#;
@@ -717,6 +737,149 @@ CREATE TABLE IF NOT EXISTS block_pre_commits (
 static ADD_TENURE_CAUSE: &str = r#"
 ALTER TABLE blocks
     ADD COLUMN tenure_change_cause INTEGER;
+"#;
+
+// New tables for tracking per-signer untracked block proposal responses with auto-eviction
+static CREATE_SIGNER_PENDING_PRE_COMMIT_RESPONSES: &str = r#"
+CREATE TABLE IF NOT EXISTS signer_pending_pre_commit_responses (
+    signer_signature_hash TEXT NOT NULL,
+    signer_addr TEXT NOT NULL,
+    received_time INTEGER NOT NULL,
+    PRIMARY KEY (signer_signature_hash, signer_addr)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_addr_time 
+ON signer_pending_pre_commit_responses (signer_addr, received_time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_hash_time 
+ON signer_pending_pre_commit_responses (signer_signature_hash, received_time DESC);
+"#;
+
+static CREATE_SIGNER_PENDING_SIGNATURE_RESPONSES: &str = r#"
+CREATE TABLE IF NOT EXISTS signer_pending_signature_responses (
+    signer_signature_hash TEXT NOT NULL,
+    signer_addr TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    received_time INTEGER NOT NULL,
+    PRIMARY KEY (signer_signature_hash, signer_addr)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_addr_time 
+ON signer_pending_signature_responses (signer_addr, received_time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_hash_time 
+ON signer_pending_signature_responses (signer_signature_hash, received_time DESC);
+"#;
+
+static CREATE_SIGNER_PENDING_REJECTION_RESPONSES: &str = r#"
+CREATE TABLE IF NOT EXISTS signer_pending_rejection_responses (
+    signer_signature_hash TEXT NOT NULL,
+    signer_addr TEXT NOT NULL,
+    reject_code INTEGER NOT NULL,
+    received_time INTEGER NOT NULL,
+    PRIMARY KEY (signer_signature_hash, signer_addr)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_addr_time 
+ON signer_pending_rejection_responses (signer_addr, received_time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_hash_time 
+ON signer_pending_rejection_responses (signer_signature_hash, received_time DESC);
+"#;
+
+// Triggers to auto-evict responses when a signer exceeds 3 entries
+static CREATE_PENDING_PRE_COMMIT_RESPONSES_EVICTION_TRIGGER: &str = r#"
+CREATE TRIGGER IF NOT EXISTS evict_old_pending_pre_commit_responses
+AFTER INSERT ON signer_pending_pre_commit_responses
+FOR EACH ROW
+BEGIN
+    DELETE FROM signer_pending_pre_commit_responses
+    WHERE signer_addr = NEW.signer_addr
+    AND (signer_signature_hash, received_time) IN (
+        SELECT signer_signature_hash, received_time
+        FROM signer_pending_pre_commit_responses
+        WHERE signer_addr = NEW.signer_addr
+        ORDER BY received_time DESC
+        LIMIT -1 OFFSET 3
+    );
+END;
+"#;
+
+static CREATE_PENDING_SIGNATURE_RESPONSES_EVICTION_TRIGGER: &str = r#"
+CREATE TRIGGER IF NOT EXISTS evict_old_pending_signature_responses
+AFTER INSERT ON signer_pending_signature_responses
+FOR EACH ROW
+BEGIN
+    DELETE FROM signer_pending_signature_responses
+    WHERE signer_addr = NEW.signer_addr
+    AND (signer_signature_hash, received_time) IN (
+        SELECT signer_signature_hash, received_time
+        FROM signer_pending_signature_responses
+        WHERE signer_addr = NEW.signer_addr
+        ORDER BY received_time DESC
+        LIMIT -1 OFFSET 3
+    );
+END;
+"#;
+
+static CREATE_PENDING_REJECTION_RESPONSES_EVICTION_TRIGGER: &str = r#"
+CREATE TRIGGER IF NOT EXISTS evict_old_pending_rejection_responses
+AFTER INSERT ON signer_pending_rejection_responses
+FOR EACH ROW
+BEGIN
+    DELETE FROM signer_pending_rejection_responses
+    WHERE signer_addr = NEW.signer_addr
+    AND (signer_signature_hash, received_time) IN (
+        SELECT signer_signature_hash, received_time
+        FROM signer_pending_rejection_responses
+        WHERE signer_addr = NEW.signer_addr
+        ORDER BY received_time DESC
+        LIMIT -1 OFFSET 3
+    );
+END;
+"#;
+
+/// Migration logic necessary to move blocks from the old blocks table to the new blocks table
+/// with the approved_time field added (treated as the signed_self time for existing rows)
+/// Drops the signed_over column and associated index, and adds new indexes for querying by approved_time/signed_self/signed_group
+static ADD_AND_FILL_APPROVED_TIME: &str = r#"
+-- Add approved_time column (used to track pre-commit / approval time)
+ALTER TABLE blocks
+    ADD COLUMN approved_time INTEGER;
+
+-- Backfill approved_time from legacy signed_self timestamps
+UPDATE blocks
+SET approved_time = signed_self
+WHERE approved_time IS NULL
+  AND signed_self IS NOT NULL;
+
+-- Replace the old query optimization index to use approved_time
+DROP INDEX IF EXISTS idx_blocks_query_opt;
+CREATE INDEX IF NOT EXISTS idx_blocks_get_last_globally_accepted_block_approved_time
+ON blocks (
+    consensus_hash,
+    state,
+    approved_time,
+    burn_block_height DESC
+);
+
+-- Remove legacy signed_over plumbing
+DROP INDEX IF EXISTS blocks_signed_over;
+DROP INDEX IF EXISTS blocks_consensus_hash_status_height;
+ALTER TABLE blocks DROP COLUMN signed_over;
+
+-- Add partial indexes for fast tenure-level "has signed block" queries
+CREATE INDEX IF NOT EXISTS idx_blocks_tenure_self_signed
+ON blocks (consensus_hash, stacks_height)
+WHERE signed_self IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_blocks_tenure_group_signed
+ON blocks (consensus_hash, stacks_height)
+WHERE signed_group IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_blocks_tenure_approved
+ON blocks (consensus_hash, stacks_height)
+WHERE approved_time IS NOT NULL;
 "#;
 
 static SCHEMA_1: &[&str] = &[
@@ -842,6 +1005,17 @@ static SCHEMA_18: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (18);",
 ];
 
+static SCHEMA_19: &[&str] = &[
+    ADD_AND_FILL_APPROVED_TIME,
+    CREATE_SIGNER_PENDING_PRE_COMMIT_RESPONSES,
+    CREATE_SIGNER_PENDING_SIGNATURE_RESPONSES,
+    CREATE_SIGNER_PENDING_REJECTION_RESPONSES,
+    CREATE_PENDING_PRE_COMMIT_RESPONSES_EVICTION_TRIGGER,
+    CREATE_PENDING_SIGNATURE_RESPONSES_EVICTION_TRIGGER,
+    CREATE_PENDING_REJECTION_RESPONSES_EVICTION_TRIGGER,
+    "INSERT INTO db_config (version) VALUES (19);",
+];
+
 struct Migration {
     version: u32,
     statements: &'static [&'static str],
@@ -920,11 +1094,15 @@ static MIGRATIONS: &[Migration] = &[
         version: 18,
         statements: SCHEMA_18,
     },
+    Migration {
+        version: 19,
+        statements: SCHEMA_19,
+    },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 18;
+    pub const SCHEMA_VERSION: u32 = 19;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -1026,23 +1204,19 @@ impl SignerDb {
             if new_version_check != migration.version {
                 sql_tx.rollback()?;
                 return Err(DBError::Other(format!(
-                    "Migration to version {} failed to update DB version. Expected {}, got {}.",
-                    migration.version, migration.version, new_version_check
+                    "Migration to version {} failed to update DB version. Expected {}, got {new_version_check}.",
+                    migration.version, migration.version
                 )));
             }
             current_db_version = new_version_check;
-            debug!(
-                "Successfully migrated to schema version {}",
-                current_db_version
-            );
+            debug!("Successfully migrated to schema version {current_db_version}");
         }
 
         match current_db_version.cmp(&Self::SCHEMA_VERSION) {
             std::cmp::Ordering::Less => {
                 sql_tx.rollback()?;
                 return Err(DBError::Other(format!(
-                    "Database migration incomplete. Current version: {}, SCHEMA_VERSION: {}",
-                    current_db_version,
+                    "Database migration incomplete. Current version: {current_db_version}, SCHEMA_VERSION: {}",
                     Self::SCHEMA_VERSION
                 )));
             }
@@ -1160,21 +1334,20 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return whether there was signed block in a tenure (identified by its consensus hash)
-    pub fn has_signed_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
-        let query =
-            "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 LIMIT 1";
-        let result: Option<String> = query_row(&self.db, query, [tenure])?;
+    /// Return whether there was an approved/signed block in a tenure (identified by its consensus hash)
+    pub fn has_approved_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
+        let query = "SELECT 1 FROM blocks WHERE consensus_hash = ? AND (signed_self IS NOT NULL OR signed_group IS NOT NULL OR approved_time IS NOT NULL) LIMIT 1;";
+        let result: Option<u64> = query_row(&self.db, query, [tenure])?;
 
         Ok(result.is_some())
     }
 
-    /// Return the first signed block in a tenure (identified by its consensus hash)
-    pub fn get_first_signed_block_in_tenure(
+    /// Return the first approved/signed block in a tenure (identified by its consensus hash)
+    pub fn get_first_approved_block_in_tenure(
         &self,
         tenure: &ConsensusHash,
     ) -> Result<Option<BlockInfo>, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 ORDER BY stacks_height ASC LIMIT 1";
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND (signed_self IS NOT NULL OR signed_group IS NOT NULL OR approved_time IS NOT NULL) ORDER BY stacks_height ASC LIMIT 1";
         let result: Option<String> = query_row(&self.db, query, [tenure])?;
 
         try_deserialize(result)
@@ -1223,23 +1396,23 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return the last globally accepted block self_signed time in a given tenure (identified by its consensus hash).
-    pub fn get_last_globally_accepted_block_signed_self(
+    /// Return the last globally accepted block approved_time in a given tenure (identified by its consensus hash).
+    pub fn get_last_globally_accepted_approved_time(
         &self,
         tenure: &ConsensusHash,
     ) -> Result<Option<SystemTime>, DBError> {
         let query = r#"
-            SELECT signed_self
+            SELECT approved_time
             FROM blocks
             WHERE consensus_hash = ?1
             AND state = ?2
-            AND signed_self IS NOT NULL
+            AND approved_time IS NOT NULL
             ORDER BY burn_block_height DESC
             LIMIT 1;
         "#;
         let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
         let result: Option<u64> = query_row(&self.db, query, args)?;
-        Ok(result.map(|signed_self| UNIX_EPOCH + Duration::from_secs(signed_self)))
+        Ok(result.map(|approved_time| UNIX_EPOCH + Duration::from_secs(approved_time)))
     }
 
     /// Return the canonical tip -- the last globally accepted block.
@@ -1345,7 +1518,6 @@ impl SignerDb {
             serde_json::to_string(&block_info).expect("Unable to serialize block info");
         let hash = &block_info.signer_signature_hash();
         let block_id = &block_info.block.block_id();
-        let signed_over = block_info.signed_over;
         let vote = block_info
             .vote
             .as_ref()
@@ -1356,14 +1528,13 @@ impl SignerDb {
             "burn_block_height" => %block_info.burn_block_height,
             "signer_signature_hash" => %hash,
             "block_id" => %block_id,
-            "signed" => %signed_over,
             "broadcasted" => ?broadcasted,
             "vote" => vote
         );
         self.db.execute(
             "INSERT OR REPLACE INTO blocks 
-              (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over,
-               broadcasted, stacks_height, consensus_hash, valid, state, signed_group, signed_self,
+              (reward_cycle, burn_block_height, signer_signature_hash, block_info,
+               broadcasted, stacks_height, consensus_hash, valid, state, signed_group, signed_self, approved_time,
                proposed_time, validation_time_ms, tenure_change, tenure_change_cause)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
@@ -1371,7 +1542,6 @@ impl SignerDb {
                 u64_to_sql(block_info.burn_block_height)?,
                 hash.to_string(),
                 block_json,
-                &block_info.signed_over,
                 &broadcasted,
                 u64_to_sql(block_info.block.header.chain_length)?,
                 block_info.block.header.consensus_hash.to_hex(),
@@ -1379,6 +1549,7 @@ impl SignerDb {
                 &block_info.state.to_string(),
                 &block_info.signed_group,
                 &block_info.signed_self,
+                &block_info.approved_time,
                 &block_info.proposed_time,
                 &block_info.validation_time_ms,
                 &block_info.is_tenure_change(),
@@ -1460,7 +1631,7 @@ impl SignerDb {
         &self,
         block_sighash: &Sha512Trunc256Sum,
         addr: &StacksAddress,
-        reject_reason: &RejectReason,
+        reject_reason: RejectReasonPrefix,
     ) -> Result<bool, DBError> {
         // If this signer/block already has a signature, do not allow a rejection
         let sig_qry = "SELECT EXISTS(SELECT 1 FROM block_signatures WHERE signer_signature_hash = ?1 AND signer_addr = ?2)";
@@ -1470,7 +1641,7 @@ impl SignerDb {
             warn!("Cannot add block rejection because a signature already exists.";
                 "signer_signature_hash" => %block_sighash,
                 "signer_address" => %addr,
-                "reject_reason" => %reject_reason
+                "reject_reason" => ?reject_reason
             );
             return Ok(false);
         }
@@ -1481,7 +1652,7 @@ impl SignerDb {
         let existing_code: Option<i64> =
             self.db.query_row(qry, args, |row| row.get(0)).optional()?;
 
-        let reject_code = RejectReasonPrefix::from(reject_reason) as i64;
+        let reject_code = reject_reason as i64;
 
         match existing_code {
             Some(code) if code == reject_code => {
@@ -1489,7 +1660,7 @@ impl SignerDb {
                 debug!("Duplicate block rejection.";
                     "signer_signature_hash" => %block_sighash,
                     "signer_address" => %addr,
-                    "reject_reason" => %reject_reason
+                    "reject_reason" => ?reject_reason
                 );
                 Ok(false)
             }
@@ -1501,7 +1672,7 @@ impl SignerDb {
                 debug!("Updated block rejection reason.";
                     "signer_signature_hash" => %block_sighash,
                     "signer_address" => %addr,
-                    "reject_reason" => %reject_reason
+                    "reject_reason" => ?reject_reason
                 );
                 Ok(true)
             }
@@ -1513,7 +1684,7 @@ impl SignerDb {
                 debug!("Inserted block rejection.";
                     "signer_signature_hash" => %block_sighash,
                     "signer_address" => %addr,
-                    "reject_reason" => %reject_reason
+                    "reject_reason" => ?reject_reason
                 );
                 Ok(true)
             }
@@ -1564,7 +1735,7 @@ impl SignerDb {
         let qry = "UPDATE blocks SET broadcasted = ?1 WHERE signer_signature_hash = ?2";
         let args = params![u64_to_sql(ts)?, block_sighash];
 
-        debug!("Marking block {} as broadcasted at {}", block_sighash, ts);
+        debug!("Marking block {block_sighash} as broadcasted at {ts}");
         self.db.execute(qry, args)?;
         Ok(())
     }
@@ -1628,6 +1799,17 @@ impl SignerDb {
             params![sighash.to_string(), u64_to_sql(ts)?],
         )?;
         Ok(())
+    }
+
+    /// Check if a pending block validation exists for the given sighash
+    pub fn has_pending_block_validation(
+        &self,
+        sighash: &Sha512Trunc256Sum,
+    ) -> Result<bool, DBError> {
+        let qry = "SELECT signer_signature_hash FROM block_validations_pending WHERE signer_signature_hash = ?1";
+        let args = params![sighash.to_string()];
+        let sighash_opt: Option<String> = query_row(&self.db, qry, args)?;
+        Ok(sighash_opt.is_some())
     }
 
     /// Returns:
@@ -1770,25 +1952,6 @@ impl SignerDb {
         tenure_extend_timestamp
     }
 
-    /// Mark a block as globally accepted. This removes the block from the pending
-    /// validations table. This does **not** update the block's state in SignerDb.
-    pub fn mark_block_globally_accepted(&self, block_info: &mut BlockInfo) -> Result<(), DBError> {
-        block_info
-            .mark_globally_accepted()
-            .map_err(DBError::Other)?;
-        self.remove_pending_block_validation(&block_info.signer_signature_hash())?;
-        Ok(())
-    }
-
-    /// Mark a block as globally rejected. This removes the block from the pending
-    /// validations table. This does **not** update the block's state in SignerDb.
-    pub fn mark_block_globally_rejected(&self, block_info: &mut BlockInfo) -> Result<(), DBError> {
-        block_info
-            .mark_globally_rejected()
-            .map_err(DBError::Other)?;
-        self.remove_pending_block_validation(&block_info.signer_signature_hash())?;
-        Ok(())
-    }
     /// Update the tenure (identified by consensus_hash) last activity timestamp
     pub fn update_last_activity_time(
         &mut self,
@@ -2037,6 +2200,147 @@ impl SignerDb {
             .collect();
         res
     }
+    /// Record a pending block pre-commit response for an untracked block proposal
+    /// Automatically evicts oldest entries if this signer has more than 3 entries
+    pub fn add_pending_block_pre_commit_response(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        signer_addr: &StacksAddress,
+    ) -> Result<(), DBError> {
+        let received_time = get_epoch_time_secs();
+        let qry = "INSERT OR REPLACE INTO signer_pending_pre_commit_responses (signer_signature_hash, signer_addr, received_time) VALUES (?1, ?2, ?3);";
+        let args = params![
+            block_sighash.to_string(),
+            signer_addr.to_string(),
+            u64_to_sql(received_time)?
+        ];
+
+        debug!("Recording pending pre-commit response for untracked block.";
+            "signer_signature_hash" => %block_sighash,
+            "signer_addr" => %signer_addr,
+            "received_time" => received_time);
+
+        self.db.execute(qry, args)?;
+        Ok(())
+    }
+
+    /// Record a pending block signature response for an untracked block proposal
+    /// Automatically evicts oldest entries if this signer has more than 3 entries
+    pub fn add_pending_block_signature_response(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        signer_addr: &StacksAddress,
+        signature: &MessageSignature,
+    ) -> Result<(), DBError> {
+        let received_time = get_epoch_time_secs();
+        let qry = "INSERT OR REPLACE INTO signer_pending_signature_responses (signer_signature_hash, signer_addr, signature, received_time) VALUES (?1, ?2, ?3, ?4);";
+        let args = params![
+            block_sighash.to_string(),
+            signer_addr.to_string(),
+            serde_json::to_string(signature).map_err(DBError::SerializationError)?,
+            u64_to_sql(received_time)?
+        ];
+
+        debug!("Recording pending signature response for untracked block.";
+            "signer_signature_hash" => %block_sighash,
+            "signer_addr" => %signer_addr,
+            "received_time" => received_time);
+
+        self.db.execute(qry, args)?;
+        Ok(())
+    }
+
+    /// Record a pending block rejection response for an untracked block proposal
+    /// Automatically evicts oldest entries if this signer has more than 3 entries
+    pub fn add_pending_block_rejection_response(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        signer_addr: &StacksAddress,
+        reject_reason: RejectReasonPrefix,
+    ) -> Result<(), DBError> {
+        let received_time = get_epoch_time_secs();
+        let reject_code = reject_reason as i64;
+        let qry = "INSERT OR REPLACE INTO signer_pending_rejection_responses (signer_signature_hash, signer_addr, reject_code, received_time) VALUES (?1, ?2, ?3, ?4);";
+        let args = params![
+            block_sighash.to_string(),
+            signer_addr.to_string(),
+            reject_code,
+            u64_to_sql(received_time)?
+        ];
+
+        debug!("Recording pending rejection response for untracked block.";
+            "signer_signature_hash" => %block_sighash,
+            "signer_addr" => %signer_addr,
+            "reject_code" => reject_code,
+            "received_time" => received_time);
+
+        self.db.execute(qry, args)?;
+        Ok(())
+    }
+
+    /// Retrieve and clear all pending block response entries matching the given block signer_signature_hash
+    /// Returns PendingBlockResponses containing all matching pre-commits, approval signatures, and rejections
+    pub fn drain_pending_block_responses(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<PendingBlockResponses, DBError> {
+        let hash_str = block_sighash.to_string();
+
+        // Delete and return pre-commits in one operation
+        let pre_commits_qry = "DELETE FROM signer_pending_pre_commit_responses WHERE signer_signature_hash = ?1 RETURNING signer_addr";
+        let mut stmt = self.db.prepare(pre_commits_qry)?;
+        let pre_commits_rows = stmt.query_map(params![&hash_str], |row| {
+            let addr_str: String = row.get(0)?;
+            let addr = StacksAddress::from_string(&addr_str).ok_or(
+                SqliteError::InvalidColumnType(0, addr_str.clone(), rusqlite::types::Type::Text),
+            )?;
+            Ok(addr)
+        })?;
+        let pre_commits: Vec<_> = pre_commits_rows.collect::<Result<Vec<_>, _>>()?;
+
+        // Delete and return signatures in one operation
+        let signatures_qry = "DELETE FROM signer_pending_signature_responses WHERE signer_signature_hash = ?1 RETURNING signer_addr, signature";
+        let mut stmt = self.db.prepare(signatures_qry)?;
+        let signatures_rows = stmt.query_map(params![&hash_str], |row| {
+            let addr_str: String = row.get(0)?;
+            let sig_str: String = row.get(1)?;
+            let addr = StacksAddress::from_string(&addr_str).ok_or(
+                SqliteError::InvalidColumnType(0, addr_str.clone(), rusqlite::types::Type::Text),
+            )?;
+            let signature: MessageSignature = serde_json::from_str(&sig_str).map_err(|_| {
+                SqliteError::InvalidColumnType(1, sig_str.clone(), rusqlite::types::Type::Text)
+            })?;
+            Ok((addr, signature))
+        })?;
+        let signatures: Vec<_> = signatures_rows.collect::<Result<Vec<_>, _>>()?;
+
+        // Delete and return rejections in one operation
+        let rejections_qry = "DELETE FROM signer_pending_rejection_responses WHERE signer_signature_hash = ?1 RETURNING signer_addr, reject_code";
+        let mut stmt = self.db.prepare(rejections_qry)?;
+        let rejections_rows = stmt.query_map(params![&hash_str], |row| {
+            let addr_str: String = row.get(0)?;
+            let reject_code: u8 = row.get(1)?;
+            let addr = StacksAddress::from_string(&addr_str).ok_or(
+                SqliteError::InvalidColumnType(0, addr_str.clone(), rusqlite::types::Type::Text),
+            )?;
+            let reject_reason = RejectReasonPrefix::from(reject_code);
+            Ok((addr, reject_reason))
+        })?;
+        let rejections: Vec<_> = rejections_rows.collect::<Result<Vec<_>, _>>()?;
+
+        let pending_block_responses = PendingBlockResponses {
+            pre_commits,
+            signatures,
+            rejections,
+        };
+        if !pending_block_responses.is_empty() {
+            debug!("Drained pending block responses for block {block_sighash}";
+                "pre_commits_count" => pending_block_responses.pre_commits.len(),
+                "signatures_count" => pending_block_responses.signatures.len(),
+                "rejections_count" => pending_block_responses.rejections.len());
+        }
+        Ok(pending_block_responses)
+    }
 }
 
 fn try_deserialize<T>(s: Option<String>) -> Result<Option<T>, DBError>
@@ -2098,17 +2402,6 @@ impl SignerDb {
         let qry = "SELECT signer_signature_hash, added_time FROM block_validations_pending ORDER BY added_time ASC";
         query_rows(&self.db, qry, params![])
     }
-
-    /// For tests, check if a pending block validation exists
-    pub fn has_pending_block_validation(
-        &self,
-        sighash: &Sha512Trunc256Sum,
-    ) -> Result<bool, DBError> {
-        let qry = "SELECT signer_signature_hash FROM block_validations_pending WHERE signer_signature_hash = ?1";
-        let args = params![sighash.to_string()];
-        let sighash_opt: Option<String> = query_row(&self.db, qry, args)?;
-        Ok(sighash_opt.is_some())
-    }
 }
 
 /// Tests for SignerDb
@@ -2159,6 +2452,65 @@ pub mod tests {
 
     fn create_block() -> (BlockInfo, BlockProposal) {
         create_block_override(|_| {})
+    }
+
+    fn get_pending_pre_commit_responses(
+        db: &SignerDb,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<Vec<StacksAddress>, DBError> {
+        let qry = "SELECT signer_addr FROM signer_pending_pre_commit_responses WHERE signer_signature_hash = ?1 ORDER BY received_time DESC";
+        let args = params![block_sighash.to_string()];
+
+        let mut stmt = db.db.prepare(qry)?;
+        let rows = stmt.query_map(args, |row| {
+            let addr_str: String = row.get(0)?;
+            let addr = StacksAddress::from_string(&addr_str).ok_or(
+                SqliteError::InvalidColumnType(0, addr_str.clone(), rusqlite::types::Type::Text),
+            )?;
+            Ok(addr)
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(DBError::from)
+    }
+
+    fn get_pending_signature_responses(
+        db: &SignerDb,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<Vec<MessageSignature>, DBError> {
+        let qry = "SELECT signature FROM signer_pending_signature_responses WHERE signer_signature_hash = ?1 ORDER BY received_time DESC";
+        let args = params![block_sighash.to_string()];
+
+        let mut stmt = db.db.prepare(qry)?;
+        let rows = stmt.query_map(args, |row| {
+            let sig_str: String = row.get(0)?;
+            let signature: MessageSignature = serde_json::from_str(&sig_str).map_err(|_| {
+                SqliteError::InvalidColumnType(0, sig_str.clone(), rusqlite::types::Type::Text)
+            })?;
+            Ok(signature)
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(DBError::from)
+    }
+
+    fn get_pending_rejection_responses(
+        db: &SignerDb,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<Vec<(StacksAddress, RejectReasonPrefix)>, DBError> {
+        let qry = "SELECT signer_addr, reject_code FROM signer_pending_rejection_responses WHERE signer_signature_hash = ?1 ORDER BY received_time DESC";
+        let args = params![block_sighash.to_string()];
+
+        let mut stmt = db.db.prepare(qry)?;
+        let rows = stmt.query_map(args, |row| {
+            let addr_str: String = row.get(0)?;
+            let reject_code: u8 = row.get(1)?;
+            let addr = StacksAddress::from_string(&addr_str).ok_or(
+                SqliteError::InvalidColumnType(0, addr_str.clone(), rusqlite::types::Type::Text),
+            )?;
+            let reject_reason = RejectReasonPrefix::from(reject_code);
+            Ok((addr, reject_reason))
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(DBError::from)
     }
 
     /// Create a temporary db path for testing purposes
@@ -2265,7 +2617,7 @@ pub mod tests {
         db.insert_block(&block_info).unwrap();
 
         assert!(db
-            .get_first_signed_block_in_tenure(&block_proposal.block.header.consensus_hash)
+            .get_first_approved_block_in_tenure(&block_proposal.block.header.consensus_hash)
             .unwrap()
             .is_none());
 
@@ -2275,7 +2627,7 @@ pub mod tests {
         db.insert_block(&block_info).unwrap();
 
         let fetched_info = db
-            .get_first_signed_block_in_tenure(&block_proposal.block.header.consensus_hash)
+            .get_first_approved_block_in_tenure(&block_proposal.block.header.consensus_hash)
             .unwrap()
             .unwrap();
         assert_eq!(fetched_info, block_info);
@@ -2460,7 +2812,7 @@ pub mod tests {
             .add_block_rejection_signer_addr(
                 &block_id,
                 &address1,
-                &RejectReason::DuplicateBlockFound,
+                RejectReasonPrefix::DuplicateBlockFound,
             )
             .unwrap());
         assert_eq!(
@@ -2472,7 +2824,7 @@ pub mod tests {
             .add_block_rejection_signer_addr(
                 &block_id,
                 &address2,
-                &RejectReason::InvalidParentBlock
+                RejectReasonPrefix::InvalidParentBlock,
             )
             .unwrap());
         assert_eq!(
@@ -2498,7 +2850,11 @@ pub mod tests {
         );
 
         assert!(db
-            .add_block_rejection_signer_addr(&block_id, &address, &RejectReason::InvalidParentBlock)
+            .add_block_rejection_signer_addr(
+                &block_id,
+                &address,
+                RejectReasonPrefix::InvalidParentBlock
+            )
             .unwrap());
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
@@ -2506,7 +2862,7 @@ pub mod tests {
         );
 
         assert!(db
-            .add_block_rejection_signer_addr(&block_id, &address, &RejectReason::InvalidMiner)
+            .add_block_rejection_signer_addr(&block_id, &address, RejectReasonPrefix::InvalidMiner)
             .unwrap());
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
@@ -2514,7 +2870,7 @@ pub mod tests {
         );
 
         assert!(!db
-            .add_block_rejection_signer_addr(&block_id, &address, &RejectReason::InvalidMiner)
+            .add_block_rejection_signer_addr(&block_id, &address, RejectReasonPrefix::InvalidMiner)
             .unwrap());
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
@@ -2534,7 +2890,11 @@ pub mod tests {
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
         assert!(db
-            .add_block_rejection_signer_addr(&block_id, &address, &RejectReason::InvalidParentBlock)
+            .add_block_rejection_signer_addr(
+                &block_id,
+                &address,
+                RejectReasonPrefix::InvalidParentBlock
+            )
             .unwrap());
         assert_eq!(
             db.get_block_rejection_signer_addrs(&block_id).unwrap(),
@@ -2571,7 +2931,11 @@ pub mod tests {
             .is_empty());
 
         assert!(!db
-            .add_block_rejection_signer_addr(&block_id, &address, &RejectReason::InvalidParentBlock)
+            .add_block_rejection_signer_addr(
+                &block_id,
+                &address,
+                RejectReasonPrefix::InvalidParentBlock
+            )
             .unwrap());
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
         assert!(db
@@ -3130,8 +3494,7 @@ pub mod tests {
         ));
 
         // locally accepted still returns 0
-        block_info.signed_over = true;
-        block_info.state = BlockState::LocallyAccepted;
+        block_info.mark_locally_accepted(false).unwrap();
         block_info.block.header.chain_length = 1;
         db.insert_block(&block_info).unwrap();
 
@@ -3141,13 +3504,10 @@ pub mod tests {
             0
         );
 
-        block_info.signed_over = true;
-        block_info.state = BlockState::GloballyAccepted;
+        block_info.mark_globally_accepted().unwrap();
         block_info.block.header.chain_length = 2;
         db.insert_block(&block_info).unwrap();
 
-        block_info.signed_over = true;
-        block_info.state = BlockState::GloballyAccepted;
         block_info.block.header.chain_length = 3;
         db.insert_block(&block_info).unwrap();
 
@@ -3158,8 +3518,7 @@ pub mod tests {
         );
 
         // add an unsigned block
-        block_info.signed_over = false;
-        block_info.state = BlockState::GloballyAccepted;
+        block_info.signed_group = None;
         block_info.block.header.chain_length = 4;
         db.insert_block(&block_info).unwrap();
 
@@ -3170,7 +3529,6 @@ pub mod tests {
         );
 
         // add a locally signed block
-        block_info.signed_over = true;
         block_info.state = BlockState::LocallyAccepted;
         block_info.block.header.chain_length = 5;
         db.insert_block(&block_info).unwrap();
@@ -3183,7 +3541,7 @@ pub mod tests {
     }
 
     #[test]
-    fn has_signed_block() {
+    fn has_approved_block() {
         let db_path = tmp_db_path();
         let consensus_hash_1 = ConsensusHash([0x01; 20]);
         let consensus_hash_2 = ConsensusHash([0x02; 20]);
@@ -3193,30 +3551,30 @@ pub mod tests {
             b.block.header.chain_length = 1;
         });
 
-        assert!(!db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
-        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+        assert!(!db.has_approved_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_approved_block_in_tenure(&consensus_hash_2).unwrap());
 
-        block_info.signed_over = true;
+        block_info.mark_pre_committed().unwrap();
         db.insert_block(&block_info).unwrap();
 
-        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
-        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+        assert!(db.has_approved_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_approved_block_in_tenure(&consensus_hash_2).unwrap());
 
         block_info.block.header.consensus_hash = consensus_hash_2.clone();
         block_info.block.header.chain_length = 2;
-        block_info.signed_over = false;
+        block_info.approved_time = None;
 
         db.insert_block(&block_info).unwrap();
 
-        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
-        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+        assert!(db.has_approved_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_approved_block_in_tenure(&consensus_hash_2).unwrap());
 
-        block_info.signed_over = true;
+        block_info.signed_self = Some(get_epoch_time_secs());
 
         db.insert_block(&block_info).unwrap();
 
-        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
-        assert!(db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+        assert!(db.has_approved_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(db.has_approved_block_in_tenure(&consensus_hash_2).unwrap());
     }
 
     #[test]
@@ -3249,7 +3607,7 @@ pub mod tests {
             .is_none());
     }
 
-    /// BlockInfo without the `reject_reason` field for backwards compatibility testing
+    /// BlockInfo without the `reject_reason` or `approved_time` field for backwards compatibility testing
     #[derive(Serialize, Deserialize, Debug, PartialEq)]
     pub struct BlockInfoPrev {
         /// The block we are considering
@@ -3309,8 +3667,8 @@ pub mod tests {
         assert_eq!(block_info.reward_cycle, block_info_prev.reward_cycle);
         assert_eq!(block_info.vote, block_info_prev.vote);
         assert_eq!(block_info.valid, block_info_prev.valid);
-        assert_eq!(block_info.signed_over, block_info_prev.signed_over);
         assert_eq!(block_info.proposed_time, block_info_prev.proposed_time);
+        assert_eq!(block_info.approved_time, block_info_prev.signed_self);
         assert_eq!(block_info.signed_self, block_info_prev.signed_self);
         assert_eq!(block_info.signed_group, block_info_prev.signed_group);
         assert_eq!(block_info.state, block_info_prev.state);
@@ -3630,21 +3988,21 @@ pub mod tests {
     }
 
     #[test]
-    fn test_get_last_globally_accepted_block_signed_self() {
+    fn test_get_last_globally_accepted_block_approved_time() {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
 
         let consensus_hash_1 = ConsensusHash([0x01; 20]);
         let consensus_hash_2 = ConsensusHash([0x02; 20]);
 
-        // Create blocks with different burn heights and signed_self timestamps (seconds since epoch)
+        // Create blocks with different burn heights and approved_time (seconds since epoch)
         let (mut block_info_1, _block_proposal) = create_block_override(|b| {
             b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x01; 65]);
             b.block.header.chain_length = 1;
             b.burn_height = 1;
         });
-        block_info_1.mark_locally_accepted(false).unwrap();
+        block_info_1.mark_pre_committed().unwrap();
         let (mut block_info_2, _block_proposal) = create_block_override(|b| {
             b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x02; 65]);
@@ -3668,14 +4026,14 @@ pub mod tests {
         db.insert_block(&block_info_2).unwrap();
         db.insert_block(&block_info_3).unwrap();
 
-        // Query for consensus_hash_1 should return signed_self of block_info_2 (highest burn_height)
-        db.get_last_globally_accepted_block_signed_self(&consensus_hash_1)
+        // Query for consensus_hash_1 should return approved_time of block_info_2 (highest burn_height)
+        db.get_last_globally_accepted_approved_time(&consensus_hash_1)
             .unwrap()
-            .expect("Expected a signed_self timestamp");
+            .expect("Expected a approved_time timestamp");
 
         // Query for consensus_hash_2 should return none since we only contributed to a locally signed block
         let result_2 = db
-            .get_last_globally_accepted_block_signed_self(&consensus_hash_2)
+            .get_last_globally_accepted_approved_time(&consensus_hash_2)
             .unwrap();
 
         assert!(result_2.is_none());
@@ -3683,7 +4041,7 @@ pub mod tests {
         // Query for a consensus hash with no blocks should return None
         let consensus_hash_3 = ConsensusHash([0x03; 20]);
         let result_3 = db
-            .get_last_globally_accepted_block_signed_self(&consensus_hash_3)
+            .get_last_globally_accepted_approved_time(&consensus_hash_3)
             .unwrap();
 
         assert!(result_3.is_none());
@@ -3739,5 +4097,284 @@ pub mod tests {
         assert!(!db.has_committed(&block_sighash2, &address1).unwrap());
         assert!(!db.has_committed(&block_sighash2, &address2).unwrap());
         assert!(db.has_committed(&block_sighash2, &address3).unwrap());
+    }
+
+    #[test]
+    fn test_signer_pre_commit_responses_eviction() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let signer = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+
+        // Create 5 different block hashes
+        let blocks: Vec<Sha512Trunc256Sum> =
+            (0..5).map(|i| Sha512Trunc256Sum([i as u8; 32])).collect();
+
+        // Add first 3 pre-commits from same signer for different blocks
+        for block in blocks.iter().take(3) {
+            db.add_pending_block_pre_commit_response(block, &signer)
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+
+        // Check block 0 has the signer
+        let responses = get_pending_pre_commit_responses(&db, &blocks[0]).unwrap();
+        assert_eq!(responses.len(), 1, "Should have 1 signer for block 0");
+        assert!(responses.contains(&signer));
+
+        // Add 4th pre-commit from same signer to a different block - should evict oldest
+        db.add_pending_block_pre_commit_response(&blocks[3], &signer)
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Block 0 should now be evicted (oldest per signer)
+        let responses = get_pending_pre_commit_responses(&db, &blocks[0]).unwrap();
+        assert_eq!(
+            responses.len(),
+            0,
+            "Block 0 should be evicted (oldest per signer)"
+        );
+
+        // Blocks 1, 2, 3 should still have the signer
+        let responses = get_pending_pre_commit_responses(&db, &blocks[1]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 1 should have the signer");
+        assert!(responses.contains(&signer));
+
+        let responses = get_pending_pre_commit_responses(&db, &blocks[2]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 2 should have the signer");
+
+        let responses = get_pending_pre_commit_responses(&db, &blocks[3]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 3 should have the signer");
+
+        // Add 5th pre-commit - should evict block 1 now
+        db.add_pending_block_pre_commit_response(&blocks[4], &signer)
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Block 1 should now be evicted
+        let responses = get_pending_pre_commit_responses(&db, &blocks[1]).unwrap();
+        assert_eq!(responses.len(), 0, "Block 1 should be evicted");
+
+        // Blocks 2, 3, 4 should still have the signer
+        let responses = get_pending_pre_commit_responses(&db, &blocks[2]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 2 should have the signer");
+
+        let responses = get_pending_pre_commit_responses(&db, &blocks[3]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 3 should have the signer");
+
+        let responses = get_pending_pre_commit_responses(&db, &blocks[4]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 4 should have the signer");
+    }
+
+    #[test]
+    fn test_signer_signature_responses_eviction() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let signer_key = StacksPrivateKey::random();
+        let signer_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&signer_key));
+
+        // Create 5 different block hashes
+        let blocks: Vec<Sha512Trunc256Sum> =
+            (0..5).map(|i| Sha512Trunc256Sum([i as u8; 32])).collect();
+
+        // Create valid signatures by signing each block hash
+        let signatures: Vec<MessageSignature> = blocks
+            .iter()
+            .map(|hash| signer_key.sign(&hash.0).unwrap())
+            .collect();
+
+        // Add first 3 signatures from same signer for different blocks
+        for (block, sig) in blocks.iter().take(3).zip(signatures.iter().take(3)) {
+            db.add_pending_block_signature_response(block, &signer_addr, sig)
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+
+        // Check block 0 has the signature
+        let responses = get_pending_signature_responses(&db, &blocks[0]).unwrap();
+        assert_eq!(responses.len(), 1, "Should have 1 signature for block 0");
+        assert!(responses.contains(&signatures[0]));
+
+        // Add 4th signature from same signer to a different block - should evict oldest
+        db.add_pending_block_signature_response(&blocks[3], &signer_addr, &signatures[3])
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Block 0 should now be evicted (oldest per signer)
+        let responses = get_pending_signature_responses(&db, &blocks[0]).unwrap();
+        assert_eq!(
+            responses.len(),
+            0,
+            "Block 0 should be evicted (oldest per signer)"
+        );
+
+        // Blocks 1, 2, 3 should still have the signature
+        let responses = get_pending_signature_responses(&db, &blocks[1]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 1 should have the signature");
+        assert!(responses.contains(&signatures[1]));
+
+        // Add 5th signature - should evict block 1 now
+        db.add_pending_block_signature_response(&blocks[4], &signer_addr, &signatures[4])
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Block 1 should now be evicted
+        let responses = get_pending_signature_responses(&db, &blocks[1]).unwrap();
+        assert_eq!(responses.len(), 0, "Block 1 should be evicted");
+
+        // Blocks 2, 3, 4 should still have the signatures
+        let responses = get_pending_signature_responses(&db, &blocks[2]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 2 should have the signature");
+
+        let responses = get_pending_signature_responses(&db, &blocks[3]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 3 should have the signature");
+
+        let responses = get_pending_signature_responses(&db, &blocks[4]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 4 should have the signature");
+    }
+
+    #[test]
+    fn test_signer_rejection_responses_eviction() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let signer_addr = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+
+        // Create 5 different block hashes
+        let blocks: Vec<Sha512Trunc256Sum> =
+            (0..5).map(|i| Sha512Trunc256Sum([i as u8; 32])).collect();
+
+        // Add first 3 rejections from the same signer to different blocks
+        for (i, block) in blocks.iter().enumerate().take(3) {
+            db.add_pending_block_rejection_response(
+                block,
+                &signer_addr,
+                RejectReasonPrefix::from(i as u8),
+            )
+            .unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+
+        // Query block 0 - should have rejection from this signer
+        let responses = get_pending_rejection_responses(&db, &blocks[0]).unwrap();
+        assert_eq!(
+            responses.len(),
+            1,
+            "Should have 1 rejection entry for block 0"
+        );
+        assert_eq!(responses[0].0, signer_addr);
+
+        // Add 4th rejection from same signer to a different block - should trigger eviction
+        db.add_pending_block_rejection_response(
+            &blocks[3],
+            &signer_addr,
+            RejectReasonPrefix::from(3),
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Query block 0 - should now be evicted (oldest)
+        let responses = get_pending_rejection_responses(&db, &blocks[0]).unwrap();
+        assert_eq!(
+            responses.len(),
+            0,
+            "Block 0 rejection should be evicted (oldest per signer)"
+        );
+
+        // Query block 1 - should still exist
+        let responses = get_pending_rejection_responses(&db, &blocks[1]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 1 rejection should still exist");
+
+        // Query block 3 - should exist (newest)
+        let responses = get_pending_rejection_responses(&db, &blocks[3]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 3 rejection should exist");
+
+        // Add 5th rejection from same signer - should evict block 1 now
+        db.add_pending_block_rejection_response(
+            &blocks[4],
+            &signer_addr,
+            RejectReasonPrefix::from(4),
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // Query block 1 - should now be evicted
+        let responses = get_pending_rejection_responses(&db, &blocks[1]).unwrap();
+        assert_eq!(responses.len(), 0, "Block 1 rejection should be evicted");
+
+        // Query block 2, 3, 4 - should still exist
+        let responses = get_pending_rejection_responses(&db, &blocks[2]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 2 rejection should exist");
+
+        let responses = get_pending_rejection_responses(&db, &blocks[3]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 3 rejection should exist");
+
+        let responses = get_pending_rejection_responses(&db, &blocks[4]).unwrap();
+        assert_eq!(responses.len(), 1, "Block 4 rejection should exist");
+    }
+
+    #[test]
+    fn test_multiple_signers_independent_eviction() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        // Create 2 different signers
+        let signer1 = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+        let signer2 = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+
+        // Create 5 different blocks
+        let blocks: Vec<Sha512Trunc256Sum> =
+            (0..5).map(|i| Sha512Trunc256Sum([i as u8; 32])).collect();
+
+        // Signer1: Add 4 pre-commits for different blocks
+        for block in blocks.iter().take(4) {
+            db.add_pending_block_pre_commit_response(block, &signer1)
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+
+        // Signer2: Add 2 pre-commits for different blocks
+        for block in blocks.iter().take(2) {
+            db.add_pending_block_pre_commit_response(block, &signer2)
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+
+        // Signer1 should have evicted block 0 (oldest of 4)
+        let responses = get_pending_pre_commit_responses(&db, &blocks[0]).unwrap();
+        assert!(
+            !responses.contains(&signer1),
+            "Signer1 should be evicted from block 0 (oldest per signer)"
+        );
+        assert!(
+            responses.contains(&signer2),
+            "Signer2 should still be in block 0"
+        );
+
+        // Block 1 should have both signers
+        let responses = get_pending_pre_commit_responses(&db, &blocks[1]).unwrap();
+        assert!(responses.contains(&signer1), "Signer1 should be in block 1");
+        assert!(responses.contains(&signer2), "Signer2 should be in block 1");
+
+        // Signer2 should still have 2 entries (no eviction)
+        let responses = get_pending_pre_commit_responses(&db, &blocks[2]).unwrap();
+        assert!(responses.contains(&signer1), "Signer1 should be in block 2");
+        assert!(
+            !responses.contains(&signer2),
+            "Signer2 should not be in block 2 (only added to blocks 0, 1)"
+        );
     }
 }

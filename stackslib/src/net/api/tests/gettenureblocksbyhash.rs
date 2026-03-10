@@ -16,9 +16,11 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::types::chainstate::ConsensusHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use crate::net::api::gettenureblocksbyhash;
+use crate::net::api::tests::gettenureblocks::find_sortitions_with_empty_sortitions_between;
 use crate::net::api::tests::TestRPC;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{StacksHttp, StacksHttpRequest};
@@ -66,7 +68,7 @@ fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
 
     let test_observer = TestEventObserver::new();
-    let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
     let burn_header_hash = test_observer
         .get_blocks()
@@ -83,6 +85,14 @@ fn test_try_make_response() {
         StacksHttpRequest::new_get_tenure_blocks_by_hash(addr.clone().into(), &burn_header_hash);
     requests.push(request);
 
+    let genesis_consensus_hash = test_observer
+        .get_blocks()
+        .first()
+        .unwrap()
+        .metadata
+        .consensus_hash
+        .clone();
+
     let genesis_burn_header_hash = test_observer
         .get_blocks()
         .first()
@@ -91,7 +101,7 @@ fn test_try_make_response() {
         .burn_header_hash
         .clone();
 
-    // query existing, non-empty Epoch2 tenure (will fail as we do not support it in search by hash or height)
+    // query existing, non-empty Epoch2 tenure
     let request = StacksHttpRequest::new_get_tenure_blocks_by_hash(
         addr.clone().into(),
         &genesis_burn_header_hash,
@@ -102,6 +112,27 @@ fn test_try_make_response() {
     let request = StacksHttpRequest::new_get_tenure_blocks_by_hash(
         addr.clone().into(),
         &BurnchainHeaderHash([0x01; 32]),
+    );
+    requests.push(request);
+
+    // query tenure with empty sortitions in between
+    let (first, second, consensus_hashes_between) =
+        find_sortitions_with_empty_sortitions_between(&mut rpc_test);
+    assert!(
+        !consensus_hashes_between.is_empty(),
+        "Test requires at least one empty sortition between tenures"
+    );
+    let request = StacksHttpRequest::new_get_tenure_blocks_by_hash(
+        addr.clone().into(),
+        &second.burn_header_hash,
+    );
+    requests.push(request);
+
+    // query an empty sortition directly
+    let empty_tenure = consensus_hashes_between.first().unwrap();
+    let request = StacksHttpRequest::new_get_tenure_blocks_by_hash(
+        addr.into(),
+        &empty_tenure.burn_header_hash,
     );
     requests.push(request);
 
@@ -139,7 +170,34 @@ fn test_try_make_response() {
 
     assert_eq!(blocks_index, resp.stacks_blocks.len());
 
-    // Epoch2 (genesis) will fail
+    // Epoch2 (genesis) will no longer fail. Support pre Naka blocks now
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let resp = response.decode_tenure_blocks().unwrap();
+    assert_eq!(resp.consensus_hash, genesis_consensus_hash);
+
+    // genesis/Epoch2 tenure has no parent tenure. Should return an empty consensus hash.
+    assert_eq!(
+        resp.last_sortition_ch,
+        ConsensusHash::from_bytes(&[0u8; 20]).unwrap(),
+    );
+
+    let blocks = test_observer.get_blocks();
+
+    let block = blocks.first().unwrap();
+
+    assert_eq!(resp.stacks_blocks.len(), 1);
+
+    assert_eq!(
+        resp.stacks_blocks[0].block_id,
+        block.metadata.index_block_hash()
+    );
+
+    assert_eq!(resp.stacks_blocks[0].header_type, "epoch2");
 
     // got a failure
     let response = responses.remove(0);
@@ -151,13 +209,25 @@ fn test_try_make_response() {
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 404);
 
-    // got a failure
+    // got tenure with empty sortitions in between
     let response = responses.remove(0);
     debug!(
         "Response:\n{}\n",
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    let (preamble, body) = response.destruct();
-    assert_eq!(preamble.status_code, 404);
+    let resp = response.decode_tenure_blocks().unwrap();
+    assert_eq!(resp.consensus_hash, second.consensus_hash);
+    assert_eq!(resp.last_sortition_ch, first.consensus_hash);
+
+    // got an empty tenure
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+    let resp = response.decode_tenure_blocks().unwrap();
+    assert_eq!(resp.consensus_hash, empty_tenure.consensus_hash);
+    assert_eq!(resp.last_sortition_ch, first.consensus_hash);
+    assert!(resp.stacks_blocks.is_empty());
 }

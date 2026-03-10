@@ -491,7 +491,7 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
     let chain_state_path = format!("{db_path}/chainstate/");
 
     let burnchain = conf.get_burnchain();
-    let sort_db = SortitionDB::open(&sort_db_path, false, burnchain.pox_constants.clone())
+    let sort_db = SortitionDB::open(&sort_db_path, false, burnchain.pox_constants.clone(), None)
         .unwrap_or_else(|e| panic!("Failed to open {sort_db_path}: {e}"));
     let (chainstate, _) = StacksChainState::open(
         conf.is_mainnet(),
@@ -559,6 +559,7 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
                     &burnchain_path,
                     &burnchain.chain_name,
                     &burnchain.network_name,
+                    None,
                 )
                 .unwrap_or_else(|e| panic!("Failed to instantiate burnchain: {e}")),
             )
@@ -674,6 +675,7 @@ fn replay_staging_block(
         burnchain.pox_constants.clone(),
         None,
         true,
+        None,
     )
     .map_err(|e| format!("Failed to open sortition DB at {sort_db_path}: {e:?}"))?;
 
@@ -746,6 +748,7 @@ fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Opt
         burnchain.pox_constants.clone(),
         None,
         true,
+        None,
     )
     .unwrap();
     let sort_tx = sortdb.tx_begin_at_tip();
@@ -952,6 +955,7 @@ fn replay_naka_staging_block(
         burnchain.pox_constants.clone(),
         None,
         true,
+        None,
     )
     .map_err(|e| format!("Failed to open sortition DB: {e:?}"))?;
 

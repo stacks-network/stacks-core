@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::types::CallableData;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
@@ -89,16 +90,40 @@ pub fn special_contract_call(
             contract_identifier,
         ))) => {
             // Static dispatch
-            (contract_identifier, None)
+            (contract_identifier.clone(), None)
         }
         SymbolicExpressionType::Atom(contract_ref) => {
-            // Dynamic dispatch
-            match context.lookup_callable_contract(contract_ref) {
-                Some(trait_data) => {
+            // First, check if the atom references a contract constant which is a callable
+            let callable = env
+                .contract_context
+                .lookup_variable(contract_ref)
+                .and_then(|value| {
+                    if let Value::CallableContract(callable) = value {
+                        Some(callable)
+                    } else {
+                        None
+                    }
+                })
+                // If not, check if the atom references a callable variable
+                .or_else(|| context.lookup_callable_contract(contract_ref));
+
+            match callable {
+                Some(CallableData {
+                    contract_identifier,
+                    trait_identifier: None,
+                }) => {
+                    // This is static dispatch via a callable variable (a constant or a contract
+                    // principal bound to a `let` variable).
+                    (contract_identifier.clone(), None)
+                }
+                Some(CallableData {
+                    contract_identifier,
+                    trait_identifier: Some(trait_identifier),
+                }) => {
                     // Ensure that contract-call is used for inter-contract calls only
-                    if trait_data.contract_identifier == env.contract_context.contract_identifier {
+                    if contract_identifier == &env.contract_context.contract_identifier {
                         return Err(RuntimeCheckErrorKind::CircularReference(vec![
-                            trait_data.contract_identifier.name.to_string(),
+                            contract_identifier.name.to_string(),
                         ])
                         .into());
                     }
@@ -106,26 +131,18 @@ pub fn special_contract_call(
                     let contract_to_check = env
                         .global_context
                         .database
-                        .get_contract(&trait_data.contract_identifier)
+                        .get_contract(contract_identifier)
                         .map_err(|_e| {
-                            RuntimeCheckErrorKind::NoSuchContract(
-                                trait_data.contract_identifier.to_string(),
-                            )
+                            RuntimeCheckErrorKind::NoSuchContract(contract_identifier.to_string())
                         })?;
                     let contract_context_to_check = contract_to_check.contract_context;
-
-                    // This error case indicates a bad implementation. Only traits should be
-                    // added to callable_contracts.
-                    let trait_identifier = trait_data.trait_identifier.as_ref().ok_or(
-                        RuntimeCheckErrorKind::Unreachable("Expected trait identifier".to_string()),
-                    )?;
 
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
                     // then we can simply rely on the analysis performed at publish time.
                     if contract_context_to_check.is_explicitly_implementing_trait(trait_identifier)
                     {
-                        (&trait_data.contract_identifier, None)
+                        (contract_identifier.clone(), None)
                     } else {
                         let trait_name = trait_identifier.name.to_string();
 
@@ -161,7 +178,7 @@ pub fn special_contract_call(
                         // Check visibility
                         if function_to_check.define_type == DefineType::Private {
                             return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(
-                                trait_data.contract_identifier.to_string(),
+                                contract_identifier.to_string(),
                                 function_name.to_string(),
                             )
                             .into());
@@ -185,7 +202,7 @@ pub fn special_contract_call(
                             )),
                         )?;
                         (
-                            &trait_data.contract_identifier,
+                            contract_identifier.clone(),
                             Some(expected_sig.returns.clone()),
                         )
                     }
@@ -200,15 +217,15 @@ pub fn special_contract_call(
 
     let mut nested_env = env.nest_with_caller(contract_principal);
     let result = if nested_env.short_circuit_contract_call(
-        contract_identifier,
+        &contract_identifier,
         function_name,
         &rest_args_sizes,
     )? {
         nested_env.run_free(|free_env| {
-            free_env.execute_contract(contract_identifier, function_name, &rest_args, false)
+            free_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
         })
     } else {
-        nested_env.execute_contract(contract_identifier, function_name, &rest_args, false)
+        nested_env.execute_contract(&contract_identifier, function_name, &rest_args, false)
     }?;
 
     // sanitize contract-call outputs in epochs >= 2.4

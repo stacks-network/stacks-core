@@ -8,5 +8,11 @@ schema:
 description: |
   Stacks chain tip to query from. Options:
   - (empty/omitted): Use latest anchored tip (canonical confirmed state)
-  - `latest`: Use latest known tip including unconfirmed microblocks
-  - `{block_id}`: Use specific block ID (64 hex characters)
+  - `latest`: Use latest known tip including unconfirmed microblocks.
+    If no unconfirmed state is available, falls back to the confirmed canonical tip.
+    If the unconfirmed state check fails with an error, returns 404.
+  - `{block_id}`: Use specific block ID (64 lowercase hex characters)
+
+  **Note:** If `tip` is present but contains an invalid or malformed value
+  (i.e., not `latest` and not a valid 64-character hex block ID),
+  the node silently falls back to the latest anchored tip (same as omitting `tip`).
