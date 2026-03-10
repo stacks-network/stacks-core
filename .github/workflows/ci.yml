@@ -59,6 +59,7 @@ jobs:
           script: |
             // Check for "no changelog" label on PR
             const labels = context.payload.pull_request.labels.map(l => l.name);
+            core.info('labels: ' + labels.join(', '));
             if (labels.includes('no changelog')) {
               core.info('PR has "no changelog" label — skipping changelog check.');
               return;
