@@ -47,13 +47,13 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone)]
 pub struct TestFlag<T>(pub Arc<Mutex<Option<T>>>);
 
-impl<T: Default + Clone> Default for TestFlag<T> {
+impl<T> Default for TestFlag<T> {
     fn default() -> Self {
         Self(Arc::new(Mutex::new(None)))
     }
 }
 
-impl<T: Default + Clone> TestFlag<T> {
+impl<T: Clone> TestFlag<T> {
     /// Sets the value of the test flag.
     ///
     /// This method updates the value stored inside the `TestFlag`, replacing any existing value.
@@ -72,6 +72,13 @@ impl<T: Default + Clone> TestFlag<T> {
         *self.0.lock().unwrap() = Some(value);
     }
 
+    /// Retrieves the current value of the test flag or None
+    pub fn get_opt(&self) -> Option<T> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+impl<T: Default + Clone> TestFlag<T> {
     /// Retrieves the current value of the test flag.
     ///
     /// If no value has been set, this method returns the default value for the type `T`.
