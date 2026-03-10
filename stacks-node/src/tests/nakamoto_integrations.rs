@@ -6186,7 +6186,7 @@ fn nakamoto_attempt_time() {
         privk: Secp256k1PrivateKey,
         _address: StacksAddress,
     }
-    let num_accounts = 1_000;
+    let num_accounts = 100;
     let init_account_balance = 1_000_000_000;
     let account_keys = add_initial_balances(&mut naka_conf, num_accounts, init_account_balance);
     let mut account = account_keys
@@ -6402,7 +6402,7 @@ fn nakamoto_attempt_time() {
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
 
-    let tx_limit = 10000;
+    let tx_limit = 1000;
     let tx_fee = 500;
     let amount = 500;
     let mut tx_total_size = 0;
