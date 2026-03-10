@@ -856,22 +856,90 @@ BEGIN
 END;
 "#;
 
-/// Migration logic necessary to move blocks from the old blocks table to the new blocks table
-/// with the approved_time field added (treated as the signed_self time for existing rows)
-/// Drops the signed_over column and associated index, and adds new indexes for querying by approved_time/signed_self/signed_group
-static ADD_AND_FILL_APPROVED_TIME: &str = r#"
--- Add approved_time column (used to track pre-commit / approval time)
-ALTER TABLE blocks
-    ADD COLUMN approved_time INTEGER;
+/// Migration logic to add approved_time and remove signed_over from the blocks table.
+///
+/// Uses the recreate-table approach instead of `ALTER TABLE DROP COLUMN` because
+/// `DROP COLUMN` can leave the database in a half-migrated state if it fails
+/// inside a transaction (the prior `ADD COLUMN` may not roll back cleanly,
+/// making the migration non-idempotent on retry).
+static MIGRATE_BLOCKS_DROP_SIGNED_OVER_ADD_APPROVED_TIME: &str = r#"
+CREATE TABLE IF NOT EXISTS new_blocks (
+    signer_signature_hash TEXT NOT NULL PRIMARY KEY,
+    reward_cycle INTEGER NOT NULL,
+    block_info TEXT NOT NULL,
+    consensus_hash TEXT NOT NULL,
+    broadcasted INTEGER,
+    stacks_height INTEGER NOT NULL,
+    burn_block_height INTEGER NOT NULL,
+    valid INTEGER,
+    state TEXT NOT NULL,
+    signed_group INTEGER,
+    signed_self INTEGER,
+    proposed_time INTEGER NOT NULL,
+    validation_time_ms INTEGER,
+    tenure_change INTEGER NOT NULL,
+    tenure_change_cause INTEGER,
+    approved_time INTEGER
+) STRICT;
 
--- Backfill approved_time from legacy signed_self timestamps
-UPDATE blocks
-SET approved_time = signed_self
-WHERE approved_time IS NULL
-  AND signed_self IS NOT NULL;
+INSERT OR IGNORE INTO new_blocks (
+    signer_signature_hash,
+    reward_cycle,
+    block_info,
+    consensus_hash,
+    broadcasted,
+    stacks_height,
+    burn_block_height,
+    valid,
+    state,
+    signed_group,
+    signed_self,
+    proposed_time,
+    validation_time_ms,
+    tenure_change,
+    tenure_change_cause,
+    approved_time
+)
+SELECT
+    signer_signature_hash,
+    reward_cycle,
+    block_info,
+    consensus_hash,
+    broadcasted,
+    stacks_height,
+    burn_block_height,
+    valid,
+    state,
+    signed_group,
+    signed_self,
+    proposed_time,
+    validation_time_ms,
+    tenure_change,
+    tenure_change_cause,
+    signed_self
+FROM blocks;
 
--- Replace the old query optimization index to use approved_time
-DROP INDEX IF EXISTS idx_blocks_query_opt;
+DROP TABLE blocks;
+ALTER TABLE new_blocks RENAME TO blocks;
+"#;
+
+/// Recreate indexes on the blocks table after the table was rebuilt.
+/// DROP TABLE removes all indexes, so we must recreate the surviving ones
+/// from earlier migrations (INDEXES_5, INDEXES_8) plus the new ones for
+/// migration 19. Indexes that referenced `signed_over` are intentionally
+/// omitted since that column no longer exists.
+static CREATE_INDEXES_19: &str = r#"
+-- Surviving indexes from INDEXES_5
+CREATE INDEX IF NOT EXISTS blocks_consensus_hash_state ON blocks (consensus_hash, state);
+CREATE INDEX IF NOT EXISTS blocks_state ON blocks (state);
+CREATE INDEX IF NOT EXISTS blocks_signed_group ON blocks (signed_group);
+
+-- Surviving indexes from INDEXES_8
+CREATE INDEX IF NOT EXISTS blocks_consensus_hash_state_height ON blocks (consensus_hash, state, stacks_height DESC);
+CREATE INDEX IF NOT EXISTS blocks_state_height_signed_group ON blocks (state, stacks_height DESC, signed_group DESC);
+CREATE INDEX IF NOT EXISTS blocks_reward_cycle_state ON blocks (reward_cycle, state);
+
+-- New index replacing idx_blocks_query_opt (now uses approved_time instead of signed_self)
 CREATE INDEX IF NOT EXISTS idx_blocks_get_last_globally_accepted_block_approved_time
 ON blocks (
     consensus_hash,
@@ -880,12 +948,7 @@ ON blocks (
     burn_block_height DESC
 );
 
--- Remove legacy signed_over plumbing
-DROP INDEX IF EXISTS blocks_signed_over;
-DROP INDEX IF EXISTS blocks_consensus_hash_status_height;
-ALTER TABLE blocks DROP COLUMN signed_over;
-
--- Add partial indexes for fast tenure-level "has signed block" queries
+-- New partial indexes for fast tenure-level queries
 CREATE INDEX IF NOT EXISTS idx_blocks_tenure_self_signed
 ON blocks (consensus_hash, stacks_height)
 WHERE signed_self IS NOT NULL;
@@ -1023,7 +1086,8 @@ static SCHEMA_18: &[&str] = &[
 ];
 
 static SCHEMA_19: &[&str] = &[
-    ADD_AND_FILL_APPROVED_TIME,
+    MIGRATE_BLOCKS_DROP_SIGNED_OVER_ADD_APPROVED_TIME,
+    CREATE_INDEXES_19,
     CREATE_SIGNER_PENDING_PRE_COMMIT_RESPONSES,
     CREATE_SIGNER_PENDING_SIGNATURE_RESPONSES,
     CREATE_SIGNER_PENDING_REJECTION_RESPONSES,
@@ -4393,5 +4457,273 @@ pub mod tests {
             !responses.contains(&signer2),
             "Signer2 should not be in block 2 (only added to blocks 0, 1)"
         );
+    }
+
+    /// Run migrations up to (and including) the given version on a raw connection.
+    /// Caller must register scalar functions beforehand if running early migrations.
+    fn apply_migrations_to(conn: &mut Connection, target_version: u32) {
+        let tx = tx_begin_immediate(conn).unwrap();
+        for migration in MIGRATIONS.iter() {
+            if migration.version > target_version {
+                break;
+            }
+            for statement in migration.statements.iter() {
+                tx.execute_batch(statement).unwrap();
+            }
+        }
+        tx.commit().unwrap();
+        let version = SignerDb::get_schema_version(conn).unwrap();
+        assert_eq!(version, target_version);
+    }
+
+    /// Insert a block into the schema-5 blocks table using raw SQL.
+    /// Builds a real `BlockInfo` so the `block_info` JSON is valid for
+    /// deserialization after migration. Returns the `Sha512Trunc256Sum`
+    /// so callers can use `block_lookup` to verify data post-migration.
+    fn insert_schema5_block(
+        conn: &Connection,
+        consensus_hash: ConsensusHash,
+        chain_length: u64,
+        signed_self: Option<u64>,
+    ) -> Sha512Trunc256Sum {
+        let (mut block_info, _) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash;
+            b.block.header.chain_length = chain_length;
+        });
+        block_info.valid = Some(true);
+        block_info.state = BlockState::GloballyAccepted;
+        block_info.signed_self = signed_self;
+
+        let sighash = block_info.signer_signature_hash();
+        let block_json =
+            serde_json::to_string(&block_info).expect("Unable to serialize block info");
+
+        conn.execute(
+            "INSERT INTO blocks (
+                signer_signature_hash, reward_cycle, block_info, consensus_hash,
+                signed_over, broadcasted, stacks_height, burn_block_height,
+                valid, state, signed_group, signed_self,
+                proposed_time, validation_time_ms, tenure_change
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![
+                sighash.to_string(),
+                u64_to_sql(block_info.reward_cycle).unwrap(),
+                block_json,
+                block_info.block.header.consensus_hash.to_hex(),
+                1i64,        // signed_over
+                None::<i64>, // broadcasted
+                u64_to_sql(block_info.block.header.chain_length).unwrap(),
+                u64_to_sql(block_info.burn_block_height).unwrap(),
+                &block_info.valid,
+                &block_info.state.to_string(),
+                &block_info.signed_group,
+                &block_info.signed_self,
+                u64_to_sql(block_info.proposed_time).unwrap(),
+                &block_info.validation_time_ms,
+                &block_info.is_tenure_change(),
+            ],
+        )
+        .unwrap();
+
+        sighash
+    }
+
+    /// Generic migration smoke test: insert data at schema 5 (first
+    /// restructured blocks table), run all remaining migrations through
+    /// `SignerDb::new`, and verify data survives and the DB is usable.
+    #[test]
+    fn test_full_migration_with_data() {
+        let db_path = tmp_db_path();
+        let mut signer_db = SignerDb {
+            db: SignerDb::connect(&db_path).unwrap(),
+        };
+        signer_db.register_scalar_functions().unwrap();
+
+        // Migrate to schema 5 (first restructured blocks table)
+        apply_migrations_to(&mut signer_db.db, 5);
+
+        // Insert blocks at schema 5
+        let hash_signed =
+            insert_schema5_block(&signer_db.db, ConsensusHash([0x01; 20]), 100, Some(1000));
+        let hash_unsigned =
+            insert_schema5_block(&signer_db.db, ConsensusHash([0x02; 20]), 101, None);
+
+        signer_db.remove_scalar_functions().unwrap();
+        drop(signer_db);
+
+        // Reopen — applies all remaining migrations to reach SCHEMA_VERSION
+        let mut db = SignerDb::new(&db_path).expect("Full migration should succeed");
+        assert_eq!(
+            SignerDb::get_schema_version(&db.db).unwrap(),
+            SignerDb::SCHEMA_VERSION,
+        );
+
+        // Data survived all migrations — verify via block_lookup
+        let block_signed = db
+            .block_lookup(&hash_signed)
+            .unwrap()
+            .expect("Block with signed_self should exist after migration");
+        assert_eq!(block_signed.block.header.chain_length, 100);
+        assert_eq!(block_signed.signed_self, Some(1000));
+        assert_eq!(block_signed.state, BlockState::GloballyAccepted);
+
+        let block_unsigned = db
+            .block_lookup(&hash_unsigned)
+            .unwrap()
+            .expect("Block without signed_self should exist after migration");
+        assert_eq!(block_unsigned.block.header.chain_length, 101);
+        assert!(block_unsigned.signed_self.is_none());
+
+        // Database is usable: insert and read back a new block via the normal API
+        let (block_info, block_proposal) = create_block();
+        db.insert_block(&block_info).unwrap();
+        let retrieved = db
+            .block_lookup(&block_proposal.block.header.signer_signature_hash())
+            .unwrap()
+            .expect("Should retrieve inserted block");
+        assert_eq!(BlockInfo::from(block_proposal), retrieved);
+
+        // Reopening is idempotent
+        drop(db);
+        let db = SignerDb::new(&db_path).expect("Re-opening should succeed");
+        assert_eq!(
+            SignerDb::get_schema_version(&db.db).unwrap(),
+            SignerDb::SCHEMA_VERSION
+        );
+    }
+
+    /// Regression test for the schema 19 migration that replaces
+    /// `ALTER TABLE DROP COLUMN signed_over` with a safe recreate-table
+    /// approach. Verifies `approved_time` backfill, `signed_over` removal,
+    /// and index preservation after the table rebuild.
+    #[test]
+    fn test_migration_19_drop_signed_over() {
+        let db_path = tmp_db_path();
+        let mut signer_db = SignerDb {
+            db: SignerDb::connect(&db_path).unwrap(),
+        };
+        signer_db.register_scalar_functions().unwrap();
+
+        // Build up to schema 18 with data
+        apply_migrations_to(&mut signer_db.db, 5);
+        let hash_signed =
+            insert_schema5_block(&signer_db.db, ConsensusHash([0x01; 20]), 100, Some(1000));
+        let hash_unsigned =
+            insert_schema5_block(&signer_db.db, ConsensusHash([0x02; 20]), 101, None);
+
+        let tx = tx_begin_immediate(&mut signer_db.db).unwrap();
+        for migration in MIGRATIONS.iter() {
+            if migration.version <= 5 || migration.version > 18 {
+                continue;
+            }
+            for statement in migration.statements.iter() {
+                tx.execute_batch(statement).unwrap();
+            }
+        }
+        tx.commit().unwrap();
+        assert_eq!(SignerDb::get_schema_version(&signer_db.db).unwrap(), 18);
+
+        // signed_over should exist at schema 18
+        let signed_over: i64 = signer_db
+            .db
+            .query_row(
+                &format!(
+                    "SELECT signed_over FROM blocks WHERE signer_signature_hash = '{hash_signed}'"
+                ),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(signed_over, 1);
+
+        signer_db.remove_scalar_functions().unwrap();
+        drop(signer_db);
+
+        // Apply migration 19 via SignerDb::new
+        let db = SignerDb::new(&db_path).expect("Migration 19 should succeed");
+
+        // signed_over column removed
+        assert!(
+            db.db
+                .execute("SELECT signed_over FROM blocks LIMIT 1", [])
+                .is_err(),
+            "signed_over column should not exist"
+        );
+
+        // Verify blocks survived via block_lookup (deserializes block_info JSON)
+        let block_signed = db
+            .block_lookup(&hash_signed)
+            .unwrap()
+            .expect("Block with signed_self should exist after migration");
+        assert_eq!(block_signed.signed_self, Some(1000));
+        assert_eq!(block_signed.block.header.chain_length, 100);
+
+        let block_unsigned = db
+            .block_lookup(&hash_unsigned)
+            .unwrap()
+            .expect("Block without signed_self should exist after migration");
+        assert!(block_unsigned.signed_self.is_none());
+
+        // Verify approved_time column was backfilled from signed_self.
+        // Note: block_lookup reads from the block_info JSON blob (where
+        // approved_time was null at insert time), so we check the column directly.
+        let approved_time: Option<i64> = db.db.query_row(
+            &format!("SELECT approved_time FROM blocks WHERE signer_signature_hash = '{hash_signed}'"),
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(approved_time, Some(1000));
+
+        let approved_time: Option<i64> = db.db.query_row(
+            &format!("SELECT approved_time FROM blocks WHERE signer_signature_hash = '{hash_unsigned}'"),
+            [], |row| row.get(0),
+        ).unwrap();
+        assert!(approved_time.is_none());
+
+        // Verify indexes survived the table rebuild
+        let index_names: Vec<String> = db
+            .db
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'blocks'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        // Surviving indexes from earlier migrations
+        for expected in &[
+            "blocks_consensus_hash_state",
+            "blocks_state",
+            "blocks_signed_group",
+            "blocks_consensus_hash_state_height",
+            "blocks_state_height_signed_group",
+            "blocks_reward_cycle_state",
+        ] {
+            assert!(
+                index_names.contains(&expected.to_string()),
+                "Missing index: {expected}"
+            );
+        }
+        // New indexes
+        for expected in &[
+            "idx_blocks_get_last_globally_accepted_block_approved_time",
+            "idx_blocks_tenure_self_signed",
+            "idx_blocks_tenure_group_signed",
+            "idx_blocks_tenure_approved",
+        ] {
+            assert!(
+                index_names.contains(&expected.to_string()),
+                "Missing index: {expected}"
+            );
+        }
+        // Removed indexes
+        for removed in &[
+            "blocks_signed_over",
+            "blocks_consensus_hash_status_height",
+            "idx_blocks_query_opt",
+        ] {
+            assert!(
+                !index_names.contains(&removed.to_string()),
+                "Index should not exist: {removed}"
+            );
+        }
     }
 }
