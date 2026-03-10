@@ -218,7 +218,7 @@ fn test_store_and_fetch() {
         }
     }
 
-    let BurnchainBlockData { header, ops } =
+    let BurnchainBlockData { header, ops, .. } =
         BurnchainDB::get_burnchain_block(burnchain_db.conn(), &non_canon_hash).unwrap();
     assert_eq!(ops.len(), expected_ops.len());
     for op in ops.iter() {
@@ -246,7 +246,7 @@ fn test_store_and_fetch() {
     let looked_up_canon = burnchain_db.get_canonical_chain_tip().unwrap();
     assert_eq!(&looked_up_canon, &canonical_block.header());
 
-    let BurnchainBlockData { header, ops } =
+    let BurnchainBlockData { header, ops, .. } =
         BurnchainDB::get_burnchain_block(burnchain_db.conn(), &canon_hash).unwrap();
     assert!(ops.is_empty());
     assert_eq!(&header, &looked_up_canon);
@@ -1369,37 +1369,18 @@ fn store_watched_outputs() {
 
     // --- get_watched_outputs_at_block ---
     // Both outputs are retrievable for the stored block.
-    let retrieved = db.get_watched_outputs_at_block(&block_hash).unwrap();
+    let retrieved = BurnchainDB::get_watched_outputs_at_block(db.conn(), &block_hash).unwrap();
     assert_eq!(retrieved.len(), 2);
     assert!(retrieved.contains(&outputs[0]));
     assert!(retrieved.contains(&outputs[1]));
 
     // An unknown block hash returns an empty list.
     let unknown_hash = BurnchainHeaderHash([0xffu8; 32]);
-    assert!(db
-        .get_watched_outputs_at_block(&unknown_hash)
-        .unwrap()
-        .is_empty());
-
-    // --- get_watched_outputs_by_script_hash ---
-    // Each output is uniquely identified by its witness script hash.
-    let by_hash_0 = db
-        .get_watched_outputs_by_script_hash(&outputs[0].witness_script_hash)
-        .unwrap();
-    assert_eq!(by_hash_0.len(), 1);
-    assert_eq!(by_hash_0[0], outputs[0]);
-
-    let by_hash_1 = db
-        .get_watched_outputs_by_script_hash(&outputs[1].witness_script_hash)
-        .unwrap();
-    assert_eq!(by_hash_1.len(), 1);
-    assert_eq!(by_hash_1[0], outputs[1]);
-
-    // A hash that was never stored returns an empty list.
-    let by_hash_none = db
-        .get_watched_outputs_by_script_hash(&WitnessScriptHash([0xff; 32]))
-        .unwrap();
-    assert!(by_hash_none.is_empty());
+    assert!(
+        BurnchainDB::get_watched_outputs_at_block(db.conn(), &unknown_hash)
+            .unwrap()
+            .is_empty()
+    );
 
     // --- empty-slice store is a no-op ---
     let block_hash2 = BurnchainHeaderHash([2u8; 32]);
@@ -1414,10 +1395,11 @@ fn store_watched_outputs() {
     db_tx.store_burnchain_db_entry(&header2).unwrap();
     db_tx.store_watched_outputs(&header2, &[]).unwrap();
     db_tx.commit().unwrap();
-    assert!(db
-        .get_watched_outputs_at_block(&block_hash2)
-        .unwrap()
-        .is_empty());
+    assert!(
+        BurnchainDB::get_watched_outputs_at_block(db.conn(), &block_hash2)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -1462,7 +1444,7 @@ fn prune_watched_outputs() {
 
     for &height in heights {
         let block_hash = BurnchainHeaderHash([(height as u8); 32]);
-        let remaining = db.get_watched_outputs_at_block(&block_hash).unwrap();
+        let remaining = BurnchainDB::get_watched_outputs_at_block(db.conn(), &block_hash).unwrap();
         if height < threshold {
             assert!(
                 remaining.is_empty(),

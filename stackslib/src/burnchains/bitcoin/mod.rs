@@ -19,6 +19,8 @@
 
 use std::{error, fmt, io};
 
+use sha2::{Digest, Sha256};
+use stacks_common::deps_common::bitcoin::blockdata::script::Script;
 use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialize_error;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::serde_serializers::prefix_hex;
@@ -249,6 +251,13 @@ pub struct BitcoinBlock {
     pub txs: Vec<BitcoinTransaction>,
     pub watched_p2wsh_outputs: Vec<WatchedP2WSHOutput>,
     pub timestamp: u64,
+}
+
+impl From<&Script> for WitnessScriptHash {
+    fn from(value: &Script) -> Self {
+        let hash: [u8; 32] = Sha256::digest(value.as_bytes()).into();
+        WitnessScriptHash(hash)
+    }
 }
 
 impl BitcoinBlock {
