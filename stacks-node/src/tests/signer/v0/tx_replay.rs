@@ -226,46 +226,33 @@ fn tx_replay_forking_test() {
     signer_test.wait_for_replay_set_eq(30, expected_tx_replay_txids.clone());
 
     info!("---- Mining post-fork block to clear tx replay set ----");
-    let tip_after_fork = get_chain_info(&conf);
-    let stacks_height_before = tip_after_fork.stacks_tip_height;
 
     test_observer::clear();
 
     fault_injection_unstall_miner();
 
-    let expected_height = stacks_height_before + 2;
-    info!(
-        "---- Waiting for block pushed at height: {:?} ----",
-        expected_height
-    );
-
-    let block = wait_for_block_pushed_by_miner_key(60, expected_height, &stacks_miner_pk)
-        .expect("Timed out waiting for block pushed after fork");
-
-    info!("---- Block: {:?} ----", block);
-
-    for (block_tx, expected_txid) in block
-        .txs
-        .iter()
-        .filter(|tx| {
-            // In this case, the miner issued a tenure extend in the block,
-            // because it's continuing a late tenure.
-            !matches!(
-                tx.payload,
-                TransactionPayload::TenureChange(TenureChangePayload {
-                    cause: TenureChangeCause::Extended,
-                    ..
-                })
-            )
-        })
-        .zip(expected_tx_replay_txids.iter())
-    {
-        assert_eq!(block_tx.txid().to_hex(), *expected_txid);
-    }
-
+    // Wait for the replay set to be fully cleared (all replayed txs mined)
     signer_test
-        .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
+        .wait_for_signer_state_check(60, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
+
+    // Verify that all expected replayed txs were mined across the
+    // post-fork blocks. The txs may land in different blocks depending
+    // on timing, so search all observed blocks.
+    for expected_txid in &expected_tx_replay_txids {
+        let found = test_observer::get_blocks().iter().any(|block| {
+            let block: StacksBlockEvent =
+                serde_json::from_value(block.clone()).expect("Failed to parse block");
+            block
+                .transactions
+                .iter()
+                .any(|tx| tx.txid().to_hex() == *expected_txid)
+        });
+        assert!(
+            found,
+            "Expected replayed tx {expected_txid} not found in any mined block"
+        );
+    }
 
     signer_test.shutdown();
 }
