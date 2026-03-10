@@ -20,6 +20,7 @@ use crate::chainstate::nakamoto::{NakamotoChainState, StxBtcCycleRatio};
 use crate::net::http::{
     parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
     HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    HttpUnauthorized,
 };
 use crate::net::httpcore::{
     HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
@@ -29,11 +30,15 @@ use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 #[derive(Clone)]
 pub struct GetStxBtcRatioRequestHandler {
     pub reward_cycle: Option<u64>,
+    pub auth: Option<String>,
 }
 
 impl GetStxBtcRatioRequestHandler {
-    pub fn new() -> Self {
-        Self { reward_cycle: None }
+    pub fn new(auth: Option<String>) -> Self {
+        Self {
+            reward_cycle: None,
+            auth,
+        }
     }
 }
 
@@ -142,6 +147,36 @@ impl RPCRequestHandler for GetStxBtcRatioRequestHandler {
             .reward_cycle
             .take()
             .ok_or(NetError::SendError("Missing `reward_cycle`".into()))?;
+
+        // Check if the cache covers all cycles needed for this request (the requested
+        // cycle plus the 4 prior cycles used by the smoothing window). If any are
+        // missing, the computation is expensive and requires auth.
+        let cache_warm =
+            node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
+                let start_cycle = reward_cycle.saturating_sub(4);
+                NakamotoChainState::is_cycle_cache_warm(
+                    chainstate.db(),
+                    start_cycle,
+                    reward_cycle,
+                    &tip,
+                )
+            });
+
+        if !cache_warm {
+            if let Some(password) = &self.auth {
+                let auth_header = preamble.headers.get("authorization");
+                if auth_header.map(|h| h != password).unwrap_or(true) {
+                    return StacksHttpResponse::new_error(
+                        &preamble,
+                        &HttpUnauthorized::new(
+                            "Cache is cold for this cycle; auth required".into(),
+                        ),
+                    )
+                    .try_into_contents()
+                    .map_err(NetError::from);
+                }
+            }
+        }
 
         let response = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
             let burnchain = network.get_burnchain();

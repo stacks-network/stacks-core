@@ -2138,6 +2138,7 @@ impl NakamotoChainState {
             &mut chainstate_tx,
             clarity_instance,
             &mut burn_view_handle,
+            sort_db,
             &burnchain_view,
             &pox_constants,
             &parent_header_info,
@@ -4295,6 +4296,22 @@ impl NakamotoChainState {
         Ok((complete, incomplete))
     }
 
+    /// Check whether every cycle in `[start_cycle, end_cycle]` has a cached entry
+    /// that is usable at the given tip. A cycle is "warm" if it has either a complete
+    /// entry or an incomplete (in-progress) entry — both make the computation cheap
+    /// (cache hit or incremental update rather than a full scan).
+    pub fn is_cycle_cache_warm(
+        conn: &Connection,
+        start_cycle: u64,
+        end_cycle: u64,
+        current_tip: &StacksBlockId,
+    ) -> bool {
+        let (complete, incomplete) =
+            Self::load_cached_cycle_totals(conn, start_cycle, end_cycle, current_tip)
+                .unwrap_or_default();
+        (start_cycle..=end_cycle).all(|c| complete.contains_key(&c) || incomplete.contains_key(&c))
+    }
+
     /// Store (or replace) a cycle's totals in the cache.
     /// `last_tenure_ch` is the consensus hash of the newest tenure included in these totals,
     /// used as the resume point for incremental updates on in-progress cycles.
@@ -4337,8 +4354,13 @@ impl NakamotoChainState {
     /// were unknown until this child tenure arrived).
     ///
     /// This spreads the cost of cache maintenance across block processing rather than
-    /// paying it all on the first ratio query. If the cache doesn't exist yet (cold start),
-    /// this seeds a fresh entry so the first query is also cheap.
+    /// paying it all on the first ratio query. A fresh entry is only created when this
+    /// is the first tenure of a new cycle (so no prior data is missing). Mid-cycle
+    /// cold starts return `Some(cycle)` to signal the caller should perform a one-time
+    /// full scan for that cycle using MARF-backed connections.
+    ///
+    /// Returns `Some(reward_cycle)` if a full scan is needed (mid-cycle cold start),
+    /// or `None` if the update was handled entirely here.
     pub fn update_stx_btc_cache_for_new_tenure(
         chainstate_conn: &Connection,
         sort_conn: &Connection,
@@ -4347,11 +4369,11 @@ impl NakamotoChainState {
         tip: &StacksBlockId,
         miner_reward: &MinerPaymentSchedule,
         burn_header_height: u64,
-    ) {
+    ) -> Option<u64> {
         let Some(reward_cycle) =
             pox_constants.block_height_to_reward_cycle(first_burn_height, burn_header_height)
         else {
-            return;
+            return None;
         };
 
         // Load existing cache for this cycle.
@@ -4362,7 +4384,7 @@ impl NakamotoChainState {
             tip,
         ) {
             Ok(maps) => maps,
-            Err(_) => return,
+            Err(_) => return None,
         };
 
         // If the cycle is already marked complete, nothing to do. This shouldn't
@@ -4372,13 +4394,36 @@ impl NakamotoChainState {
                 "STX/BTC cache: cycle {} already marked complete while processing new tenure {}",
                 reward_cycle, &miner_reward.consensus_hash
             );
-            return;
+            return None;
         }
 
-        // Determine base totals from incomplete cache or start fresh.
+        // Determine base totals: use existing cache, or create fresh only if this
+        // is the first tenure in the cycle. Mid-cycle cold starts signal the caller
+        // to perform a one-time full scan.
         let mut totals = if let Some(cached) = incomplete.get(&reward_cycle) {
             cached.totals.clone()
         } else {
+            // Check if this is the first tenure in the cycle by looking at the parent's cycle.
+            let parent_cycle = SortitionDB::get_block_snapshot_consensus(
+                sort_conn,
+                &miner_reward.parent_consensus_hash,
+            )
+            .ok()
+            .flatten()
+            .and_then(|sn| {
+                pox_constants.block_height_to_reward_cycle(first_burn_height, sn.block_height)
+            });
+
+            let is_first_in_cycle = parent_cycle.map(|pc| pc < reward_cycle).unwrap_or(false);
+            if !is_first_in_cycle {
+                // Mid-cycle with no existing entry — signal the caller to do a full scan.
+                // This only happens once after a node upgrade/restart.
+                info!(
+                    "STX/BTC cache: mid-cycle cold start for cycle {}; requesting full scan",
+                    reward_cycle
+                );
+                return Some(reward_cycle);
+            }
             StxBtcCycleTotals {
                 reward_cycle,
                 tenure_count: 0,
@@ -4450,6 +4495,7 @@ impl NakamotoChainState {
             tip,
             &miner_reward.consensus_hash,
         );
+        None
     }
 
     /// Apply a parent_fees correction to a previous cycle's cache entry.
@@ -5679,6 +5725,7 @@ impl NakamotoChainState {
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleConn,
+        sort_db: &SortitionDB,
         burnchain_view: &ConsensusHash,
         pox_constants: &PoxConstants,
         parent_chain_tip: &StacksHeaderInfo,
@@ -6107,7 +6154,7 @@ impl NakamotoChainState {
         // Proactively update the STX/BTC cycle cache for this new tenure.
         // This is O(1) — just adds one tenure's data to the running totals.
         if let Some(ref miner_reward) = scheduled_miner_reward {
-            Self::update_stx_btc_cache_for_new_tenure(
+            let needs_full_scan = Self::update_stx_btc_cache_for_new_tenure(
                 chainstate_tx.tx.sqlite(),
                 burn_dbconn.sqlite(),
                 pox_constants,
@@ -6116,6 +6163,35 @@ impl NakamotoChainState {
                 miner_reward,
                 chain_tip_burn_header_height.into(),
             );
+
+            // Mid-cycle cold start: perform a one-time full scan to populate the cache.
+            // This requires MARF-backed connections which are available here.
+            if let Some(cycle) = needs_full_scan {
+                match Self::get_stx_btc_cycle_totals(
+                    &mut chainstate_tx.tx,
+                    sort_db,
+                    &new_block_id,
+                    pox_constants,
+                    first_block_height,
+                    cycle,
+                    cycle,
+                ) {
+                    Ok(computed) => {
+                        if let Some((totals, newest_ch)) = computed.get(&cycle) {
+                            Self::store_cycle_totals_cache(
+                                chainstate_tx.tx.sqlite(),
+                                totals,
+                                false,
+                                &new_block_id,
+                                newest_ch,
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!("STX/BTC cache: full scan failed for cycle {cycle}: {e}");
+                    }
+                }
+            }
         }
 
         let reward_cycle = pox_constants
@@ -6871,64 +6947,173 @@ mod stx_btc_cache_tests {
     }
 
     #[test]
-    fn test_proactive_update_cold_start() {
+    fn test_proactive_update_signals_full_scan_mid_cycle() {
         use clarity::vm::types::PrincipalData;
         use stacks_common::types::chainstate::StacksAddress;
 
         use crate::burnchains::PoxConstants;
+        use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
+        use crate::chainstate::burn::db::sortdb::SortitionDB;
         use crate::chainstate::stacks::db::MinerPaymentTxFees;
 
         let conn = setup_cache_db();
-        let tip = make_tip(0xaa);
-        let pox = PoxConstants::testnet_default();
         let first_burn_height = 0u64;
-        // reward cycle length in testnet_default is 5, so burn height 10 → cycle 2
-        let burn_height = 10u64;
-        let expected_cycle = pox
-            .block_height_to_reward_cycle(first_burn_height, burn_height)
-            .unwrap();
+        let first_burn_hash = stacks_common::types::chainstate::BurnchainHeaderHash([0u8; 32]);
+        let mut sort_db = SortitionDB::connect_test(first_burn_height, &first_burn_hash).unwrap();
+
+        let mut pox = PoxConstants::testnet_default();
+        pox.reward_cycle_length = 5;
+
+        // Create snapshots 1 and 2 (heights 1, 2) — both mid-cycle in cycle 0.
+        let sn1 = test_append_snapshot(
+            &mut sort_db,
+            stacks_common::types::chainstate::BurnchainHeaderHash([0x01; 32]),
+            &[],
+        );
+        let _sn2 = test_append_snapshot(
+            &mut sort_db,
+            stacks_common::types::chainstate::BurnchainHeaderHash([0x02; 32]),
+            &[],
+        );
 
         let addr = StacksAddress::new(0, stacks_common::util::hash::Hash160([0u8; 20])).unwrap();
-        let miner_reward = crate::chainstate::stacks::db::MinerPaymentSchedule {
+        let tip = make_tip(0xaa);
+        let reward_cycle = pox
+            .block_height_to_reward_cycle(first_burn_height, sn1.block_height)
+            .unwrap();
+
+        // Process a tenure mid-cycle with no prior cache entry.
+        // parent_consensus_hash points to genesis (height 0, same cycle) — not first-in-cycle.
+        let reward = crate::chainstate::stacks::db::MinerPaymentSchedule {
             recipient: PrincipalData::Standard(addr.clone().into()),
             address: addr,
             block_hash: BlockHeaderHash([0x11; 32]),
-            consensus_hash: ConsensusHash([0x22; 20]),
+            consensus_hash: sn1.consensus_hash.clone(),
             parent_block_hash: BlockHeaderHash([0u8; 32]),
             parent_consensus_hash: ConsensusHash([0u8; 20]),
             coinbase: 500_000,
-            tx_fees: MinerPaymentTxFees::Nakamoto { parent_fees: 1_000 },
+            tx_fees: MinerPaymentTxFees::Nakamoto { parent_fees: 0 },
             burnchain_commit_burn: 0,
             burnchain_sortition_burn: 5_000,
             miner: true,
-            stacks_block_height: 10,
+            stacks_block_height: 1,
             vtxindex: 0,
         };
 
-        // No sortition DB — pass the chainstate conn for sort_conn (won't find
-        // the snapshot, so total_extra_btc_for_sortition returns 0).
-        NakamotoChainState::update_stx_btc_cache_for_new_tenure(
+        let needs_full_scan = NakamotoChainState::update_stx_btc_cache_for_new_tenure(
             &conn,
-            &conn, // sort_conn — no real sortition data, extra BTC will be 0
+            sort_db.conn(),
             &pox,
             first_burn_height,
             &tip,
-            &miner_reward,
-            burn_height,
+            &reward,
+            sn1.block_height,
         );
 
-        // Should have created a fresh cache entry.
-        let (complete, _) = NakamotoChainState::load_cached_cycle_totals(
+        // Should signal that a full scan is needed for this cycle.
+        assert_eq!(
+            needs_full_scan,
+            Some(reward_cycle),
+            "Mid-cycle cold start should signal full scan"
+        );
+
+        // Should NOT have created a cache entry itself (the caller handles the full scan).
+        let (complete, incomplete) =
+            NakamotoChainState::load_cached_cycle_totals(&conn, reward_cycle, reward_cycle, &tip)
+                .unwrap();
+        assert!(
+            complete.is_empty() && incomplete.is_empty(),
+            "Mid-cycle cold start should not create a cache entry directly"
+        );
+    }
+
+    #[test]
+    fn test_proactive_update_creates_entry_at_cycle_boundary() {
+        use clarity::vm::types::PrincipalData;
+        use stacks_common::types::chainstate::StacksAddress;
+
+        use crate::burnchains::PoxConstants;
+        use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
+        use crate::chainstate::burn::db::sortdb::SortitionDB;
+        use crate::chainstate::stacks::db::MinerPaymentTxFees;
+
+        let conn = setup_cache_db();
+        let first_burn_height = 0u64;
+        let first_burn_hash = stacks_common::types::chainstate::BurnchainHeaderHash([0u8; 32]);
+        let mut sort_db = SortitionDB::connect_test(first_burn_height, &first_burn_hash).unwrap();
+
+        let mut pox = PoxConstants::testnet_default();
+        pox.reward_cycle_length = 5;
+
+        // Append 5 snapshots to reach cycle 1 boundary (heights 1..=5).
+        let mut last_sn = None;
+        for i in 1..=5 {
+            let sn = test_append_snapshot(
+                &mut sort_db,
+                stacks_common::types::chainstate::BurnchainHeaderHash([i as u8; 32]),
+                &[],
+            );
+            last_sn = Some(sn);
+        }
+        let sn_cycle1 = last_sn.unwrap(); // height 5 → cycle 1
+
+        let parent_sn =
+            SortitionDB::get_block_snapshot(sort_db.conn(), &sn_cycle1.parent_sortition_id)
+                .unwrap()
+                .unwrap();
+
+        let reward_cycle = pox
+            .block_height_to_reward_cycle(first_burn_height, sn_cycle1.block_height)
+            .unwrap();
+        let parent_cycle = pox
+            .block_height_to_reward_cycle(first_burn_height, parent_sn.block_height)
+            .unwrap();
+        assert!(
+            reward_cycle > parent_cycle,
+            "First tenure should be in a new cycle"
+        );
+
+        let addr = StacksAddress::new(0, stacks_common::util::hash::Hash160([0u8; 20])).unwrap();
+        let tip = make_tip(0xaa);
+
+        let reward = crate::chainstate::stacks::db::MinerPaymentSchedule {
+            recipient: PrincipalData::Standard(addr.clone().into()),
+            address: addr,
+            block_hash: BlockHeaderHash([0x11; 32]),
+            consensus_hash: sn_cycle1.consensus_hash.clone(),
+            parent_block_hash: BlockHeaderHash([0u8; 32]),
+            parent_consensus_hash: parent_sn.consensus_hash.clone(),
+            coinbase: 500_000,
+            tx_fees: MinerPaymentTxFees::Nakamoto { parent_fees: 0 },
+            burnchain_commit_burn: 0,
+            burnchain_sortition_burn: 5_000,
+            miner: true,
+            stacks_block_height: 1,
+            vtxindex: 0,
+        };
+
+        let needs_full_scan = NakamotoChainState::update_stx_btc_cache_for_new_tenure(
             &conn,
-            expected_cycle,
-            expected_cycle,
+            sort_db.conn(),
+            &pox,
+            first_burn_height,
             &tip,
-        )
-        .unwrap();
-        let entry = complete.get(&expected_cycle).unwrap();
+            &reward,
+            sn_cycle1.block_height,
+        );
+
+        // First-in-cycle should not need a full scan.
+        assert_eq!(
+            needs_full_scan, None,
+            "First-in-cycle should not need full scan"
+        );
+
+        // Should have created a fresh entry — this is the first tenure in the cycle.
+        let (complete, _) =
+            NakamotoChainState::load_cached_cycle_totals(&conn, reward_cycle, reward_cycle, &tip)
+                .unwrap();
+        let entry = complete.get(&reward_cycle).unwrap();
         assert_eq!(entry.tenure_count, 1);
-        // Coinbase only (500_000). Parent fees correction (1_000) is not applied
-        // because the parent's snapshot can't be found without a real sortition DB.
         assert_eq!(entry.stx_earned_ustx, 500_000);
         assert_eq!(entry.btc_spent_sats, 5_000);
     }
@@ -6939,73 +7124,104 @@ mod stx_btc_cache_tests {
         use stacks_common::types::chainstate::StacksAddress;
 
         use crate::burnchains::PoxConstants;
+        use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
+        use crate::chainstate::burn::db::sortdb::SortitionDB;
         use crate::chainstate::stacks::db::MinerPaymentTxFees;
 
         let conn = setup_cache_db();
-        let pox = PoxConstants::testnet_default();
         let first_burn_height = 0u64;
-        let burn_height = 10u64;
-        let expected_cycle = pox
-            .block_height_to_reward_cycle(first_burn_height, burn_height)
+        let first_burn_hash = stacks_common::types::chainstate::BurnchainHeaderHash([0u8; 32]);
+        let mut sort_db = SortitionDB::connect_test(first_burn_height, &first_burn_hash).unwrap();
+
+        let mut pox = PoxConstants::testnet_default();
+        pox.reward_cycle_length = 5;
+
+        // Append 6 snapshots so we have heights 1..=6. Height 5 is the first in cycle 1.
+        let mut snapshots = vec![];
+        for i in 1..=6 {
+            let sn = test_append_snapshot(
+                &mut sort_db,
+                stacks_common::types::chainstate::BurnchainHeaderHash([i as u8; 32]),
+                &[],
+            );
+            snapshots.push(sn);
+        }
+        let sn_first = &snapshots[4]; // height 5 → cycle 1 (first in cycle)
+        let sn_second = &snapshots[5]; // height 6 → cycle 1 (second in cycle)
+
+        let parent_of_first =
+            SortitionDB::get_block_snapshot(sort_db.conn(), &sn_first.parent_sortition_id)
+                .unwrap()
+                .unwrap();
+
+        let reward_cycle = pox
+            .block_height_to_reward_cycle(first_burn_height, sn_first.block_height)
             .unwrap();
 
         let addr = StacksAddress::new(0, stacks_common::util::hash::Hash160([0u8; 20])).unwrap();
-        let make_reward = |ch_byte: u8, coinbase: u128, parent_fees: u128, burn: u64| {
-            crate::chainstate::stacks::db::MinerPaymentSchedule {
-                recipient: PrincipalData::Standard(addr.clone().into()),
-                address: addr.clone(),
-                block_hash: BlockHeaderHash([ch_byte; 32]),
-                consensus_hash: ConsensusHash([ch_byte; 20]),
-                parent_block_hash: BlockHeaderHash([0u8; 32]),
-                parent_consensus_hash: ConsensusHash([0u8; 20]),
-                coinbase,
-                tx_fees: MinerPaymentTxFees::Nakamoto { parent_fees },
-                burnchain_commit_burn: 0,
-                burnchain_sortition_burn: burn,
-                miner: true,
-                stacks_block_height: 10,
-                vtxindex: 0,
-            }
-        };
 
-        // Process two tenures sequentially.
+        // Tenure 1: first in cycle — should create entry.
         let tip1 = make_tip(0xaa);
-        let reward1 = make_reward(0x11, 500_000, 0, 5_000);
+        let reward1 = crate::chainstate::stacks::db::MinerPaymentSchedule {
+            recipient: PrincipalData::Standard(addr.clone().into()),
+            address: addr.clone(),
+            block_hash: BlockHeaderHash([0x01; 32]),
+            consensus_hash: sn_first.consensus_hash.clone(),
+            parent_block_hash: BlockHeaderHash([0u8; 32]),
+            parent_consensus_hash: parent_of_first.consensus_hash.clone(),
+            coinbase: 500_000,
+            tx_fees: MinerPaymentTxFees::Nakamoto { parent_fees: 0 },
+            burnchain_commit_burn: 0,
+            burnchain_sortition_burn: 5_000,
+            miner: true,
+            stacks_block_height: 1,
+            vtxindex: 0,
+        };
         NakamotoChainState::update_stx_btc_cache_for_new_tenure(
             &conn,
-            &conn,
+            sort_db.conn(),
             &pox,
             first_burn_height,
             &tip1,
             &reward1,
-            burn_height,
+            sn_first.block_height,
         );
 
+        // Tenure 2: same cycle, should increment.
         let tip2 = make_tip(0xbb);
-        let reward2 = make_reward(0x22, 500_000, 2_000, 6_000);
+        let reward2 = crate::chainstate::stacks::db::MinerPaymentSchedule {
+            recipient: PrincipalData::Standard(addr.clone().into()),
+            address: addr.clone(),
+            block_hash: BlockHeaderHash([0x02; 32]),
+            consensus_hash: sn_second.consensus_hash.clone(),
+            parent_block_hash: BlockHeaderHash([0x01; 32]),
+            parent_consensus_hash: sn_first.consensus_hash.clone(),
+            coinbase: 500_000,
+            tx_fees: MinerPaymentTxFees::Nakamoto { parent_fees: 2_000 },
+            burnchain_commit_burn: 0,
+            burnchain_sortition_burn: 6_000,
+            miner: true,
+            stacks_block_height: 2,
+            vtxindex: 0,
+        };
         NakamotoChainState::update_stx_btc_cache_for_new_tenure(
             &conn,
-            &conn,
+            sort_db.conn(),
             &pox,
             first_burn_height,
             &tip2,
             &reward2,
-            burn_height,
+            sn_second.block_height,
         );
 
-        let (complete, _) = NakamotoChainState::load_cached_cycle_totals(
-            &conn,
-            expected_cycle,
-            expected_cycle,
-            &tip2,
-        )
-        .unwrap();
-        let entry = complete.get(&expected_cycle).unwrap();
+        let (complete, _) =
+            NakamotoChainState::load_cached_cycle_totals(&conn, reward_cycle, reward_cycle, &tip2)
+                .unwrap();
+        let entry = complete.get(&reward_cycle).unwrap();
         assert_eq!(entry.tenure_count, 2);
         // Tenure 1: coinbase 500_000
-        // Tenure 2: coinbase 500_000
-        // Parent fees correction (2_000) is not applied — no real sortition DB.
-        assert_eq!(entry.stx_earned_ustx, 1_000_000);
+        // Tenure 2: coinbase 500_000 + parent_fees correction 2_000 (same cycle)
+        assert_eq!(entry.stx_earned_ustx, 1_002_000);
         assert_eq!(entry.btc_spent_sats, 11_000);
     }
 
@@ -7024,19 +7240,27 @@ mod stx_btc_cache_tests {
         let first_burn_hash = stacks_common::types::chainstate::BurnchainHeaderHash([0u8; 32]);
         let mut sort_db = SortitionDB::connect_test(first_burn_height, &first_burn_hash).unwrap();
 
-        // Append two snapshots in the same reward cycle.
-        let sn1 = test_append_snapshot(
-            &mut sort_db,
-            stacks_common::types::chainstate::BurnchainHeaderHash([0x01; 32]),
-            &[],
-        );
-        let sn2 = test_append_snapshot(
-            &mut sort_db,
-            stacks_common::types::chainstate::BurnchainHeaderHash([0x02; 32]),
-            &[],
-        );
+        let mut pox = PoxConstants::testnet_default();
+        pox.reward_cycle_length = 5;
 
-        let pox = PoxConstants::testnet_default();
+        // Append 6 snapshots: heights 1..=6. Height 5 starts cycle 1.
+        let mut snapshots = vec![];
+        for i in 1..=6 {
+            let sn = test_append_snapshot(
+                &mut sort_db,
+                stacks_common::types::chainstate::BurnchainHeaderHash([i as u8; 32]),
+                &[],
+            );
+            snapshots.push(sn);
+        }
+        let sn1 = &snapshots[4]; // height 5 → cycle 1 (first in cycle)
+        let sn2 = &snapshots[5]; // height 6 → cycle 1
+
+        let parent_of_sn1 =
+            SortitionDB::get_block_snapshot(sort_db.conn(), &sn1.parent_sortition_id)
+                .unwrap()
+                .unwrap();
+
         let cycle1 = pox
             .block_height_to_reward_cycle(first_burn_height, sn1.block_height)
             .unwrap();
@@ -7051,14 +7275,14 @@ mod stx_btc_cache_tests {
         let addr = StacksAddress::new(0, stacks_common::util::hash::Hash160([0u8; 20])).unwrap();
         let tip1 = make_tip(0xaa);
 
-        // Tenure 1: coinbase only, no parent fees.
+        // Tenure 1: first in cycle, coinbase only, no parent fees.
         let reward1 = crate::chainstate::stacks::db::MinerPaymentSchedule {
             recipient: PrincipalData::Standard(addr.clone().into()),
             address: addr.clone(),
             block_hash: BlockHeaderHash([0x01; 32]),
             consensus_hash: sn1.consensus_hash.clone(),
             parent_block_hash: BlockHeaderHash([0u8; 32]),
-            parent_consensus_hash: ConsensusHash([0u8; 20]),
+            parent_consensus_hash: parent_of_sn1.consensus_hash.clone(),
             coinbase: 500_000,
             tx_fees: MinerPaymentTxFees::Nakamoto { parent_fees: 0 },
             burnchain_commit_burn: 0,

@@ -47,7 +47,7 @@ fn test_try_parse_request() {
     let http = StacksHttp::new(addr, &ConnectionOptions::default());
     let cycle_num = thread_rng().next_u32() as u64;
 
-    let mut handler = getstxbtcratio::GetStxBtcRatioRequestHandler::new();
+    let mut handler = getstxbtcratio::GetStxBtcRatioRequestHandler::new(Some("password".into()));
     let mut bad_content_length_preamble = make_preamble(&format!("/{cycle_num}"));
     bad_content_length_preamble.content_length = Some(1);
 
@@ -89,17 +89,19 @@ fn test_try_make_response() {
     let future_cycle = 1_000_000;
     let nakamoto_chain_tip = rpc_test.canonical_tip.clone();
 
-    let req1 = StacksHttpRequest::new_get_stx_btc_ratio(
+    let mut req1 = StacksHttpRequest::new_get_stx_btc_ratio(
         addr.into(),
         cycle_num,
         TipRequest::SpecificTip(nakamoto_chain_tip.clone()),
     );
+    req1.add_header("authorization".into(), "password".into());
 
-    let req2 = StacksHttpRequest::new_get_stx_btc_ratio(
+    let mut req2 = StacksHttpRequest::new_get_stx_btc_ratio(
         addr.into(),
         future_cycle,
         TipRequest::SpecificTip(nakamoto_chain_tip),
     );
+    req2.add_header("authorization".into(), "password".into());
 
     let requests = vec![req1, req2];
 
