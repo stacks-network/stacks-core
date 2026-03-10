@@ -68,6 +68,7 @@ pub struct BurnchainDBTransaction<'a> {
 pub struct BurnchainBlockData {
     pub header: BurnchainBlockHeader,
     pub ops: Vec<BlockstackOperationType>,
+    pub p2wsh_outputs: Vec<WatchedP2WSHOutput>,
 }
 
 /// A trait for reading burnchain block headers
@@ -876,13 +877,16 @@ impl BurnchainDB {
             "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ? LIMIT 1";
         let block_ops_qry = "SELECT DISTINCT * FROM burnchain_db_block_ops WHERE block_hash = ?";
 
-        let block_header = query_row(conn, block_header_qry, params![block])?
+        let header = query_row(conn, block_header_qry, params![block])?
             .ok_or_else(|| BurnchainError::UnknownBlock(block.clone()))?;
-        let block_ops = query_rows(conn, block_ops_qry, params![block])?;
+        let ops = query_rows(conn, block_ops_qry, params![block])?;
+
+        let p2wsh_outputs = Self::get_watched_outputs_at_block(conn, block)?;
 
         Ok(BurnchainBlockData {
-            header: block_header,
-            ops: block_ops,
+            header,
+            ops,
+            p2wsh_outputs,
         })
     }
 
@@ -1148,27 +1152,14 @@ impl BurnchainDB {
 
     /// Get all watched outputs for a specific Bitcoin block
     pub fn get_watched_outputs_at_block(
-        &self,
+        conn: &DBConn,
         block_hash: &BurnchainHeaderHash,
     ) -> Result<Vec<WatchedP2WSHOutput>, BurnchainError> {
         let sql = "SELECT txid, vout, witness_script_hash, amount
                    FROM watched_p2wsh_outputs
                    WHERE block_hash = ?1
                    ORDER BY txid, vout";
-        query_rows(self.conn(), sql, [block_hash]).map_err(BurnchainError::DBError)
-    }
-
-    /// Get all watched outputs with a specific witness script hash
-    pub fn get_watched_outputs_by_script_hash(
-        &self,
-        witness_script_hash: &WitnessScriptHash,
-    ) -> Result<Vec<WatchedP2WSHOutput>, BurnchainError> {
-        let sql = "SELECT txid, vout, witness_script_hash, amount
-                   FROM watched_p2wsh_outputs
-                   WHERE witness_script_hash = ?1
-                   ORDER BY block_height, txid, vout";
-
-        query_rows(self.conn(), sql, [witness_script_hash]).map_err(BurnchainError::DBError)
+        query_rows(conn, sql, [block_hash]).map_err(BurnchainError::DBError)
     }
 
     pub fn get_commit_in_block_at(
