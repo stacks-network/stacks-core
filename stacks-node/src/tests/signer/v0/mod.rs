@@ -4029,12 +4029,11 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N to be mined");
 
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(
-        info_before.stacks_tip_height + 1,
-        info_after.stacks_tip_height
-    );
-    assert_eq!(info_after.stacks_tip, block_n.header.block_hash());
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip == block_n.header.block_hash())
+    })
+    .expect("Tip did not advance to block N");
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
     // Propose a valid block, but force the miner to ignore the returned signatures and delay the block being
@@ -4184,15 +4183,14 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 2, &miner_pk)
             .expect("Timed out waiting for block N+2 to be mined");
 
-    let info_after = signer_test.get_peer_info();
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip == block_n_2.header.block_hash())
+    })
+    .expect("Tip did not advance to block N+2");
     assert_eq!(
         block_n_2.header.parent_block_id,
         block_n_1.header.block_id()
-    );
-    assert_eq!(info_after.stacks_tip, block_n_2.header.block_hash());
-    assert_eq!(
-        info_before.stacks_tip_height + 2,
-        info_after.stacks_tip_height
     );
 }
 
@@ -5816,8 +5814,11 @@ fn injected_signatures_are_ignored_across_boundaries() {
     })
     .expect("Timed out waiting for block to be mined");
 
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(info_after.stacks_tip.to_string(), block.block_hash,);
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip.to_string() == block.block_hash)
+    })
+    .expect("Tip did not advance to block N");
     // Wait 5 seconds in case there are any lingering block pushes from the signers
     std::thread::sleep(Duration::from_secs(5));
     signer_test.shutdown();

@@ -1387,7 +1387,7 @@ fn tenure_extend_after_stale_commit_same_miner() {
     );
 
     let Counters {
-        skip_commit_op: skip_commit_op,
+        skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
     } = signer_test.running_nodes.counters.clone();
@@ -1520,7 +1520,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
     );
 
     let Counters {
-        skip_commit_op: skip_commit_op,
+        skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
     } = signer_test.running_nodes.counters.clone();
@@ -2263,9 +2263,11 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
     )
     .expect("Timed out waiting for global rejection of Miner 2's block N+1'");
 
-    let peer_info = miners.get_peer_info();
-    assert_eq!(peer_info.stacks_tip, miner_1_block_n_1.header.block_hash());
-    assert_eq!(peer_info.stacks_tip_height, stacks_height_before + 1);
+    wait_for(30, || {
+        let info = miners.get_peer_info();
+        Ok(info.stacks_tip == miner_1_block_n_1.header.block_hash())
+    })
+    .expect("Tip did not advance to expected block");
 
     info!(
         "------------------------- Verify Tenure Change Extend Tx in Miner 1's Block N+1 -------------------------"
@@ -2459,9 +2461,11 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
         wait_for_block_pushed_by_miner_key(60, stacks_height_before + 1, &miner_pk_2)
             .expect("Timed out waiting for Block N+1 to be pushed");
 
-    let peer_info = miners.get_peer_info();
-    assert_eq!(peer_info.stacks_tip, miner_2_block_n_1.header.block_hash());
-    assert_eq!(peer_info.stacks_tip_height, stacks_height_before + 1);
+    wait_for(30, || {
+        let info = miners.get_peer_info();
+        Ok(info.stacks_tip == miner_2_block_n_1.header.block_hash())
+    })
+    .expect("Tip did not advance to expected block");
 
     info!(
         "------------------------- Verify BlockFound in Miner 2's Block N+1 -------------------------"
@@ -2610,9 +2614,12 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
         wait_for_block_pushed_by_miner_key(60, stacks_height_before + 1, &miner_pk_2)
             .expect("Timed out waiting for N+1 block to be approved");
 
+    wait_for(30, || {
+        let info = miners.get_peer_info();
+        Ok(info.stacks_tip == miner_2_block_n_1.header.block_hash())
+    })
+    .expect("Tip did not advance to expected block");
     let peer_info = miners.get_peer_info();
-    assert_eq!(peer_info.stacks_tip, miner_2_block_n_1.header.block_hash());
-    assert_eq!(peer_info.stacks_tip_height, stacks_height_before + 1);
 
     let stacks_height_before = peer_info.stacks_tip_height;
 
@@ -2759,10 +2766,7 @@ fn burn_block_height_behavior() {
 
     signer_test.boot_to_epoch_3();
 
-    let Counters {
-        skip_commit_op: skip_commit_op,
-        ..
-    } = signer_test.running_nodes.counters.clone();
+    let Counters { skip_commit_op, .. } = signer_test.running_nodes.counters.clone();
 
     info!("------------------------- Test Mine Regular Tenure A  -------------------------");
 
@@ -2988,7 +2992,7 @@ fn new_tenure_no_winner_while_proposing_block() {
     );
 
     let Counters {
-        skip_commit_op: skip_commit_op,
+        skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
     } = signer_test.running_nodes.counters.clone();
@@ -3145,7 +3149,7 @@ fn new_tenure_no_winner_while_proposing_block_then_rejected() {
     );
 
     let Counters {
-        skip_commit_op: skip_commit_op,
+        skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
     } = signer_test.running_nodes.counters.clone();
@@ -3330,7 +3334,7 @@ fn new_tenure_no_winner_while_proposing_block_then_ignored() {
     );
 
     let Counters {
-        skip_commit_op: skip_commit_op,
+        skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
     } = signer_test.running_nodes.counters.clone();
@@ -3674,10 +3678,11 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         let miner_1_block_n_1 =
             wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_1)
                 .expect("Timed out waiting for Miner 1 to mine N+1");
-        let peer_info = miners.get_peer_info();
-
-        assert_eq!(peer_info.stacks_tip, miner_1_block_n_1.header.block_hash());
-        assert_eq!(peer_info.stacks_tip_height, stacks_height_before + 1);
+        wait_for(30, || {
+            let info = miners.get_peer_info();
+            Ok(info.stacks_tip == miner_1_block_n_1.header.block_hash())
+        })
+        .expect("Tip did not advance to expected block");
 
         info!(
             "------------------------- Verify Extended in Miner 1's Block N+1 -------------------------"
@@ -3729,9 +3734,11 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         let miner_2_block_n_1 =
             wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_2)
                 .expect("Miner 2's block N+1 was not mined");
-        let peer_info = miners.get_peer_info();
-        assert_eq!(peer_info.stacks_tip, miner_2_block_n_1.header.block_hash());
-        assert_eq!(peer_info.stacks_tip_height, stacks_height_before + 1);
+        wait_for(30, || {
+            let info = miners.get_peer_info();
+            Ok(info.stacks_tip == miner_2_block_n_1.header.block_hash())
+        })
+        .expect("Tip did not advance to expected block");
 
         if matches!(variant, NonBlockingMinorityVariant::FavourPrevMiner) {
             info!(
@@ -3777,9 +3784,11 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, continuing_miner_pk)
             .expect("Timed out waiting for block N+2");
 
-    let peer_info = miners.get_peer_info();
-    assert_eq!(peer_info.stacks_tip, block_n_2.header.block_hash());
-    assert_eq!(peer_info.stacks_tip_height, stacks_height_before + 1);
+    wait_for(30, || {
+        let info = miners.get_peer_info();
+        Ok(info.stacks_tip == block_n_2.header.block_hash())
+    })
+    .expect("Tip did not advance to expected block");
 
     // V1 variant additionally verifies minority rejection for N+2
     if matches!(variant, NonBlockingMinorityVariant::FavourPrevMinerV1) {
@@ -3963,7 +3972,7 @@ fn empty_sortition_before_approval() {
     let Counters {
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposed_blocks,
-        skip_commit_op: skip_commit_op,
+        skip_commit_op,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -4402,10 +4411,11 @@ fn continue_after_fast_block_no_sortition() {
     let miner_2_block_n_2 =
         wait_for_block_pushed_by_miner_key(30, stacks_height_before + 2, &miner_pk_2)
             .expect("Did not mine Miner 2's Block N+2");
-    assert_eq!(
-        miners.get_peer_stacks_tip(),
-        miner_2_block_n_2.header.block_hash()
-    );
+    wait_for(30, || {
+        let info = miners.get_peer_info();
+        Ok(info.stacks_tip == miner_2_block_n_2.header.block_hash())
+    })
+    .expect("Tip did not advance to expected block");
 
     info!("------------------------- Verify Miner B's Block N+2 -------------------------");
     assert!(miner_2_block_n_2
@@ -4453,6 +4463,11 @@ fn continue_after_fast_block_no_sortition() {
     info!(
         "------------------------- Confirm Burn and Stacks Block Heights -------------------------"
     );
+    wait_for(30, || {
+        let info = miners.get_peer_info();
+        Ok(info.stacks_tip_height >= starting_peer_height + 6)
+    })
+    .expect("Tip did not advance to expected height");
     let peer_info = miners.get_peer_info();
 
     assert_eq!(get_burn_height(), starting_burn_height + btc_blocks_mined);

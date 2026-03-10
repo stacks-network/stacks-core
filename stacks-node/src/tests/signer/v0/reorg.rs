@@ -540,9 +540,12 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
 
     let block_n_height = miner_1_block_n.header.chain_length;
     info!("Block N: {block_n_height}");
-    let info_after = get_chain_info(&conf_1);
-    assert_eq!(info_after.stacks_tip, miner_1_block_n.header.block_hash());
-    assert_eq!(info_after.stacks_tip_height, block_n_height);
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = get_chain_info(&conf_1);
+        Ok(info.stacks_tip == miner_1_block_n.header.block_hash())
+    })
+    .expect("Tip did not advance to block N");
     assert_eq!(block_n_height, stacks_height_before + 1);
 
     // assure we have a successful sortition that miner 1 won
@@ -607,9 +610,12 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     let miner_1_block_n_3 = wait_for_block_pushed_by_miner_key(30, block_n_height + 3, &miner_pk_1)
         .expect("Failed to get block N+3");
 
-    let peer_info = miners.get_peer_info();
-    assert_eq!(peer_info.stacks_tip_height, block_n_height + 3);
-    assert_eq!(peer_info.stacks_tip, miner_1_block_n_3.header.block_hash());
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = miners.get_peer_info();
+        Ok(info.stacks_tip == miner_1_block_n_3.header.block_hash())
+    })
+    .expect("Tip did not advance to block N+3");
 
     miners.shutdown();
 }
@@ -717,9 +723,12 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
 
     let block_n_height = miner_1_block_n.header.chain_length;
     info!("Block N: {block_n_height}");
-    let info_after = get_chain_info(&conf_1);
-    assert_eq!(info_after.stacks_tip, miner_1_block_n.header.block_hash());
-    assert_eq!(info_after.stacks_tip_height, block_n_height);
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = get_chain_info(&conf_1);
+        Ok(info.stacks_tip == miner_1_block_n.header.block_hash())
+    })
+    .expect("Tip did not advance to block N");
     assert_eq!(block_n_height, stacks_height_before + 1);
 
     // assure we have a successful sortition that miner 1 won
@@ -1125,12 +1134,12 @@ fn global_acceptance_depends_on_block_announcement() {
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N to be mined");
 
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(info_after.stacks_tip, block_n.header.block_hash());
-    assert_eq!(
-        info_after.stacks_tip_height,
-        info_before.stacks_tip_height + 1
-    );
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip == block_n.header.block_hash())
+    })
+    .expect("Tip did not advance to block N");
 
     info!("------------------------- Mine Nakamoto Block N+1 -------------------------");
     // Make less than 30% of the signers reject the block and ensure it is accepted by the node, but not announced.
@@ -1208,13 +1217,14 @@ fn global_acceptance_depends_on_block_announcement() {
         block_n_1.header.chain_length
     );
 
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip == sister_block.header.block_hash())
+    })
+    .expect("Tip did not advance to sister block");
     // Assert the block was mined and the tip has changed.
     let info_after = signer_test.get_peer_info();
-    assert_eq!(
-        info_after.stacks_tip_height,
-        sister_block.header.chain_length
-    );
-    assert_eq!(info_after.stacks_tip, sister_block.header.block_hash());
     assert_eq!(
         info_after.stacks_tip_consensus_hash,
         sister_block.header.consensus_hash
@@ -1462,12 +1472,15 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     let block_n_2 =
         wait_for_block_pushed_by_miner_key(30, block_n_1.header.chain_length + 1, &miner_pk_2)
             .expect("Failed to find block N+2");
-    assert_eq!(miners.get_peer_stacks_tip(), block_n_2.header.block_hash());
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = get_chain_info(&conf_1);
+        Ok(info.stacks_tip == block_n_2.header.block_hash())
+    })
+    .expect("Tip did not advance to block N+2");
     info!("------------------------- Confirm Stacks Chain is As Expected ------------------------");
     let info_after = get_chain_info(&conf_1);
-    assert_eq!(info_after.stacks_tip_height, block_n_2.header.chain_length);
     assert_eq!(info_after.stacks_tip_height, starting_peer_height + 3);
-    assert_eq!(info_after.stacks_tip, block_n_2.header.block_hash());
     assert_ne!(
         info_after.stacks_tip_consensus_hash,
         block_n_1.header.consensus_hash
@@ -1709,7 +1722,7 @@ fn forked_tenure_testing(
         naka_submitted_commits: commits_submitted,
         naka_mined_blocks: mined_blocks,
         naka_proposed_blocks: proposed_blocks,
-        skip_commit_op: skip_commit_op,
+        skip_commit_op,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -2627,12 +2640,12 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let block_n =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N to be mined");
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(
-        info_before.stacks_tip_height + 1,
-        info_after.stacks_tip_height
-    );
-    assert_eq!(info_after.stacks_tip, block_n.header.block_hash());
+    // Wait for the tip to actually advance to block N before proceeding
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip == block_n.header.block_hash())
+    })
+    .expect("Tip did not advance to block N");
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
     // Make half of the signers reject the block proposal by the miner to ensure its marked globally rejected
@@ -2692,12 +2705,12 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     )
     .expect("Timed out waiting for block N+1' to be mined");
 
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(
-        info_after.stacks_tip_height,
-        info_before.stacks_tip_height + 1
-    );
-    assert_eq!(info_after.stacks_tip, block_n_1_prime.header.block_hash());
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip == block_n_1_prime.header.block_hash())
+    })
+    .expect("Tip did not advance to block N+1'");
     assert_ne!(block_n_1_prime, proposed_block_n_1);
 
     signer_test.shutdown();
@@ -2780,12 +2793,12 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     let block_n =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N to be mined");
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(
-        info_after.stacks_tip_height,
-        info_before.stacks_tip_height + 1
-    );
-    assert_eq!(info_after.stacks_tip, block_n.header.block_hash());
+    // Wait for the tip to actually advance to block N before proceeding
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip == block_n.header.block_hash())
+    })
+    .expect("Tip did not advance to block N");
 
     info!("------------------------- Mine Nakamoto Block N+1 -------------------------");
     // Make less than 30% of the signers reject the block and ensure it is STILL marked globally accepted
@@ -2822,13 +2835,12 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     )
     .expect("Timed out waiting for block rejection of N+1");
 
-    // Assert the block was mined and the tip advanced to N+1
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(info_after.stacks_tip, block_n_1.header.block_hash());
-    assert_eq!(
-        info_after.stacks_tip_height,
-        info_before.stacks_tip_height + 1
-    );
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip == block_n_1.header.block_hash())
+    })
+    .expect("Tip did not advance to block N+1");
 
     info!("------------------------- Test Mine Nakamoto Block N+2 -------------------------");
     // Ensure that all signers accept the block proposal N+2
@@ -2939,13 +2951,12 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
         .txs
         .iter()
         .any(|tx| { tx.txid().to_string() == txid }));
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(
-        info_before.stacks_tip_height + 1,
-        info_after.stacks_tip_height
-    );
-    assert_eq!(info_after.stacks_tip, block_n.header.block_hash());
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip == block_n.header.block_hash())
+    })
+    .expect("Tip did not advance to block N");
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 at Height {} -------------------------", info_before.stacks_tip_height + 2);
     // Make more than >70% of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
@@ -3033,13 +3044,12 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     let block_n_1_prime =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N+1' to be mined");
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N+1' (even though they signed a sister block in the prior tenure)
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(
-        info_before.stacks_tip_height + 1,
-        info_after.stacks_tip_height
-    );
-    assert_eq!(info_after.stacks_tip, block_n_1_prime.header.block_hash());
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip == block_n_1_prime.header.block_hash())
+    })
+    .expect("Tip did not advance to block N+1'");
     assert_ne!(
         block_n_1_prime.header.signer_signature_hash(),
         block_n_1_proposal.header.signer_signature_hash()
@@ -3059,16 +3069,9 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
 
     wait_for(30, || {
         let info = signer_test.get_peer_info();
-        Ok(info.stacks_tip_height > info_before.stacks_tip_height + 1)
+        Ok(info.stacks_tip == block_n_2.header.block_hash())
     })
-    .expect("Timed out waiting for the chain tip to advance");
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N+2 (built on N+1' even though they signed a sister block in the prior tenure)
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(
-        info_before.stacks_tip_height + 2,
-        info_after.stacks_tip_height
-    );
-    assert_eq!(info_after.stacks_tip, block_n_2.header.block_hash());
+    .expect("Tip did not advance to block N+2");
     assert_eq!(block_n_2.header.parent_block_id, block_n_1_prime.block_id());
     signer_test.shutdown();
 }
@@ -3154,16 +3157,9 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
             .expect("Timed out waiting for block N to be mined");
     // Due to a potential race condition in processing and block pushed...have to wait
     wait_for(30, || {
-        Ok(signer_test.get_peer_info().stacks_tip_height > info_before.stacks_tip_height)
+        Ok(signer_test.get_peer_info().stacks_tip == block_n.header.block_hash())
     })
-    .expect("Stacks tip failed to advance");
-    // Ensure that the block was accepted globally so the stacks tip has advanced to N
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(
-        info_before.stacks_tip_height + 1,
-        info_after.stacks_tip_height
-    );
-    assert_eq!(info_after.stacks_tip, block_n.header.block_hash());
+    .expect("Tip did not advance to block N");
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
     // Make more than >70% of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
@@ -3850,13 +3846,12 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     let block_n_height = block_n.header.chain_length;
     info!("Block N: {block_n_height}");
 
-    let info_after = get_chain_info(&conf_1);
-    assert_eq!(info_after.stacks_tip, block_n.header.block_hash());
-    assert_eq!(
-        info_after.stacks_tip_height,
-        info_before.stacks_tip_height + 1
-    );
-    assert_eq!(info_after.stacks_tip_height, block_n_height);
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = get_chain_info(&conf_1);
+        Ok(info.stacks_tip == block_n.header.block_hash())
+    })
+    .expect("Tip did not advance to block N");
 
     info!("------------------------- Miner 2 Submits a Block Commit -------------------------");
     miners.submit_commit_miner_2(&sortdb);
@@ -3878,9 +3873,12 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     let block_n_1 = wait_for_block_pushed_by_miner_key(30, block_n_height + 1, &miner_pk_2)
         .expect("Failed to get block N+1");
 
-    let info_after = get_chain_info(&conf_1);
-    assert_eq!(info_after.stacks_tip_height, block_n_height + 1);
-    assert_eq!(info_after.stacks_tip, block_n_1.header.block_hash());
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = get_chain_info(&conf_1);
+        Ok(info.stacks_tip == block_n_1.header.block_hash())
+    })
+    .expect("Tip did not advance to block N+1");
 
     // Wait for both chains to be in sync
     miners.wait_for_chains(30);
@@ -4617,9 +4615,12 @@ fn new_tenure_while_validating_previous_scenario() {
         .unwrap()
         .cause
         .is_eq(&TenureChangeCause::BlockFound));
-    let peer_info = signer_test.get_peer_info();
-    assert_eq!(peer_info.stacks_tip_height, stacks_height_before_stall + 2);
-    assert_eq!(peer_info.stacks_tip, block_pushed.header.block_hash());
+    // Wait for the tip to advance before checking
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip == block_pushed.header.block_hash())
+    })
+    .expect("Tip did not advance to block N+2");
 
     info!("------------------------- Shutdown -------------------------");
     signer_test.shutdown();
