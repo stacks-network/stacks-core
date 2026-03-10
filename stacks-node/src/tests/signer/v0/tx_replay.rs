@@ -91,8 +91,6 @@ fn tx_replay_forking_test() {
         );
     let conf = &signer_test.running_nodes.conf;
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let stacks_miner_pk = StacksPublicKey::from_private(&conf.miner.mining_key.clone().unwrap());
-
     let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
 
     if signer_test.bootstrap_snapshot() {

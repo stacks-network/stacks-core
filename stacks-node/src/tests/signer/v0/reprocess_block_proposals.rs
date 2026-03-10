@@ -122,6 +122,7 @@ fn signers_reprocess_bitcoin_block_not_found_proposals() {
     info!("------------------------- Mine Block N+1 with Stalled Block Broadcasting -------------------------");
     // Mine a new tenure which will issue a block proposal to all signers for its tenure change.
     miners.signer_test.mine_bitcoin_block();
+    miners.signer_test.wait_for_signer_state_update();
 
     // The 3 signers on miner 1 should have validated and sent pre-commits
     // The 2 signers on miner 2 should have issued a block rejection due to the stalled sortition commit preventing them from validating the block proposal

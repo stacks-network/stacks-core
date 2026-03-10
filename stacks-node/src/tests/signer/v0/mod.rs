@@ -8053,6 +8053,7 @@ fn signers_treat_signatures_as_precommits() {
         "------------------------- Trigger Tenure Change Block Proposal -------------------------"
     );
     signer_test.mine_bitcoin_block();
+    signer_test.wait_for_signer_state_update();
 
     let block_proposal =
         wait_for_block_proposal_block(30, peer_info.stacks_tip_height + 1, &miner_pk)

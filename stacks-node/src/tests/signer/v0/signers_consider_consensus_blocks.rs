@@ -146,6 +146,7 @@ fn signers_do_not_reconsider_globally_accepted_and_responded_blocks() {
     info!("------------------------- Mine Block N+1 -------------------------");
     // Mine a new tenure which will issue a block proposal to all signers for its tenure change.
     miners.signer_test.mine_bitcoin_block();
+    miners.signer_test.wait_for_signer_state_update();
 
     let block_proposal =
         wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk_1)
@@ -254,6 +255,7 @@ fn signers_respond_to_unprocessed_globally_accepted_block_proposals() {
     info!("------------------------- Mine Tenure A and Propose Block N -------------------------");
     let expected_height = miners.signer_test.get_peer_info().stacks_tip_height + 1;
     miners.signer_test.mine_bitcoin_block();
+    miners.signer_test.wait_for_signer_state_update();
     info!("------------------------- Wait for block proposal -------------------------");
     let block_proposal = wait_for_block_proposal(30, expected_height, &miner_pk_1)
         .expect("Miner failed to propose tenure start block");

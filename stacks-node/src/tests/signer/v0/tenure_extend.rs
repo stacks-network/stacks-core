@@ -1434,6 +1434,7 @@ fn tenure_extend_after_stale_commit_same_miner() {
     let stacks_height_before = info_before.stacks_tip_height;
 
     signer_test.mine_bitcoin_block();
+    signer_test.wait_for_signer_state_update();
 
     verify_sortition_winner(&sortdb, &miner_pkh);
 
@@ -1570,6 +1571,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
     skip_commit_op.set(true);
 
     signer_test.mine_bitcoin_block();
+    signer_test.wait_for_signer_state_update();
 
     verify_sortition_winner(&sortdb, &miner_pkh);
 
@@ -1595,6 +1597,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
 
     // Now, mine the next bitcoin block, which should have no winner
     signer_test.mine_bitcoin_block();
+    signer_test.wait_for_signer_state_update();
 
     info!("---- Waiting for a tenure extend block in tenure N+2 ----";
         "stacks_height_before" => stacks_height_before,

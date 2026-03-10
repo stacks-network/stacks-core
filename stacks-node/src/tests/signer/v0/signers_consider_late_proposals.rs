@@ -87,6 +87,7 @@ fn signers_reprocess_late_block_proposals_pre_commits() {
     info!("------------------------- Mine Tenure A and Propose Block N -------------------------");
     let expected_height = signer_test.get_peer_info().stacks_tip_height + 1;
     signer_test.mine_bitcoin_block();
+    signer_test.wait_for_signer_state_update();
     info!("------------------------- Wait for block proposal -------------------------");
     let block_proposal = wait_for_block_proposal(30, expected_height, &miner_pk)
         .expect("Miner failed to propose tenure start block");
@@ -173,6 +174,7 @@ fn signers_reprocess_late_block_proposals_signatures() {
     info!("------------------------- Mine Tenure A and Propose Block N -------------------------");
     let expected_height = signer_test.get_peer_info().stacks_tip_height + 1;
     signer_test.mine_bitcoin_block();
+    signer_test.wait_for_signer_state_update();
     info!("------------------------- Wait for block proposal -------------------------");
     let block_proposal = wait_for_block_proposal(30, expected_height, &miner_pk)
         .expect("Miner failed to propose tenure start block");

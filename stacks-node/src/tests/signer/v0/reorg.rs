@@ -775,6 +775,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     );
     info!("------------------------- Miner 1 Wins the Next Tenure, Mines N+1', got rejected -------------------------");
     miners.signer_test.mine_bitcoin_block();
+    miners.signer_test.wait_for_signer_state_update();
     // assure we have a successful sortition that miner 1 won
     verify_sortition_winner(&sortdb, &miner_pkh_1);
     // wait for a block N+1' proposal from miner1
@@ -3221,10 +3222,8 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     test_observer::clear();
 
     // Start a new tenure and ensure the we see the expected rejections
-    signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .build_next_block(1);
+    signer_test.mine_bitcoin_block();
+    signer_test.wait_for_signer_state_update();
     let proposal = wait_for_block_proposal_block(30, info_before.stacks_tip_height + 1, &miner_pk)
         .expect("Timed out waiting for block N+1 to be proposed");
     wait_for_block_rejections_from_signers(
