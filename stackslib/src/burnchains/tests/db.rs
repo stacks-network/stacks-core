@@ -218,7 +218,7 @@ fn test_store_and_fetch() {
         }
     }
 
-    let BurnchainBlockData { header, ops } =
+    let BurnchainBlockData { header, ops, .. } =
         BurnchainDB::get_burnchain_block(burnchain_db.conn(), &non_canon_hash).unwrap();
     assert_eq!(ops.len(), expected_ops.len());
     for op in ops.iter() {
@@ -246,7 +246,7 @@ fn test_store_and_fetch() {
     let looked_up_canon = burnchain_db.get_canonical_chain_tip().unwrap();
     assert_eq!(&looked_up_canon, &canonical_block.header());
 
-    let BurnchainBlockData { header, ops } =
+    let BurnchainBlockData { header, ops, .. } =
         BurnchainDB::get_burnchain_block(burnchain_db.conn(), &canon_hash).unwrap();
     assert!(ops.is_empty());
     assert_eq!(&header, &looked_up_canon);
@@ -1084,7 +1084,7 @@ pub fn tmp_db_path() -> PathBuf {
 }
 
 #[test]
-fn burnchain_db_migration_v2_to_v3() -> Result<(), BurnchainError> {
+fn burnchain_db_migration_v2() -> Result<(), BurnchainError> {
     // Create an in-memory database
     let tmp_path = tmp_db_path();
     let conn = Connection::open(tmp_path.clone())?;
@@ -1123,7 +1123,11 @@ fn burnchain_db_migration_v2_to_v3() -> Result<(), BurnchainError> {
         .filter_map(|v| v.parse::<u32>().ok())
         .max()
         .expect("Expected db_config to have a version");
-    assert_eq!(version, 3, "Database version should be 3 after migration");
+    assert_eq!(
+        version,
+        BurnchainDB::SCHEMA_VERSION,
+        "Database version should be current after migration"
+    );
 
     // Verify affirmation_maps table is dropped
     assert!(
@@ -1182,4 +1186,276 @@ fn burnchain_db_migration_v2_to_v3() -> Result<(), BurnchainError> {
     );
 
     Ok(())
+}
+
+#[test]
+fn burnchain_db_migration_v3() -> Result<(), BurnchainError> {
+    // Create an in-memory database
+    let tmp_path = tmp_db_path();
+    let conn = Connection::open(tmp_path.clone())?;
+
+    // Initialize database with schema version 3
+    for statement in SCHEMA_2.iter().chain(SCHEMA_3.iter()) {
+        conn.execute_batch(statement)?;
+    }
+
+    // Insert sample data to verify data integrity post-migration
+    let sample_block_hash = BurnchainHeaderHash([1u8; 32]);
+    let sample_parent_block_hash = BurnchainHeaderHash([0u8; 32]);
+    let sample_txid = "txid1".to_string();
+    conn.execute(
+            "INSERT INTO burnchain_db_block_headers (block_height, block_hash, parent_block_hash, num_txs, timestamp) VALUES (?, ?, ?, ?, ?)",
+            params![1, &sample_block_hash, &sample_parent_block_hash, 1, 1234567890],
+        )?;
+    conn.execute(
+            "INSERT INTO block_commit_metadata (burn_block_hash, txid, block_height, vtxindex, anchor_block, anchor_block_descendant) VALUES (?, ?, ?, ?, ?, ?)",
+            params![&sample_block_hash, &sample_txid, 1, 0, None::<i64>, None::<i64>],
+        )?;
+
+    // Create BurnchainDB using connect to trigger migration code
+    let burnchain = mock_burnchain();
+    let db = BurnchainDB::connect(tmp_path.to_str().unwrap(), &burnchain, true)?;
+
+    let mut stmt = conn.prepare("SELECT version FROM db_config")?;
+    let version: u32 = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .filter_map(Result::ok)
+        .filter_map(|v| v.parse::<u32>().ok())
+        .max()
+        .expect("Expected db_config to have a version");
+    assert_eq!(
+        version,
+        BurnchainDB::SCHEMA_VERSION,
+        "Database version should be current after migration"
+    );
+
+    // Verify affirmation_maps table is dropped
+    assert!(
+        !table_exists(&db.conn, "affirmation_maps")?,
+        "affirmation_maps table should be dropped"
+    );
+
+    // Verify affirmation_id column is dropped from block_commit_metadata
+    let columns: Vec<String> = db
+        .conn
+        .prepare("PRAGMA table_info(block_commit_metadata)")?
+        .query_map([], |row| row.get(1))?
+        .collect::<Result<Vec<String>, _>>()?;
+    assert!(
+        !columns.contains(&"affirmation_id".to_string()),
+        "affirmation_id column should be dropped"
+    );
+
+    // Verify other tables and data remain intact
+    assert!(
+        table_exists(&db.conn, "burnchain_db_block_headers")?,
+        "burnchain_db_block_headers table should exist"
+    );
+    assert!(
+        table_exists(&db.conn, "block_commit_metadata")?,
+        "block_commit_metadata table should exist"
+    );
+    let header: Option<BurnchainBlockHeader> = query_row(
+        &db.conn,
+        "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ?",
+        params![&sample_block_hash],
+    )?;
+    assert!(
+        header.is_some(),
+        "Sample block header should remain after migration"
+    );
+    let metadata: Option<String> = query_row(
+        &db.conn,
+        "SELECT txid FROM block_commit_metadata WHERE burn_block_hash = ?",
+        params![&sample_block_hash],
+    )?;
+    assert_eq!(
+        metadata,
+        Some(sample_txid),
+        "Sample block_commit_metadata should remain after migration"
+    );
+
+    // Verify indexes are still present
+    let indexes: Vec<String> = db.conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'index_block_commit_metadata%'")?
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+    assert!(
+        indexes.contains(&"index_block_commit_metadata_burn_block_hash_anchor_block".to_string()),
+        "Expected index should still exist"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn witness_script_hash_sql_roundtrip() {
+    // Verify that ToSql and FromSql are inverses of each other through a real SQLite connection.
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("CREATE TABLE t (v TEXT NOT NULL)")
+        .unwrap();
+
+    let original = WitnessScriptHash([0xabu8; 32]);
+    conn.execute("INSERT INTO t (v) VALUES (?1)", params![&original])
+        .unwrap();
+    let retrieved: WitnessScriptHash = conn
+        .query_row("SELECT v FROM t", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(retrieved, original);
+}
+
+#[test]
+fn witness_script_hash_from_sql_errors() {
+    use rusqlite::types::{FromSql, ValueRef};
+
+    // Valid 32-byte hex string parses correctly.
+    let valid_hex = "ab".repeat(32);
+    let result = WitnessScriptHash::column_result(ValueRef::Text(valid_hex.as_bytes()));
+    assert!(
+        result.is_ok(),
+        "Valid 32-byte hex should parse successfully"
+    );
+    assert_eq!(result.unwrap().0, [0xabu8; 32]);
+
+    // Non-hex characters must be rejected.
+    let result = WitnessScriptHash::column_result(ValueRef::Text(b"zz_not_hex_at_all_zz"));
+    assert!(result.is_err(), "Non-hex string should fail");
+
+    // 31 bytes (62 hex chars) must be rejected.
+    let short_hex = "ab".repeat(31);
+    let result = WitnessScriptHash::column_result(ValueRef::Text(short_hex.as_bytes()));
+    assert!(result.is_err(), "31-byte hash should fail length check");
+
+    // 33 bytes (66 hex chars) must be rejected.
+    let long_hex = "ab".repeat(33);
+    let result = WitnessScriptHash::column_result(ValueRef::Text(long_hex.as_bytes()));
+    assert!(result.is_err(), "33-byte hash should fail length check");
+}
+
+#[test]
+fn store_watched_outputs() {
+    let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+    let burnchain = Burnchain::regtest(":memory:");
+    let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+
+    let block_hash = BurnchainHeaderHash([1u8; 32]);
+    let header = BurnchainBlockHeader {
+        block_height: 1,
+        block_hash: block_hash.clone(),
+        parent_block_hash: first_bhh,
+        num_txs: 0,
+        timestamp: 1,
+    };
+
+    let outputs = vec![
+        WatchedP2WSHOutput {
+            txid: Txid([1u8; 32]),
+            vout: 0,
+            witness_script_hash: WitnessScriptHash([0xaau8; 32]),
+            amount: 1_000,
+        },
+        WatchedP2WSHOutput {
+            txid: Txid([2u8; 32]),
+            vout: 0,
+            witness_script_hash: WitnessScriptHash([0xbbu8; 32]),
+            amount: 2_000,
+        },
+    ];
+
+    let db_tx = db.tx_begin().unwrap();
+    db_tx.store_burnchain_db_entry(&header).unwrap();
+    db_tx.store_watched_outputs(&header, &outputs).unwrap();
+    db_tx.commit().unwrap();
+
+    // --- get_watched_outputs_at_block ---
+    // Both outputs are retrievable for the stored block.
+    let retrieved = BurnchainDB::get_watched_outputs_at_block(db.conn(), &block_hash).unwrap();
+    assert_eq!(retrieved.len(), 2);
+    assert!(retrieved.contains(&outputs[0]));
+    assert!(retrieved.contains(&outputs[1]));
+
+    // An unknown block hash returns an empty list.
+    let unknown_hash = BurnchainHeaderHash([0xffu8; 32]);
+    assert!(
+        BurnchainDB::get_watched_outputs_at_block(db.conn(), &unknown_hash)
+            .unwrap()
+            .is_empty()
+    );
+
+    // --- empty-slice store is a no-op ---
+    let block_hash2 = BurnchainHeaderHash([2u8; 32]);
+    let header2 = BurnchainBlockHeader {
+        block_height: 2,
+        block_hash: block_hash2.clone(),
+        parent_block_hash: block_hash.clone(),
+        num_txs: 0,
+        timestamp: 2,
+    };
+    let db_tx = db.tx_begin().unwrap();
+    db_tx.store_burnchain_db_entry(&header2).unwrap();
+    db_tx.store_watched_outputs(&header2, &[]).unwrap();
+    db_tx.commit().unwrap();
+    assert!(
+        BurnchainDB::get_watched_outputs_at_block(db.conn(), &block_hash2)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn prune_watched_outputs() {
+    let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+    let burnchain = Burnchain::regtest(":memory:");
+    let mut db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+
+    // With reward_cycle_length = 10, the prune threshold is (3 * 10) / 2 = 15.
+    // Outputs at block heights < 15 should be deleted; those at >= 15 should survive.
+    let reward_cycle_length: u32 = 10;
+    let threshold: u64 = (3 * u64::from(reward_cycle_length)) / 2; // 15
+
+    let heights: &[u64] = &[1, 5, 10, 14, 15, 20];
+    let mut parent = first_bhh;
+    for &height in heights {
+        let hash_bytes = [(height as u8); 32];
+        let block_hash = BurnchainHeaderHash(hash_bytes);
+        let header = BurnchainBlockHeader {
+            block_height: height,
+            block_hash: block_hash.clone(),
+            parent_block_hash: parent.clone(),
+            num_txs: 0,
+            timestamp: height,
+        };
+        let output = WatchedP2WSHOutput {
+            txid: Txid(hash_bytes),
+            vout: 0,
+            witness_script_hash: WitnessScriptHash(hash_bytes),
+            amount: height * 1_000,
+        };
+        let db_tx = db.tx_begin().unwrap();
+        db_tx.store_burnchain_db_entry(&header).unwrap();
+        db_tx.store_watched_outputs(&header, &[output]).unwrap();
+        db_tx.commit().unwrap();
+        parent = block_hash;
+    }
+
+    let db_tx = db.tx_begin().unwrap();
+    db_tx.prune_watched_outputs(reward_cycle_length).unwrap();
+    db_tx.commit().unwrap();
+
+    for &height in heights {
+        let block_hash = BurnchainHeaderHash([(height as u8); 32]);
+        let remaining = BurnchainDB::get_watched_outputs_at_block(db.conn(), &block_hash).unwrap();
+        if height < threshold {
+            assert!(
+                remaining.is_empty(),
+                "Expected outputs at height {height} to be pruned (threshold={threshold})"
+            );
+        } else {
+            assert_eq!(
+                remaining.len(),
+                1,
+                "Expected outputs at height {height} to survive (threshold={threshold})"
+            );
+        }
+    }
 }
