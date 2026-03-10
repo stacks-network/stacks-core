@@ -127,6 +127,7 @@ fn signers_do_not_reconsider_globally_accepted_and_responded_blocks() {
         &conf_1.get_burn_db_file_path(),
         false,
         conf_1.get_burnchain().pox_constants,
+        None,
     )
     .unwrap();
     // Mine an initial block to establish state

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -403,20 +403,20 @@ impl RPCReplayedBlockTransaction {
         receipt: &StacksTransactionReceipt,
         profiler_result: &BlockReplayProfilerResult,
     ) -> Self {
-        let events = receipt
-            .events
-            .iter()
-            .enumerate()
-            .map(|(event_index, event)| {
-                event
-                    .json_serialize(
-                        event_index,
-                        &receipt.transaction.txid(),
-                        !receipt.post_condition_aborted,
-                    )
-                    .unwrap()
-            })
-            .collect();
+        let events = if receipt.post_condition_aborted {
+            vec![]
+        } else {
+            receipt
+                .events
+                .iter()
+                .enumerate()
+                .map(|(event_index, event)| {
+                    event
+                        .json_serialize(event_index, &receipt.transaction.txid(), true)
+                        .unwrap()
+                })
+                .collect()
+        };
 
         let transaction_data = match &receipt.transaction {
             TransactionOrigin::Stacks(stacks) => Some(stacks.clone()),
