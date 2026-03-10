@@ -25,9 +25,11 @@ use stacks_common::types::StacksEpochId;
 
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
-    CharType, ClarityTypeError, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
-    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    SequencedValue, StandardPrincipalData, TraitIdentifier, Value, WRAPPER_VALUE_SIZE,
+    BOOL_SIZE, CharType, ClarityTypeError, INT_SIZE, MAX_TO_ASCII_BUFFER_LEN,
+    MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PRINCIPAL_SIZE,
+    PrincipalData, QualifiedContractIdentifier, SEQUENCE_LENGTH_PREFIX, SequenceData,
+    SequencedValue, StandardPrincipalData, TRAIT_SIZE, TraitIdentifier, UTF8_CHAR_SIZE, Value,
+    WRAPPER_VALUE_SIZE,
 };
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Serialize, Deserialize, Hash)]
@@ -66,17 +68,18 @@ impl AssetIdentifier {
     }
 }
 
-/// Sentinel value for [`CachedSize`] indicating the size has not been computed.
+/// Sentinel value for [`CachedValueSize`] indicating the size has not been computed.
 /// Safe because `MAX_VALUE_SIZE` (1 MB) is far below `u32::MAX`.
 const CACHED_SIZE_UNSET: u32 = u32::MAX;
 
-/// Lazily-cached type size. Uses `AtomicU32` for `Send`+`Sync` compatibility.
+/// Lazily-cached value size. Uses `AtomicU32` for `Send`+`Sync` compatibility.
 /// Transparent to equality comparisons and serialization.
-struct CachedSize(AtomicU32);
+/// Enforces that cached values are <= `MAX_VALUE_SIZE`.
+struct CachedValueSize(AtomicU32);
 
-impl CachedSize {
+impl CachedValueSize {
     fn new() -> Self {
-        CachedSize(AtomicU32::new(CACHED_SIZE_UNSET))
+        CachedValueSize(AtomicU32::new(CACHED_SIZE_UNSET))
     }
 
     fn get(&self) -> Option<u32> {
@@ -84,34 +87,43 @@ impl CachedSize {
         (v != CACHED_SIZE_UNSET).then_some(v)
     }
 
-    fn set(&self, size: u32) {
+    fn set(&self, size: u32) -> Result<(), ClarityTypeError> {
+        if size == CACHED_SIZE_UNSET {
+            return Err(ClarityTypeError::InvariantViolation(
+                "attempted to cache sentinel value as size".into(),
+            ));
+        }
+        if size > MAX_VALUE_SIZE {
+            return Err(ClarityTypeError::ValueTooLarge);
+        }
         self.0.store(size, Ordering::Relaxed);
+        Ok(())
     }
 }
 
-impl Default for CachedSize {
+impl Default for CachedValueSize {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Clone for CachedSize {
+impl Clone for CachedValueSize {
     fn clone(&self) -> Self {
-        CachedSize(AtomicU32::new(self.0.load(Ordering::Relaxed)))
+        CachedValueSize(AtomicU32::new(self.0.load(Ordering::Relaxed)))
     }
 }
 
-impl PartialEq for CachedSize {
+impl PartialEq for CachedValueSize {
     fn eq(&self, _other: &Self) -> bool {
         true
     }
 }
 
-impl Eq for CachedSize {}
+impl Eq for CachedValueSize {}
 
-impl fmt::Debug for CachedSize {
+impl fmt::Debug for CachedValueSize {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CachedSize({:?})", self.get())
+        write!(f, "CachedValueSize({:?})", self.get())
     }
 }
 
@@ -120,7 +132,7 @@ pub struct TupleTypeSignature {
     #[serde(with = "tuple_type_map_serde")]
     type_map: Arc<BTreeMap<ClarityName, TypeSignature>>,
     #[serde(skip)]
-    cached_size: CachedSize,
+    cached_size: CachedValueSize,
 }
 
 mod tuple_type_map_serde {
@@ -751,7 +763,7 @@ impl TypeSignature {
                 }
                 TypeSignature::from(TupleTypeSignature {
                     type_map: Arc::new(canonicalized_fields),
-                    cached_size: CachedSize::new(),
+                    cached_size: CachedValueSize::new(),
                 })
             }
             TraitReferenceType(trait_id) => CallableType(CallableSubtype::Trait(trait_id.clone())),
@@ -840,7 +852,7 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
         let type_map = Arc::new(type_map.into_iter().collect());
         let result = TupleTypeSignature {
             type_map,
-            cached_size: CachedSize::new(),
+            cached_size: CachedValueSize::new(),
         };
         let would_be_size = result
             .inner_size()?
@@ -896,7 +908,7 @@ impl TupleTypeSignature {
 
     pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
         Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
-        self.cached_size = CachedSize::new();
+        self.cached_size = CachedValueSize::new();
     }
 }
 
@@ -1456,19 +1468,18 @@ impl TypeSignature {
         let out = match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            NoType => Some(1),
-            IntType => Some(16),
-            UIntType => Some(16),
-            BoolType => Some(1),
-            PrincipalType => Some(148), // 20+128
+            NoType => Some(BOOL_SIZE),
+            IntType | UIntType => Some(INT_SIZE),
+            BoolType => Some(BOOL_SIZE),
+            PrincipalType => Some(PRINCIPAL_SIZE),
             TupleType(tuple_sig) => tuple_sig.inner_size()?,
             SequenceType(SequenceSubtype::BufferType(len))
             | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
-                Some(4 + u32::from(len))
+                Some(SEQUENCE_LENGTH_PREFIX + u32::from(len))
             }
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.inner_size()?,
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
-                Some(4 + 4 * u32::from(len))
+                Some(SEQUENCE_LENGTH_PREFIX + UTF8_CHAR_SIZE * u32::from(len))
             }
             OptionalType(t) => t.size()?.checked_add(WRAPPER_VALUE_SIZE),
             ResponseType(v) => {
@@ -1479,8 +1490,8 @@ impl TypeSignature {
                 let s_size = s.size()?;
                 cmp::max(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
-            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(148), // 20+128
-            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(276), // 20+128+128
+            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(PRINCIPAL_SIZE),
+            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(TRAIT_SIZE),
         };
         Ok(out)
     }
@@ -1527,19 +1538,22 @@ impl TypeSignature {
         let out = match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            NoType => Some(1),
-            IntType => Some(16),
-            UIntType => Some(16),
-            BoolType => Some(1),
+            NoType => Some(BOOL_SIZE),
+            IntType | UIntType => Some(INT_SIZE),
+            BoolType => Some(BOOL_SIZE),
             TupleType(tuple_sig) => tuple_sig.inner_min_size()?,
             SequenceType(SequenceSubtype::BufferType(_))
-            | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => Some(4),
+            | SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => {
+                Some(SEQUENCE_LENGTH_PREFIX)
+            }
             // Minimal list value is an empty list, which still carries list type metadata.
             SequenceType(SequenceSubtype::ListType(list_type)) => list_type.type_size(),
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => Some(4),
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => {
+                Some(SEQUENCE_LENGTH_PREFIX)
+            }
             // Optional types always admit `none`, so minimum size is fixed:
             // 1 byte for NoType plus wrapper.
-            OptionalType(_) => Some(WRAPPER_VALUE_SIZE + 1),
+            OptionalType(_) => Some(WRAPPER_VALUE_SIZE + BOOL_SIZE),
             ResponseType(v) => {
                 // ResponseTypes are 1 byte for the committed bool,
                 //   plus min(err_type, ok_type)
@@ -1552,13 +1566,13 @@ impl TypeSignature {
                 // The actual value size is not computed for these types, so we need to just always
                 // return the size that `size()` returns for them, which is the maximum size of a
                 // contract principal with a 128 byte contract name.
-                Some(148)
+                Some(PRINCIPAL_SIZE)
             }
             CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => {
                 // The actual value size is not computed for these types, so we need to just always
                 // return the size that `size()` returns for them, which is the maximum size of a
                 // trait reference with a 128 byte contract name and 128 byte trait name.
-                Some(276)
+                Some(TRAIT_SIZE)
             }
         };
         Ok(out)
@@ -1566,8 +1580,17 @@ impl TypeSignature {
 }
 
 impl ListTypeData {
+    pub fn size(&self) -> Result<u32, ClarityTypeError> {
+        self.inner_size()?.ok_or_else(|| {
+            ClarityTypeError::InvariantViolation(
+                "FAIL: .size() overflowed on too large of a type. Construction should have failed!"
+                    .into(),
+            )
+        })
+    }
+
     /// List Size: type_signature_size + max_len * entry_type.size()
-    pub(crate) fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
+    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
         let total_size = self
             .entry_type
             .size()?
@@ -1623,7 +1646,7 @@ impl TupleTypeSignature {
         let computed = self.inner_size()?.ok_or_else(|| {
             ClarityTypeError::InvariantViolation("size() overflowed on a constructed type.".into())
         })?;
-        self.cached_size.set(computed);
+        self.cached_size.set(computed)?;
         Ok(computed)
     }
 

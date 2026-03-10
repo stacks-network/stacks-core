@@ -57,6 +57,18 @@ pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
 pub const MAX_TYPE_DEPTH: u8 = 32;
 /// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
+/// Size of an Int or UInt value (i128 = 16 bytes)
+pub const INT_SIZE: u32 = 16;
+/// Size of a Bool value
+pub const BOOL_SIZE: u32 = 1;
+/// Size of a principal (20 hash bytes + 128 contract name bytes)
+pub const PRINCIPAL_SIZE: u32 = 148;
+/// Size of a trait reference (principal + 128 trait name bytes)
+pub const TRAIT_SIZE: u32 = PRINCIPAL_SIZE + 128;
+/// Length prefix size for sequences (buffer, string)
+pub const SEQUENCE_LENGTH_PREFIX: u32 = 4;
+/// Size of a single UTF8 character (4 bytes)
+pub const UTF8_CHAR_SIZE: u32 = 4;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
@@ -960,34 +972,34 @@ impl Value {
 
     pub fn size(&self) -> Result<u32, ClarityTypeError> {
         match self {
-            Value::Int(_) | Value::UInt(_) => Ok(16),
-            Value::Bool(_) => Ok(1),
-            Value::Principal(_) => Ok(148),
+            Value::Int(_) | Value::UInt(_) => Ok(INT_SIZE),
+            Value::Bool(_) => Ok(BOOL_SIZE),
+            Value::Principal(_) => Ok(PRINCIPAL_SIZE),
             Value::CallableContract(v) => {
                 if v.trait_identifier.is_some() {
-                    Ok(276)
+                    Ok(TRAIT_SIZE)
                 } else {
-                    Ok(148)
+                    Ok(PRINCIPAL_SIZE)
                 }
             }
             Value::Tuple(data) => data.type_signature.size(),
-            Value::Sequence(SequenceData::List(data)) => data
-                .type_signature
-                .inner_size()?
-                .ok_or(ClarityTypeError::ValueTooLarge),
-            Value::Sequence(SequenceData::Buffer(data)) => {
-                Ok(4 + u32::try_from(data.data.len())
-                    .map_err(|_| ClarityTypeError::ValueTooLarge)?)
-            }
+            Value::Sequence(SequenceData::List(data)) => data.type_signature.size(),
+            Value::Sequence(SequenceData::Buffer(data)) => Ok(SEQUENCE_LENGTH_PREFIX
+                + u32::try_from(data.data.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?),
             Value::Sequence(SequenceData::String(CharType::ASCII(data))) => {
-                Ok(4 + u32::try_from(data.data.len())
-                    .map_err(|_| ClarityTypeError::ValueTooLarge)?)
+                Ok(SEQUENCE_LENGTH_PREFIX
+                    + u32::try_from(data.data.len())
+                        .map_err(|_| ClarityTypeError::ValueTooLarge)?)
             }
-            Value::Sequence(SequenceData::String(CharType::UTF8(data))) => Ok(4 + 4
-                * u32::try_from(data.data.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?),
+            Value::Sequence(SequenceData::String(CharType::UTF8(data))) => {
+                Ok(SEQUENCE_LENGTH_PREFIX
+                    + UTF8_CHAR_SIZE
+                        * u32::try_from(data.data.len())
+                            .map_err(|_| ClarityTypeError::ValueTooLarge)?)
+            }
             Value::Optional(opt) => match &opt.data {
                 Some(v) => Ok(v.size()? + WRAPPER_VALUE_SIZE),
-                None => Ok(1 + WRAPPER_VALUE_SIZE),
+                None => Ok(BOOL_SIZE + WRAPPER_VALUE_SIZE),
             },
             Value::Response(resp) => Ok(resp.data.size()? + WRAPPER_VALUE_SIZE),
         }
