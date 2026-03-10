@@ -869,7 +869,7 @@ impl StacksChainState {
     /// * contains the block height of the block with the slashed microblock public key hash
     /// * contains the microblock public key hash
     /// * contains the sender that reported the poison-microblock
-    /// * contains the sequence number at which the fork occured
+    /// * contains the sequence number at which the fork occurred
     pub fn handle_poison_microblock(
         env: &mut Environment,
         mblock_header_1: &StacksMicroblockHeader,
@@ -1285,13 +1285,13 @@ impl StacksChainState {
                             }
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {
-                                    if err.rejectable() {
+                                    if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));
                                     }
                                 }
                                 if let ClarityError::StaticCheck(err) = &other_error {
-                                    if err.err.rejectable() {
+                                    if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));
                                     }
@@ -1667,7 +1667,7 @@ pub mod test {
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
-    use clarity::vm::types::*;
+    use clarity::vm::types::ResponseData;
     use rand::Rng;
     use stacks_common::types::chainstate::SortitionId;
     use stacks_common::util::hash::*;
@@ -1700,6 +1700,9 @@ pub mod test {
     pub const TestBurnStateDB_33: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch33,
     };
+    pub const TestBurnStateDB_34: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch34,
+    };
 
     pub const ALL_BURN_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_20 as &dyn BurnStateDB,
@@ -1709,6 +1712,7 @@ pub mod test {
         &TestBurnStateDB_31 as &dyn BurnStateDB,
         &TestBurnStateDB_32 as &dyn BurnStateDB,
         &TestBurnStateDB_33 as &dyn BurnStateDB,
+        &TestBurnStateDB_34 as &dyn BurnStateDB,
     ];
 
     pub const PRE_33_DBS: &[&dyn BurnStateDB] = &[
@@ -1730,6 +1734,7 @@ pub mod test {
         &TestBurnStateDB_31 as &dyn BurnStateDB,
         &TestBurnStateDB_32 as &dyn BurnStateDB,
         &TestBurnStateDB_33 as &dyn BurnStateDB,
+        &TestBurnStateDB_34 as &dyn BurnStateDB,
     ];
 
     #[test]
@@ -8562,6 +8567,7 @@ pub mod test {
                     StacksEpochId::Epoch31 => self.get_stacks_epoch(8),
                     StacksEpochId::Epoch32 => self.get_stacks_epoch(9),
                     StacksEpochId::Epoch33 => self.get_stacks_epoch(10),
+                    StacksEpochId::Epoch34 => self.get_stacks_epoch(11),
                 }
             }
             fn get_pox_payout_addrs(
@@ -10754,9 +10760,13 @@ pub mod test {
             runtime_check_err,
         ))) = err
         {
+            assert!(
+                matches!(runtime_check_err, RuntimeCheckErrorKind::TraitReferenceUnknown(ref name) if name == "foo"),
+                "Expected TraitReferenceUnknown(\"foo\") runtime check error"
+            );
         } else {
             panic!("Did not get unchecked interpreter error");
-        }
+        };
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
@@ -10849,23 +10859,16 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
+        let (_fee, receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
         )
         .unwrap();
-        assert_eq!(fee, 1);
-        match tx_receipt.result {
-            Value::Response(ResponseData {
-                committed: false,
-                data,
-            }) => (),
-            _ => panic!("expected successful call"),
-        }
         assert_eq!(
-            tx_receipt.vm_error,
-            Some("TraitReferenceUnknown(\"foo\")".to_string())
+            receipt.vm_error.as_deref(),
+            Some("TraitReferenceUnknown(\"foo\")"),
+            "Expected TraitReferenceUnknown vm_error"
         );
 
         conn.commit_block();
@@ -10911,23 +10914,16 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
+        let (_fee, receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
         )
         .unwrap();
-        assert_eq!(fee, 1);
-        match tx_receipt.result {
-            Value::Response(ResponseData {
-                committed: false,
-                data,
-            }) => (),
-            _ => panic!("expected successful call"),
-        }
         assert_eq!(
-            tx_receipt.vm_error,
-            Some("TraitReferenceUnknown(\"foo\")".to_string())
+            receipt.vm_error.as_deref(),
+            Some("TraitReferenceUnknown(\"foo\")"),
+            "Expected TraitReferenceUnknown vm_error"
         );
 
         conn.commit_block();

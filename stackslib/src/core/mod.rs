@@ -17,6 +17,8 @@
 #[cfg(test)]
 use std::cmp::Ordering;
 use std::collections::HashSet;
+#[cfg(test)]
+use std::str::FromStr;
 
 use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
@@ -24,6 +26,8 @@ pub use stacks_common::consts::MICROSTACKS_PER_STACKS;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 pub use stacks_common::types::StacksEpochId;
 use stacks_common::types::{EpochList as GenericEpochList, StacksEpoch as GenericStacksEpoch};
+#[cfg(test)]
+use stacks_common::versions::STACKS_NODE_VERSION;
 
 pub use self::mempool::MemPoolDB;
 use crate::burnchains::bitcoin::indexer::get_bitcoin_stacks_epochs;
@@ -50,8 +54,9 @@ pub use stacks_common::consts::{
     NETWORK_ID_TESTNET, PEER_NETWORK_EPOCH, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
-    PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_MAINNET,
-    PEER_VERSION_MAINNET_MAJOR, PEER_VERSION_TESTNET, PEER_VERSION_TESTNET_MAJOR, STACKS_EPOCH_MAX,
+    PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
+    PEER_VERSION_MAINNET, PEER_VERSION_MAINNET_MAJOR, PEER_VERSION_TESTNET,
+    PEER_VERSION_TESTNET_MAJOR, STACKS_EPOCH_MAX,
 };
 
 // default port
@@ -109,6 +114,8 @@ pub const BITCOIN_MAINNET_STACKS_31_BURN_HEIGHT: u64 = 875_000;
 pub const BITCOIN_MAINNET_STACKS_32_BURN_HEIGHT: u64 = 907_740;
 /// This is Epoch-3.3, activation timing proposed in SIP-033
 pub const BITCOIN_MAINNET_STACKS_33_BURN_HEIGHT: u64 = 923_222;
+/// This is Epoch-3.4, activation timing will be proposed in a future SIP
+pub const BITCOIN_MAINNET_STACKS_34_BURN_HEIGHT: u64 = 3_400_000;
 
 /// Bitcoin mainline testnet3 activation heights.
 /// TODO: No longer used since testnet3 is dead, so remove.
@@ -126,6 +133,7 @@ pub const BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT: u64 = 30_000_000;
 pub const BITCOIN_TESTNET_STACKS_31_BURN_HEIGHT: u64 = 30_000_001;
 pub const BITCOIN_TESTNET_STACKS_32_BURN_HEIGHT: u64 = 30_000_002;
 pub const BITCOIN_TESTNET_STACKS_33_BURN_HEIGHT: u64 = 30_000_003;
+pub const BITCOIN_TESTNET_STACKS_34_BURN_HEIGHT: u64 = 30_000_004;
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
@@ -324,9 +332,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
             start_height: BITCOIN_MAINNET_STACKS_33_BURN_HEIGHT,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: BITCOIN_MAINNET_STACKS_34_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_3
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch34,
+            start_height: BITCOIN_MAINNET_STACKS_34_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
+            network_epoch: PEER_VERSION_EPOCH_3_4
         },
     ]);
 }
@@ -413,9 +428,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
             start_height: BITCOIN_TESTNET_STACKS_33_BURN_HEIGHT,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: BITCOIN_TESTNET_STACKS_34_BURN_HEIGHT,
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_3
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch34,
+            start_height: BITCOIN_TESTNET_STACKS_34_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
+            network_epoch: PEER_VERSION_EPOCH_3_4
         },
     ]);
 }
@@ -502,9 +524,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
             start_height: 10001,
-            end_height: STACKS_EPOCH_MAX,
+            end_height: 11001,
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_3
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch34,
+            start_height: 11001,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
+            network_epoch: PEER_VERSION_EPOCH_3_4
         },
     ]);
 }
@@ -552,6 +581,10 @@ pub static STACKS_EPOCH_3_2_MARKER: u8 = 0x0e;
 /// *or greater*.
 pub static STACKS_EPOCH_3_3_MARKER: u8 = 0x0f;
 
+/// Stacks 3.4 epoch marker.  All block-commits in 3.4 must have a memo bitfield with this value
+/// *or greater*.
+pub static STACKS_EPOCH_3_4_MARKER: u8 = 0x10;
+
 /// Latest Stacks epoch marker. Automatically uses the marker for the highest supported epoch.
 pub static STACKS_EPOCH_LATEST_MARKER: u8 =
     marker_for_epoch(StacksEpochId::latest()).expect("Latest epoch should always have a marker");
@@ -570,7 +603,19 @@ pub const fn marker_for_epoch(epoch_id: StacksEpochId) -> Option<u8> {
         StacksEpochId::Epoch31 => Some(STACKS_EPOCH_3_1_MARKER),
         StacksEpochId::Epoch32 => Some(STACKS_EPOCH_3_2_MARKER),
         StacksEpochId::Epoch33 => Some(STACKS_EPOCH_3_3_MARKER),
+        StacksEpochId::Epoch34 => Some(STACKS_EPOCH_3_4_MARKER),
     }
+}
+
+// Pick the release epoch whose `network_epoch` must match `PEER_NETWORK_EPOCH`.
+// `latest()` may be one-ahead in test/testing builds, so this check intentionally
+// anchors to the release latest epoch instead.
+fn peer_network_epoch_check_epoch_id() -> StacksEpochId {
+    assert!(
+        StacksEpochId::RELEASE_LATEST_EPOCH <= StacksEpochId::latest(),
+        "FATAL: RELEASE_LATEST_EPOCH cannot be greater than latest()"
+    );
+    StacksEpochId::RELEASE_LATEST_EPOCH
 }
 
 #[test]
@@ -830,6 +875,68 @@ fn test_ord_for_stacks_epoch_id() {
     );
 }
 
+#[cfg(test)]
+fn release_epoch_from_stacks_node_version() -> StacksEpochId {
+    let mut parts = STACKS_NODE_VERSION.split('.');
+    let major = parts
+        .next()
+        .expect("FATAL: STACKS_NODE_VERSION must include major version");
+    let minor = parts
+        .next()
+        .expect("FATAL: STACKS_NODE_VERSION must include minor version");
+    let release_epoch_str = format!("{major}.{minor}");
+    StacksEpochId::from_str(&release_epoch_str).unwrap_or_else(|_| {
+        panic!(
+            "FATAL: STACKS_NODE_VERSION major.minor '{release_epoch_str}' must map to a StacksEpochId"
+        )
+    })
+}
+
+#[test]
+fn test_release_epoch_matches_versions_and_peer_epoch() {
+    let release_epoch_from_version = release_epoch_from_stacks_node_version();
+    assert_eq!(
+        release_epoch_from_version,
+        StacksEpochId::RELEASE_LATEST_EPOCH,
+        "versions.toml stacks_node_version major.minor must match RELEASE_LATEST_EPOCH"
+    );
+    assert_eq!(
+        u32::from(StacksEpochId::network_epoch(
+            StacksEpochId::RELEASE_LATEST_EPOCH
+        )),
+        PEER_NETWORK_EPOCH,
+        "PEER_NETWORK_EPOCH must match RELEASE_LATEST_EPOCH's network_epoch"
+    );
+}
+
+#[test]
+fn test_peer_network_epoch_matches_static_epoch_tables() {
+    let check_epoch_id = peer_network_epoch_check_epoch_id();
+    for (network_name, epochs) in [
+        ("mainnet", &*STACKS_EPOCHS_MAINNET),
+        ("testnet", &*STACKS_EPOCHS_TESTNET),
+        ("regtest", &*STACKS_EPOCHS_REGTEST),
+    ] {
+        let check_epoch = epochs.get(check_epoch_id).unwrap_or_else(|| {
+            panic!("FATAL: {network_name} epoch table is missing check epoch {check_epoch_id:?}")
+        });
+        assert_eq!(
+            u32::from(check_epoch.network_epoch),
+            PEER_NETWORK_EPOCH,
+            "stacks-blockchain static network epoch should match {network_name} epoch {check_epoch_id:?}"
+        );
+    }
+}
+
+#[test]
+#[should_panic(expected = "stacks-blockchain static network epoch should match")]
+fn test_validate_epochs_rejects_stale_peer_network_epoch() {
+    let check_epoch_id = peer_network_epoch_check_epoch_id();
+    let mut bad_epochs = (*STACKS_EPOCHS_MAINNET).clone();
+    bad_epochs[check_epoch_id].network_epoch = (PEER_NETWORK_EPOCH + 1) as u8;
+    let _ = StacksEpoch::validate_epochs(&bad_epochs);
+}
+
 pub trait StacksEpochExtension {
     #[cfg(test)]
     fn unit_test(stacks_epoch_id: StacksEpochId, epoch_2_0_block_height: u64) -> EpochList;
@@ -858,6 +965,8 @@ pub trait StacksEpochExtension {
     #[cfg(test)]
     fn unit_test_3_3(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
+    fn unit_test_3_4(epoch_2_0_block_height: u64) -> EpochList;
+    #[cfg(test)]
     fn unit_test_2_1_only(epoch_2_0_block_height: u64) -> EpochList;
     #[cfg(test)]
     fn unit_test_3_0_only(first_burnchain_height: u64) -> EpochList;
@@ -865,6 +974,8 @@ pub trait StacksEpochExtension {
     fn unit_test_3_2_only(first_burnchain_height: u64) -> EpochList;
     #[cfg(test)]
     fn unit_test_3_3_only(first_burnchain_height: u64) -> EpochList;
+    #[cfg(test)]
+    fn unit_test_3_4_only(first_burnchain_height: u64) -> EpochList;
     fn all(
         epoch_2_0_block_height: u64,
         epoch_2_05_block_height: u64,
@@ -1925,7 +2036,175 @@ impl StacksEpochExtension for StacksEpoch {
                     read_count: 210210,
                     runtime: 210210,
                 },
+                network_epoch: PEER_VERSION_EPOCH_3_3,
+            },
+        ])
+    }
+
+    #[cfg(test)]
+    fn unit_test_3_4(first_burnchain_height: u64) -> EpochList {
+        info!(
+            "StacksEpoch unit_test_3_4 first_burn_height = {}",
+            first_burnchain_height
+        );
+
+        EpochList::new(&[
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: first_burnchain_height,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: first_burnchain_height,
+                end_height: first_burnchain_height + 4,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: first_burnchain_height + 4,
+                end_height: first_burnchain_height + 8,
+                block_limit: ExecutionCost {
+                    write_length: 205205,
+                    write_count: 205205,
+                    read_length: 205205,
+                    read_count: 205205,
+                    runtime: 205205,
+                },
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: first_burnchain_height + 8,
+                end_height: first_burnchain_height + 12,
+                block_limit: ExecutionCost {
+                    write_length: 210210,
+                    write_count: 210210,
+                    read_length: 210210,
+                    read_count: 210210,
+                    runtime: 210210,
+                },
+                network_epoch: PEER_VERSION_EPOCH_2_1,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch22,
+                start_height: first_burnchain_height + 12,
+                end_height: first_burnchain_height + 16,
+                block_limit: ExecutionCost {
+                    write_length: 210210,
+                    write_count: 210210,
+                    read_length: 210210,
+                    read_count: 210210,
+                    runtime: 210210,
+                },
+                network_epoch: PEER_VERSION_EPOCH_2_2,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch23,
+                start_height: first_burnchain_height + 16,
+                end_height: first_burnchain_height + 20,
+                block_limit: ExecutionCost {
+                    write_length: 210210,
+                    write_count: 210210,
+                    read_length: 210210,
+                    read_count: 210210,
+                    runtime: 210210,
+                },
+                network_epoch: PEER_VERSION_EPOCH_2_3,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch24,
+                start_height: first_burnchain_height + 20,
+                end_height: first_burnchain_height + 24,
+                block_limit: ExecutionCost {
+                    write_length: 210210,
+                    write_count: 210210,
+                    read_length: 210210,
+                    read_count: 210210,
+                    runtime: 210210,
+                },
+                network_epoch: PEER_VERSION_EPOCH_2_4,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch25,
+                start_height: first_burnchain_height + 24,
+                end_height: first_burnchain_height + 28,
+                block_limit: ExecutionCost {
+                    write_length: 210210,
+                    write_count: 210210,
+                    read_length: 210210,
+                    read_count: 210210,
+                    runtime: 210210,
+                },
+                network_epoch: PEER_VERSION_EPOCH_2_5,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch30,
+                start_height: first_burnchain_height + 28,
+                end_height: first_burnchain_height + 32,
+                block_limit: ExecutionCost {
+                    write_length: 210210,
+                    write_count: 210210,
+                    read_length: 210210,
+                    read_count: 210210,
+                    runtime: 210210,
+                },
+                network_epoch: PEER_VERSION_EPOCH_3_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch31,
+                start_height: first_burnchain_height + 32,
+                end_height: first_burnchain_height + 36,
+                block_limit: ExecutionCost {
+                    write_length: 210210,
+                    write_count: 210210,
+                    read_length: 210210,
+                    read_count: 210210,
+                    runtime: 210210,
+                },
+                network_epoch: PEER_VERSION_EPOCH_3_1,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch32,
+                start_height: first_burnchain_height + 36,
+                end_height: first_burnchain_height + 40,
+                block_limit: ExecutionCost {
+                    write_length: 210210,
+                    write_count: 210210,
+                    read_length: 210210,
+                    read_count: 210210,
+                    runtime: 210210,
+                },
                 network_epoch: PEER_VERSION_EPOCH_3_2,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch33,
+                start_height: first_burnchain_height + 40,
+                end_height: first_burnchain_height + 44,
+                block_limit: ExecutionCost {
+                    write_length: 210210,
+                    write_count: 210210,
+                    read_length: 210210,
+                    read_count: 210210,
+                    runtime: 210210,
+                },
+                network_epoch: PEER_VERSION_EPOCH_3_3,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch34,
+                start_height: first_burnchain_height + 44,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost {
+                    write_length: 210210,
+                    write_count: 210210,
+                    read_length: 210210,
+                    read_count: 210210,
+                    runtime: 210210,
+                },
+                network_epoch: PEER_VERSION_EPOCH_3_4,
             },
         ])
     }
@@ -2239,6 +2518,108 @@ impl StacksEpochExtension for StacksEpoch {
     }
 
     #[cfg(test)]
+    fn unit_test_3_4_only(first_burnchain_height: u64) -> EpochList {
+        info!(
+            "StacksEpoch unit_test first_burn_height = {}",
+            first_burnchain_height
+        );
+
+        EpochList::new(&[
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_1,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch22,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_2,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch23,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_3,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch24,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_4,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch25,
+                start_height: 0,
+                end_height: first_burnchain_height,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_2_4,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch30,
+                start_height: first_burnchain_height,
+                end_height: first_burnchain_height,
+                block_limit: BLOCK_LIMIT_MAINNET_21,
+                network_epoch: PEER_VERSION_EPOCH_3_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch31,
+                start_height: first_burnchain_height,
+                end_height: first_burnchain_height,
+                block_limit: BLOCK_LIMIT_MAINNET_21,
+                network_epoch: PEER_VERSION_EPOCH_3_1,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch32,
+                start_height: first_burnchain_height,
+                end_height: first_burnchain_height,
+                block_limit: BLOCK_LIMIT_MAINNET_21,
+                network_epoch: PEER_VERSION_EPOCH_3_2,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch33,
+                start_height: first_burnchain_height,
+                end_height: first_burnchain_height,
+                block_limit: BLOCK_LIMIT_MAINNET_21,
+                network_epoch: PEER_VERSION_EPOCH_3_3,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch34,
+                start_height: first_burnchain_height,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: BLOCK_LIMIT_MAINNET_21,
+                network_epoch: PEER_VERSION_EPOCH_3_4,
+            },
+        ])
+    }
+
+    #[cfg(test)]
     fn unit_test(stacks_epoch_id: StacksEpochId, first_burnchain_height: u64) -> EpochList {
         match stacks_epoch_id {
             StacksEpochId::Epoch10 | StacksEpochId::Epoch20 => {
@@ -2254,6 +2635,7 @@ impl StacksEpochExtension for StacksEpoch {
             StacksEpochId::Epoch31 => StacksEpoch::unit_test_3_1(first_burnchain_height),
             StacksEpochId::Epoch32 => StacksEpoch::unit_test_3_2(first_burnchain_height),
             StacksEpochId::Epoch33 => StacksEpoch::unit_test_3_3(first_burnchain_height),
+            StacksEpochId::Epoch34 => StacksEpoch::unit_test_3_4(first_burnchain_height),
         }
     }
 
@@ -2304,23 +2686,26 @@ impl StacksEpochExtension for StacksEpoch {
         let mut seen_epochs = HashSet::new();
         epochs.sort();
 
+        let latest_epoch = StacksEpochId::latest();
         let max_epoch = epochs_ref
             .iter()
             .max()
             .expect("FATAL: expect at least one epoch");
-        if max_epoch.epoch_id == StacksEpochId::Epoch33 {
-            assert!(PEER_NETWORK_EPOCH >= u32::from(PEER_VERSION_EPOCH_3_2));
-        } else {
-            assert!(
-                max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,
-                "stacks-blockchain static network epoch should be greater than or equal to the max epoch's"
-            );
-        }
+
+        let check_epoch_id = peer_network_epoch_check_epoch_id();
+        assert_peer_network_epoch(epochs_ref, max_epoch, check_epoch_id);
+
+        let latest_epoch_idx = StacksEpochId::ALL
+            .iter()
+            .position(|epoch_id| *epoch_id == latest_epoch)
+            .expect("FATAL: latest epoch id missing from StacksEpochId::ALL");
+        let max_epoch_idx = StacksEpochId::ALL
+            .iter()
+            .position(|epoch_id| *epoch_id == max_epoch.epoch_id)
+            .expect("FATAL: max epoch id missing from StacksEpochId::ALL");
 
         // Allow epochs up to one version ahead of latest() for development purposes
-        assert!(StacksEpochId::latest() >= max_epoch.epoch_id
-            || (StacksEpochId::latest() == StacksEpochId::Epoch32
-                && max_epoch.epoch_id == StacksEpochId::Epoch33),
+        assert!(max_epoch_idx <= latest_epoch_idx.saturating_add(1),
             "StacksEpochId::latest() should be greater than or equal to any epoch defined in the node (except for development epochs)"
         );
 
@@ -2464,4 +2849,64 @@ impl StacksEpochExtension for StacksEpoch {
             burnchain.pox_constants
         );
     }
+}
+
+// Test/testing variant:
+// - Allows older epoch markers (`<= PEER_NETWORK_EPOCH`) to cover back-compat fixtures
+//   (e.g. the historical 3.3 release that advertised 3.2).
+// - Allows partial epoch lists used by unit tests that intentionally stop before
+//   `RELEASE_LATEST_EPOCH`.
+#[cfg(any(test, feature = "testing"))]
+fn assert_peer_network_epoch(
+    epochs_ref: &[StacksEpoch],
+    max_epoch: &StacksEpoch,
+    check_epoch_id: StacksEpochId,
+) {
+    if epochs_ref
+        .iter()
+        .find(|epoch| epoch.epoch_id == check_epoch_id)
+        .is_none()
+    {
+        // Some test-only epoch lists intentionally end before the release latest epoch.
+        assert!(
+            max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,
+            "stacks-blockchain static network epoch should be greater than or equal to the max epoch's"
+        );
+    } else {
+        let check_epoch = epochs_ref
+            .iter()
+            .find(|epoch| epoch.epoch_id == check_epoch_id)
+            .expect("FATAL: check epoch must exist");
+        assert!(
+            u32::from(check_epoch.network_epoch) <= PEER_NETWORK_EPOCH,
+            "stacks-blockchain static network epoch should match {:?}'s network_epoch",
+            check_epoch_id
+        );
+    }
+}
+
+// Runtime variant:
+// - Enforces strict equality between `PEER_NETWORK_EPOCH` and the release epoch marker.
+// - Requires the release epoch to be present in the configured epoch list.
+#[cfg(not(any(test, feature = "testing")))]
+fn assert_peer_network_epoch(
+    epochs_ref: &[StacksEpoch],
+    _max_epoch: &StacksEpoch,
+    check_epoch_id: StacksEpochId,
+) {
+    let check_epoch = epochs_ref
+        .iter()
+        .find(|epoch| epoch.epoch_id == check_epoch_id)
+        .unwrap_or_else(|| {
+            panic!(
+                "FATAL: no {:?} defined in epoch list, cannot validate PEER_NETWORK_EPOCH",
+                check_epoch_id
+            )
+        });
+    assert_eq!(
+        u32::from(check_epoch.network_epoch),
+        PEER_NETWORK_EPOCH,
+        "stacks-blockchain static network epoch should match {:?}'s network_epoch",
+        check_epoch_id
+    );
 }

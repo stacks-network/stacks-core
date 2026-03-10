@@ -43,25 +43,23 @@ impl_byte_array_serde!(TrieHash);
 pub const TRIEHASH_ENCODED_SIZE: usize = 32;
 
 impl TrieHash {
+    /// SHA2-512/256 hash of an empty string.
+    pub const EMPTY: TrieHash = TrieHash([
+        0xc6, 0x72, 0xb8, 0xd1, 0xef, 0x56, 0xed, 0x28, 0xab, 0x87, 0xc3, 0x62, 0x2c, 0x51, 0x14,
+        0x06, 0x9b, 0xdd, 0x3a, 0xd7, 0xb8, 0xf9, 0x73, 0x74, 0x98, 0xd0, 0xc0, 0x1e, 0xce, 0xf0,
+        0x96, 0x7a,
+    ]);
+
+    #[inline]
     pub fn from_key(k: &str) -> Self {
         Self::from_data(k.as_bytes())
     }
 
-    /// TrieHash of zero bytes
-    pub fn from_empty_data() -> TrieHash {
-        // sha2-512/256 hash of empty string.
-        // this is used so frequently it helps performance if we just have a constant for it.
-        TrieHash([
-            0xc6, 0x72, 0xb8, 0xd1, 0xef, 0x56, 0xed, 0x28, 0xab, 0x87, 0xc3, 0x62, 0x2c, 0x51,
-            0x14, 0x06, 0x9b, 0xdd, 0x3a, 0xd7, 0xb8, 0xf9, 0x73, 0x74, 0x98, 0xd0, 0xc0, 0x1e,
-            0xce, 0xf0, 0x96, 0x7a,
-        ])
-    }
-
-    /// TrieHash from bytes
+    /// Create a `TrieHash` from a slice of bytes.
+    #[inline] // sha2's new(), update() and finalize() fn's are inlined; ensure we don't break the inlining boundary.
     pub fn from_data(data: &[u8]) -> TrieHash {
         if data.is_empty() {
-            return TrieHash::from_empty_data();
+            return TrieHash::EMPTY;
         }
 
         let mut hasher = Sha512_256::new();
@@ -70,9 +68,11 @@ impl TrieHash {
         TrieHash(out)
     }
 
+    /// Create a `TrieHash` from an array of byte slices.
+    #[inline] // sha2's new(), update() and finalize() fn's are inlined; ensure we don't break the inlining boundary.
     pub fn from_data_array<B: AsRef<[u8]>>(data: &[B]) -> TrieHash {
         if data.is_empty() {
-            return TrieHash::from_empty_data();
+            return TrieHash::EMPTY;
         }
 
         let mut hasher = Sha512_256::new();
@@ -82,24 +82,6 @@ impl TrieHash {
         }
         let out = hasher.finalize().into();
         TrieHash(out)
-    }
-
-    /// Convert to a String that can be used in e.g. sqlite
-    /// If we did not implement this seperate from Display,
-    /// we would use the stacks_common::util::hash::to_hex function
-    /// which is the unrolled version of this function.
-    #[allow(clippy::inherent_to_string_shadow_display)]
-    pub fn to_string(&self) -> String {
-        let s = format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                          self.0[0],     self.0[1],       self.0[2],       self.0[3],
-                          self.0[4],     self.0[5],       self.0[6],       self.0[7],
-                          self.0[8],     self.0[9],       self.0[10],      self.0[11],
-                          self.0[12],    self.0[13],      self.0[14],      self.0[15],
-                          self.0[16],    self.0[17],      self.0[18],      self.0[19],
-                          self.0[20],    self.0[21],      self.0[22],      self.0[23],
-                          self.0[24],    self.0[25],      self.0[26],      self.0[27],
-                          self.0[28],    self.0[29],      self.0[30],      self.0[31]);
-        s
     }
 }
 

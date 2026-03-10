@@ -410,8 +410,9 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => {
-                // Epoch 2.5, 3.0, 3.1 and 3.2 compute reward sets, but *only* if PoX-4 is active
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => {
+                // Epoch 2.5 and up compute reward sets, but *only* if PoX-4 is active
                 if burnchain
                     .pox_constants
                     .active_pox_contract(current_burn_height)
@@ -502,14 +503,8 @@ impl<
         let stacks_blocks_processed = comms.stacks_blocks_processed.clone();
         let sortitions_processed = comms.sortitions_processed.clone();
 
-        let sortition_db = SortitionDB::open(
-            &burnchain.get_db_path(),
-            true,
-            burnchain.pox_constants.clone(),
-        )
-        .unwrap();
-        let burnchain_blocks_db =
-            BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
+        let sortition_db = burnchain.open_sortition_db(true).unwrap();
+        let burnchain_blocks_db = burnchain.open_burnchain_db(false).unwrap();
 
         let canonical_sortition_tip =
             SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
@@ -660,6 +655,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
             &burnchain.get_db_path(),
             true,
             burnchain.pox_constants.clone(),
+            None,
         )
         .unwrap();
         let burnchain_blocks_db =
@@ -1376,7 +1372,7 @@ impl<
             for (ch, bhh, height) in stacks_blocks_to_reaccept.into_iter() {
                 debug!("Re-accept Stacks block {}/{} height {}", &ch, &bhh, height);
                 revalidated_stacks_block = true;
-                sortition_db_handle.set_stacks_block_accepted(&ch, &bhh, height)?;
+                sortition_db_handle.set_stacks_block_accepted(&ch, &ch, &bhh, height)?;
             }
             sortition_db_handle.commit()?;
 

@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -51,7 +51,7 @@ use stacks::core::test_util::{
     insert_tx_in_mempool, make_contract_call, make_contract_publish,
     make_stacks_transfer_serialized,
 };
-use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
+use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::getsigner::GetSignerResponse;
 use stacks::net::api::postblock_proposal::{
@@ -117,7 +117,13 @@ use crate::tests::signer::SpawnedSignerTrait;
 use crate::tests::{self, gen_random_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
+pub mod capitulate_parent_tenure_view;
+pub mod late_block_proposal;
+pub mod missing_burn_block_proposal;
 pub mod reorg;
+pub mod signers_consider_consensus_blocks;
+pub mod signers_consider_late_proposals;
+pub mod signers_wait_for_validation;
 pub mod tenure_extend;
 pub mod tx_replay;
 
@@ -467,27 +473,34 @@ impl SignerTest<SpawnedSigner> {
 
     /// Propose a block to the signers
     fn propose_block(&self, block: NakamotoBlock, timeout: Duration) {
+        let burn_height = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_headers_height();
+        let reward_cycle = self.get_current_reward_cycle();
+        let block_proposal = BlockProposal {
+            block,
+            burn_height,
+            reward_cycle,
+            block_proposal_data: BlockProposalData::empty(),
+        };
+        self.send_block_proposal(block_proposal, timeout);
+    }
+
+    /// Send a block proposal to the signers
+    fn send_block_proposal(&self, block_proposal: BlockProposal, timeout: Duration) {
         let miners_contract_id = boot_code_id(MINERS_NAME, false);
         let mut session = StackerDBSession::new(
             &self.running_nodes.conf.node.rpc_bind,
             miners_contract_id,
             self.running_nodes.conf.miner.stackerdb_timeout,
         );
-        let burn_height = self
-            .running_nodes
-            .btc_regtest_controller
-            .get_headers_height();
-        let reward_cycle = self.get_current_reward_cycle();
-        let signer_signature_hash = block.header.signer_signature_hash();
-        let signed_by = block.header.recover_miner_pk().expect(
+        let signer_signature_hash: Sha512Trunc256Sum =
+            block_proposal.block.header.signer_signature_hash();
+        let signed_by = block_proposal.block.header.recover_miner_pk().expect(
             "FATAL: signer tests should only propose blocks that have been signed by the signer test miner. Otherwise, signers won't even consider them via this channel."
         );
-        let message = SignerMessage::BlockProposal(BlockProposal {
-            block,
-            burn_height,
-            reward_cycle,
-            block_proposal_data: BlockProposalData::empty(),
-        });
+        let message = SignerMessage::BlockProposal(block_proposal);
         let miner_sk = self
             .running_nodes
             .conf
@@ -1210,12 +1223,23 @@ pub fn verify_sortition_winner(sortdb: &SortitionDB, miner_pkh: &Hash160) {
 }
 
 /// Waits for a block proposal to be observed in the test_observer stackerdb chunks at the expected height
-/// and signed by the expected miner
-pub fn wait_for_block_proposal(
+/// and signed by the expected miner. Returns the proposed NakamotoBlock.
+pub fn wait_for_block_proposal_block(
     timeout_secs: u64,
     expected_height: u64,
     expected_miner: &StacksPublicKey,
 ) -> Result<NakamotoBlock, String> {
+    wait_for_block_proposal(timeout_secs, expected_height, expected_miner)
+        .and_then(|proposal| Ok(proposal.block))
+}
+
+/// Waits for a block proposal to be observed in the test_observer stackerdb chunks at the expected height
+/// and signed by the expected miner. Returns the BlockProposal.
+pub fn wait_for_block_proposal(
+    timeout_secs: u64,
+    expected_height: u64,
+    expected_miner: &StacksPublicKey,
+) -> Result<BlockProposal, String> {
     let mut proposed_block = None;
     wait_for(timeout_secs, || {
         let chunks = test_observer::get_stackerdb_chunks();
@@ -1233,7 +1257,7 @@ pub fn wait_for_block_proposal(
                 continue;
             }
             if &miner_pk == expected_miner {
-                proposed_block = Some(proposal.block);
+                proposed_block = Some(proposal);
                 return Ok(true);
             }
         }
@@ -1541,7 +1565,6 @@ pub fn wait_for_block_rejections_from_signers(
     })?;
     Ok(result)
 }
-
 /// Waits for at least 70% of the provided signers to send an update for a block with the specificed burn block height and parent tenure stacks block height and message version
 pub fn wait_for_state_machine_update(
     timeout_secs: u64,
@@ -1551,24 +1574,35 @@ pub fn wait_for_state_machine_update(
     signer_addresses: &[(StacksAddress, u64)],
 ) -> Result<(), String> {
     wait_for(timeout_secs, || {
-        let mut found_updates = HashSet::new();
+        let mut found_updates: HashSet<StacksAddress> = HashSet::new();
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         for chunk in stackerdb_events
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
         {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
             let Some((address, version)) = signer_addresses
                 .iter()
-                .find(|(addr, _)| chunk.verify(addr).unwrap())
+                .find(|(addr, _)| chunk.verify(addr).unwrap_or(false))
             else {
                 continue;
             };
-            let (burn_block, burn_block_height, current_miner) = match (version, &update.content) {
+
+            let negotiated = update
+                .active_signer_protocol_version
+                .min(update.local_supported_signer_protocol_version);
+            if negotiated != *version {
+                continue;
+            }
+
+            let (burn_block, burn_block_height, current_miner) = match (negotiated, &update.content)
+            {
                 (
                     0,
                     StateMachineUpdateContent::V0 {
@@ -1623,7 +1657,7 @@ pub fn wait_for_state_machine_update(
                 }
             };
             // We only need one update to match our conditions
-            found_updates.insert(address);
+            found_updates.insert(address.clone());
         }
         Ok(found_updates.len() > signer_addresses.len() * 7 / 10)
     })
@@ -1636,24 +1670,34 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
     signer_addresses: &[(StacksAddress, u64)],
 ) -> Result<(), String> {
     wait_for(timeout_secs, || {
-        let mut found_updates = HashSet::new();
+        let mut found_updates: HashSet<StacksAddress> = HashSet::new();
         let stackerdb_events = test_observer::get_stackerdb_chunks();
         for chunk in stackerdb_events
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
         {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
             let Some((address, version)) = signer_addresses
                 .iter()
-                .find(|(addr, _)| chunk.verify(addr).unwrap())
+                .find(|(addr, _)| chunk.verify(addr).unwrap_or(false))
             else {
                 continue;
             };
-            match (version, &update.content) {
+            // Version sanity + expectation:
+            let negotiated = update
+                .active_signer_protocol_version
+                .min(update.local_supported_signer_protocol_version);
+            debug!("Found update from address {address} with version {version}. We expect version {negotiated}.");
+            if negotiated != *version {
+                continue;
+            }
+            match (negotiated, &update.content) {
                 (
                     0,
                     StateMachineUpdateContent::V0 {
@@ -1676,10 +1720,10 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
                     },
                 ) => {
                     if tenure_id == expected_tenure_id {
-                        found_updates.insert(address);
+                        found_updates.insert(address.clone());
                     }
                 }
-                (_, _) => {}
+                (_, _) => continue,
             };
         }
         Ok(found_updates.len() > signer_addresses.len() * 7 / 10)
@@ -1719,7 +1763,10 @@ fn block_proposal_rejection() {
     signer_test.boot_to_epoch_3();
     let short_timeout = Duration::from_secs(30);
 
+    // Wait for the first block to be mined successfully so we have the most up to date sortition view
+    signer_test.wait_for_validate_ok_response(short_timeout.as_secs());
     info!("------------------------- Send Block Proposal To Signers -------------------------");
+    test_observer::clear();
     let proposal_conf = ProposalEvalConfig {
         proposal_wait_for_parent_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
@@ -1736,6 +1783,7 @@ fn block_proposal_rejection() {
         txs: vec![],
     };
     block.header.timestamp = get_epoch_time_secs();
+    let block_1_consensus_hash = block.header.consensus_hash.clone();
 
     // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
     // the block is submitted to the node for validation.
@@ -1746,14 +1794,12 @@ fn block_proposal_rejection() {
     let block_signer_signature_hash_1 = block.header.signer_signature_hash();
     signer_test.propose_block(block.clone(), short_timeout);
 
-    // Wait for the first block to be mined successfully so we have the most up to date sortition view
-    signer_test.wait_for_validate_ok_response(short_timeout.as_secs());
-
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
     block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     block.header.chain_length = 35; // We have mined 35 blocks so far.
+    let block_2_consensus_hash = block.header.consensus_hash.clone();
 
     block
         .header
@@ -1774,6 +1820,10 @@ fn block_proposal_rejection() {
     let start_polling = Instant::now();
     let mut found_signer_signature_hash_1 = false;
     let mut found_signer_signature_hash_2 = false;
+    let block_1_rejection_reason = RejectReason::ConsensusHashMismatch {
+        expected: block_2_consensus_hash,
+        actual: block_1_consensus_hash,
+    };
     while !found_signer_signature_hash_1 && !found_signer_signature_hash_2 {
         std::thread::sleep(Duration::from_secs(1));
         let chunks = test_observer::get_stackerdb_chunks();
@@ -1793,7 +1843,7 @@ fn block_proposal_rejection() {
                 if signer_signature_hash == block_signer_signature_hash_1 {
                     found_signer_signature_hash_1 = true;
                     assert_eq!(reason_code, RejectCode::SortitionViewMismatch,);
-                    assert_eq!(response_data.reject_reason, RejectReason::InvalidBitvec);
+                    assert_eq!(response_data.reject_reason, block_1_rejection_reason);
                 } else if signer_signature_hash == block_signer_signature_hash_2 {
                     found_signer_signature_hash_2 = true;
                     assert!(matches!(
@@ -2278,7 +2328,12 @@ fn end_of_tenure() {
     );
 
     info!("------------------------- Test Block Validation Stalled -------------------------");
-    TEST_VALIDATE_STALL.set(true);
+    TEST_VALIDATE_STALL.set(vec![signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
 
     let proposals_before = proposed_blocks.load(Ordering::SeqCst);
     let info = signer_test.get_peer_info();
@@ -2338,7 +2393,7 @@ fn end_of_tenure() {
 
     info!("Unpausing block validation and waiting for block to be processed");
     // Disable the stall and wait for the block to be processed
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
     wait_for(short_timeout.as_secs(), || {
         let processed_now = get_chain_info(&signer_test.running_nodes.conf).stacks_tip_height;
         Ok(processed_now > blocks_before)
@@ -2732,7 +2787,8 @@ fn empty_tenure_delayed() {
         .collect();
     assert_eq!(signer_slot_ids.len(), num_signers);
 
-    // The miner's proposed block should get rejected by all the signers
+    // The miner's proposed block should get rejected by all the signers as the consensus hash does not match
+    // the active miner's tenure id
     let mut found_rejections = Vec::new();
     wait_for(short_timeout.as_secs(), || {
         for slot_id in signer_slot_ids.iter() {
@@ -2758,7 +2814,7 @@ fn empty_tenure_delayed() {
             })) = latest_msg
             {
                 assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
-                assert_eq!(response_data.reject_reason, RejectReason::InvalidMiner);
+                assert!(matches!(response_data.reject_reason, RejectReason::ConsensusHashMismatch { .. }), "Unexpected reject reason: {}", response_data.reject_reason);
                 assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {
@@ -2803,14 +2859,10 @@ fn mock_sign_epoch_25() {
         |node_config| {
             node_config.miner.pre_nakamoto_mock_signing = true;
             let epochs = node_config.burnchain.epochs.as_mut().unwrap();
+            epochs.truncate_after(StacksEpochId::Epoch30);
             epochs[StacksEpochId::Epoch25].end_height = 251;
             epochs[StacksEpochId::Epoch30].start_height = 251;
-            epochs[StacksEpochId::Epoch30].end_height = 265;
-            epochs[StacksEpochId::Epoch31].start_height = 265;
-            epochs[StacksEpochId::Epoch31].end_height = 285;
-            epochs[StacksEpochId::Epoch32].start_height = 285;
-            epochs[StacksEpochId::Epoch32].end_height = 305;
-            epochs[StacksEpochId::Epoch33].start_height = 305;
+            epochs[StacksEpochId::Epoch30].end_height = STACKS_EPOCH_MAX;
         },
         None,
         None,
@@ -2925,14 +2977,10 @@ fn multiple_miners_mock_sign_epoch_25() {
         |config| {
             config.miner.pre_nakamoto_mock_signing = true;
             let epochs = config.burnchain.epochs.as_mut().unwrap();
+            epochs.truncate_after(StacksEpochId::Epoch30);
             epochs[StacksEpochId::Epoch25].end_height = 251;
             epochs[StacksEpochId::Epoch30].start_height = 251;
-            epochs[StacksEpochId::Epoch30].end_height = 265;
-            epochs[StacksEpochId::Epoch31].start_height = 265;
-            epochs[StacksEpochId::Epoch31].end_height = 285;
-            epochs[StacksEpochId::Epoch32].start_height = 285;
-            epochs[StacksEpochId::Epoch32].end_height = 305;
-            epochs[StacksEpochId::Epoch33].start_height = 305;
+            epochs[StacksEpochId::Epoch30].end_height = STACKS_EPOCH_MAX;
         },
         |_| {},
     );
@@ -3527,7 +3575,7 @@ fn duplicate_signers() {
     let accepted = signer_accepted_responses
         .iter()
         .min_by_key(|accepted| accepted.signer_signature_hash.clone())
-        .expect("No `BlockResponse::Accepted` messages recieved");
+        .expect("No `BlockResponse::Accepted` messages received");
     let selected_sighash = accepted.signer_signature_hash.clone();
 
     // Filter only resonses for selected block and collect unique pubkeys and signatures
@@ -4094,7 +4142,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     let tx = submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted tx {tx} in to attempt to mine block N+1");
-    let block_n_1 = wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
+    let block_n_1 = wait_for_block_proposal_block(30, info_before.stacks_tip_height + 1, &miner_pk)
         .expect("Timed out waiting for block N+1 to be proposed");
     let all_signers = signer_test.signer_test_pks();
     wait_for_block_global_acceptance_from_signers(
@@ -4133,8 +4181,9 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         "------------------------- Attempt to Mine Nakamoto Block N+1' -------------------------"
     );
     // Wait for the miner to propose a new invalid block N+1'
-    let block_n_1_prime = wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
-        .expect("Timed out waiting for block N+1' to be proposed");
+    let block_n_1_prime =
+        wait_for_block_proposal_block(30, info_before.stacks_tip_height + 1, &miner_pk)
+            .expect("Timed out waiting for block N+1' to be proposed");
     assert_ne!(
         block_n_1_prime.header.signer_signature_hash(),
         block_n_1.header.signer_signature_hash()
@@ -4566,7 +4615,12 @@ fn block_validation_response_timeout() {
     info!("------------------------- Test Mine and Verify Confirmed Nakamoto Block -------------------------");
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
     info!("------------------------- Test Block Validation Stalled -------------------------");
-    TEST_VALIDATE_STALL.set(true);
+    TEST_VALIDATE_STALL.set(vec![signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
     let validation_stall_start = Instant::now();
 
     let proposals_before = block_proposals.load(Ordering::SeqCst);
@@ -4670,7 +4724,7 @@ fn block_validation_response_timeout() {
     let info_before = info_after;
     info!("Unpausing block validation");
     // Disable the stall and wait for the block to be processed successfully
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
     wait_for(30, || {
         let info = get_chain_info(&signer_test.running_nodes.conf);
         Ok(info.stacks_tip_height > info_before.stacks_tip_height)
@@ -4776,7 +4830,7 @@ fn block_validation_check_rejection_timeout_heuristic() {
         )
         .unwrap();
 
-        let proposal = wait_for_block_proposal(30, height_before + 1, &miner_pk)
+        let proposal = wait_for_block_proposal_block(30, height_before + 1, &miner_pk)
             .expect("Timed out waiting for block proposal");
 
         wait_for_block_rejections_from_signers(
@@ -5940,7 +5994,7 @@ fn block_proposal_timeout() {
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
     let block_proposal_n =
-        wait_for_block_proposal(30, chain_before.stacks_tip_height + 1, &miner_pk)
+        wait_for_block_proposal_block(30, chain_before.stacks_tip_height + 1, &miner_pk)
             .expect("Failed to get block proposal N");
     wait_for_block_global_rejection(
         30,
@@ -6267,7 +6321,12 @@ fn signer_can_accept_rejected_block() {
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![ignoring_signer]);
 
     // Stall block validation so we can ensure the timing we want to test
-    TEST_VALIDATE_STALL.set(true);
+    TEST_VALIDATE_STALL.set(vec![signer_test
+        .running_nodes
+        .conf
+        .connection_options
+        .auth_token
+        .clone()]);
 
     // submit a tx so that the miner will mine a block
     let transfer_tx = make_stacks_transfer_serialized(
@@ -6281,7 +6340,7 @@ fn signer_can_accept_rejected_block() {
     submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted transfer tx and waiting for block proposal");
-    let block = wait_for_block_proposal(30, block_height_before + 1, &miner_pk)
+    let block = wait_for_block_proposal_block(30, block_height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal");
     let expected_block_height = block.header.chain_length;
 
@@ -6294,7 +6353,7 @@ fn signer_can_accept_rejected_block() {
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(vec![]);
 
     // Unstall the other signers
-    TEST_VALIDATE_STALL.set(false);
+    TEST_VALIDATE_STALL.set(vec![]);
 
     info!(
         "Block proposed, submitting another transaction that should not get included in the block"
@@ -7115,7 +7174,7 @@ fn verify_mempool_caches() {
     submit_tx(&http_origin, &transfer_tx);
 
     info!("Submitted transfer tx and waiting for block proposal");
-    let block = wait_for_block_proposal(30, block_height_before + 1, &miner_pk)
+    let block = wait_for_block_proposal_block(30, block_height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal");
 
     // Stall the miners so that this block is not re-proposed after being rejected
@@ -7215,115 +7274,36 @@ fn verify_mempool_caches() {
     signer_test.shutdown();
 }
 
-/// Tests that signers are able to upgrade or downgrade their active protocol version numbers based on
-/// the majority of other signers current local supported version numbers
-#[test]
-#[ignore]
-fn rollover_signer_protocol_version() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-    let num_signers = 5;
-
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
-    signer_test.boot_to_epoch_3();
-
-    let conf = signer_test.running_nodes.conf.clone();
-
-    let burnchain = conf.get_burnchain();
-    let sortdb = burnchain.open_sortition_db(true).unwrap();
-
-    let all_signers = signer_test.signer_test_pks();
-    info!(
-        "------------------------- Miner Tenure Starts and Mines Block N-------------------------"
-    );
+fn mine_burn_block_and_confirm_signer_rollover(
+    signer_test: &mut SignerTest<SpawnedSigner>,
+    expected_versions: &[(StacksAddress, u64)],
+) {
     test_observer::clear();
-    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
-
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let burn_consensus_hash = tip.consensus_hash;
-    let burn_height = tip.block_height;
-
-    info!("------------------------- Confirm Miner is the Active Miner in Update and All Signers Are Using Protocol Number {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------");
-    // Verify that signers first sent a bitcoin block update
-    wait_for_state_machine_update(
-        60,
-        &burn_consensus_hash,
-        burn_height,
-        None,
-        &signer_test.signer_addresses_versions(),
-    )
-    .expect("Timed out waiting for signers to send a state update for block N");
-
-    test_observer::clear();
-    let downgraded_version = SUPPORTED_SIGNER_PROTOCOL_VERSION.saturating_sub(1);
-    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 20 Percent of Signers -------------------------");
-    // Take a non blocking minority of signers (20%) and downgrade their version number
-    let pinned_signers: Vec<_> = all_signers
-        .iter()
-        .take(num_signers * 2 / 10)
-        .cloned()
-        .collect();
-    let pinned_signers_versions: HashMap<StacksPublicKey, u64> = pinned_signers
-        .iter()
-        .map(|signer| (signer.clone(), downgraded_version))
-        .collect();
-    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers_versions);
-
-    info!("------------------------- Confirm Signers Still Manage to Sign a Stacks Block With Misaligned Version Numbers -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
-
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let burn_consensus_hash = tip.consensus_hash;
-    let burn_height = tip.block_height;
-    // Only one signer is downgraded so the active protocol version remains the same.
-    wait_for_state_machine_update(
-        60,
-        &burn_consensus_hash,
-        burn_height,
-        None,
-        &signer_test.signer_addresses_versions(),
-    )
-    .expect("Timed out waiting for signers to send their downgraded state update for block N+1");
-
-    test_observer::clear();
-    info!("------------------------- Confirm Signer Version Downgrades Fully Once 70 percent of Signers Downgrade -------------------------");
-    let pinned_signers: Vec<_> = all_signers
-        .iter()
-        .take(num_signers * 7 / 10)
-        .cloned()
-        .collect();
-    let pinned_signers_versions: HashMap<StacksPublicKey, u64> = pinned_signers
-        .iter()
-        .map(|signer| (signer.clone(), downgraded_version))
-        .collect();
-    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers_versions);
-
-    // Not strictly necessary, but makes it easier to logic out if miner doesn't send a proposal until signers are on same page...
     TEST_MINE_SKIP.set(true);
-    info!("------------------------- Confirm Signers Sent Downgraded State Machine Updates -------------------------");
-    // Cannot use any built in functions that call mine_nakamoto_block since it expects signer updates matching the majority version and we are manually messing with these versions
+    info!("------------------------- Mine Bitcoin Block -------------------------");
     signer_test.mine_bitcoin_block();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let burn_consensus_hash = tip.consensus_hash;
-    let burn_height = tip.block_height;
-    // Confirm ALL signers downgrade their supported version and then send a corresponding message in that version message
-    let downgraded_versions: Vec<_> = signer_test
-        .signer_addresses_versions()
-        .into_iter()
-        .map(|(address, _)| (address, downgraded_version))
-        .collect();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(
+        signer_test
+            .running_nodes
+            .conf
+            .get_burnchain()
+            .open_sortition_db(true)
+            .unwrap()
+            .conn(),
+    )
+    .unwrap();
     wait_for_state_machine_update(
         60,
-        &burn_consensus_hash,
-        burn_height,
+        &tip.consensus_hash,
+        tip.block_height,
         None,
-        &downgraded_versions,
+        &expected_versions,
     )
-    .expect("Timed out waiting for signers to send their state update for block N+2");
-
+    .expect("Timed out waiting for signers to send their state updates after a bitcoin block");
     let info = signer_test.get_peer_info();
-    info!("------------------------- Confirm Signers Sign The Block After Complete Downgraded Version Number -------------------------");
+    info!(
+        "------------------------- Mine Tenure Change Stacks Transaction -------------------------"
+    );
     TEST_MINE_SKIP.set(false);
     let expected_miner = StacksPublicKey::from_private(
         &signer_test
@@ -7334,17 +7314,153 @@ fn rollover_signer_protocol_version() {
             .clone()
             .unwrap(),
     );
-    let block = wait_for_block_pushed_by_miner_key(60, info.stacks_tip_height + 1, &expected_miner)
-        .expect("Failed to mine block after downgraded version number.");
-    // Expect ALL signers even after downgrade to approve the proposed blocks
-    wait_for_block_acceptance_from_signers(30, &block.header.signer_signature_hash(), &all_signers)
-        .expect("Failed to confirm all signers accepted last block");
 
-    info!("------------------------- Reset All Signers to {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------");
-    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(HashMap::new());
-    test_observer::clear();
-    info!("------------------------- Confirm Signers Sign The Block After Upgraded Version Number -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
+    let block = wait_for_block_pushed_by_miner_key(60, info.stacks_tip_height + 1, &expected_miner)
+        .expect("Failed to mine block after upgraded version number.");
+    wait_for_block_acceptance_from_signers(
+        30,
+        &block.header.signer_signature_hash(),
+        &signer_test.signer_test_pks(),
+    )
+    .expect("Failed to confirm all signers accepted block");
+}
+
+/// Tests that signers negotiate their **active** signer protocol version based on the
+/// **majority of locally supported** signer protocol versions.
+///
+/// Scenario (10 signers):
+/// 1) Baseline: all signers start on `SUPPORTED_SIGNER_PROTOCOL_VERSION` and can sign blocks.
+/// 2) Downgrade 30%: non-blocking minority downgraded. Stays at `SUPPORTED_SIGNER_PROTOCOL_VERSION`.
+/// 3) Downgrade 40%: blocking minority downgraded. Downgrades to `SUPPORTED_SIGNER_PROTOCOL_VERSION - 1`.
+/// 4) Upgrade 70%: majority upgraded. Upgrades back to `SUPPORTED_SIGNER_PROTOCOL_VERSION`.
+#[test]
+#[ignore]
+fn downgrade_signer_protocol_version() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    // To make the math easier, use 10 signers
+    let num_signers: usize = 10;
+
+    // Integer percent helper (e.g. 30 => 3 when num_signers=10)
+    fn pct(num_signers: usize, percent: usize) -> usize {
+        (num_signers * percent) / 100
+    }
+
+    // Boot with the most recent supported version
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    signer_test.boot_to_epoch_3();
+
+    info!(
+        "------------------------- Confirm miner tenure continues and all signers use protocol {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------"
+    );
+    let versions = signer_test.signer_addresses_versions();
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &versions);
+
+    let downgraded_version = SUPPORTED_SIGNER_PROTOCOL_VERSION.saturating_sub(1);
+    let downgraded_versions = signer_test
+        .signer_addresses_versions()
+        .into_iter()
+        .map(|(addr, _)| (addr, downgraded_version))
+        .collect::<Vec<_>>();
+    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 30 Percent of Signers -------------------------");
+    // Since only 30 percent downgraded. Active protocol version should stay the same
+    signer_test
+        .restart_first_n_signers_with_supported_version(pct(num_signers, 30), downgraded_version);
+    let versions = signer_test.signer_addresses_versions();
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &versions);
+    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 40 Percent of Signers -------------------------");
+    // A blocking minority has downgraded, so expect everyone to negotiate to downgraded_version.
+    signer_test
+        .restart_first_n_signers_with_supported_version(pct(num_signers, 40), downgraded_version);
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &downgraded_versions);
+
+    info!("------------------------- Upgrade Signer Versions to {SUPPORTED_SIGNER_PROTOCOL_VERSION} for 70 Percent of Signers -------------------------");
+    signer_test.restart_first_n_signers_with_supported_version(
+        pct(num_signers, 70),
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    );
+    let versions = signer_test.signer_addresses_versions();
+    // A majority of signers have upgraded, expect everyone to negotiate back to the supported version.
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &versions);
+    signer_test.shutdown();
+}
+
+/// Tests the latest activation rollover behavior across different activation
+/// percentages, ensuring that block signing continues as old signers can still communicate with new signers.
+///
+/// Scenario (10 signers):
+/// 1) 30% activated: non-blocking minority activated.
+/// 2) 40% activated: blocking minority activated .
+/// 3) 60% activated: blocking minority unactivated.
+/// 4) 70% activated: non-blocking minority unactivated.
+/// 5) 100% activated: all signers activated.
+#[test]
+#[ignore]
+fn rollover_signer_protocol_version() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // To make the math easier, use 10 signers
+    let num_signers: usize = 10;
+
+    // Integer percent helper (e.g. 30 => 3 when num_signers=10)
+    fn pct(num_signers: usize, percent: usize) -> usize {
+        (num_signers * percent) / 100
+    }
+
+    let old_version = SUPPORTED_SIGNER_PROTOCOL_VERSION.saturating_sub(1);
+    // Start with 30% of signers activated
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |signer_config| {
+            // 30% of 10 is 3 signers
+            let activated_signers = pct(num_signers, 30) as u16;
+
+            // signer_nmb in [0, num_signers-1]
+            let signer_nmb = signer_config.endpoint.port() % num_signers as u16;
+
+            let signer_version = if signer_nmb < activated_signers {
+                SUPPORTED_SIGNER_PROTOCOL_VERSION
+            } else {
+                old_version
+            };
+
+            signer_config.supported_signer_protocol_version = signer_version;
+        },
+        |_| {},
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+
+    let old_versions: Vec<_> = signer_test
+        .signer_addresses_versions()
+        .into_iter()
+        .map(|(address, _)| (address, old_version))
+        .collect();
+
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &old_versions);
+
+    for percent in [40, 60, 70] {
+        info!("------------------------- Upgrade to {SUPPORTED_SIGNER_PROTOCOL_VERSION} for {percent}% of signers -------------------------");
+        signer_test.restart_first_n_signers_with_supported_version(
+            pct(num_signers, percent),
+            SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        );
+        mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &old_versions);
+    }
+
+    info!("------------------------- Upgrade to {SUPPORTED_SIGNER_PROTOCOL_VERSION} for 100% of signers -------------------------");
+    signer_test.restart_first_n_signers_with_supported_version(
+        num_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    );
+    let new_versions = signer_test.signer_addresses_versions();
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &new_versions);
 
     signer_test.shutdown();
 }
@@ -7920,9 +8036,13 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
     let ignore_signers: Vec<_> = ignore_slice.to_vec();
     let pre_commit_signers: Vec<_> = pre_commit_slice.to_vec();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(ignore_signers);
+    // Pause the miner proposing blocks because we need to make sure that the global signer state updates before we evaluate the proposal to ensure
+    // it is isn't immediately rejected under global signer state conditions
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk.clone()]);
     test_observer::clear();
     let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
     let height_before = signer_test.get_peer_info().stacks_tip_height;
+    info!("------------------------- Start Tenure A -------------------------");
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         30,
@@ -7930,9 +8050,19 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
     )
     .unwrap();
 
-    let proposal = wait_for_block_proposal(30, height_before + 1, &miner_pk)
+    let expected_tenure_id = signer_test.get_peer_info().pox_consensus;
+    wait_for_state_machine_update_by_miner_tenure_id(
+        30,
+        &expected_tenure_id,
+        &signer_test.signer_addresses_versions(),
+    )
+    .expect("Signers failed to update their state for the new tenure");
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
+    let proposal = wait_for_block_proposal_block(30, height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal");
     let hash = proposal.header.signer_signature_hash();
+
+    info!("------------------------- Wait for pre-commits for N ({hash})-------------------------");
     wait_for_block_pre_commits_from_signers(30, &hash, &pre_commit_signers)
         .expect("Timed out waiting for pre-commits");
     assert!(
@@ -8004,8 +8134,9 @@ fn signers_treat_signatures_as_precommits() {
     );
     signer_test.mine_bitcoin_block();
 
-    let block_proposal = wait_for_block_proposal(30, peer_info.stacks_tip_height + 1, &miner_pk)
-        .expect("Failed to propose a new tenure block");
+    let block_proposal =
+        wait_for_block_proposal_block(30, peer_info.stacks_tip_height + 1, &miner_pk)
+            .expect("Failed to propose a new tenure block");
 
     info!(
         "------------------------- Verify Only Operating Signer Issues Pre-Commit -------------------------"

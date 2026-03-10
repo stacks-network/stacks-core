@@ -473,7 +473,7 @@ impl NakamotoBlockBuilder {
         };
 
         // data won't be committed, so do a concurrent transaction
-        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin()?;
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
 
         Ok(MinerTenureInfo {
             chainstate_tx,
@@ -810,7 +810,8 @@ impl BlockBuilder for NakamotoBlockBuilder {
         total_receipts_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
-            return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
+            debug!("Transaction {} would be too big to include", tx.txid());
+            return TransactionResult::skipped_due_to_error(tx, Error::TxWouldNotFitError);
         }
 
         if let Some(parent_header) = &self.parent_header {

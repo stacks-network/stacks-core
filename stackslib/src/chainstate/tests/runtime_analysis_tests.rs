@@ -66,7 +66,10 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             runtime_check_error_memory_balance_exceeded_cdeploy,
             runtime_check_error_memory_balance_exceeded_ccall
         ]),
-        CostComputationFailed(_) => Unreachable_ExpectLike,
+        CostComputationFailed(_) => Tested(vec![
+            arithmetic_zero_n_log_n_cdeploy,
+            arithmetic_zero_n_log_n_ccall,
+        ]),
         ExecutionTimeExpired => Unreachable_Functionally(
             "All consensus-critical code paths (block validation and transaction processing)
              pass `None` for max_execution_time to StacksChainState::process_transaction,
@@ -83,28 +86,13 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             runtime_check_error_kind_type_signature_too_deep_cdeploy,
             runtime_check_error_kind_type_signature_too_deep_ccall
         ]),
-        ExpectedName => Unreachable_Functionally(
-            "Every place in the runtime where ExpectedName is raised comes from a direct
-            call to SymbolicExpression::match_atom() on the original AST node and the type
-            checker runs the same structure check during analysis."),
-        SupertypeTooLarge => Unreachable_Functionally(
-            "least_supertype checks already run in analysis, and runtime values are
-             sanitized to their declared signatures, so the VM never sees a pair of
-             values whose unified type wasn't accepted earlier."),
-        ExpectsAcceptable(_) => Unreachable_ExpectLike,
-        ExpectsRejectable(_) => Unreachable_ExpectLike,
-        BadMatchOptionSyntax(_) => Unreachable_Functionally(
-            "Both the analyzer and the runtime examine the exact same match AST slice.
-             The static pass invokes check_special_match_opt, which enforces the 3
-             argument structure and the some binding name before any code is accepted"),
-        BadMatchResponseSyntax(_) => Unreachable_Functionally(
-            "Both the analyzer and the runtime examine the exact same match AST slice.
-             The static pass invokes check_special_match_resp, which enforces the 4
-             argument structure and the ok and err binding names before any code is accepted."),
-        BadMatchInput(_) => Unreachable_Functionally(
-            "Both the analyzer and the runtime examine the exact same match AST slice.
-             The static pass invokes check_special_match, which enforces the 2 argument
-             structure and the input type before any code is accepted."),
+        TraitReferenceUnknown(_) => Tested(vec![
+            trait_reference_unknown_transitive_use_trait_ccall,
+        ]),
+        TraitMethodUnknown(_, _) => Tested(vec![
+            trait_method_unknown_transitive_use_trait_ccall,
+        ]),
+        Unreachable(_) => Unreachable_ExpectLike, // This error is used in places where we expect the code to be unreachable, so if we hit it, it indicates a bug.
         ListTypesMustMatch => Tested(vec![runtime_check_error_kind_list_types_must_match_cdeploy]),
         TypeError(_, _) => Tested(vec![
             runtime_check_error_kind_type_error_cdeploy,
@@ -114,208 +102,39 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             runtime_check_error_kind_type_value_error_cdeploy,
             runtime_check_error_kind_type_value_error_ccall
         ]),
-        InvalidTypeDescription => Unreachable_Functionally(
-            "Every invalid type literal is parsed both by the analyzer and by the runtime.
-             Both paths invoke the same TypeSignature::parse_* helpers, so analysis
-             always fails before initialization can trigger it."),
-        UnknownTypeName(_) => Unreachable_Functionally(
-            "Static analysis catches invalid types via `TypeSignature::parse_atom_type`."),
-        UnionTypeError(_, _) => Unreachable_Functionally(
-            "The analyzer enforces that every call to `bit-shift-left` / `bit-shift-right`
-             supplies an argument whose type is exactly `int` or `uint` (see
-             `NativeFunctions::BitwiseLShift|BitwiseRShift` using
-             `FunctionArgSignature::Union(IntType, UIntType)` and the
-             `TypeSignature::admits_type` checks in `type_checker::check_function_arg_signature`)"),
         UnionTypeValueError(_, _) => Tested(vec![
             runtime_check_error_kind_union_type_value_error_cdeploy,
             runtime_check_error_kind_union_type_value_error_ccall
         ]),
-        ExpectedOptionalValue(_) => Unreachable_Functionally(
-            "Every optional primitive (`is-some`, `default-to`, `unwrap!`, etc.)
-             has a dedicated analysis hook (`check_special_is_optional`,
-             `check_special_default_to`, `inner_unwrap`, …) that enforces the optional
-             type before a contract can be published, so the runtime never sees a plain
-             `Value` arrive at `native_default_to` / `is_some`."),
-        ExpectedResponseValue(_) => Unreachable_Functionally(
-            "Response helpers are validated by `check_special_is_response` and `inner_unwrap_err`
-            during static analysis, preventing a non-response from reaching the runtime handlers"),
-        ExpectedOptionalOrResponseValue(_) => Unreachable_Functionally(
-            "The mixed helpers (`match`, `try!`, `unwrap!`, `unwrap-err!`) ultimately
-             delegate to `check_special_match` and `inner_unwrap` in the analyzer, which enforces
-             that the argument is either an optional or a response before the code is accepted.
-             There is no runtime path where a plain value reaches `native_try_ret` or the
-             option/response matchers"),
         ExpectedContractPrincipalValue(_) => Tested(vec![
             runtime_check_error_kind_expected_contract_principal_value_cdeploy,
             runtime_check_error_kind_expected_contract_principal_value_ccall
         ]),
         CouldNotDetermineType => Tested(vec![runtime_check_error_kind_could_not_determine_type_ccall]),
-        BadTokenName => Unreachable_Functionally(
-            "Asset natives call `match_atom()` on their token arg during analysis."),
-        NoSuchNFT(_) => Unreachable_Functionally(
-            "Analysis uses contract_context.get_nft_type during every nft-* checker,
-             so a reference to an undefined NFT aborts before initialization"),
-        NoSuchFT(_) => Unreachable_Functionally(
-            "ft-* analyzers call contract_context.ft_exists, preventing undefined
-             fungible tokens from ever reaching the runtime handlers."),
-        BadTransferSTXArguments => Unreachable_Functionally(
-            "The analyzer routes all `stx-transfer?`, `stx-transfer-memo?`, and `stx-burn?`
-             calls through `check_special_stx_transfer` / `check_special_stx_burn`
-             which demand a `(uint, principal, principal)` signature before a contract
-             can be published. Because the runtime caches only sanitized values,
-             `special_stx_transfer` never receives a malformed value at runtime."),
-        BadTransferFTArguments => Unreachable_Functionally(
-            "`check_special_transfer_token` enforces the `(uint, principal, principal)`
-            argument contract for every FT transfer during analysis, so `special_transfer_token`
-            never sees a mismatched set of values at runtime."),
-        BadTransferNFTArguments => Unreachable_Functionally(
-            "`check_special_transfer_asset` ensures that the NFT
-            identifier plus `(principal, principal)` pair have the right types,
-            preventing `special_transfer_asset` from failing at runtime."),
-        BadMintFTArguments => Unreachable_Functionally(
-            "`check_special_mint_token` requires a `(uint, principal)`
-             argument tuple for fungible minting before deployment, so the runtime
-             never raises `BadMintFTArguments`"),
-        BadBurnFTArguments => Unreachable_Functionally(
-            "`check_special_burn_token` enforces `(uint, principal)`
-             during static analysis, making the runtime variant unobservable."),
-        ExpectedTuple(_) => Unreachable_Functionally(
-            "`check_special_get`/`check_special_merge` ensure every
-             `(get …)`/`(merge …)` argument is statically typed as a tuple (or
-             option wrapping a tuple), so `tuple_get` / `tuple_merge` never see
-             a non-tuple at runtime"),
-        NoSuchTupleField(_, _) => Unreachable_Functionally(
-            "`check_special_get` verifies tuple field existence for every `(get …)`
-             during static analysis, so `tuple_get` never receives a missing field"),
-        DefineFunctionBadSignature | BadFunctionName | PublicFunctionMustReturnResponse(_) => Unreachable_Functionally(
-            "On contract deploy checked during static analysis."),
-        EmptyTuplesNotAllowed | NoSuchMap(_) => Unreachable_Functionally(
-            "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)"),
-        NoSuchDataVariable(_) => Unreachable_Functionally(
-            "On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)"),
         ReturnTypesMustMatch(_, _) => Tested(vec![runtime_check_error_kind_return_types_must_match_ccall]),
         CircularReference(_) => Tested(vec![runtime_check_error_kind_circular_reference_ccall]), // Possible only during contract call. On contract deploy checked during parsing.
         NoSuchContract(_) => Tested(vec![runtime_check_error_kind_no_such_contract_ccall]),
         NoSuchPublicFunction(_, _) => Tested(vec![runtime_check_error_kind_no_such_public_function_ccall]),
-        PublicFunctionNotReadOnly(_, _) => Unreachable_Functionally("Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped."),
-        ContractAlreadyExists(_) => Unreachable_Functionally(
-            "Contracts can only be created via SmartContract deployment transactions. \
-             The runtime never performs contract installation or replacement.",
-        ),
         ContractCallExpectName => Tested(vec![
             runtime_check_error_kind_contract_call_expect_name_cdeploy,
             runtime_check_error_kind_contract_call_expect_name_ccall
         ]),
-        NoSuchBurnBlockInfoProperty(_) => Unreachable_Functionally(
-            "Burn block info property names are validated during static analysis; \
-             unknown properties are rejected at deploy time.",
-        ),
-        NoSuchStacksBlockInfoProperty(_) => Unreachable_Functionally(
-            "Stacks block info property names are validated during static analysis; \
-             unknown properties are rejected at deploy time.",
-        ),
-        GetBlockInfoExpectPropertyName => Unreachable_Functionally(
-            "`get-block-info?` requires a literal property name; \
-             non-atom arguments are rejected during static analysis.",
-        ),
-        GetStacksBlockInfoExpectPropertyName => Unreachable_Functionally(
-            "`get-stacks-block-info?` requires a literal property name; \
-             non-atom arguments are rejected during static analysis.",
-        ),
-        GetTenureInfoExpectPropertyName => Unreachable_Functionally(
-            "`get-tenure-info?` requires a literal property name; \
-             non-atom arguments are rejected during static analysis.",
-        ),
         NameAlreadyUsed(_) => Tested(vec![
             runtime_check_error_kind_name_already_used_cdeploy,
             runtime_check_error_kind_name_already_used_ccall
         ]),
-        NonFunctionApplication => Unreachable_Functionally(
-            "Malformed function applications are syntactically rejected by the parser \
-             and type checker before execution.",
-        ),
-        ExpectedListApplication => Unreachable_Functionally(
-            "All `append` operations require a statically-checked list argument; \
-             non-list values are rejected during static analysis.",
-        ),
-        ExpectedSequence(_) => Unreachable_Functionally(
-            "Sequence operations are fully type-checked during analysis; \
-             non-sequence values are rejected before execution.",
-        ),
-        BadLetSyntax => Unreachable_Functionally(
-            "`let` binding structure is fully validated during static analysis; \
-             malformed bindings never reach the runtime.",
-        ),
-        BadSyntaxBinding(_) => Unreachable_Functionally(
-            "Binding syntax errors are detected during parsing and analysis; \
-             runtime never re-parses bindings.",
-        ),
         UndefinedFunction(_) => Tested(vec![runtime_check_error_kind_undefined_function_ccall]),
-        UndefinedVariable(_) => Unreachable_Functionally(
-            "All variable references are resolved during static analysis; \
-             undefined variables cannot appear in executable code.",
-        ),
-        RequiresAtLeastArguments(_, _) => Unreachable_Functionally(
-            "Minimum arity requirements are enforced during static analysis; \
-             calls with too few arguments cannot reach execution.",
-        ),
-        RequiresAtMostArguments(_, _) => Unreachable_Functionally(
-            "Maximum arity requirements are enforced during static analysis; \
-             calls with too many arguments cannot reach execution.",
-        ),
         IncorrectArgumentCount(_, _) => {
             Tested(vec![runtime_check_error_kind_incorrect_argument_count_ccall])
         }
-        TooManyFunctionParameters(_, _) => Unreachable_Functionally(
-            "Trait function parameter limits are enforced during trait parsing at deploy time; \
-             oversized signatures are rejected before execution.",
-        ),
-        TraitReferenceUnknown(_) => Unreachable_Functionally(
-            "All `use-trait` references are validated during static analysis; \
-             unknown traits cannot appear at runtime.",
-        ),
-        TraitMethodUnknown(_, _) => Unreachable_Functionally(
-            "Trait method existence is verified during static analysis; \
-             missing methods prevent deployment.",
-        ),
-        ExpectedTraitIdentifier => Unreachable_Functionally(
-            "Callable trait values always include a trait identifier after analysis; \
-             the runtime never receives an untagged trait value.",
-        ),
         BadTraitImplementation(_, _) => Tested(vec![bad_trait_implementation_mismatched_args]),
-        DefineTraitBadSignature | DefineTraitDuplicateMethod(_) => Unreachable_Functionally(
-            "Trait definitions are fully validated during deployment; \
-             malformed trait signatures never reach runtime.",
-        ),
-        TraitBasedContractCallInReadOnly => Unreachable_Functionally(
-            "Read-only contract-call restrictions are enforced during static analysis; \
-             write-capable calls cannot exist in executable read-only code.",
-        ),
-        ContractOfExpectsTrait => Unreachable_Functionally(
-            "`contract-of` only accepts statically-typed trait values; \
-             invalid inputs are rejected during analysis.",
-        ),
-        TraitTooManyMethods(_, _) => Unreachable_Functionally(
-            "Trait method count limits are enforced during deployment; \
-             oversized traits cannot appear at runtime.",
-        ),
         InvalidCharactersDetected => Tested(vec![
             invalid_characters_detected_invalid_ascii,
             invalid_characters_detected_invalid_utf8
         ]),
         InvalidUTF8Encoding => {
             Ignored("Only reachable via legacy v1 parsing paths")
-        }
-        WriteAttemptedInReadOnly => Unreachable_Functionally(
-            "Write operations inside read-only contexts are rejected during static analysis.",
-        ),
-        ExpectedListOfAllowances(_, _)
-        | AllowanceExprNotAllowed
-        | ExpectedAllowanceExpr(_)
-        | TooManyAllowances(_, _) => Unreachable_Functionally(
-            "Allowance expressions are purely syntactic and fully validated during analysis; \
-                 invalid constructions cannot be produced dynamically at runtime.",
-        ),
+        },
     };
 }
 
@@ -818,6 +637,7 @@ fn runtime_check_error_kind_type_value_error_ccall() {
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 2 and later.
 ///     Clarity 1 will not be able to upload contract-3.
+///     In epoch 3.4 and later, this error is not triggered because calling via a constant is allowed.
 #[test]
 fn runtime_check_error_kind_contract_call_expect_name_cdeploy() {
     let contract_1 = SetupContract::new(
@@ -854,6 +674,7 @@ fn runtime_check_error_kind_contract_call_expect_name_cdeploy() {
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 2 and later.
 ///     Clarity 1 will not be able to upload contract-3.
+///     In epoch 3.4 and later, this error is not triggered because calling via a constant is allowed.
 #[test]
 fn runtime_check_error_kind_contract_call_expect_name_ccall() {
     let contract_1 = SetupContract::new(
@@ -1185,7 +1006,12 @@ fn runtime_check_error_kind_could_not_determine_type_ccall() {
         function_args: &[],
         deploy_epochs: &[StacksEpochId::Epoch23],
         call_epochs: &StacksEpochId::since(StacksEpochId::Epoch24),
-        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity3, ClarityVersion::Clarity4],
+        exclude_clarity_versions: &[
+            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity3,
+            ClarityVersion::Clarity4,
+            ClarityVersion::Clarity5
+        ],
         setup_contracts: &[trait_contract, trait_impl],
     );
 }
@@ -1285,7 +1111,7 @@ fn bad_trait_implementation_mismatched_args() {
 }
 
 /// Error: [`RuntimeCheckErrorKind::InvalidCharactersDetected`]
-/// Caused by: deserializing an invalid ascii string using `from-consensus-buf` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
+/// Caused by: deserializing an invalid ascii string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
 /// Outcome: Block accepted
 /// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
@@ -1299,12 +1125,12 @@ fn invalid_characters_detected_invalid_ascii() {
                 ;; (0x0d = string-ascii type, 0x00000003 = length 3, then invalid bytes)
                 (from-consensus-buff? (string-ascii 3) 0x0d00000003000102))
         ",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buf?
+        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buff?
     );
 }
 
 /// Error: [`RuntimeCheckErrorKind::InvalidCharactersDetected`]
-/// Caused by: deserializing an invalid utf8 string using `from-consensus-buf` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
+/// Caused by: deserializing an invalid utf8 string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
 /// Outcome: Block accepted
 /// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
 /// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
@@ -1318,6 +1144,195 @@ fn invalid_characters_detected_invalid_utf8() {
                 ;; (0x0e = string-utf8 type, 0x00000002 = length 2, then invalid UTF-8)
                 (from-consensus-buff? (string-utf8 2) 0x0e00000002fffe))
         ",
-        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buf?
+        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buff?
+    );
+}
+
+/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (before epoch 3.4)
+/// Caused by: calling nlogn with n = 0
+/// Outcome: block accepted at deploy time.
+/// Note: Before epoch 3.4, this returns a `CostComputationFailed` error which wraps the underlying
+///       [`RuntimeError::Arithmetic`] error. After 3.4, this executes successfully (`none` is
+///       stored in the constant).
+#[test]
+fn arithmetic_zero_n_log_n_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "zero-n-log-n-deploy",
+        contract_code: "(define-constant overflow (from-consensus-buff? int 0x))",
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
+        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+    );
+}
+
+/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (before epoch 3.4)
+/// Caused by: calling nlogn with n = 0
+/// Outcome: block accepted at call time.
+/// Note: Before epoch 3.4, this returns a `CostComputationFailed` error which wraps the underlying
+///       [`RuntimeError::Arithmetic`] error. After 3.4, this executes successfully and returns
+///       `none`.
+#[test]
+fn arithmetic_zero_n_log_n_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "zero-n-log-n",
+        contract_code: "
+(define-read-only (trigger)
+  (from-consensus-buff? int 0x)
+)",
+        function_name: "trigger",
+        function_args: &[],
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
+        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TraitReferenceUnknown`]
+/// Caused by: a transitive `use-trait` reference where the intermediate contract only
+/// *imports* the trait rather than *defining* it.
+///
+/// Scenario:
+///   - `foo`        — `(define-trait foo …)`
+///   - `transitive` — `(use-trait foo .foo.foo)` (imports, does NOT define)
+///   - `foo-impl`   — `(impl-trait .foo.foo)`
+///   - `call-foo`   — `(use-trait foo .transitive.foo)` + `(define-public (call-do-it (f <foo>)) …)`
+///
+/// All four contracts pass static analysis without error in Clarity 1. Later versions
+/// successfully catch this error during static analysis. At runtime, when the
+/// dispatcher calls `check_trait_expectations` for `call-do-it`, it resolves the
+/// trait identifier to `.transitive.foo` and loads `transitive`'s `ContractContext`.
+/// `ContractContext::lookup_trait_definition` only searches `defined_traits`; because
+/// `transitive` used `use-trait` (which populates `referenced_traits`), the lookup
+/// returns `None` and the function returns
+/// `RuntimeCheckErrorKind::TraitReferenceUnknown("foo")`.
+///
+/// Outcome: block accepted.
+#[test]
+fn trait_reference_unknown_transitive_use_trait_ccall() {
+    let foo = SetupContract::new(
+        "foo",
+        "
+(define-trait foo
+    ((do-it () (response bool uint))))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    // transitive imports foo via use-trait — it does NOT define it.
+    // lookup_trait_definition will therefore return None for "foo" on this context.
+    let transitive = SetupContract::new(
+        "transitive",
+        "
+(use-trait foo .foo.foo)
+(define-trait poo
+    ((do-it () (response bool uint))))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    let foo_impl = SetupContract::new(
+        "foo-impl",
+        "
+(impl-trait .foo.foo)
+(define-public (do-it)
+    (ok true))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    contract_call_consensus_test!(
+        contract_name: "call-foo",
+        // Resolves <foo> through .transitive.foo, not .foo.foo directly.
+        // Static analysis accepts this; runtime check_trait_expectations fails.
+        contract_code: "
+(use-trait foo .transitive.foo)
+(define-public (call-do-it (f <foo>))
+    (contract-call? f do-it))
+(define-public (trigger-error)
+    (call-do-it .foo-impl))",
+        function_name: "trigger-error",
+        function_args: &[],
+        setup_contracts: &[foo, transitive, foo_impl],
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::TraitMethodUnknown`]
+/// Caused by a divergence between what the analysis DB stores for a trait and what
+/// the runtime `ContractContext` stores, caused by a `use-trait` silently overwriting
+/// a `define-trait` entry during analysis.
+///
+/// In Clarity 1, the v2_05 type checker's `UseTrait` handler calls
+/// `contract_context.add_trait(trait_identifier.name.clone(), trait_sig)`, where
+/// `trait_identifier.name` is the **remote** trait name (not the local alias).
+/// When `into_contract_analysis` drains `self.traits` into `ContractAnalysis.defined_traits`,
+/// the use-trait's overwritten value is persisted.
+///
+/// At runtime, only `DefineResult::Trait` (from `define-trait`) populates
+/// `ContractContext.defined_traits`; `DefineResult::UseTrait` is ignored.
+///
+/// Scenario:
+///   - `foo`        — `(define-trait foo ((do-it () (response bool uint))))`
+///   - `transitive` — `(define-trait foo ((other-method () ...)))` comes first, then
+///                    `(use-trait alias .foo.foo)` (remote name also "foo").
+///                    Analysis: use-trait overwrites `defined_traits["foo"]` → `{do-it}`.
+///                    Runtime:  `defined_traits["foo"]` = `{other-method}` (define-trait only).
+///   - `foo-impl`   — `(impl-trait .foo.foo)` + `(define-public (do-it) ...)`.
+///                    Does NOT impl-trait `.transitive.foo`, so the short-circuit is bypassed.
+///   - `call-foo`   — `(use-trait foo .transitive.foo)`.
+///                    Analysis sees `do-it` in `.transitive.foo` and accepts the call.
+///                    Runtime: `lookup_trait_definition("foo")` finds `{other-method}`;
+///                    `get("do-it")` returns `None` → `TraitMethodUnknown`.
+///
+/// Outcome: block accepted.
+#[test]
+fn trait_method_unknown_transitive_use_trait_ccall() {
+    let foo = SetupContract::new(
+        "foo",
+        "
+(define-trait foo
+    ((do-it () (response bool uint))))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    // define-trait foo comes FIRST (with other-method), then use-trait alias .foo.foo.
+    // During analysis:
+    //   1. define-trait → self.traits["foo"] = {other-method}
+    //   2. use-trait alias .foo.foo → add_trait("foo", {do-it}) overwrites
+    //   → ContractAnalysis.defined_traits["foo"] = {do-it}
+    // At runtime:
+    //   1. define-trait → ContractContext.defined_traits["foo"] = {other-method}
+    //   2. use-trait → DefineResult::UseTrait → nothing inserted
+    //   → ContractContext.defined_traits["foo"] = {other-method}
+    let transitive = SetupContract::new(
+        "transitive",
+        "
+(define-trait foo
+    ((other-method () (response bool uint))))
+(use-trait alias .foo.foo)",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    // Explicitly implements .foo.foo (not .transitive.foo), so
+    // is_explicitly_implementing_trait(.transitive.foo) = false and the dynamic
+    // check_trait_expectations runs instead of short-circuiting.
+    let foo_impl = SetupContract::new(
+        "foo-impl",
+        "
+(impl-trait .foo.foo)
+(define-public (do-it)
+    (ok true))",
+    )
+    .with_clarity_version(ClarityVersion::Clarity1);
+
+    contract_call_consensus_test!(
+        contract_name: "call-foo",
+        // Analysis resolves .transitive.foo to {do-it} (from the overwritten analysis DB entry)
+        // and accepts (contract-call? f do-it). At runtime, .transitive's
+        // ContractContext.defined_traits["foo"] = {other-method}, so lookup_trait_definition
+        // succeeds but get("do-it") returns None → TraitMethodUnknown.
+        contract_code: "
+(use-trait foo .transitive.foo)
+(define-public (call-do-it (f <foo>))
+    (contract-call? f do-it))
+(define-public (trigger-error)
+    (call-do-it .foo-impl))",
+        function_name: "trigger-error",
+        function_args: &[],
+        setup_contracts: &[foo, transitive, foo_impl],
     );
 }

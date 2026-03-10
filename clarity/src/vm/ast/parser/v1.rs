@@ -18,9 +18,8 @@ use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use stacks_common::util::hash::hex_bytes;
 
-use crate::vm::MAX_CALL_STACK_DEPTH;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
-use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use crate::vm::ast::stack_depth_checker::StackDepthLimits;
 use crate::vm::representations::{
     ClarityName, ContractName, MAX_STRING_LEN, PreSymbolicExpression,
 };
@@ -185,9 +184,12 @@ lazy_static! {
     ];
 }
 
-/// Lex the contract, permitting nesting of lists and tuples up to `max_nesting`.
-fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u32)>> {
+/// Lex the contract, permitting nesting of lists and tuples up to
+/// `depth_limits.max_nesting_depth()`.
+fn inner_lex(input: &str, depth_limits: StackDepthLimits) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     let mut context = LexContext::ExpectNothing;
+    let max_nesting = depth_limits.max_nesting_depth().saturating_add(1);
+    let max_call_stack_depth = depth_limits.max_call_stack_depth();
 
     let mut line_indices = get_lines_at(input);
     let mut next_line_break = line_indices.pop();
@@ -262,7 +264,9 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                         nesting_depth += 1;
                         if nesting_depth > max_nesting {
                             return Err(ParseError::new(
-                                ParseErrorKind::VaryExpressionStackDepthTooDeep,
+                                ParseErrorKind::VaryExpressionStackDepthTooDeep {
+                                    max_depth: max_call_stack_depth,
+                                },
                             ));
                         }
                         Ok(LexItem::LeftParen)
@@ -291,7 +295,9 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                         nesting_depth += 1;
                         if nesting_depth > max_nesting {
                             return Err(ParseError::new(
-                                ParseErrorKind::VaryExpressionStackDepthTooDeep,
+                                ParseErrorKind::VaryExpressionStackDepthTooDeep {
+                                    max_depth: max_call_stack_depth,
+                                },
                             ));
                         }
                         Ok(LexItem::LeftCurly)
@@ -455,13 +461,6 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
             input[munch_index..].to_string(),
         )))
     }
-}
-
-pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
-    inner_lex(
-        input,
-        AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1,
-    )
 }
 
 fn unescape_ascii_chars(escaped_str: String, allow_unicode_escape: bool) -> ParseResult<String> {
@@ -719,26 +718,31 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
     }
 }
 
-pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
-    let lexed = inner_lex(
-        input,
-        AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1,
-    )?;
+pub fn parse(
+    input: &str,
+    depth_limits: StackDepthLimits,
+) -> ParseResult<Vec<PreSymbolicExpression>> {
+    let lexed = inner_lex(input, depth_limits)?;
     parse_lexed(lexed)
 }
 
 pub fn parse_no_stack_limit(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
-    let lexed = inner_lex(input, u64::MAX)?;
+    let lexed = inner_lex(input, StackDepthLimits::no_limit())?;
     parse_lexed(lexed)
 }
 
 #[cfg(test)]
 mod test {
-    use crate::vm::ast::errors::ParseErrorKind;
-    use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+    use stacks_common::types::StacksEpochId;
+
+    use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
+    use crate::vm::ast::stack_depth_checker::StackDepthLimits;
     use crate::vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
     use crate::vm::types::{CharType, PrincipalData, SequenceData, Value};
-    use crate::vm::{MAX_CALL_STACK_DEPTH, ast};
+
+    fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
+        super::parse(input, StackDepthLimits::for_epoch(StacksEpochId::Epoch2_05))
+    }
 
     fn make_atom(
         x: &str,
@@ -888,7 +892,7 @@ mod test {
             make_atom("y", 6, 15, 6, 15),
         ];
 
-        let parsed = ast::parser::v1::parse(input);
+        let parsed = parse(input);
         assert_eq!(
             Ok(program),
             parsed,
@@ -912,7 +916,7 @@ mod test {
             ),
         ];
 
-        let parsed = ast::parser::v1::parse(input);
+        let parsed = parse(input);
         assert_eq!(
             Ok(program),
             parsed,
@@ -933,14 +937,14 @@ mod test {
                 make_atom_value(Value::Int(1337), 1, 6, 1, 9),
             ],
         )];
-        let parsed = ast::parser::v1::parse(input);
+        let parsed = parse(input);
         assert_eq!(Ok(program), parsed, "Should match expected tuple literal");
     }
 
     #[test]
     fn test_parse_contract_principals() {
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract-a";
-        let parsed = ast::parser::v1::parse(input).unwrap();
+        let parsed = parse(input).unwrap();
 
         let x1 = &parsed[0];
         assert!(match x1.match_atom_value() {
@@ -953,7 +957,7 @@ mod test {
         });
 
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.a";
-        let parsed = ast::parser::v1::parse(input).unwrap();
+        let parsed = parse(input).unwrap();
 
         let x1 = &parsed[0];
         assert!(match x1.match_atom_value() {
@@ -969,7 +973,7 @@ mod test {
     #[test]
     fn test_parse_generics() {
         let input = "<a>";
-        let parsed = ast::parser::v1::parse(input).unwrap();
+        let parsed = parse(input).unwrap();
 
         let x1 = &parsed[0];
         assert!(match x1.match_trait_reference() {
@@ -982,7 +986,7 @@ mod test {
     fn test_parse_field_identifiers() {
         use crate::vm::types::PrincipalData;
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.my-contract.my-trait";
-        let parsed = ast::parser::v1::parse(input).unwrap();
+        let parsed = parse(input).unwrap();
 
         let x1 = &parsed[0];
         assert!(match x1.match_field_identifier() {
@@ -1001,7 +1005,7 @@ mod test {
     #[test]
     fn test_parse_sugared_field_identifiers() {
         let input = ".my-contract.my-trait";
-        let parsed = ast::parser::v1::parse(input).unwrap();
+        let parsed = parse(input).unwrap();
 
         let x1 = &parsed[0];
         assert!(match &x1.pre_expr {
@@ -1014,6 +1018,7 @@ mod test {
 
     #[test]
     fn test_parse_failures() {
+        let depth_limits = StackDepthLimits::for_epoch(StacksEpochId::Epoch2_05);
         let too_much_closure = "(let ((x 1) (y 2))))";
         let not_enough_closure = "(let ((x 1) (y 2))";
         let middle_hash = "(let ((x 1) (y#not 2)) x)";
@@ -1054,8 +1059,7 @@ mod test {
         let string_with_multiple_slashes = r#"
         "hello\\\"world"
         "#;
-        let stack_limit =
-            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+        let stack_limit = depth_limits.max_nesting_depth() as usize + 1;
         let exceeds_stack_depth_tuple = format!(
             "{}u1 {}",
             "{ a : ".repeat(stack_limit + 1),
@@ -1068,185 +1072,159 @@ mod test {
         );
 
         assert!(matches!(
-            *ast::parser::v1::parse(split_tokens).unwrap_err().err,
+            *parse(split_tokens).unwrap_err().err,
             ParseErrorKind::SeparatorExpected(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(too_much_closure).unwrap_err().err,
+            *parse(too_much_closure).unwrap_err().err,
             ParseErrorKind::ClosingParenthesisUnexpected
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(not_enough_closure).unwrap_err().err,
+            *parse(not_enough_closure).unwrap_err().err,
             ParseErrorKind::ClosingParenthesisExpected
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(middle_hash).unwrap_err().err,
+            *parse(middle_hash).unwrap_err().err,
             ParseErrorKind::FailedParsingRemainder(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(unicode).unwrap_err().err,
+            *parse(unicode).unwrap_err().err,
             ParseErrorKind::FailedParsingRemainder(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(name_with_dot).unwrap_err().err,
+            *parse(name_with_dot).unwrap_err().err,
             ParseErrorKind::SeparatorExpected(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(wrong_tuple_literal_close)
-                .unwrap_err()
-                .err,
+            *parse(wrong_tuple_literal_close).unwrap_err().err,
             ParseErrorKind::ClosingTupleLiteralExpected
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(wrong_list_close).unwrap_err().err,
+            *parse(wrong_list_close).unwrap_err().err,
             ParseErrorKind::ClosingParenthesisExpected
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(extra_tuple_literal_close)
-                .unwrap_err()
-                .err,
+            *parse(extra_tuple_literal_close).unwrap_err().err,
             ParseErrorKind::ClosingTupleLiteralUnexpected
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(unexpected_comma).unwrap_err().err,
+            *parse(unexpected_comma).unwrap_err().err,
             ParseErrorKind::CommaSeparatorUnexpected
         ));
 
         // { a: b,c: 3 } is legal
-        ast::parser::v1::parse(tuple_comma_no_space).unwrap();
+        parse(tuple_comma_no_space).unwrap();
 
         assert!(matches!(
-            *ast::parser::v1::parse(tuple_colon_no_space)
-                .unwrap_err()
-                .err,
+            *parse(tuple_colon_no_space).unwrap_err().err,
             ParseErrorKind::SeparatorExpectedAfterColon(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(shorthand_tuple).unwrap_err().err,
+            *parse(shorthand_tuple).unwrap_err().err,
             ParseErrorKind::TupleColonExpected(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(shorthand_tuple_dangling_comma)
-                .unwrap_err()
-                .err,
+            *parse(shorthand_tuple_dangling_comma).unwrap_err().err,
             ParseErrorKind::TupleItemExpected(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(decorative_colon_on_value)
-                .unwrap_err()
-                .err,
+            *parse(decorative_colon_on_value).unwrap_err().err,
             ParseErrorKind::TupleCommaExpected(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(tuple_literal_colon_after_comma)
-                .unwrap_err()
-                .err,
+            *parse(tuple_literal_colon_after_comma).unwrap_err().err,
             ParseErrorKind::TupleItemExpected(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(empty_tuple_literal_comma)
-                .unwrap_err()
-                .err,
+            *parse(empty_tuple_literal_comma).unwrap_err().err,
             ParseErrorKind::TupleItemExpected(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(empty_tuple_literal_colon)
-                .unwrap_err()
-                .err,
+            *parse(empty_tuple_literal_colon).unwrap_err().err,
             ParseErrorKind::TupleItemExpected(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(legacy_boolean_literals)
-                .unwrap_err()
-                .err,
+            *parse(legacy_boolean_literals).unwrap_err().err,
             ParseErrorKind::FailedParsingRemainder(_)
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(function_with_CR).unwrap_err().err,
+            *parse(function_with_CR).unwrap_err().err,
             ParseErrorKind::FailedParsingRemainder(_)
         ));
         assert!(matches!(
-            *ast::parser::v1::parse(function_with_CRLF).unwrap_err().err,
+            *parse(function_with_CRLF).unwrap_err().err,
             ParseErrorKind::FailedParsingRemainder(_)
         ));
         assert!(matches!(
-            *ast::parser::v1::parse(function_with_NEL).unwrap_err().err,
+            *parse(function_with_NEL).unwrap_err().err,
             ParseErrorKind::FailedParsingRemainder(_)
         ));
         assert!(matches!(
-            *ast::parser::v1::parse(function_with_LS).unwrap_err().err,
+            *parse(function_with_LS).unwrap_err().err,
             ParseErrorKind::FailedParsingRemainder(_)
         ));
         assert!(matches!(
-            *ast::parser::v1::parse(function_with_PS).unwrap_err().err,
+            *parse(function_with_PS).unwrap_err().err,
             ParseErrorKind::FailedParsingRemainder(_)
         ));
 
-        ast::parser::v1::parse(function_with_LF).unwrap();
+        parse(function_with_LF).unwrap();
 
         assert!(matches!(
-            *ast::parser::v1::parse(string_with_invalid_escape)
-                .unwrap_err()
-                .err,
+            *parse(string_with_invalid_escape).unwrap_err().err,
             ParseErrorKind::InvalidEscaping
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(ascii_string_with_unicode_escape)
-                .unwrap_err()
-                .err,
+            *parse(ascii_string_with_unicode_escape).unwrap_err().err,
             ParseErrorKind::InvalidEscaping
         ));
 
         assert!(
-            matches!(ast::parser::v1::parse(string_with_valid_escape).unwrap()[0].pre_expr, PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(
+            matches!(parse(string_with_valid_escape).unwrap()[0].pre_expr, PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(
                                      CharType::ASCII(ref v),
                                  ))) if v.data.len() == 11)
         );
 
         assert!(
-            matches!(ast::parser::v1::parse(string_with_valid_double_escape).unwrap()[0].pre_expr,
+            matches!(parse(string_with_valid_double_escape).unwrap()[0].pre_expr,
                 PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(
                     CharType::ASCII(ref v),
                 ))) if v.data.len() == 12)
         );
 
         assert!(
-            matches!(ast::parser::v1::parse(string_with_multiple_slashes).unwrap()[0].pre_expr,
+            matches!(parse(string_with_multiple_slashes).unwrap()[0].pre_expr,
                 PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(
                     CharType::ASCII(ref v),
                 ))) if v.data.len() == 12)
         );
 
         assert!(matches!(
-            *ast::parser::v1::parse(&exceeds_stack_depth_tuple)
-                .unwrap_err()
-                .err,
-            ParseErrorKind::VaryExpressionStackDepthTooDeep
+            *parse(&exceeds_stack_depth_tuple).unwrap_err().err,
+            ParseErrorKind::VaryExpressionStackDepthTooDeep { .. }
         ));
 
         assert!(matches!(
-            *ast::parser::v1::parse(&exceeds_stack_depth_list)
-                .unwrap_err()
-                .err,
-            ParseErrorKind::VaryExpressionStackDepthTooDeep
+            *parse(&exceeds_stack_depth_list).unwrap_err().err,
+            ParseErrorKind::VaryExpressionStackDepthTooDeep { .. }
         ));
     }
 
@@ -1254,7 +1232,7 @@ mod test {
     fn test_long_contract_name() {
         let long_contract_name = "(define-private (transfer (id uint) (receiver principal)) (contract-call? 'SP3D6PV2ACBPEKYJTCMH7HEN02KP87QSP8KTEH335.megapont-robot-expansion-nftSPNWZ5V2TPWGQGVDR6T7B6RQ4XMGZ4PXTEE0VQ0S.guests-hosted-stacks-parrots transfer id tx-sender receiver))";
         assert!(matches!(
-            *ast::parser::v1::parse(long_contract_name).unwrap_err().err,
+            *parse(long_contract_name).unwrap_err().err,
             ParseErrorKind::SeparatorExpected(_)
         ));
     }

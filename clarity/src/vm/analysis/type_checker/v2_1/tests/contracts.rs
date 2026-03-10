@@ -565,6 +565,71 @@ fn test_same_function_name(#[case] version: ClarityVersion, #[case] epoch: Stack
     .unwrap();
 }
 
+#[apply(test_clarity_versions)]
+fn test_contract_call_with_constant_variants_type_check(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let run_case = |contract_name: &str, contract_source: &str| -> Result<(), StaticCheckError> {
+        let contract_a_id = QualifiedContractIdentifier::local("contract-a").unwrap();
+        let contract_b_id = QualifiedContractIdentifier::local("contract-b").unwrap();
+        let contract_id = QualifiedContractIdentifier::local(contract_name).unwrap();
+
+        let mut contract_a = parse(
+            &contract_a_id,
+            "(define-public (foo) (ok true))",
+            version,
+            epoch,
+        )
+        .unwrap();
+        let mut contract = parse(&contract_id, contract_source, version, epoch).unwrap();
+
+        let mut marf = MemoryBackingStore::new();
+        let mut db = marf.as_analysis_db();
+
+        db.execute(|db| {
+            type_check_version(&contract_a_id, &mut contract_a, db, true, epoch, version)?;
+            type_check_version(&contract_id, &mut contract, db, false, epoch, version)?;
+            Ok(())
+        })
+    };
+
+    let test_cases = [
+        (
+            "constant-call-direct",
+            "(define-constant MY_CONTRACT .contract-a)
+         (define-public (call-foo)
+            (contract-call? MY_CONTRACT foo))",
+        ),
+        (
+            "constant-to-trait",
+            "(define-constant MY_CONTRACT .contract-a)
+         (define-trait my-trait (
+            (foo () (response bool bool))
+         ))
+         (define-private (inner-call-foo (contract <my-trait>))
+            (contract-call? contract foo))
+         (define-public (call-foo)
+            (inner-call-foo MY_CONTRACT))",
+        ),
+    ];
+
+    for (name, contract_source) in test_cases {
+        let result = run_case(name, contract_source);
+        if version.supports_callables() {
+            assert!(
+                result.is_ok(),
+                "expected type-check success for {epoch}/{version} in case `{name}`: {result:?}",
+            );
+        } else {
+            assert!(
+                result.is_err(),
+                "expected type-check failure for {epoch}/{version} in case `{name}`: {result:?}",
+            );
+        }
+    }
+}
+
 #[test]
 fn test_expects() {
     let okay = "(define-map tokens { id: int } { balance: int })
@@ -2545,7 +2610,10 @@ fn clarity_trait_experiments_downcast_literal_2(
         })
         .unwrap_err();
     match version {
-        ClarityVersion::Clarity2 | ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => {
+        ClarityVersion::Clarity2
+        | ClarityVersion::Clarity3
+        | ClarityVersion::Clarity4
+        | ClarityVersion::Clarity5 => {
             assert!(err.starts_with("ExpectedCallableType(PrincipalType)"))
         }
         ClarityVersion::Clarity1 => {
@@ -2747,7 +2815,10 @@ fn clarity_trait_experiments_trait_cast_incompatible(
                 assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
             }
         }
-        ClarityVersion::Clarity2 | ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => {
+        ClarityVersion::Clarity2
+        | ClarityVersion::Clarity3
+        | ClarityVersion::Clarity4
+        | ClarityVersion::Clarity5 => {
             assert!(err.starts_with("IncompatibleTrait"))
         }
     }

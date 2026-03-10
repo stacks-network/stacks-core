@@ -83,7 +83,7 @@ pub fn make_block(
     burn_height: u64,
     block_height: u64,
 ) -> (ConsensusHash, BlockHeaderHash) {
-    let (mut chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
+    let (mut chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin();
 
     let anchored_header = StacksBlockHeader {
         version: 1,
@@ -96,7 +96,7 @@ pub fn make_block(
         parent_microblock: BlockHeaderHash([0; 32]),
         parent_microblock_sequence: 0,
         tx_merkle_root: Sha512Trunc256Sum::empty(),
-        state_index_root: TrieHash::from_empty_data(),
+        state_index_root: TrieHash::EMPTY,
         microblock_pubkey_hash: Hash160([0; 20]),
     };
 
@@ -115,7 +115,7 @@ pub fn make_block(
     let new_tip_info = StacksHeaderInfo {
         anchored_header: anchored_header.into(),
         microblock_tail: None,
-        index_root: TrieHash::from_empty_data(),
+        index_root: TrieHash::EMPTY,
         stacks_block_height: block_height,
         consensus_hash: block_consensus.clone(),
         burn_header_hash: BurnchainHeaderHash([0; 32]),

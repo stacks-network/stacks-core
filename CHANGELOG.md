@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.3.0.0.6]
+
+### Added
+
+- Setup for epoch 3.4 and Clarity version 5. Epoch 3.4 is currently set to activate at Bitcoin height 3,400,000 (very far in the future) until an activation height is selected. Clarity will activate with epoch 3.4.
+- Implemented the updated behavior for `secp256r1-verify`, effective in Clarity 5, in which the `message-hash` is no longer hashed again. See SIP-035 for details.
+- Increased allowed stack depth from 64 to 128, effective in epoch 3.4
+- Prepare for epoch 3.4's improved transaction inclusion, allowing transactions with certain errors to be included in blocks which would cause them to be rejected in earlier epochs.
+- Added `marf_compress` as a node configuration parameter to enable MARF compression feature ([#6811](https://github.com/stacks-network/stacks-core/pull/6811))
+- Effective in epoch 3.4 `contract-call?`s can accept a constant as the contract to be called
+
+### Fixed
+
+- Improved the cost-tracking for `from-consensus-buff?`, effective in epoch 3.4, so that when an empty buffer is passed, users will see a `none` result, rather than a confusing runtime error.
+- Resolved several cases where a mock-miner would stop mining
+- /v2/pox endpoint now returns the `pox_ustx_threshold` stored in the reward set instead of a live computed value, which incorrectly accounts for STX locked during the prepare phase, after the reward set has been set.
+- Signer protocol version negotiation now properly handles downgrades based on majority consensus, not just upgrades
+- The sortition DB now tracks canonical Stacks tip by its burn view, allowing it to recover from a chain freeze if the Bitcoin block upon which the ongoing tenure is based is orphened before the last tenure block is processed.
+
 ## [3.3.0.0.5]
 
 ### Added
@@ -22,7 +41,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - New `/v3/tenures/tip_metadata` endpoint for returning some metadata along with the normal tenure tip information.
 
-
 ## [3.3.0.0.3]
 
 ### Added
@@ -33,6 +51,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - When mining, do not try to extend (or initiate) a tenure that did not commit to the ongoing chain tip (see #6744)
 - When mock-mining, retry when hitting the `ParentNotFound` error. This can happen at the beginning of a new tenure, but should resolve with retries.
+- Updated the documentation for `secp256r1-verify` to match the implementation. The message hash passed to `secp256r1-verify` is SHA256 hashed again before verifying the signature.
 
 ## [3.3.0.0.2]
 

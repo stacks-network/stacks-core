@@ -50,7 +50,7 @@ use crate::vm::types::{
 use crate::vm::version::ClarityVersion;
 use crate::vm::{ast, eval, is_reserved, stx_transfer_consolidated};
 
-pub const MAX_CONTEXT_DEPTH: u16 = 256;
+pub const MAX_CONTEXT_DEPTH: u64 = 256;
 pub const MAX_EVENTS_BATCH: u64 = 50 * 1024 * 1024;
 
 // TODO:
@@ -88,7 +88,7 @@ pub enum AssetMapEntry {
 }
 
 /**
-The AssetMap is used to track which assets have been transfered from whom
+The AssetMap is used to track which assets have been transferred from whom
 during the execution of a transaction.
 */
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -238,21 +238,30 @@ pub struct GlobalContext<'a, 'hooks> {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ContractContext {
+    /// The identifier of this contract
     pub contract_identifier: QualifiedContractIdentifier,
+    /// Despite being called `variables`, these are actually the constants defined in the contract
     pub variables: HashMap<ClarityName, Value>,
+    /// The functions defined in this contract, mapped by their name
     pub functions: HashMap<ClarityName, DefinedFunction>,
+    /// The traits defined in this contract, mapped by their name, to a map of the trait's function
+    /// signatures
     pub defined_traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
+    /// The traits implemented by this contract
     pub implemented_traits: HashSet<TraitIdentifier>,
-    // tracks the names of NFTs, FTs, Maps, and Data Vars.
-    //  used for ensuring that they never are defined twice.
+    /// The names of NFTs, FTs, Maps, and Data Vars, used to ensure that they never are defined twice
     pub persisted_names: HashSet<ClarityName>,
-    // track metadata for contract defined storage
+    /// Key/value types for contract defined maps
     pub meta_data_map: HashMap<ClarityName, DataMapMetadata>,
+    /// Types for contract defined data variables
     pub meta_data_var: HashMap<ClarityName, DataVariableMetadata>,
+    /// Key types for contract defined non-fungible tokens
     pub meta_nft: HashMap<ClarityName, NonFungibleTokenMetadata>,
+    /// Total supply for contract defined fungible tokens
     pub meta_ft: HashMap<ClarityName, FungibleTokenMetadata>,
+    /// The total size of constants stored by this contract
     pub data_size: u64,
-    /// track the clarity version of the contract
+    /// The clarity version of this contract
     clarity_version: ClarityVersion,
 }
 
@@ -261,13 +270,13 @@ pub struct LocalContext<'a> {
     pub parent: Option<&'a LocalContext<'a>>,
     pub variables: HashMap<ClarityName, Value>,
     pub callable_contracts: HashMap<ClarityName, CallableData>,
-    depth: u16,
+    depth: u64,
 }
 
 pub struct CallStack {
     stack: Vec<FunctionIdentifier>,
     set: HashSet<FunctionIdentifier>,
-    apply_depth: usize,
+    apply_depth: u64,
 }
 
 pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
@@ -559,7 +568,7 @@ impl fmt::Display for AssetMap {
         }
         for (principal, principal_map) in self.asset_map.iter() {
             for (asset, transfer) in principal_map.iter() {
-                write!(f, "{principal} transfered [")?;
+                write!(f, "{principal} transferred [")?;
                 for t in transfer {
                     write!(f, "{t}, ")?;
                 }
@@ -1170,7 +1179,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             if !allow_private && !func.is_public() {
                 return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             } else if read_only && !func.is_read_only() {
-                return Err(RuntimeCheckErrorKind::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
+                return Err(RuntimeCheckErrorKind::Unreachable(format!("Public function not read-only: {contract_identifier} {tx_name}")).into());
             }
 
             let args: Result<Vec<Value>, VmExecutionError> = args.iter()
@@ -1338,9 +1347,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 .database
                 .has_contract(&contract_identifier)
             {
-                return Err(RuntimeCheckErrorKind::ContractAlreadyExists(
-                    contract_identifier.to_string(),
-                )
+                return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                    "Contract already exists: {contract_identifier}"
+                ))
                 .into());
             }
 
@@ -1876,12 +1885,11 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 self.commit()?;
                 Ok(result)
             } else {
-                Err(
-                    RuntimeCheckErrorKind::PublicFunctionMustReturnResponse(Box::new(
-                        TypeSignature::type_of(&result)?,
-                    ))
-                    .into(),
-                )
+                Err(RuntimeCheckErrorKind::Unreachable(format!(
+                    "Public function must return response: {}",
+                    TypeSignature::type_of(&result)?
+                ))
+                .into())
             }
         } else {
             self.roll_back()?;
@@ -1922,6 +1930,7 @@ impl ContractContext {
         }
     }
 
+    /// Lookup a contract constant by name
     pub fn lookup_variable(&self, name: &str) -> Option<&Value> {
         self.variables.get(name)
     }
@@ -1986,7 +1995,7 @@ impl<'a> LocalContext<'a> {
         }
     }
 
-    pub fn depth(&self) -> u16 {
+    pub fn depth(&self) -> u64 {
         self.depth
     }
 
@@ -2001,8 +2010,8 @@ impl<'a> LocalContext<'a> {
         if self.depth >= MAX_CONTEXT_DEPTH {
             // `MaxContextDepthReached` in this function is **unreachable** in normal Clarity execution because:
             // - Every function call in Clarity increments both the call stack depth and the local context depth.
-            // - The VM enforces `MAX_CALL_STACK_DEPTH` (currently 64) **before** `MAX_CONTEXT_DEPTH` (256).
-            // - This means no contract can create more than 64 nested function calls, preventing context depth from reaching 256.
+            // - The VM enforces the epoch-specific `MAX_CALL_STACK_DEPTH` **before** `MAX_CONTEXT_DEPTH` (256).
+            // - This means no contract can create more nested function calls than the epoch limit, preventing context depth from reaching 256.
             // - Nested expressions (`let`, `begin`, `if`, etc.) increment context depth, but the Clarity parser enforces
             //   `ExpressionStackDepthTooDeep` long before MAX_CONTEXT_DEPTH nested contexts can be written.
             // - As a result, `MaxContextDepthReached` can only occur in artificial Rust-level tests calling `LocalContext::extend()`,
@@ -2055,8 +2064,9 @@ impl CallStack {
         }
     }
 
-    pub fn depth(&self) -> usize {
-        self.stack.len() + self.apply_depth
+    pub fn depth(&self) -> u64 {
+        let stack_len = u64::try_from(self.stack.len()).unwrap_or(u64::MAX);
+        stack_len.saturating_add(self.apply_depth)
     }
 
     pub fn contains(&self, function: &FunctionIdentifier) -> bool {
@@ -2504,9 +2514,11 @@ mod test {
             .initialize_contract_from_ast(contract_id.clone(), version, &ast, contract_src)
             .unwrap_err();
 
-        assert!(matches!(
+        assert_eq!(
             err,
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ContractAlreadyExists(_))
-        ));
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
+                "Contract already exists: S1G2081040G2081040G2081040G208105NK8PE5.dup".to_string()
+            ))
+        );
     }
 }

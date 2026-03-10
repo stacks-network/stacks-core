@@ -1073,6 +1073,9 @@ fn block_info_tests(use_primary_testnet: bool) {
             ClarityVersion::Clarity2 => panic!("Clarity2 not supported in this test"),
             ClarityVersion::Clarity3 => &clar3_contract_id,
             ClarityVersion::Clarity4 => &clar4_contract_id,
+            // Later versions of Clarity are just running the same code as Clarity4 for now
+            // so it's not necessary to test them all individually here.
+            ClarityVersion::Clarity5 => panic!("Clarity5 not supported in this test"),
         };
         peer.with_db_state(|sortdb, chainstate, _, _| {
             let sortdb_handle = sortdb.index_handle_at_tip();
@@ -2030,11 +2033,16 @@ fn test_nakamoto_chainstate_getters() {
         );
 
         let cur_burn_tip = SortitionDB::get_canonical_burn_chain_tip(sort_tx.sqlite()).unwrap();
-        let (cur_stacks_ch, cur_stacks_bhh, cur_stacks_height) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sort_tx.sqlite()).unwrap();
+        let (cur_stacks_ch, cur_stacks_burn_view_ch, cur_stacks_bhh, cur_stacks_height) =
+            SortitionDB::get_canonical_nakamoto_tip_hash_and_height_and_burn_view(
+                sort_tx.sqlite(),
+                &cur_burn_tip,
+            )
+            .unwrap()
+            .unwrap();
         sort_tx
             .test_update_canonical_stacks_tip(
-                &cur_burn_tip.sortition_id,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
                 0,
@@ -2065,8 +2073,8 @@ fn test_nakamoto_chainstate_getters() {
         // restore
         sort_tx
             .test_update_canonical_stacks_tip(
-                &cur_burn_tip.sortition_id,
                 &cur_stacks_ch,
+                &cur_stacks_burn_view_ch,
                 &cur_stacks_bhh,
                 cur_stacks_height,
             )
@@ -2229,11 +2237,16 @@ fn test_nakamoto_chainstate_getters() {
         .is_some());
 
         let cur_burn_tip = SortitionDB::get_canonical_burn_chain_tip(sort_tx.sqlite()).unwrap();
-        let (cur_stacks_ch, cur_stacks_bhh, cur_stacks_height) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sort_tx.sqlite()).unwrap();
+        let (cur_stacks_ch, cur_stacks_burn_view_ch, cur_stacks_bhh, cur_stacks_height) =
+            SortitionDB::get_canonical_nakamoto_tip_hash_and_height_and_burn_view(
+                sort_tx.sqlite(),
+                &cur_burn_tip,
+            )
+            .unwrap()
+            .unwrap();
         sort_tx
             .test_update_canonical_stacks_tip(
-                &cur_burn_tip.sortition_id,
+                &blocks[9].header.consensus_hash,
                 &blocks[9].header.consensus_hash,
                 &blocks[9].header.block_hash(),
                 blocks[9].header.chain_length,
@@ -2276,8 +2289,8 @@ fn test_nakamoto_chainstate_getters() {
         // restore
         sort_tx
             .test_update_canonical_stacks_tip(
-                &cur_burn_tip.sortition_id,
                 &cur_stacks_ch,
+                &cur_stacks_burn_view_ch,
                 &cur_stacks_bhh,
                 cur_stacks_height,
             )
@@ -2456,7 +2469,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         }
         let block_id = StacksBlockId(sn.winning_stacks_block_hash.0);
 
-        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
         let sort_db_tx = sort_db.tx_begin_at_tip();
 
         let stx_balance = clarity_instance
@@ -2522,7 +2535,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     {
         let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.chain.sortdb.as_mut().unwrap();
-        let (mut chainstate_tx, _) = chainstate.chainstate_tx_begin().unwrap();
+        let (mut chainstate_tx, _) = chainstate.chainstate_tx_begin();
         for i in 0..24 {
             let matured_reward_opt = NakamotoChainState::get_matured_miner_reward_schedules(
                 &mut chainstate_tx,
@@ -3199,7 +3212,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         }
         let block_id = StacksBlockId(sn.winning_stacks_block_hash.0);
 
-        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
         let sort_db_tx = sort_db.tx_begin_at_tip();
 
         let stx_balance = clarity_instance
@@ -3387,7 +3400,7 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
                         &format!("test-{contract_count}"),
                         smart_contract,
                         &private_key,
-                        ClarityVersion::Clarity4,
+                        ClarityVersion::latest(),
                         account.nonce,
                         u64::try_from(smart_contract.len() * 2).unwrap(),
                     );
@@ -3924,7 +3937,7 @@ fn process_next_nakamoto_block_deadlock() {
 
     // Lock the chainstate db
     info!("  -------------------------------   TRYING TO LOCK THE CHAINSTATE");
-    let chainstate_tx = chainstate.chainstate_tx_begin().unwrap();
+    let chainstate_tx = chainstate.chainstate_tx_begin();
 
     info!("  -------------------------------   SORTDB AND CHAINSTATE LOCKED");
     drop(chainstate_tx);

@@ -587,18 +587,17 @@ macro_rules! impl_byte_array_newtype {
             /// Convert to a hex string
             #[allow(dead_code)]
             pub fn to_hex(&self) -> String {
-                use $crate::util::hash::to_hex;
-                to_hex(&self.0)
+                $crate::util::hash::to_hex(&self.0)
             }
         }
         impl std::fmt::LowerHex for $thing {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "{}", self.to_hex())
+                f.write_str(&self.to_hex())
             }
         }
         impl std::fmt::Display for $thing {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "{}", self.to_hex())
+                f.write_str(&self.to_hex())
             }
         }
         impl std::convert::AsRef<[u8]> for $thing {
@@ -755,11 +754,21 @@ macro_rules! impl_byte_array_rusqlite_only {
     };
 }
 
-// Test hepler to get the name of the current function.
+/// Test helper to get the full name of the current function.
+#[cfg(any(test, feature = "testing"))]
 #[macro_export]
 macro_rules! function_name {
     () => {
         stdext::function_name!()
+    };
+}
+
+/// Test helper to get the name of the current function (without the namespace)
+#[cfg(any(test, feature = "testing"))]
+#[macro_export]
+macro_rules! function_name_no_ns {
+    () => {
+        function_name!().split("::").last().unwrap();
     };
 }
 

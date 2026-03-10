@@ -1537,8 +1537,10 @@ impl ClarityDatabase<'_> {
     ) -> Result<DataVariableMetadata, VmExecutionError> {
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
-        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeCheckErrorKind::NoSuchDataVariable(variable_name.to_string()).into())
+        map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?.ok_or(
+            RuntimeCheckErrorKind::Unreachable(format!("No such data variable: {variable_name}"))
+                .into(),
+        )
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -1679,7 +1681,7 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeCheckErrorKind::NoSuchMap(map_name.to_string()).into())
+            .ok_or(RuntimeCheckErrorKind::Unreachable(format!("No such map: {map_name}")).into())
     }
 
     pub fn make_key_for_data_map_entry(
@@ -2043,7 +2045,7 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeCheckErrorKind::NoSuchFT(token_name.to_string()).into())
+            .ok_or(RuntimeCheckErrorKind::Unreachable(format!("No such FT: {token_name}")).into())
     }
 
     pub fn create_non_fungible_token(
@@ -2069,7 +2071,7 @@ impl ClarityDatabase<'_> {
         let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
-            .ok_or(RuntimeCheckErrorKind::NoSuchNFT(token_name.to_string()).into())
+            .ok_or(RuntimeCheckErrorKind::Unreachable(format!("No such NFT: {token_name}")).into())
     }
 
     pub fn checked_increase_token_supply(

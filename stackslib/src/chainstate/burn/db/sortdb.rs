@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -52,7 +52,9 @@ use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
+use crate::chainstate::stacks::index::marf::{
+    test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
+};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::ChainstateDB;
 use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, StacksEpochId};
@@ -66,6 +68,8 @@ const BLOCK_HEIGHT_MAX: u64 = (1 << 63) - 1;
 
 pub const REWARD_WINDOW_START: u64 = 144 * 15;
 pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
+
+pub const STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH: usize = 144;
 
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
 
@@ -481,7 +485,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: u32 = 10;
+pub const SORTITION_DB_VERSION: u32 = 11;
 
 const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
@@ -688,7 +692,8 @@ const SORTITION_DB_SCHEMA_8: &[&str] = &[
     );"#,
     r#"
     -- canonical chain tip at each sortition ID.
-    -- This is updated in both 2.x and Nakamoto, but Nakamoto relies on this exclusively
+    -- This is updated in both 2.x and Nakamoto, but Nakamoto relies on this exclusively.
+    -- Maintenance of this table is abandoned in schema 11, which replaces this table with `stacks_chain_tips_by_burn_view`
     CREATE TABLE stacks_chain_tips (
         sortition_id TEXT PRIMARY KEY,
         consensus_hash TEXT NOT NULL,
@@ -721,7 +726,23 @@ static SORTITION_DB_SCHEMA_9: &[&str] =
     &[r#"ALTER TABLE block_commits ADD punished TEXT DEFAULT NULL;"#];
 static SORTITION_DB_SCHEMA_10: &[&str] = &[r#"DROP TABLE IF EXISTS ast_rule_heights;"#];
 
-const LAST_SORTITION_DB_INDEX: &str = "index_block_commits_by_sender";
+static SORTITION_DB_SCHEMA_11: &[&str] = &[r#"
+    -- replacement for `stacks_chain_tips`, which considers the Nakamoto block burn view.
+    -- Unlike `stacks_chain_tips`, rows in this table are only inserted for Nakamoto blocks
+    -- if they happen to have the same burn view as the given sortition.
+    CREATE TABLE stacks_chain_tips_by_burn_view (
+        sortition_id TEXT PRIMARY KEY,
+        consensus_hash TEXT NOT NULL, 
+        burn_view_consensus_hash TEXT NOT NULL,
+        block_hash TEXT NOT NULL,
+        block_height INTEGER NOT NULL,
+        FOREIGN KEY(burn_view_consensus_hash) REFERENCES snapshots(consensus_hash),
+        FOREIGN KEY(consensus_hash) REFERENCES snapshots(consensus_hash)
+    );
+    "#];
+
+const LAST_SORTITION_DB_INDEX: &str =
+    "stacks_chain_tips_by_burn_view_by_sortition_id_and_block_height";
 const SORTITION_DB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
@@ -744,7 +765,9 @@ const SORTITION_DB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_delegate_stx_burn_header_hash ON delegate_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_vote_for_aggregate_key_burn_header_hash ON vote_for_aggregate_key(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_block_commits_by_burn_height ON block_commits(block_height);",
-    "CREATE INDEX IF NOT EXISTS index_block_commits_by_sender ON block_commits(apparent_sender);"
+    "CREATE INDEX IF NOT EXISTS index_block_commits_by_sender ON block_commits(apparent_sender);",
+    "CREATE INDEX IF NOT EXISTS stacks_chain_tips_by_sortition_id_and_block_height ON stacks_chain_tips(sortition_id,block_height);",
+    "CREATE INDEX IF NOT EXISTS stacks_chain_tips_by_burn_view_by_sortition_id_and_block_height ON stacks_chain_tips_by_burn_view(sortition_id,block_height);",
 ];
 
 /// Handle to the sortition database, a MARF'ed sqlite DB on disk.
@@ -772,6 +795,8 @@ pub struct SortitionDB {
     pub pox_constants: PoxConstants,
     /// Path on disk from which this DB was opened (caller-given; not resolved).
     pub path: String,
+    /// MARF index configuratons
+    pub marf_opts: Option<MARFOpenOpts>,
 }
 
 #[derive(Clone)]
@@ -1342,7 +1367,7 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|result| result.is_some())
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition(
@@ -1595,6 +1620,7 @@ impl SortitionHandleTx<'_> {
     pub fn set_stacks_block_accepted(
         &mut self,
         consensus_hash: &ConsensusHash,
+        burn_view_consensus_hash: &ConsensusHash,
         stacks_block_hash: &BlockHeaderHash,
         stacks_block_height: u64,
     ) -> Result<(), db_error> {
@@ -1606,6 +1632,7 @@ impl SortitionHandleTx<'_> {
         self.set_stacks_block_accepted_at_tip(
             &chain_tip,
             consensus_hash,
+            burn_view_consensus_hash,
             stacks_block_hash,
             stacks_block_height,
         )?;
@@ -1688,7 +1715,7 @@ impl SortitionHandleTx<'_> {
                                 .get(ix as usize)
                                 .expect("Chosen reward set index not found in reward set")
                                 .clone();
-                            info!("PoX recipient chosen";
+                            debug!("PoX recipient chosen";
                                "recipient" => recipient.to_burnchain_repr(),
                                "block_height" => block_height,
                                "anchor_stacks_block_hash" => &anchor_block,
@@ -1723,7 +1750,7 @@ impl SortitionHandleTx<'_> {
                     for ix in chosen_recipients.into_iter() {
                         let ix = u16::try_from(ix).unwrap();
                         let recipient = self.get_reward_set_entry(ix)?;
-                        info!("PoX recipient chosen";
+                        debug!("PoX recipient chosen";
                            "recipient" => recipient.to_burnchain_repr(),
                            "block_height" => block_height,
                            "stacks_block_hash" => %anchor_block
@@ -1823,18 +1850,35 @@ impl SortitionHandleTx<'_> {
         Ok(anchor_block_txid)
     }
 
-    /// Update the canonical Stacks tip
+    /// Update the canonical Stacks tip.
+    /// As of schema 11, this means memoizing the given (consensus_hash, stacks_block_hash,
+    /// stacks_block_height) triple at the sortition pointed to by `burn_view_consensus_hash`.
     fn update_canonical_stacks_tip(
         &mut self,
-        sort_id: &SortitionId,
         consensus_hash: &ConsensusHash,
+        burn_view_consensus_hash: &ConsensusHash,
         stacks_block_hash: &BlockHeaderHash,
         stacks_block_height: u64,
     ) -> Result<(), db_error> {
-        let sql = "INSERT OR REPLACE INTO stacks_chain_tips (sortition_id,consensus_hash,block_hash,block_height) VALUES (?1,?2,?3,?4)";
-        let args = params![
-            sort_id,
+        let sortition = SortitionDB::get_block_snapshot_consensus(self, burn_view_consensus_hash)?
+            .ok_or(db_error::NotFoundError)?;
+
+        test_debug!(
+            "Set canonical Stacks tip on sortition {} ({} {}) to ({},{},{},{})",
+            &sortition.sortition_id,
+            sortition.block_height,
+            &sortition.consensus_hash,
             consensus_hash,
+            burn_view_consensus_hash,
+            stacks_block_hash,
+            stacks_block_height
+        );
+
+        let sql = "INSERT OR REPLACE INTO stacks_chain_tips_by_burn_view (sortition_id,consensus_hash,burn_view_consensus_hash,block_hash,block_height) VALUES (?1,?2,?3,?4,?5)";
+        let args = params![
+            &sortition.sortition_id,
+            consensus_hash,
+            burn_view_consensus_hash,
             stacks_block_hash,
             u64_to_sql(stacks_block_height)?,
         ];
@@ -1855,6 +1899,7 @@ impl SortitionHandleTx<'_> {
         &mut self,
         burn_tip: &BlockSnapshot,
         consensus_hash: &ConsensusHash,
+        burn_view_consensus_hash: &ConsensusHash,
         stacks_block_hash: &BlockHeaderHash,
         stacks_block_height: u64,
     ) -> Result<(), db_error> {
@@ -1888,20 +1933,15 @@ impl SortitionHandleTx<'_> {
             // As a result, only update the canonical Nakamoto tip if the given block is higher
             // than the existing tip for this sortiton (because it represents more overall signer
             // votes).
-            let current_sortition_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = self.query_row_and_then(
-                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?1 ORDER BY block_height DESC LIMIT 1",
-                rusqlite::params![&burn_tip.sortition_id],
-                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
-            ).optional()?;
-
-            if let Some((cur_ch, cur_bhh, cur_height)) = current_sortition_tip {
+            if let Some((cur_ch, cur_bhh, cur_height)) =
+                SortitionDB::get_canonical_nakamoto_tip_hash_and_height(self, &burn_tip)?
+            {
                 let will_replace = if cur_height < stacks_block_height {
                     true
                 } else if cur_height > stacks_block_height {
                     false
                 } else if &cur_ch == consensus_hash {
-                    // same sortition (i.e. nakamoto block)
-                    // no replacement
+                    // this block is in the same tenure and same height
                     false
                 } else {
                     // tips come from different sortitions
@@ -1931,8 +1971,8 @@ impl SortitionHandleTx<'_> {
             }
 
             self.update_canonical_stacks_tip(
-                &burn_tip.sortition_id,
                 consensus_hash,
+                burn_view_consensus_hash,
                 stacks_block_hash,
                 stacks_block_height,
             )?;
@@ -1966,7 +2006,7 @@ impl SortitionHandleTx<'_> {
 
         // update arrival data across all Stacks forks
         let (best_ch, best_bhh, best_height) = self.find_new_block_arrivals(burn_tip)?;
-        self.update_canonical_stacks_tip(&burn_tip.sortition_id, &best_ch, &best_bhh, best_height)?;
+        self.update_canonical_stacks_tip(&best_ch, &best_ch, &best_bhh, best_height)?;
         self.update_new_block_arrivals(burn_tip, best_ch, best_bhh, best_height)?;
 
         Ok(())
@@ -2078,7 +2118,8 @@ impl<'a> SortitionHandleConn<'a> {
         self.get_indexed(&self.context.chain_tip, key)
     }
 
-    fn get_sortition_id_for_bhh(
+    /// Get the sortition ID for a particular burn header hash in the current fork.
+    pub fn get_sortition_id_for_bhh(
         &self,
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<SortitionId>, db_error> {
@@ -2212,7 +2253,7 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(Some((block_commit, stacks_chain_tip)))
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition(
@@ -2258,7 +2299,7 @@ impl<'a> SortitionHandleConn<'a> {
         })
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     pub fn get_last_snapshot_with_sortition_from_tip(&self) -> Result<BlockSnapshot, db_error> {
         let ancestor_hash =
             match self.get_indexed(&self.context.chain_tip, db_keys::last_sortition())? {
@@ -2665,10 +2706,30 @@ impl SortitionDB {
         self.marf.sqlite_conn()
     }
 
-    fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
-        test_debug!("Open index at {}", index_path);
-        let open_opts = MARFOpenOpts::default();
-        let marf = MARF::from_path(index_path, open_opts).map_err(|_e| db_error::Corruption)?;
+    /// Open or create the sortition MARF index database with internal blobs.
+    ///
+    /// This function opens the SQLite-based MARF index at `marf_path`.
+    /// If the index database does not exist, it will be created.
+    /// This index stores all blobs internally within the SQLite database
+    /// (i.e., no separate `.blobs` file).
+    ///
+    /// # Arguments
+    /// * `marf_path` - Path to the MARF SQLite index database.
+    /// * `marf_opts` - Configuration options for opening the MARF.
+    ///
+    /// # Behavior
+    /// Given a `marf_path` such as `burnchain/sortition/marf.sqlite`,
+    /// the MARF blobs are stored internally within the SQLite database.
+    /// This function also enables SQLite foreign key enforcement.
+    fn open_index(
+        marf_path: &str,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<MARF<SortitionId>, db_error> {
+        test_debug!("Open MARF index at {}", marf_path);
+        let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
+        open_opts.external_blobs = false;
+        test_override_marf_compression(&mut open_opts);
+        let marf = MARF::from_path(marf_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
         Ok(marf)
     }
@@ -2680,6 +2741,7 @@ impl SortitionDB {
         path: &str,
         readwrite: bool,
         pox_constants: PoxConstants,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<SortitionDB, db_error> {
         let index_path = db_mkdirs(path)?;
         debug!(
@@ -2688,7 +2750,7 @@ impl SortitionDB {
             index_path
         );
 
-        let marf = SortitionDB::open_index(&index_path)?;
+        let marf = SortitionDB::open_index(&index_path, marf_opts.clone())?;
         let (first_block_height, first_burn_header_hash) =
             SortitionDB::get_first_block_height_and_hash(marf.sqlite_conn())?;
 
@@ -2700,6 +2762,7 @@ impl SortitionDB {
             pox_constants,
             first_block_height,
             first_burn_header_hash,
+            marf_opts,
         };
 
         db.check_schema_version_or_error()?;
@@ -2709,7 +2772,12 @@ impl SortitionDB {
     /// Open a new copy of this SortitionDB. Will use the same `readwrite` flag
     ///  of `self`.
     pub fn reopen(&self) -> Result<SortitionDB, db_error> {
-        Self::open(&self.path, self.readwrite, self.pox_constants.clone())
+        Self::open(
+            &self.path,
+            self.readwrite,
+            self.pox_constants.clone(),
+            self.marf_opts.clone(),
+        )
     }
 
     /// Open the burn database at the given path.  Open read-only or read/write.
@@ -2723,6 +2791,7 @@ impl SortitionDB {
         pox_constants: PoxConstants,
         migrator: Option<SortitionDBMigrator>,
         readwrite: bool,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<SortitionDB, db_error> {
         let create_flag = match fs::metadata(path) {
             Err(e) => {
@@ -2748,7 +2817,7 @@ impl SortitionDB {
             index_path
         );
 
-        let marf = SortitionDB::open_index(&index_path)?;
+        let marf = SortitionDB::open_index(&index_path, marf_opts.clone())?;
 
         let mut db = SortitionDB {
             path: path.to_string(),
@@ -2758,6 +2827,7 @@ impl SortitionDB {
             first_block_height,
             pox_constants,
             first_burn_header_hash: first_burn_hash.clone(),
+            marf_opts,
         };
 
         if create_flag {
@@ -2854,6 +2924,7 @@ impl SortitionDB {
         let db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
         SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_10(&db_tx)?;
+        SortitionDB::apply_schema_11(&db_tx)?;
         db_tx.commit()?;
 
         self.add_indexes()?;
@@ -3063,7 +3134,7 @@ impl SortitionDB {
             return Err(db_error::NoDBError);
         }
         let index_path = db_mkdirs(path)?;
-        let marf = SortitionDB::open_index(&index_path)?;
+        let marf = SortitionDB::open_index(&index_path, None)?;
         SortitionDB::get_schema_version(marf.sqlite_conn())
     }
 
@@ -3075,7 +3146,7 @@ impl SortitionDB {
             return Err(db_error::NoDBError);
         }
         let index_path = db_mkdirs(path)?;
-        let marf = SortitionDB::open_index(&index_path)?;
+        let marf = SortitionDB::open_index(&index_path, None)?;
         let sql = "SELECT MAX(block_height) FROM snapshots";
         Ok(query_rows(marf.sqlite_conn(), sql, NO_PARAMS)?
             .pop()
@@ -3097,6 +3168,7 @@ impl SortitionDB {
             StacksEpochId::Epoch31 => version >= 3,
             StacksEpochId::Epoch32 => version >= 3,
             StacksEpochId::Epoch33 => version >= 3,
+            StacksEpochId::Epoch34 => version >= 3,
         }
     }
 
@@ -3349,6 +3421,19 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_11(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_11 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["11"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3414,6 +3499,10 @@ impl SortitionDB {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_10(tx.deref())?;
                         tx.commit()?;
+                    } else if version == 10 {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_11(tx.deref())?;
+                        tx.commit()?;
                     } else if version == SORTITION_DB_VERSION {
                         // this transaction is almost never needed
                         let validated_epochs = StacksEpoch::validate_epochs(epochs);
@@ -3447,10 +3536,10 @@ impl SortitionDB {
         // NOTE: the sortition DB created here will not be used for anything, so it's safe to use
         // the mainnet_default PoX constants
         if let Err(db_error::OldSchema(_)) =
-            SortitionDB::open(path, false, PoxConstants::mainnet_default())
+            SortitionDB::open(path, false, PoxConstants::mainnet_default(), None)
         {
             let index_path = db_mkdirs(path)?;
-            let marf = SortitionDB::open_index(&index_path)?;
+            let marf = SortitionDB::open_index(&index_path, None)?;
             let mut db = SortitionDB {
                 path: path.to_string(),
                 marf,
@@ -3459,6 +3548,7 @@ impl SortitionDB {
                 first_block_height: migrator.get_burnchain().first_block_height,
                 first_burn_header_hash: migrator.get_burnchain().first_block_hash.clone(),
                 pox_constants: migrator.get_burnchain().pox_constants.clone(),
+                marf_opts: None,
             };
             db.check_schema_version_and_update(epochs, Some(migrator))
         } else {
@@ -4596,6 +4686,48 @@ impl SortitionDB {
         conn: &Connection,
         tip: &BlockSnapshot,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+        Self::get_canonical_nakamoto_tip_hash_and_height_and_burn_view(conn, tip)
+            .and_then(|tip_opt| Ok(tip_opt.map(|(ch, _burn_ch, bhh, height)| (ch, bhh, height))))
+    }
+
+    /// Given a starting sortition ID, go and find the canonical Nakamoto tip and its burn view
+    /// Returns Ok(Some(tenure_consensus_hash, burn_view_consensus_hash, block_hash, block_height)) on success
+    /// Returns Ok(None) if there are no Nakamoto blocks in this tip
+    /// Returns Err(..) on other DB error
+    /// DO NOT CALL during Stacks block processing (including during Clarity VM evaluation). This function returns the latest data known to the node, which may not have been at the time of original block assembly.
+    pub fn get_canonical_nakamoto_tip_hash_and_height_and_burn_view(
+        conn: &Connection,
+        tip: &BlockSnapshot,
+    ) -> Result<Option<(ConsensusHash, ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+        // Search stacks_chain_tips_by_burn_view, but give up after a (small) number of rows.
+        // This "give up" condition should only be reached when `stacks_chain_tips_by_burn_height`
+        // is empty -- i.e. on migration to schema 11.
+        let mut cursor = tip.clone();
+        for _ in 0..STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH {
+            let result_at_tip : Option<(ConsensusHash, ConsensusHash, BlockHeaderHash, u64)> = conn.query_row_and_then(
+                "SELECT consensus_hash,burn_view_consensus_hash, block_hash,block_height FROM stacks_chain_tips_by_burn_view WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
+                &[&cursor.sortition_id],
+                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), row.get_unwrap(2), (u64::try_from(row.get_unwrap::<_, i64>(3)).expect("FATAL: block height too high"))))
+            ).optional()?;
+            test_debug!(
+                "Result at tip by burn view ({} {} {}): {:?}",
+                &cursor.sortition_id,
+                &cursor.consensus_hash,
+                cursor.block_height,
+                &result_at_tip
+            );
+            if let Some(stacks_tip) = result_at_tip {
+                return Ok(Some(stacks_tip));
+            }
+            let Some(next_cursor) =
+                SortitionDB::get_block_snapshot(conn, &cursor.parent_sortition_id)?
+            else {
+                return Ok(None);
+            };
+            cursor = next_cursor
+        }
+
+        // exhaustively search stacks_chain_tips
         let mut cursor = tip.clone();
         loop {
             let result_at_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = conn.query_row_and_then(
@@ -4603,8 +4735,15 @@ impl SortitionDB {
                 &[&cursor.sortition_id],
                 |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
             ).optional()?;
-            if let Some(stacks_tip) = result_at_tip {
-                return Ok(Some(stacks_tip));
+            test_debug!(
+                "Result at tip ({} {} {}): {:?}",
+                &cursor.sortition_id,
+                &cursor.consensus_hash,
+                cursor.block_height,
+                &result_at_tip
+            );
+            if let Some((ch, bhh, height)) = result_at_tip {
+                return Ok(Some((ch.clone(), ch, bhh, height)));
             }
             let Some(next_cursor) =
                 SortitionDB::get_block_snapshot(conn, &cursor.parent_sortition_id)?
@@ -5247,7 +5386,7 @@ impl SortitionDB {
         }
     }
 
-    /// Get the latest block snapshot on this fork where a sortition occured.
+    /// Get the latest block snapshot on this fork where a sortition occurred.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
     pub fn get_last_snapshot_with_sortition_tx(
@@ -5346,36 +5485,44 @@ impl SortitionHandleTx<'_> {
                 )
             });
 
+        let burn_view_consensus_hash;
         if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
             // nakamoto behavior
-            // look at stacks_chain_tips table
-            let res: Result<_, db_error> = self.deref().query_row_and_then(
-                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
-                &[&parent_snapshot.sortition_id],
-                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
-            );
             let (
                 canonical_stacks_tip_consensus_hash,
+                canonical_stacks_tip_burn_view_consensus_hash,
                 canonical_stacks_tip_block_hash,
                 canonical_stacks_tip_height,
-            ) = res?;
+            ) = SortitionDB::get_canonical_nakamoto_tip_hash_and_height_and_burn_view(
+                self,
+                &parent_snapshot,
+            )?
+            .unwrap_or((
+                ConsensusHash([0x00; 20]),
+                ConsensusHash([0x00; 20]),
+                BlockHeaderHash([0x00; 32]),
+                0,
+            ));
             debug!(
                 "Setting stacks_chain_tips values";
                 "sortition_id" => %sn.sortition_id,
                 "parent_sortition_id" => %parent_snapshot.sortition_id,
                 "stacks_tip_height" => canonical_stacks_tip_height,
                 "stacks_tip_hash" => %canonical_stacks_tip_block_hash,
-                "stacks_tip_consensus" => %canonical_stacks_tip_consensus_hash
+                "stacks_tip_consensus" => %canonical_stacks_tip_consensus_hash,
+                "stacks_tip_burn_view_consensus" => %canonical_stacks_tip_burn_view_consensus_hash,
             );
             sn.canonical_stacks_tip_height = canonical_stacks_tip_height;
             sn.canonical_stacks_tip_hash = canonical_stacks_tip_block_hash;
             sn.canonical_stacks_tip_consensus_hash = canonical_stacks_tip_consensus_hash;
+            burn_view_consensus_hash = canonical_stacks_tip_burn_view_consensus_hash;
         } else {
             // epoch 2.x behavior
             // preserve memoized stacks chain tip from this burn chain fork
             sn.canonical_stacks_tip_height = parent_sn.canonical_stacks_tip_height;
             sn.canonical_stacks_tip_hash = parent_sn.canonical_stacks_tip_hash;
             sn.canonical_stacks_tip_consensus_hash = parent_sn.canonical_stacks_tip_consensus_hash;
+            burn_view_consensus_hash = sn.canonical_stacks_tip_consensus_hash.clone();
         }
 
         if self.context.dryrun {
@@ -5394,8 +5541,8 @@ impl SortitionHandleTx<'_> {
         }
 
         self.update_canonical_stacks_tip(
-            &sn.sortition_id,
             &sn.canonical_stacks_tip_consensus_hash,
+            &burn_view_consensus_hash,
             &sn.canonical_stacks_tip_hash,
             sn.canonical_stacks_tip_height,
         )?;
@@ -5502,7 +5649,8 @@ impl SortitionHandleTx<'_> {
                     op.block_height, &op.txid, op.block_height, op.vtxindex;
                     "apparent_sender" => %op.apparent_sender,
                     "stacks_block_hash" => %op.block_header_hash,
-                    "parent_burn_block" => %op.parent_block_ptr
+                    "parent_burn_block" => %op.parent_block_ptr,
+                    "burn_fee" => %op.burn_fee,
                 );
                 self.insert_block_commit(op, sort_id)
             }
@@ -6679,14 +6827,14 @@ pub mod tests {
         /// Update the canonical Stacks tip (testing only)
         pub fn test_update_canonical_stacks_tip(
             &mut self,
-            sort_id: &SortitionId,
             consensus_hash: &ConsensusHash,
+            burn_view_consensus_hash: &ConsensusHash,
             stacks_block_hash: &BlockHeaderHash,
             stacks_block_height: u64,
         ) -> Result<(), db_error> {
             self.update_canonical_stacks_tip(
-                sort_id,
                 consensus_hash,
+                burn_view_consensus_hash,
                 stacks_block_hash,
                 stacks_block_height,
             )
@@ -6731,6 +6879,7 @@ pub mod tests {
                 PoxConstants::test_default(),
                 None,
                 true,
+                None,
             )
         }
 
@@ -6765,7 +6914,7 @@ pub mod tests {
                 if readwrite { "readwrite" } else { "readonly" }
             );
 
-            let marf = SortitionDB::open_index(&index_path)?;
+            let marf = SortitionDB::open_index(&index_path, None)?;
 
             let mut db = SortitionDB {
                 path: path.to_string(),
@@ -6775,6 +6924,7 @@ pub mod tests {
                 first_block_height,
                 first_burn_header_hash: first_burn_hash.clone(),
                 pox_constants: PoxConstants::test_default(),
+                marf_opts: None,
             };
 
             if create_flag {
@@ -6960,7 +7110,7 @@ pub mod tests {
         pub fn get_all_stacks_chain_tips(
             &self,
         ) -> Result<Vec<(SortitionId, ConsensusHash, BlockHeaderHash, u64)>, db_error> {
-            let sql = "SELECT * FROM stacks_chain_tips ORDER BY block_height ASC";
+            let sql = "SELECT * FROM stacks_chain_tips UNION SELECT sortition_id,consensus_hash,block_hash,block_height FROM stacks_chain_tips_by_burn_view ORDER BY block_height ASC";
             let mut stmt = self.conn().prepare(sql)?;
             let mut qry = stmt.query(NO_PARAMS)?;
             let mut ret = vec![];
@@ -7027,7 +7177,7 @@ pub mod tests {
         assert!(res.is_err());
         assert!(format!("{:?}", res).contains("no such table: epochs"));
 
-        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default()).is_err());
+        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default(), None).is_err());
 
         // create a v2 sortition DB at the same path as the v1 DB.
         // the schema migration should be successfully applied, and the epochs table should exist.
@@ -7040,6 +7190,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
         // assert that an epoch is returned
@@ -7047,7 +7198,7 @@ pub mod tests {
             .expect("Database should not error querying epochs")
             .expect("Database should have an epoch entry");
 
-        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default()).is_ok());
+        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default(), None).is_ok());
     }
 
     #[test]
@@ -7607,7 +7758,7 @@ pub mod tests {
                         "0000000000000000000000000000000000000000000000000000000000000000",
                     )
                     .unwrap(),
-                    index_root: TrieHash::from_empty_data(),
+                    index_root: TrieHash::EMPTY,
                     num_sortitions: i as u64 + 1,
                     stacks_block_accepted: false,
                     stacks_block_height: 0,
@@ -7857,7 +8008,7 @@ pub mod tests {
                         "0000000000000000000000000000000000000000000000000000000000000000",
                     )
                     .unwrap(),
-                    index_root: TrieHash::from_empty_data(),
+                    index_root: TrieHash::EMPTY,
                     num_sortitions: i + 1,
                     stacks_block_accepted: false,
                     stacks_block_height: 0,
@@ -8779,7 +8930,7 @@ pub mod tests {
                         sortition_hash: SortitionHash([(i as u8); 32]),
                         winning_block_txid: Txid([(i as u8); 32]),
                         winning_stacks_block_hash: BlockHeaderHash([0u8; 32]),
-                        index_root: TrieHash::from_empty_data(),
+                        index_root: TrieHash::EMPTY,
                         num_sortitions: total_sortitions,
                         stacks_block_accepted: false,
                         stacks_block_height: 0,
@@ -8856,7 +9007,7 @@ pub mod tests {
                         sortition_hash: SortitionHash([(i as u8); 32]),
                         winning_block_txid: Txid([(i as u8); 32]),
                         winning_stacks_block_hash: BlockHeaderHash([(i as u8); 32]),
-                        index_root: TrieHash::from_empty_data(),
+                        index_root: TrieHash::EMPTY,
                         num_sortitions: total_sortitions,
                         stacks_block_accepted: false,
                         stacks_block_height: 0,
@@ -9164,8 +9315,13 @@ pub mod tests {
                     "test: set_stacks_block_accepted {}/{} height {}",
                     &consensus_hash, &stacks_block_hash, height
                 );
-                tx.set_stacks_block_accepted(&consensus_hash, &stacks_block_hash, height)
-                    .unwrap();
+                tx.set_stacks_block_accepted(
+                    &consensus_hash,
+                    &consensus_hash,
+                    &stacks_block_hash,
+                    height,
+                )
+                .unwrap();
                 tx.commit().unwrap();
             }
 
@@ -9244,8 +9400,13 @@ pub mod tests {
 
             {
                 let mut tx = db.tx_begin_at_tip();
-                tx.set_stacks_block_accepted(&consensus_hash, &stacks_block_hash, *height)
-                    .unwrap();
+                tx.set_stacks_block_accepted(
+                    &consensus_hash,
+                    &consensus_hash,
+                    &stacks_block_hash,
+                    *height,
+                )
+                .unwrap();
                 tx.commit().unwrap();
             }
 
@@ -9282,8 +9443,13 @@ pub mod tests {
 
             {
                 let mut tx = db.tx_begin_at_tip();
-                tx.set_stacks_block_accepted(&consensus_hash, &stacks_block_hash, *height)
-                    .unwrap();
+                tx.set_stacks_block_accepted(
+                    &consensus_hash,
+                    &consensus_hash,
+                    &stacks_block_hash,
+                    *height,
+                )
+                .unwrap();
                 tx.commit().unwrap();
             }
 
@@ -9326,8 +9492,13 @@ pub mod tests {
 
             {
                 let mut tx = db.tx_begin_at_tip();
-                tx.set_stacks_block_accepted(&consensus_hash, &stacks_block_hash, *height)
-                    .unwrap();
+                tx.set_stacks_block_accepted(
+                    &consensus_hash,
+                    &consensus_hash,
+                    &stacks_block_hash,
+                    *height,
+                )
+                .unwrap();
                 tx.commit().unwrap();
             }
 
@@ -9388,6 +9559,7 @@ pub mod tests {
         {
             let mut tx = db.tx_begin_at_tip();
             tx.set_stacks_block_accepted(
+                &ConsensusHash([0x4c; 20]),
                 &ConsensusHash([0x4c; 20]),
                 &BlockHeaderHash([0x4b; 32]),
                 5,
@@ -9465,11 +9637,13 @@ pub mod tests {
             let mut tx = db.tx_handle_begin(&SortitionId([0x2a; 32])).unwrap();
             tx.set_stacks_block_accepted(
                 &ConsensusHash([0x2a; 20]),
+                &ConsensusHash([0x2a; 20]),
                 &BlockHeaderHash([0x29; 32]),
                 5,
             )
             .unwrap();
             tx.set_stacks_block_accepted(
+                &ConsensusHash([0x2b; 20]),
                 &ConsensusHash([0x2b; 20]),
                 &BlockHeaderHash([0x2a; 32]),
                 6,
@@ -9530,11 +9704,13 @@ pub mod tests {
             let mut tx = db.tx_begin_at_tip();
             tx.set_stacks_block_accepted(
                 &ConsensusHash([0x46; 20]),
+                &ConsensusHash([0x46; 20]),
                 &BlockHeaderHash([0x45; 32]),
                 5,
             )
             .unwrap();
             tx.set_stacks_block_accepted(
+                &ConsensusHash([0x47; 20]),
                 &ConsensusHash([0x47; 20]),
                 &BlockHeaderHash([0x46; 32]),
                 6,
@@ -9542,11 +9718,13 @@ pub mod tests {
             .unwrap();
             tx.set_stacks_block_accepted(
                 &ConsensusHash([0x48; 20]),
+                &ConsensusHash([0x48; 20]),
                 &BlockHeaderHash([0x47; 32]),
                 7,
             )
             .unwrap();
             tx.set_stacks_block_accepted(
+                &ConsensusHash([0x49; 20]),
                 &ConsensusHash([0x49; 20]),
                 &BlockHeaderHash([0x48; 32]),
                 8,
@@ -9665,8 +9843,13 @@ pub mod tests {
                     "test: set_stacks_block_accepted {}/{} height {}",
                     &consensus_hash, &stacks_block_hash, height
                 );
-                tx.set_stacks_block_accepted(&consensus_hash, &stacks_block_hash, height)
-                    .unwrap();
+                tx.set_stacks_block_accepted(
+                    &consensus_hash,
+                    &consensus_hash,
+                    &stacks_block_hash,
+                    height,
+                )
+                .unwrap();
                 tx.commit().unwrap();
             }
 
@@ -9785,6 +9968,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
 
@@ -9854,6 +10038,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
 
@@ -9921,6 +10106,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
     }
@@ -9967,6 +10153,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
     }
@@ -10013,6 +10200,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
     }
@@ -10059,6 +10247,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
     }
@@ -10105,6 +10294,7 @@ pub mod tests {
             PoxConstants::test_default(),
             None,
             true,
+            None,
         )
         .unwrap();
     }
@@ -10930,6 +11120,7 @@ pub mod tests {
             PoxConstants::mainnet_default(),
             None,
             true,
+            None,
         )
         .unwrap();
 
@@ -10945,6 +11136,7 @@ pub mod tests {
             PoxConstants::mainnet_default(),
             None,
             true,
+            None,
         )
         .unwrap();
 
@@ -11020,5 +11212,355 @@ pub mod tests {
         )
         .unwrap();
         assert!(!table_exists(db.conn(), "ast_rule_heights").unwrap());
+    }
+
+    /// Make sure that set_stacks_block_accepted() with schema 11 (which adds stacks block tip
+    /// memoization by burn view) will correctly load the canonical Stacks tip.
+    #[test]
+    fn test_stacks_block_accepted_in_burn_view() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "10000000000000000000000000000000000000000000000000000000000000ff",
+        )
+        .unwrap();
+        let epochs = StacksEpoch::unit_test_3_0_only(0);
+        let mut db = SortitionDB::connect_test_with_epochs(0, &first_burn_hash, epochs).unwrap();
+
+        let last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
+
+        // seed a single fork
+        make_fork_run(&mut db, &last_snapshot, 5, 0);
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+
+        // set some blocks as processed
+        for i in (0..5).rev() {
+            let consensus_hash = ConsensusHash([i as u8; 20]);
+            let stacks_block_hash = BlockHeaderHash([i as u8; 32]);
+            let height = i;
+
+            {
+                let mut tx = db.tx_begin_at_tip();
+
+                debug!(
+                    "test: set_stacks_block_accepted {}/{} height {}",
+                    &consensus_hash, &stacks_block_hash, height
+                );
+                // assume each block is in its own burn view
+                tx.set_stacks_block_accepted(
+                    &consensus_hash,
+                    &consensus_hash,
+                    &stacks_block_hash,
+                    height,
+                )
+                .unwrap();
+                tx.commit().unwrap();
+            }
+
+            // chain tip is memoized to the current burn chain tip
+            let (block_consensus_hash, block_bhh, block_height) =
+                SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), &tip)
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(block_consensus_hash, ConsensusHash([0x04; 20]));
+            assert_eq!(block_bhh, BlockHeaderHash([0x04; 32]));
+            assert_eq!(block_height, 4);
+        }
+    }
+
+    /// Make sure that set_stacks_block_accepted() with schema 11 (which adds stacks block tip
+    /// memoization by burn view) will correctly load the canonical Stacks tip, even though its
+    /// burn view is fixed across multiple sortitions.
+    #[test]
+    fn test_stacks_block_accepted_in_burn_view_fixed_across_sortitions() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "10000000000000000000000000000000000000000000000000000000000000ff",
+        )
+        .unwrap();
+        let epochs = StacksEpoch::unit_test_3_0_only(0);
+        let mut db = SortitionDB::connect_test_with_epochs(0, &first_burn_hash, epochs).unwrap();
+
+        let last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
+
+        // seed a single fork
+        make_fork_run(&mut db, &last_snapshot, 5, 0);
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+
+        // set some blocks as processed
+        for i in (0..5).rev() {
+            let burn_view_consensus_hash = last_snapshot.consensus_hash.clone();
+            let consensus_hash = ConsensusHash([i as u8; 20]);
+            let stacks_block_hash = BlockHeaderHash([i as u8; 32]);
+            let height = i;
+
+            {
+                let mut tx = db.tx_begin_at_tip();
+
+                debug!(
+                    "test: set_stacks_block_accepted {}/{} height {}",
+                    &consensus_hash, &stacks_block_hash, height
+                );
+                // each block has the same burn view as the first snapshot (it's as if no new
+                // tenure happened in these subsequent sortitions)
+                tx.set_stacks_block_accepted(
+                    &consensus_hash,
+                    &burn_view_consensus_hash,
+                    &stacks_block_hash,
+                    height,
+                )
+                .unwrap();
+                tx.commit().unwrap();
+            }
+
+            // chain tip is memoized to the current burn chain tip
+            let (block_consensus_hash, burn_view_consensus_hash, block_bhh, block_height) =
+                SortitionDB::get_canonical_nakamoto_tip_hash_and_height_and_burn_view(
+                    db.conn(),
+                    &tip,
+                )
+                .unwrap()
+                .unwrap();
+            assert_eq!(block_consensus_hash, ConsensusHash([0x04; 20]));
+            assert_eq!(burn_view_consensus_hash, last_snapshot.consensus_hash);
+            assert_eq!(block_bhh, BlockHeaderHash([0x04; 32]));
+            assert_eq!(block_height, 4);
+        }
+    }
+
+    /// Get the stacks chain tip off of a particular sortition ID
+    fn get_stacks_tip_at_sortition(
+        db: &SortitionDB,
+        sortition_id: &SortitionId,
+    ) -> Option<(ConsensusHash, BlockHeaderHash, u64)> {
+        let stacks_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = db.conn().query_row_and_then(
+            "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips_by_burn_view WHERE sortition_id = ?1 ORDER BY block_height DESC LIMIT 1",
+            rusqlite::params![sortition_id],
+            |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
+        ).optional().unwrap();
+        stacks_tip
+    }
+
+    /// Make sure that set_stacks_block_accepted() with schema 11 (which adds stacks block tip
+    /// memoization by burn view) will correctly load the canonical Stacks tip, even when the
+    /// sortition history has forks.
+    ///
+    /// In particular, simuate this outcome:
+    ///
+    /// A1 -- A2 -- A3 -- A4 -- A5 -- A6 -- A7      Stacks (all blocks have burn view A)
+    ///
+    /// A --------------- B                         Bitcoin
+    ///  \
+    ///   *-------------- B' -------------- C'
+    ///
+    /// Suppose A1..A4 arrive while sortition A is the canonical sortition tip.  Then, sortition B
+    /// arrives, and then A5 arrives.  The stacks tip table entry for A should be updated, not for
+    /// B.  Same goes for A6 and B' -- the arrival of block A[n] only updates the row for A.
+    ///
+    #[test]
+    fn test_stacks_block_accepted_in_burn_view_forks() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "10000000000000000000000000000000000000000000000000000000000000ff",
+        )
+        .unwrap();
+        let epochs = StacksEpoch::unit_test_3_0_only(0);
+        let mut db = SortitionDB::connect_test_with_epochs(0, &first_burn_hash, epochs).unwrap();
+
+        let sortition_A = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
+        let mut tip = &sortition_A;
+
+        // set blocks A1...A4
+        for i in 1..=4 {
+            let burn_view_consensus_hash = sortition_A.consensus_hash.clone();
+            let consensus_hash = burn_view_consensus_hash.clone();
+            let stacks_block_hash = BlockHeaderHash([i as u8; 32]);
+            let height = i;
+
+            {
+                let mut tx = db.tx_begin_at_tip();
+
+                debug!(
+                    "test: set_stacks_block_accepted on sortition A {}/{} height {}",
+                    &consensus_hash, &stacks_block_hash, height
+                );
+                tx.set_stacks_block_accepted(
+                    &consensus_hash,
+                    &burn_view_consensus_hash,
+                    &stacks_block_hash,
+                    height,
+                )
+                .unwrap();
+                tx.commit().unwrap();
+            }
+            let (block_consensus_hash, block_bhh, block_height) =
+                SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), tip)
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(block_consensus_hash, sortition_A.consensus_hash);
+            assert_eq!(block_bhh, stacks_block_hash);
+            assert_eq!(block_height, height);
+        }
+
+        // sortition B arrives
+        let sortition_B = make_fork_run(&mut db, &sortition_A, 1, 0x10).pop().unwrap();
+        tip = &sortition_B;
+
+        // set block A5
+        for i in 5..6 {
+            let burn_view_consensus_hash = sortition_A.consensus_hash.clone();
+            let consensus_hash = burn_view_consensus_hash.clone();
+            let stacks_block_hash = BlockHeaderHash([i as u8; 32]);
+            let height = i;
+
+            {
+                let mut tx = db.tx_begin_at_tip();
+
+                debug!(
+                    "test: set_stacks_block_accepted on sortition B {}/{} height {}",
+                    &consensus_hash, &stacks_block_hash, height
+                );
+                tx.set_stacks_block_accepted(
+                    &consensus_hash,
+                    &burn_view_consensus_hash,
+                    &stacks_block_hash,
+                    height,
+                )
+                .unwrap();
+                tx.commit().unwrap();
+            }
+            let (block_consensus_hash, block_bhh, block_height) =
+                SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), &tip)
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(block_consensus_hash, sortition_A.consensus_hash);
+            assert_eq!(block_bhh, stacks_block_hash);
+            assert_eq!(block_height, height);
+
+            // there is a tip off of sortition A, and it's A5
+            let sortition_A_tip = get_stacks_tip_at_sortition(&db, &sortition_A.sortition_id);
+            assert!(sortition_A_tip.is_some());
+            assert_eq!(
+                sortition_A_tip.unwrap(),
+                (block_consensus_hash, block_bhh, block_height)
+            );
+
+            // there is no tip info off of sortition B
+            let sortition_B_tip = get_stacks_tip_at_sortition(&db, &sortition_B.sortition_id);
+            assert!(sortition_B_tip.is_none());
+        }
+
+        // sortition B' arrives
+        let sortition_Bp = make_fork_run(&mut db, &sortition_A, 1, 0x20).pop().unwrap();
+        tip = &sortition_Bp;
+
+        // set block A6
+        for i in 6..7 {
+            let burn_view_consensus_hash = sortition_A.consensus_hash.clone();
+            let consensus_hash = burn_view_consensus_hash.clone();
+            let stacks_block_hash = BlockHeaderHash([i as u8; 32]);
+            let height = i;
+
+            {
+                let mut tx = db.tx_begin_at_tip();
+
+                debug!(
+                    "test: set_stacks_block_accepted on sortition B' {}/{} height {}",
+                    &consensus_hash, &stacks_block_hash, height
+                );
+                tx.set_stacks_block_accepted(
+                    &consensus_hash,
+                    &burn_view_consensus_hash,
+                    &stacks_block_hash,
+                    height,
+                )
+                .unwrap();
+                tx.commit().unwrap();
+            }
+
+            // in both B and B', we get the same tip from A
+            for tip in &[&sortition_B, &sortition_Bp] {
+                let (block_consensus_hash, block_bhh, block_height) =
+                    SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), &tip)
+                        .unwrap()
+                        .unwrap();
+                assert_eq!(block_consensus_hash, sortition_A.consensus_hash);
+                assert_eq!(block_bhh, stacks_block_hash);
+                assert_eq!(block_height, height);
+            }
+
+            // there is a tip off of sortition A, and it's A6
+            let sortition_A_tip = get_stacks_tip_at_sortition(&db, &sortition_A.sortition_id);
+            assert!(sortition_A_tip.is_some());
+
+            // there is no tip info off of sortition B
+            let sortition_B_tip = get_stacks_tip_at_sortition(&db, &sortition_B.sortition_id);
+            assert!(sortition_B_tip.is_none());
+
+            // there is no tip info off of sortition B'
+            let sortition_Bp_tip = get_stacks_tip_at_sortition(&db, &sortition_Bp.sortition_id);
+            assert!(sortition_Bp_tip.is_none());
+        }
+
+        // sortition C' arrives, and it's now canonical
+        let sortition_Cp = make_fork_run(&mut db, &sortition_Bp, 1, 0x40)
+            .pop()
+            .unwrap();
+        assert_eq!(
+            SortitionDB::get_canonical_burn_chain_tip(db.conn())
+                .unwrap()
+                .sortition_id,
+            sortition_Cp.sortition_id
+        );
+
+        // set block A7
+        for i in 7..8 {
+            let burn_view_consensus_hash = sortition_A.consensus_hash.clone();
+            let consensus_hash = burn_view_consensus_hash.clone();
+            let stacks_block_hash = BlockHeaderHash([i as u8; 32]);
+            let height = i;
+
+            {
+                let mut tx = db.tx_begin_at_tip();
+
+                debug!(
+                    "test: set_stacks_block_accepted on sortition B' {}/{} height {}",
+                    &consensus_hash, &stacks_block_hash, height
+                );
+                tx.set_stacks_block_accepted(
+                    &consensus_hash,
+                    &burn_view_consensus_hash,
+                    &stacks_block_hash,
+                    height,
+                )
+                .unwrap();
+                tx.commit().unwrap();
+            }
+
+            // in B, B', and C', we get the same tip from A
+            for tip in &[&sortition_B, &sortition_Bp, &sortition_Cp] {
+                let (block_consensus_hash, block_bhh, block_height) =
+                    SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), &tip)
+                        .unwrap()
+                        .unwrap();
+                assert_eq!(block_consensus_hash, sortition_A.consensus_hash);
+                assert_eq!(block_bhh, stacks_block_hash);
+                assert_eq!(block_height, height);
+            }
+
+            // there is a tip off of sortition A, and it's A7
+            let sortition_A_tip = get_stacks_tip_at_sortition(&db, &sortition_A.sortition_id);
+            assert!(sortition_A_tip.is_some());
+
+            // there is no tip info off of sortition B
+            let sortition_B_tip = get_stacks_tip_at_sortition(&db, &sortition_B.sortition_id);
+            assert!(sortition_B_tip.is_none());
+
+            // there is no tip info off of sortition B'
+            let sortition_Bp_tip = get_stacks_tip_at_sortition(&db, &sortition_Bp.sortition_id);
+            assert!(sortition_Bp_tip.is_none());
+
+            // there is no tip info off of sortition C'
+            let sortition_Cp_tip = get_stacks_tip_at_sortition(&db, &sortition_Cp.sortition_id);
+            assert!(sortition_Cp_tip.is_none());
+        }
     }
 }
