@@ -48,6 +48,63 @@ jobs:
         with:
           alias: "fmt-stacks"
 
+  changelog-check:
+    name: Changelog Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for changelog fragments
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Check for "no changelog" label on PR
+            const labels = context.payload.pull_request.labels.map(l => l.name);
+            if (labels.includes('no changelog')) {
+              core.info('PR has "no changelog" label — skipping changelog check.');
+              return;
+            }
+
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+
+            // Fail if CHANGELOG.md is modified directly
+            const directEdits = files.filter(f =>
+              (f.filename === 'CHANGELOG.md' || f.filename === 'stacks-signer/CHANGELOG.md') &&
+              f.status === 'modified'
+            );
+
+            if (directEdits.length > 0) {
+              const edited = directEdits.map(f => f.filename).join(', ');
+              core.setFailed(
+                `Do not edit ${edited} directly. ` +
+                'Add a changelog fragment to changelog.d/ or stacks-signer/changelog.d/ instead ' +
+                '(see changelog.d/README.md for instructions).'
+              );
+              return;
+            }
+
+            const validExtensions = ['added', 'changed', 'fixed', 'removed'];
+            const fragments = files.filter(f =>
+              (f.filename.startsWith('changelog.d/') || f.filename.startsWith('stacks-signer/changelog.d/')) &&
+              f.status === 'added' &&
+              validExtensions.some(ext => f.filename.endsWith(`.${ext}`))
+            );
+
+            if (fragments.length === 0) {
+              core.setFailed(
+                'No changelog fragment found. Please add a fragment file to changelog.d/ ' +
+                'or stacks-signer/changelog.d/ (see changelog.d/README.md for instructions). ' +
+                'If no changelog entry is needed, add the "no changelog" label to the PR.'
+              );
+            } else {
+              const names = fragments.map(f => f.filename).join(', ');
+              core.info(`Found changelog fragment(s): ${names}`);
+            }
+
   ######################################################################################
   ## Check if the branch that this workflow is being run against is a release branch
   ##
@@ -64,6 +121,7 @@ jobs:
     name: Check Release
     needs:
       - rustfmt
+      - changelog-check
     runs-on: ubuntu-latest
     outputs:
       node_tag: ${{ steps.check_release.outputs.node_tag }}
@@ -96,6 +154,7 @@ jobs:
     name: Create Release
     needs:
       - rustfmt
+      - changelog-check
       - check-release
     secrets: inherit
     uses: ./.github/workflows/release-github.yml
@@ -121,6 +180,7 @@ jobs:
     name: Create Test Cache
     needs:
       - rustfmt
+      - changelog-check
       - check-release
     uses: ./.github/workflows/create-cache.yml
 
@@ -142,6 +202,7 @@ jobs:
     name: Stacks Core Tests
     needs:
       - rustfmt
+      - changelog-check
       - create-cache
       - check-release
     uses: ./.github/workflows/stacks-core-tests.yml
@@ -164,6 +225,7 @@ jobs:
     name: Constants Check
     needs:
       - rustfmt
+      - changelog-check
       - check-release
     uses: ./.github/workflows/constants-check.yml
 
@@ -185,6 +247,7 @@ jobs:
     name: Cargo Hack Check
     needs:
       - rustfmt
+      - changelog-check
       - check-release
     uses: ./.github/workflows/cargo-hack-check.yml
 
@@ -205,6 +268,7 @@ jobs:
     name: Bitcoin Tests
     needs:
       - rustfmt
+      - changelog-check
       - create-cache
       - check-release
     uses: ./.github/workflows/bitcoin-tests.yml
@@ -218,6 +282,7 @@ jobs:
     name: P2P Tests
     needs:
       - rustfmt
+      - changelog-check
       - create-cache
       - check-release
     uses: ./.github/workflows/p2p-tests.yml
@@ -231,6 +296,7 @@ jobs:
     name: Epoch Tests
     needs:
       - rustfmt
+      - changelog-check
       - create-cache
       - check-release
     uses: ./.github/workflows/epoch-tests.yml

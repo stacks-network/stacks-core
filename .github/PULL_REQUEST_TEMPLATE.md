@@ -17,6 +17,6 @@
 ### Checklist
 
 - [ ] Test coverage for new or modified code paths
-- [ ] Changelog fragment added (see [`changelog.d/README.md`](changelog.d/README.md))
+- [ ] Changelog fragment(s) or "no changelog" label added (see [`changelog.d/README.md`](changelog.d/README.md))
 - [ ] Required documentation changes (e.g., `docs/rpc/openapi.yaml` and `rpc-endpoints.md` for v2 endpoints, `event-dispatcher.md` for new events)
 - [ ] New clarity functions have corresponding PR in `clarity-benchmarking` repo
