@@ -1261,7 +1261,7 @@ fn tenure_extend_after_stale_commit_different_miner() {
             .signer_test
             .running_nodes
             .counters
-            .naka_skip_commit_op
+            .skip_commit_op
             .set(false);
 
         wait_for(30, || {
@@ -1286,7 +1286,7 @@ fn tenure_extend_after_stale_commit_different_miner() {
             .signer_test
             .running_nodes
             .counters
-            .naka_skip_commit_op
+            .skip_commit_op
             .set(true);
         TEST_MINER_COMMIT_TIP.set(None);
     }
@@ -1387,7 +1387,7 @@ fn tenure_extend_after_stale_commit_same_miner() {
     );
 
     let Counters {
-        naka_skip_commit_op: skip_commit_op,
+        skip_commit_op: skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
     } = signer_test.running_nodes.counters.clone();
@@ -1520,7 +1520,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
     );
 
     let Counters {
-        naka_skip_commit_op: skip_commit_op,
+        skip_commit_op: skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
     } = signer_test.running_nodes.counters.clone();
@@ -1761,9 +1761,9 @@ fn tenure_extend_after_failed_miner() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
@@ -1879,10 +1879,10 @@ fn tenure_extend_after_bad_commit() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
 
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -2004,9 +2004,9 @@ fn tenure_extend_after_2_bad_commits() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -2172,9 +2172,9 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -2353,9 +2353,9 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
@@ -2550,9 +2550,9 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
@@ -2679,11 +2679,7 @@ fn continue_after_tenure_extend() {
     signer_test.mine_and_verify_confirmed_naka_block(timeout, num_signers, true);
 
     info!("------------------------- Pause Block Commits-------------------------");
-    signer_test
-        .running_nodes
-        .counters
-        .naka_skip_commit_op
-        .set(true);
+    signer_test.running_nodes.counters.skip_commit_op.set(true);
     info!("------------------------- Flush Pending Commits -------------------------");
     // Mine a couple blocks to flush the last submitted commit out.
     let peer_info = signer_test.get_peer_info();
@@ -2764,7 +2760,7 @@ fn burn_block_height_behavior() {
     signer_test.boot_to_epoch_3();
 
     let Counters {
-        naka_skip_commit_op: skip_commit_op,
+        skip_commit_op: skip_commit_op,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -2992,7 +2988,7 @@ fn new_tenure_no_winner_while_proposing_block() {
     );
 
     let Counters {
-        naka_skip_commit_op: skip_commit_op,
+        skip_commit_op: skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
     } = signer_test.running_nodes.counters.clone();
@@ -3149,7 +3145,7 @@ fn new_tenure_no_winner_while_proposing_block_then_rejected() {
     );
 
     let Counters {
-        naka_skip_commit_op: skip_commit_op,
+        skip_commit_op: skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
     } = signer_test.running_nodes.counters.clone();
@@ -3334,7 +3330,7 @@ fn new_tenure_no_winner_while_proposing_block_then_ignored() {
     );
 
     let Counters {
-        naka_skip_commit_op: skip_commit_op,
+        skip_commit_op: skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
     } = signer_test.running_nodes.counters.clone();
@@ -3544,9 +3540,9 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
     rl2_skip_commit_op.set(true);
@@ -3967,7 +3963,7 @@ fn empty_sortition_before_approval() {
     let Counters {
         naka_submitted_commits: commits_submitted,
         naka_proposed_blocks: proposed_blocks,
-        naka_skip_commit_op: skip_commit_op,
+        skip_commit_op: skip_commit_op,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -4092,11 +4088,7 @@ fn empty_sortition_before_proposal() {
         SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
-    let skip_commit_op = signer_test
-        .running_nodes
-        .counters
-        .naka_skip_commit_op
-        .clone();
+    let skip_commit_op = signer_test.running_nodes.counters.skip_commit_op.clone();
 
     signer_test.boot_to_epoch_3();
 
@@ -4266,14 +4258,14 @@ fn continue_after_fast_block_no_sortition() {
 
     let Counters {
         naka_rejected_blocks: rl1_rejections,
-        naka_skip_commit_op: rl1_skip_commit_op,
+        skip_commit_op: rl1_skip_commit_op,
         naka_submitted_commits: rl1_commits,
         naka_mined_blocks: blocks_mined1,
         ..
     } = miners.signer_test.running_nodes.counters.clone();
 
     let Counters {
-        naka_skip_commit_op: rl2_skip_commit_op,
+        skip_commit_op: rl2_skip_commit_op,
         naka_submitted_commits: rl2_commits,
         naka_mined_blocks: blocks_mined2,
         ..
@@ -4888,7 +4880,7 @@ fn read_count_extend_after_burn_view_change() {
             .signer_test
             .running_nodes
             .counters
-            .naka_skip_commit_op
+            .skip_commit_op
             .set(false);
 
         wait_for(30, || {
@@ -4913,7 +4905,7 @@ fn read_count_extend_after_burn_view_change() {
             .signer_test
             .running_nodes
             .counters
-            .naka_skip_commit_op
+            .skip_commit_op
             .set(true);
         TEST_MINER_COMMIT_TIP.set(None);
     }

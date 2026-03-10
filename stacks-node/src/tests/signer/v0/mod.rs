@@ -144,6 +144,12 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
         let reward_cycle = self.get_current_reward_cycle() + 1;
+        let reward_cycle_len = self
+            .running_nodes
+            .conf
+            .get_burnchain()
+            .pox_constants
+            .reward_cycle_length as u64;
         wait_for(240, || {
             match self.stacks_client.get_reward_set_signers(reward_cycle).unwrap_or_default() {
                 Some(reward_set) => {
@@ -151,15 +157,30 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                     Ok(true)
                 }
                 None => {
-                    // Mine another block and wait for it to be processed before retrying.
-                    // This ensures the Stacks chain advances (not just the burn chain).
-                    warn!(
-                        "Reward set not yet available. Mining another block and waiting for it to process."
-                    );
-                    next_block_and_wait(
-                        &self.running_nodes.btc_regtest_controller,
-                        &self.running_nodes.counters.blocks_processed,
-                    );
+                    let burn_height = get_chain_info(&self.running_nodes.conf).burn_block_height;
+                    let next_cycle_start = reward_cycle * reward_cycle_len;
+                    if burn_height < next_cycle_start {
+                        // Still in the prepare phase or before the cycle boundary.
+                        // Mining another burn block is safe and may be needed for the
+                        // anchor block to be determined.
+                        warn!(
+                            "Reward set not yet available (burn_height={burn_height}, \
+                             cycle_start={next_cycle_start}). Mining another block."
+                        );
+                        next_block_and_wait(
+                            &self.running_nodes.btc_regtest_controller,
+                            &self.running_nodes.counters.blocks_processed,
+                        );
+                    } else {
+                        // We've already crossed into the next cycle. Mining more burn
+                        // blocks won't help — the anchor block should have been determined
+                        // during the prepare phase. Just wait for the Stacks chain to
+                        // catch up and process the existing blocks.
+                        debug!(
+                            "Reward set not yet available but already at burn_height={burn_height} \
+                             (>= cycle_start={next_cycle_start}). Waiting for Stacks chain to catch up."
+                        );
+                    }
                     Ok(false)
                 }
             }
@@ -745,13 +766,25 @@ impl MultipleMinerTest {
             .clone()
     }
 
-    /// Boot node 1 to epoch 3.0 and wait for node 2 to catch up.
+    /// Boot both miners to epoch 3.0 and wait for them to sync.
     pub fn boot_to_epoch_3(&mut self) {
         info!(
             "------------------------- Booting Both Miners to Epoch 3.0 -------------------------"
         );
 
+        // Prevent miner 2 from submitting block-commits during the boot
+        // phase. If miner 2 wins sortitions before its VRF key is properly
+        // registered it produces blocks with invalid VRF proofs, which can
+        // stall the chain and prevent the PoX anchor block from being
+        // determined. Save and restore the previous state so we don't
+        // clobber any test-level skip that was set before boot.
+        let prev_skip = self.rl2_counters.skip_commit_op.get();
+        self.rl2_counters.skip_commit_op.set(true);
+
         self.signer_test.boot_to_epoch_3();
+
+        self.rl2_counters.skip_commit_op.set(prev_skip);
+
         // Use a longer timeout for the miners to advance to epoch 3.0 and so that CI runners don't timeout.
         self.wait_for_chains(600);
 
@@ -1005,7 +1038,7 @@ impl MultipleMinerTest {
 
     /// Ensures that miner 2 submits a commit pointing to the current view reported by the stacks node as expected
     pub fn submit_commit_miner_2(&mut self, sortdb: &SortitionDB) {
-        if !self.rl2_counters.naka_skip_commit_op.get() {
+        if !self.rl2_counters.skip_commit_op.get() {
             warn!("Miner 2's commit ops were not paused. This may result in no commit being submitted.");
         }
         let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
@@ -1019,7 +1052,7 @@ impl MultipleMinerTest {
             .load(Ordering::SeqCst);
 
         info!("Unpausing commits from RL2");
-        self.rl2_counters.naka_skip_commit_op.set(false);
+        self.rl2_counters.skip_commit_op.set(false);
 
         info!("Waiting for commits from RL2");
         wait_for(30, || {
@@ -1042,7 +1075,7 @@ impl MultipleMinerTest {
         .expect("Timed out waiting for miner 2 to submit a commit op");
 
         info!("Pausing commits from RL2");
-        self.rl2_counters.naka_skip_commit_op.set(true);
+        self.rl2_counters.skip_commit_op.set(true);
     }
 
     /// Pause miner 1's commits
@@ -1050,24 +1083,18 @@ impl MultipleMinerTest {
         self.signer_test
             .running_nodes
             .counters
-            .naka_skip_commit_op
+            .skip_commit_op
             .set(true);
     }
 
     /// Pause miner 2's commits
     pub fn pause_commits_miner_2(&mut self) {
-        self.rl2_counters.naka_skip_commit_op.set(true);
+        self.rl2_counters.skip_commit_op.set(true);
     }
 
     /// Ensures that miner 1 submits a commit pointing to the current view reported by the stacks node as expected
     pub fn submit_commit_miner_1(&mut self, sortdb: &SortitionDB) {
-        if !self
-            .signer_test
-            .running_nodes
-            .counters
-            .naka_skip_commit_op
-            .get()
-        {
+        if !self.signer_test.running_nodes.counters.skip_commit_op.get() {
             warn!("Miner 1's commit ops were not paused. This may result in no commit being submitted.");
         }
         let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
@@ -1085,7 +1112,7 @@ impl MultipleMinerTest {
         self.signer_test
             .running_nodes
             .counters
-            .naka_skip_commit_op
+            .skip_commit_op
             .set(false);
 
         info!("Waiting for commits from RL1");
@@ -1118,7 +1145,7 @@ impl MultipleMinerTest {
         self.signer_test
             .running_nodes
             .counters
-            .naka_skip_commit_op
+            .skip_commit_op
             .set(true);
     }
 
@@ -6889,9 +6916,9 @@ fn signers_send_state_message_updates() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -7788,9 +7815,9 @@ fn signer_loads_stackerdb_updates_on_startup() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let skip_commit_op_rl2 = miners.rl2_counters.naka_skip_commit_op.clone();
+    let skip_commit_op_rl2 = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _conf_2) = miners.get_node_configs();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();

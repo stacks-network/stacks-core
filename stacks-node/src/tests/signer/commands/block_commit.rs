@@ -22,7 +22,7 @@ impl Command<SignerTestState, SignerTestContext> for MinerSubmitNakaBlockCommit 
         let is_miner_paused = self
             .ctx
             .get_counters_for_miner(self.miner_index)
-            .naka_skip_commit_op
+            .skip_commit_op
             .get();
 
         info!(
@@ -65,7 +65,7 @@ impl Command<SignerTestState, SignerTestContext> for MinerSubmitNakaBlockCommit 
         assert!(self
             .ctx
             .get_counters_for_miner(self.miner_index)
-            .naka_skip_commit_op
+            .skip_commit_op
             .get());
     }
 

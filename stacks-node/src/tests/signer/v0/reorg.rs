@@ -507,9 +507,9 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -684,9 +684,9 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -892,9 +892,9 @@ fn interrupt_miner_on_new_stacks_tip() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let skip_commit_op_rl2 = miners.rl2_counters.naka_skip_commit_op.clone();
+    let skip_commit_op_rl2 = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, conf_2) = miners.get_node_configs();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
@@ -1291,7 +1291,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
     let blocks_mined1 = miners
         .signer_test
@@ -1301,7 +1301,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         .clone();
 
     let Counters {
-        naka_skip_commit_op: rl2_skip_commit_op,
+        skip_commit_op: rl2_skip_commit_op,
         naka_mined_blocks: blocks_mined2,
         naka_rejected_blocks: rl2_rejections,
         ..
@@ -1709,7 +1709,7 @@ fn forked_tenure_testing(
         naka_submitted_commits: commits_submitted,
         naka_mined_blocks: mined_blocks,
         naka_proposed_blocks: proposed_blocks,
-        naka_skip_commit_op: skip_commit_op,
+        skip_commit_op: skip_commit_op,
         ..
     } = signer_test.running_nodes.counters.clone();
 
@@ -2341,7 +2341,7 @@ fn partial_tenure_fork() {
     let rl2_coord_channels = run_loop_2.coordinator_channels();
     let run_loop_stopper_2 = run_loop_2.get_termination_switch();
     let Counters {
-        naka_skip_commit_op: rl2_skip_commit_op,
+        skip_commit_op: rl2_skip_commit_op,
         ..
     } = run_loop_2.counters();
     let rl2_counters = run_loop_2.counters();
@@ -2371,11 +2371,7 @@ fn partial_tenure_fork() {
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    let rl1_skip_commit_op = signer_test
-        .running_nodes
-        .counters
-        .naka_skip_commit_op
-        .clone();
+    let rl1_skip_commit_op = signer_test.running_nodes.counters.skip_commit_op.clone();
 
     let sortdb = SortitionDB::open(
         &conf.get_burn_db_file_path(),
@@ -3557,10 +3553,10 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
 
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -3816,9 +3812,9 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
@@ -3987,9 +3983,9 @@ fn miner_forking() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let skip_commit_op_rl2 = miners.rl2_counters.naka_skip_commit_op.clone();
+    let skip_commit_op_rl2 = miners.rl2_counters.skip_commit_op.clone();
 
     // Make sure that the first miner wins the first sortition.
     info!("Pausing miner 2's block commit submissions");
@@ -4286,7 +4282,7 @@ fn revalidate_unknown_parent() {
     let rl2_coord_channels = run_loop_2.coordinator_channels();
     let run_loop_stopper_2 = run_loop_2.get_termination_switch();
     let Counters {
-        naka_skip_commit_op: rl2_skip_commit_op,
+        skip_commit_op: rl2_skip_commit_op,
         ..
     } = run_loop_2.counters();
     let rl2_counters = run_loop_2.counters();
@@ -4316,11 +4312,7 @@ fn revalidate_unknown_parent() {
 
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
-    let rl1_skip_commit_op = signer_test
-        .running_nodes
-        .counters
-        .naka_skip_commit_op
-        .clone();
+    let rl1_skip_commit_op = signer_test.running_nodes.counters.skip_commit_op.clone();
 
     let sortdb = SortitionDB::open(
         &conf.get_burn_db_file_path(),
@@ -4668,9 +4660,9 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -4808,9 +4800,9 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
+    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
