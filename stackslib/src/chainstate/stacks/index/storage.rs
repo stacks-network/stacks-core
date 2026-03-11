@@ -828,7 +828,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
     ) -> Result<TrieHash, Error> {
         let start_time = storage_tx.bench.write_children_hashes_start();
         let mut start_node_time = Some(storage_tx.bench.write_children_hashes_same_block_start());
-        let (node, node_hash) = self.get_nodetype(node_ptr as u32)?.to_owned();
+        let node_ptr_u32 = u32::try_from(node_ptr).map_err(|_| {
+            Error::CorruptionError(format!(
+                "In-memory node index {node_ptr} exceeds u32::MAX"
+            ))
+        })?;
+        let (node, node_hash) = self.get_nodetype(node_ptr_u32)?.to_owned();
         if node.is_leaf() {
             // base case: we already have the hash of the leaf, so return it.
             Ok(node_hash)
@@ -1427,7 +1432,13 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
     /// Read a node's hash from the TrieRAM.  ptr.ptr() is an array index.
     pub fn read_node_hash(&self, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let (_, node_trie_hash) = self.data.get(ptr.ptr() as usize).ok_or_else(|| {
+        let idx = usize::try_from(ptr.ptr()).map_err(|_| {
+            Error::CorruptionError(format!(
+                "In-memory node index {} exceeds usize::MAX",
+                ptr.ptr()
+            ))
+        })?;
+        let (_, node_trie_hash) = self.data.get(idx).ok_or_else(|| {
             error!(
                 "TrieRAM: Failed to read node bytes: {} >= {}",
                 ptr.ptr(),
@@ -1472,7 +1483,13 @@ impl<T: MarfTrieId> TrieRAM<T> {
             self.read_node_count += 1;
         }
 
-        if let Some(node) = self.data.get(ptr.ptr() as usize) {
+        let idx = usize::try_from(ptr.ptr()).map_err(|_| {
+            Error::CorruptionError(format!(
+                "In-memory node index {} exceeds usize::MAX",
+                ptr.ptr()
+            ))
+        })?;
+        if let Some(node) = self.data.get(idx) {
             Ok(node.clone())
         } else {
             error!(
@@ -1575,7 +1592,13 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
 impl<T: MarfTrieId> NodeHashReader for TrieRAM<T> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
-        let (_, node_trie_hash) = self.data.get(ptr.ptr() as usize).ok_or_else(|| {
+        let idx = usize::try_from(ptr.ptr()).map_err(|_| {
+            Error::CorruptionError(format!(
+                "In-memory node index {} exceeds usize::MAX",
+                ptr.ptr()
+            ))
+        })?;
+        let (_, node_trie_hash) = self.data.get(idx).ok_or_else(|| {
             error!(
                 "TrieRAM: Failed to read node bytes: {} >= {}",
                 ptr.ptr(),
