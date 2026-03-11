@@ -24,7 +24,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::signer::v0::{
-    get_stackerdb_messages, wait_for_block_pre_commits_from_signers,
+    get_stackerdb_signer_messages, wait_for_block_pre_commits_from_signers,
     wait_for_block_pushed_by_miner_key, MultipleMinerTest,
 };
 
@@ -152,7 +152,7 @@ fn signer_waits_for_validation_before_signing() {
     let stalled_pk = stalled_signer[0].clone();
     assert!(
         wait_for(15, || {
-            for (chunk, message) in get_stackerdb_messages() {
+            for (chunk, message) in get_stackerdb_signer_messages() {
                 let pk = chunk.recover_pk().expect("Failed to recover pk");
                 if stalled_pk != pk {
                     continue;
@@ -195,7 +195,7 @@ fn signer_waits_for_validation_before_signing() {
     let mut found_commit = false;
     let mut found_accept = false;
     wait_for(15, || {
-        for (chunk, message) in get_stackerdb_messages() {
+        for (chunk, message) in get_stackerdb_signer_messages() {
             let pk = chunk.recover_pk().expect("Failed to recover pk");
             if stalled_pk != pk {
                 continue;

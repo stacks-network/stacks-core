@@ -31,7 +31,7 @@ use super::SignerTest;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
 use crate::tests::signer::v0::{
-    get_stackerdb_messages, wait_for_block_proposal, wait_for_block_pushed_by_miner_key,
+    get_stackerdb_signer_messages, wait_for_block_proposal, wait_for_block_pushed_by_miner_key,
 };
 
 #[tag(bitcoind)]
@@ -119,7 +119,7 @@ fn signer_rejects_proposal_after_block_pushed() {
     .expect("Chain did not advance to block N+1");
 
     info!("------------------------- Verify Signer 1 did NOT respond to the Block Proposal -------------------------");
-    let messages = get_stackerdb_messages();
+    let messages = get_stackerdb_signer_messages();
     for (_chunk, message) in messages {
         match message {
             SignerMessage::BlockResponse(BlockResponse::Rejected(rejected)) => {
@@ -163,7 +163,7 @@ fn signer_rejects_proposal_after_block_pushed() {
         "------------------------- Verify Signer 1 Rejected the Proposal -------------------------"
     );
     wait_for(30, || {
-        let messages = get_stackerdb_messages();
+        let messages = get_stackerdb_signer_messages();
         for (_chunk, message) in messages {
             let SignerMessage::BlockResponse(BlockResponse::Rejected(rejected)) = message else {
                 continue;

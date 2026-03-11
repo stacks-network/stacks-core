@@ -329,7 +329,7 @@ fn tenure_extend_after_idle_signers_with_buffer() {
     // Check the tenure extend timestamps to verify that they have factored in the buffer
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let last_block = blocks.last().expect("No blocks mined");
-    let timestamps: HashSet<_> = get_stackerdb_messages()
+    let timestamps: HashSet<_> = get_stackerdb_signer_messages()
         .into_iter()
         .filter_map(|(_chunk, message)| match message {
             SignerMessage::BlockResponse(BlockResponse::Accepted(accepted))

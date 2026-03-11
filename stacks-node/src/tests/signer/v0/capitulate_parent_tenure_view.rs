@@ -205,7 +205,7 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     wait_for(30, || {
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
         let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
-        for (chunk, message) in get_stackerdb_messages() {
+        for (chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -260,7 +260,7 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     std::thread::sleep(time_to_wait);
     wait_for(30, || {
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
-        for (chunk, message) in get_stackerdb_messages() {
+        for (chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -478,7 +478,7 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     wait_for(30, || {
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
         let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
-        for (chunk, message) in get_stackerdb_messages() {
+        for (chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -537,7 +537,7 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     std::thread::sleep(time_to_wait);
     wait_for(30, || {
         let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
-        for (chunk, message) in get_stackerdb_messages() {
+        for (chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
