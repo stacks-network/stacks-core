@@ -234,23 +234,36 @@ fn tx_replay_forking_test() {
         .wait_for_signer_state_check(60, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
 
-    // Verify that all expected replayed txs were mined across the
-    // post-fork blocks. The txs may land in different blocks depending
-    // on timing, so search all observed blocks.
-    for expected_txid in &expected_tx_replay_txids {
-        let found = test_observer::get_blocks().iter().any(|block| {
+    // Verify that all expected replayed txs were mined in the correct
+    // relative order across the post-fork blocks, and that no other
+    // user transactions were mined before them. The txs may land in
+    // different blocks depending on timing, so collect user txids from
+    // all observed blocks in block-height order and check ordering.
+    let mined_user_txids: Vec<String> = test_observer::get_blocks()
+        .iter()
+        .map(|block| {
             let block: StacksBlockEvent =
                 serde_json::from_value(block.clone()).expect("Failed to parse block");
             block
                 .transactions
                 .iter()
-                .any(|tx| tx.txid().to_hex() == *expected_txid)
-        });
-        assert!(
-            found,
-            "Expected replayed tx {expected_txid} not found in any mined block"
-        );
-    }
+                .filter(|tx| !matches!(
+                    tx.payload,
+                    TransactionPayload::Coinbase(..)
+                        | TransactionPayload::TenureChange(..)
+                ))
+                .map(|tx| tx.txid().to_hex())
+                .collect::<Vec<_>>()
+        })
+        .flatten()
+        .collect();
+
+    // Replay txs must be the first user transactions mined, in order
+    assert_eq!(
+        &mined_user_txids[..expected_tx_replay_txids.len()],
+        expected_tx_replay_txids.as_slice(),
+        "Replay txs should be the first user transactions mined, in the expected order"
+    );
 
     signer_test.shutdown();
 }
