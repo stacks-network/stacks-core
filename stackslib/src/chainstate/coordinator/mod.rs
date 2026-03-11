@@ -1372,7 +1372,7 @@ impl<
             for (ch, bhh, height) in stacks_blocks_to_reaccept.into_iter() {
                 debug!("Re-accept Stacks block {}/{} height {}", &ch, &bhh, height);
                 revalidated_stacks_block = true;
-                sortition_db_handle.set_stacks_block_accepted(&ch, &bhh, height)?;
+                sortition_db_handle.set_stacks_block_accepted(&ch, &ch, &bhh, height)?;
             }
             sortition_db_handle.commit()?;
 
