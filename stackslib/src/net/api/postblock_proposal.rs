@@ -652,18 +652,7 @@ impl NakamotoBlockProposal {
         let block_deadline = Instant::now() + Duration::from_secs(timeout_secs);
         let mut receipts_total = 0u64;
         for (i, tx) in self.block.txs.iter().enumerate() {
-            let now = Instant::now();
-            if now >= block_deadline {
-                // Short circuit early if we know we have no more time left.
-                // Blame the current tx so the miner can exclude it from the
-                // next proposal and make potentially make progress.
-                return Err(BlockValidateRejectReason {
-                    reason: format!("Block validation exceeded deadline at tx {i}"),
-                    reason_code: ValidateRejectCode::BadTransaction,
-                    failed_txid: Some(tx.txid()),
-                });
-            }
-            let remaining = block_deadline.saturating_duration_since(now);
+            let remaining = block_deadline.saturating_duration_since(Instant::now());
 
             let tx_len = tx.tx_len();
 
