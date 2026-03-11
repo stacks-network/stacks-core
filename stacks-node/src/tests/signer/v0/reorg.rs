@@ -1851,11 +1851,14 @@ fn forked_tenure_testing(
 
     // Submit a block commit op for tenure C
     let commits_before = commits_submitted.load(Ordering::SeqCst);
-    let blocks_before = if expect_tenure_c {
-        mined_blocks.load(Ordering::SeqCst)
-    } else {
-        proposed_blocks.load(Ordering::SeqCst)
+    let get_blocks_count = || {
+        if expect_tenure_c {
+            mined_blocks.load(Ordering::SeqCst)
+        } else {
+            proposed_blocks.load(Ordering::SeqCst)
+        }
     };
+    let blocks_before = get_blocks_count();
     skip_commit_op.set(false);
 
     next_block_and(
@@ -1870,11 +1873,7 @@ fn forked_tenure_testing(
             // When we don't expect tenure C to produce a valid block,
             // check proposed_blocks (the miner will propose but signers
             // will reject). When we do expect it, check mined_blocks.
-            let blocks_count = if expect_tenure_c {
-                mined_blocks.load(Ordering::SeqCst)
-            } else {
-                proposed_blocks.load(Ordering::SeqCst)
-            };
+            let blocks_count = get_blocks_count();
             let rbf_count = if expect_tenure_c { 1 } else { 0 };
 
             Ok(commits_count > commits_before + rbf_count && blocks_count > blocks_before)
@@ -1882,11 +1881,7 @@ fn forked_tenure_testing(
     )
     .unwrap_or_else(|_| {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
-        let blocks_count = if expect_tenure_c {
-            mined_blocks.load(Ordering::SeqCst)
-        } else {
-            proposed_blocks.load(Ordering::SeqCst)
-        };
+        let blocks_count = get_blocks_count();
         let rbf_count = if expect_tenure_c { 1 } else { 0 };
         error!("Tenure C failed to produce a block";
             "commits_count" => commits_count,

@@ -247,11 +247,12 @@ fn tx_replay_forking_test() {
             block
                 .transactions
                 .iter()
-                .filter(|tx| !matches!(
-                    tx.payload,
-                    TransactionPayload::Coinbase(..)
-                        | TransactionPayload::TenureChange(..)
-                ))
+                .filter(|tx| {
+                    !matches!(
+                        tx.payload,
+                        TransactionPayload::Coinbase(..) | TransactionPayload::TenureChange(..)
+                    )
+                })
                 .map(|tx| tx.txid().to_hex())
                 .collect::<Vec<_>>()
         })

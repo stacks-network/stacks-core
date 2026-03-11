@@ -1264,8 +1264,7 @@ pub fn get_stackerdb_signer_messages() -> Vec<(StackerDBChunkData, SignerMessage
     test_observer::get_stackerdb_chunks()
         .into_iter()
         .filter(|event| {
-            event.contract_id.is_boot()
-                && event.contract_id.name.starts_with(SIGNERS_NAME)
+            event.contract_id.is_boot() && event.contract_id.name.starts_with(SIGNERS_NAME)
         })
         .flat_map(|chunk| chunk.modified_slots)
         .filter_map(|chunk| {
