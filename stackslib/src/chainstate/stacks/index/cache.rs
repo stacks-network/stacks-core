@@ -329,19 +329,22 @@ impl<T: MarfTrieId> TrieCache<T> {
     }
 }
 
-/// A small array-backed (fixed capacity) Most-Recently-Used (MRU) cache.
+/// A small array-backed (fixed-capacity, stack-allocated) Least-Recently-Used
+/// (LRU) cache.
 ///
-/// * Index `0` is always the most recently accessed entry.
-/// * On lookup, a hit promotes the entry to index `0` via `rotate_right(1)`, preserving recency
-///   order of all other entries.
-/// * On insert when full, the least-recently-used entry (last position) is evicted.
+/// Entries are stored in MRU-to-LRU order:
+///
+/// * Index 0 is the most recently accessed entry.
+/// * The last occupied slot is the least-recently-used entry.
+/// * On lookup or update, a hit is promoted to index 0.
+/// * On insert when full, the least-recently-used entry is evicted.
 #[derive(Debug, Clone)]
-pub struct MruCache<K, V, const N: usize> {
+pub struct ArrayLru<K, V, const N: usize> {
     entries: [Option<(K, V)>; N],
     len: usize,
 }
 
-impl<K: Eq, V, const N: usize> MruCache<K, V, N> {
+impl<K: Eq, V, const N: usize> ArrayLru<K, V, N> {
     pub fn new() -> Self {
         Self {
             entries: core::array::from_fn(|_| None),
@@ -358,8 +361,8 @@ impl<K: Eq, V, const N: usize> MruCache<K, V, N> {
             .position(|entry| matches!(entry, Some((k, _)) if k == key))?;
 
         if pos > 0 {
-            // Shift entries [0..pos] right by one and move the hit to position 0,
-            // preserving recency order of all other entries (true LRU).
+            // Shift entries [0..pos] right by one and move the hit to position 0, preserving
+            // recency order of all other entries (true LRU).
             self.entries[..=pos].rotate_right(1);
         }
 

@@ -328,12 +328,8 @@ fn load_store_trie_4_256_unique() {
 
 #[test]
 fn marf_root_cache_respects_requested_root_node_type() {
-    let (_tmp_dir, marf_path) =
-        make_test_marf_path("test_marf_root_cache_respects_requested_root_node_type");
-
-    let storage =
-        TrieFileStorage::<StacksBlockId>::open(&marf_path, MARFOpenOpts::default()).unwrap();
-    let mut marf = MARF::<StacksBlockId>::from_storage(storage);
+    let storage = TrieFileStorage::new_memory(MARFOpenOpts::default()).unwrap();
+    let mut marf = MARF::from_storage(storage);
 
     let tip = StacksBlockId([0x66; 32]);
     marf.begin(&StacksBlockId::sentinel(), &tip).unwrap();
@@ -343,7 +339,7 @@ fn marf_root_cache_respects_requested_root_node_type() {
     marf.with_conn(|conn| {
         conn.open_block(&tip).unwrap();
 
-        // Prime root MRU cache with a normal root read.
+        // Prime root-node cache with a normal root read.
         let root_ptr = conn.root_trieptr();
         conn.read_nodetype_nohash(&root_ptr).unwrap();
         assert!(
@@ -372,10 +368,8 @@ fn marf_root_cache_skips_unconfirmed_block_ids() {
     let confirmed_tip = StacksBlockId([0x77; 32]);
     initialize_marf_with_tip(&marf_path, &confirmed_tip);
 
-    let storage =
-        TrieFileStorage::<StacksBlockId>::open_unconfirmed(&marf_path, MARFOpenOpts::default())
-            .unwrap();
-    let mut marf = MARF::<StacksBlockId>::from_storage(storage);
+    let storage = TrieFileStorage::open_unconfirmed(&marf_path, MARFOpenOpts::default()).unwrap();
+    let mut marf = MARF::from_storage(storage);
 
     let unconfirmed_tip = insert_unconfirmed_transactional(
         &mut marf,
@@ -409,15 +403,13 @@ fn marf_root_cache_evicts_oldest_committed_block() {
         make_test_marf_path("test_marf_root_cache_evicts_oldest_committed_block");
 
     let tips = {
-        let storage =
-            TrieFileStorage::<StacksBlockId>::open(&marf_path, MARFOpenOpts::default()).unwrap();
-        let mut marf = MARF::<StacksBlockId>::from_storage(storage);
+        let storage = TrieFileStorage::open(&marf_path, MARFOpenOpts::default()).unwrap();
+        let mut marf = MARF::from_storage(storage);
         create_minimal_confirmed_chain(&mut marf, 5)
     };
 
-    let storage =
-        TrieFileStorage::<StacksBlockId>::open(&marf_path, MARFOpenOpts::default()).unwrap();
-    let mut marf = MARF::<StacksBlockId>::from_storage(storage);
+    let storage = TrieFileStorage::open(&marf_path, MARFOpenOpts::default()).unwrap();
+    let mut marf = MARF::from_storage(storage);
 
     marf.with_conn(|conn| {
         for (i, tip) in tips.iter().enumerate() {
@@ -450,12 +442,8 @@ fn marf_root_cache_evicts_oldest_committed_block() {
 
 #[test]
 fn marf_root_cache_is_cloned_into_reopened_connection() {
-    let (_tmp_dir, marf_path) =
-        make_test_marf_path("test_marf_root_cache_is_cloned_into_reopened_connection");
-
-    let storage =
-        TrieFileStorage::<StacksBlockId>::open(&marf_path, MARFOpenOpts::default()).unwrap();
-    let mut marf = MARF::<StacksBlockId>::from_storage(storage);
+    let storage = TrieFileStorage::new_memory(MARFOpenOpts::default()).unwrap();
+    let mut marf = MARF::from_storage(storage);
     let mut tips = create_minimal_confirmed_chain(&mut marf, 1);
     let tip = tips.pop().unwrap();
 
@@ -482,12 +470,8 @@ fn marf_root_cache_is_cloned_into_reopened_connection() {
 
 #[test]
 fn marf_root_cache_hashed_reads_return_cached_root_hash() {
-    let (_tmp_dir, marf_path) =
-        make_test_marf_path("test_marf_root_cache_hashed_reads_return_cached_root_hash");
-
-    let storage =
-        TrieFileStorage::<StacksBlockId>::open(&marf_path, MARFOpenOpts::default()).unwrap();
-    let mut marf = MARF::<StacksBlockId>::from_storage(storage);
+    let storage = TrieFileStorage::new_memory(MARFOpenOpts::default()).unwrap();
+    let mut marf = MARF::from_storage(storage);
     let mut tips = create_minimal_confirmed_chain(&mut marf, 1);
     let tip = tips.pop().unwrap();
     let expected_root_hash = marf.get_root_hash_at(&tip).unwrap();
@@ -496,12 +480,51 @@ fn marf_root_cache_hashed_reads_return_cached_root_hash() {
         conn.open_block(&tip).unwrap();
         let root_ptr = conn.root_trieptr();
 
-        // Populate root MRU cache via no-hash read.
+        // Populate root-node cache via no-hash read.
         conn.read_nodetype_nohash(&root_ptr).unwrap();
         assert!(conn.root_node_cache_has_current_block());
 
         // Follow-up hashed read should return the same root hash for this tip.
         let (_, root_hash) = conn.read_nodetype(&root_ptr).unwrap();
         assert_eq!(root_hash, expected_root_hash);
+    });
+}
+
+#[test]
+fn marf_root_cache_bypasses_non_noop_cache_strategy() {
+    let storage = TrieFileStorage::new_memory(MARFOpenOpts::new(
+        TrieHashCalculationMode::Deferred,
+        "node256",
+        false,
+    ))
+    .unwrap();
+
+    let mut marf = MARF::from_storage(storage);
+    let mut tips = create_minimal_confirmed_chain(&mut marf, 1);
+    let tip = tips.pop().unwrap();
+
+    marf.with_conn(|conn| {
+        conn.open_block(&tip).unwrap();
+        assert_eq!(conn.root_node_cache_len(), 0, "cache should start empty");
+
+        let root_ptr = conn.root_trieptr();
+        conn.read_nodetype_nohash(&root_ptr).unwrap();
+
+        assert_eq!(
+            conn.root_node_cache_len(),
+            0,
+            "root-node cache should be bypassed for non-noop cache strategies"
+        );
+        assert!(
+            !conn.root_node_cache_has_current_block(),
+            "current block should not be inserted into the root-node cache"
+        );
+
+        conn.read_nodetype(&root_ptr).unwrap();
+        assert_eq!(
+            conn.root_node_cache_len(),
+            0,
+            "hashed root reads should also bypass the root-node cache"
+        );
     });
 }

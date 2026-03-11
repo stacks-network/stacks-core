@@ -1635,13 +1635,17 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
     /// Does this trie represent unconfirmed state?
     unconfirmed: bool,
 
-    /// Small MRU cache of root nodes for recently-accessed committed blocks.
+    /// Small MRU-ordered LRU cache of recently-accessed root nodes of committed blocks.
     ///
-    /// Keyed by `block_id`, stores owned ([`TrieNodeType`], [`TrieHash`]).
+    /// Keyed by `block_id`, stores owned tuples of ([`TrieNodeType`], [`TrieHash`]).
     ///
-    /// **Note:** `TrieNode256` and `TrieNode48` are large (~3KiB/~1KiB), but `TrieNodeType` boxes
-    /// them, limiting the size impact of this field.
-    root_node_cache: MruCache<u32, (TrieNodeType, TrieHash), 4>,
+    /// ## Notes
+    ///
+    /// * `TrieNode256` and `TrieNode48` are large (~3KiB/~1KiB), but `TrieNodeType` boxes them,
+    ///   limiting the size impact of this field.
+    /// * The size of `4` was chosen arbitrarily to be large enough to capture a few
+    ///   recently-accessed blocks, but small enough to avoid significant memory overhead.
+    root_node_cache: ArrayLru<u32, (TrieNodeType, TrieHash), 4>,
 }
 
 // disk-backed Trie.
@@ -1940,7 +1944,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
                 readonly,
                 unconfirmed,
 
-                root_node_cache: MruCache::new(),
+                root_node_cache: ArrayLru::new(),
             },
 
             // used in testing in order to short-circuit block-height lookups
@@ -2206,8 +2210,8 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     if !self.unconfirmed() {
                         return Err(Error::UnconfirmedError);
                     }
-                    // Defensive: clear root node MRU cache since unconfirmed
-                    // blobs are updated in-place (same block_id, new data).
+                    // Defensive: clear root node cache since unconfirmed blobs are updated in-place
+                    // (same block_id, new data).
                     self.data.root_node_cache.clear();
                     trie_sql::write_trie_blob_to_unconfirmed(&self.db, &bhh, &buffer)?
                 }
@@ -3123,8 +3127,8 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         return Err(Error::NodeTooDeep);
     }
 
-    /// Attempt to read the root node via the MRU cache (`Noop` cache mode only), falling back to a
-    /// normal disk read if the node isn't cacheable or upon cache miss.
+    /// Attempt to read the root node via the root-node cache (`Noop` cache mode only), falling back
+    /// to a normal disk read if the node isn't cacheable or upon cache miss.
     ///
     /// ## Returns
     ///
@@ -3144,8 +3148,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         }
 
         // Is this the root node ptr for this block?
-        let is_root_ptr = clear_ptr.ptr() == TrieStorageConnection::<T>::root_ptr_disk()
-            && clear_ptr.id() == TrieNodeID::Node256 as u8;
+        let is_root_ptr = clear_ptr == self.root_trieptr();
 
         // If not, or if this block is unconfirmed (i.e. the root node may still be mutating), then
         // don't use the root cache.
@@ -3153,7 +3156,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
             return Ok(None);
         }
 
-        // Consult the MRU root-node cache.
+        // Consult the LRU root-node cache.
         let maybe_cached = self.data.root_node_cache.get(&block_id);
         let (node, hash) = match maybe_cached {
             // Cache hit

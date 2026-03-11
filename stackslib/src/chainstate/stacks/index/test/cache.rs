@@ -16,7 +16,7 @@
 
 use clarity::types::chainstate::TrieHash;
 
-use crate::chainstate::stacks::index::cache::MruCache;
+use crate::chainstate::stacks::index::cache::ArrayLru;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::test::{make_test_insert_data, opts};
 use crate::chainstate::stacks::index::MARFValue;
@@ -333,8 +333,8 @@ fn test_marf_patch_expansion(#[case] marf_opts: &MARFOpenOpts) {
 }
 
 #[test]
-fn mru_get_promotes_and_affects_eviction() {
-    let mut cache = MruCache::<u32, &'static str, 3>::new();
+fn lru_get_promotes_and_affects_eviction() {
+    let mut cache = ArrayLru::<u32, &'static str, 3>::new();
     cache.put(1, "one");
     cache.put(2, "two");
     cache.put(3, "three");
@@ -353,8 +353,8 @@ fn mru_get_promotes_and_affects_eviction() {
 }
 
 #[test]
-fn mru_put_existing_updates_and_promotes() {
-    let mut cache = MruCache::<u32, u32, 3>::new();
+fn lru_put_existing_updates_and_promotes() {
+    let mut cache = ArrayLru::<u32, u32, 3>::new();
     cache.put(1, 10);
     cache.put(2, 20);
     cache.put(3, 30);
@@ -372,8 +372,8 @@ fn mru_put_existing_updates_and_promotes() {
 }
 
 #[test]
-fn mru_clear_resets_state() {
-    let mut cache = MruCache::<u32, u32, 3>::new();
+fn lru_clear_resets_state() {
+    let mut cache = ArrayLru::<u32, u32, 3>::new();
     cache.put(1, 10);
     cache.put(2, 20);
     cache.put(3, 30);
@@ -389,8 +389,8 @@ fn mru_clear_resets_state() {
 }
 
 #[test]
-fn mru_capacity_one() {
-    let mut cache = MruCache::<u8, u8, 1>::new();
+fn lru_capacity_one() {
+    let mut cache = ArrayLru::<u8, u8, 1>::new();
     cache.put(1, 10);
     assert_eq!(cache.get(&1), Some(&10));
 
@@ -404,7 +404,7 @@ fn mru_capacity_one() {
 
 #[test]
 #[should_panic]
-fn mru_zero_capacity_panics_on_put() {
-    let mut cache = MruCache::<u8, u8, 0>::new();
+fn lru_zero_capacity_panics_on_put() {
+    let mut cache = ArrayLru::<u8, u8, 0>::new();
     cache.put(1, 1);
 }
