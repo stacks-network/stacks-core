@@ -829,9 +829,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let start_time = storage_tx.bench.write_children_hashes_start();
         let mut start_node_time = Some(storage_tx.bench.write_children_hashes_same_block_start());
         let node_ptr_u32 = u32::try_from(node_ptr).map_err(|_| {
-            Error::CorruptionError(format!(
-                "In-memory node index {node_ptr} exceeds u32::MAX"
-            ))
+            Error::CorruptionError(format!("In-memory node index {node_ptr} exceeds u32::MAX"))
         })?;
         let (node, node_hash) = self.get_nodetype(node_ptr_u32)?.to_owned();
         if node.is_leaf() {

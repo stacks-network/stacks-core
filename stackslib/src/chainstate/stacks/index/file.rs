@@ -326,8 +326,7 @@ impl<'a> TrieFileNodeHashReader<'a> {
 impl NodeHashReader for TrieFileNodeHashReader<'_> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
         let trie_offset = self.file.get_trie_offset(self.db, self.block_id)?;
-        self.file
-            .seek(SeekFrom::Start(trie_offset + (ptr.ptr())))?;
+        self.file.seek(SeekFrom::Start(trie_offset + (ptr.ptr())))?;
         let hash_buff = read_hash_bytes(self.file)?;
         w.write_all(&hash_buff).map_err(|e| e.into())
     }

@@ -391,8 +391,7 @@ fn dump_consume_large_offset_sets_u64_ptr_bit() {
         .checked_sub(last_node_size + second_last_node_size)
         .expect("second-last node should exist");
     file.seek(SeekFrom::Start(
-        second_last_node_start
-            + u64::try_from(TRIEHASH_ENCODED_SIZE + 1).expect("infallible"),
+        second_last_node_start + u64::try_from(TRIEHASH_ENCODED_SIZE + 1).expect("infallible"),
     ))
     .expect("seek to second-last child ptr id");
     let mut encoded_id = [0u8; 1];
