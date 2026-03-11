@@ -414,8 +414,7 @@ impl StackerDBListener {
                         if !block.gathered_signatures.contains_key(&slot_id) {
                             block.total_weight_approved = block
                                 .total_weight_approved
-                                .checked_add(signer_entry.weight)
-                                .expect("FATAL: total weight signed exceeds u32::MAX");
+                                .saturating_add(signer_entry.weight);
 
                             info!("StackerDBListener: Signature Added to block";
                                 "signer_signature_hash" => %block_sighash,
@@ -487,8 +486,7 @@ impl StackerDBListener {
                         if block.responded_signers.insert(slot_id) {
                             block.total_weight_rejected = block
                                 .total_weight_rejected
-                                .checked_add(signer_entry.weight)
-                                .expect("FATAL: total weight rejected exceeds u32::MAX");
+                                .saturating_add(signer_entry.weight);
 
                             // Track transactions that failed validation, accumulating
                             // per-txid signer weight and whether any signer flagged
@@ -501,10 +499,8 @@ impl StackerDBListener {
                                     ) => {
                                         let info =
                                             block.failed_txids.entry(txid.clone()).or_default();
-                                        info.total_weight = info
-                                            .total_weight
-                                            .checked_add(signer_entry.weight)
-                                            .expect("FATAL: failed txid weight exceeds u32::MAX");
+                                        info.total_weight =
+                                            info.total_weight.saturating_add(signer_entry.weight);
                                         if matches!(
                                             rejected_data.reason_code,
                                             RejectCode::ValidationFailed(
@@ -513,10 +509,7 @@ impl StackerDBListener {
                                         ) {
                                             info.problematic_weight = info
                                                 .problematic_weight
-                                                .checked_add(signer_entry.weight)
-                                                .expect(
-                                                    "FATAL: problematic txid weight exceeds u32::MAX",
-                                                );
+                                                .saturating_add(signer_entry.weight);
                                         }
                                     }
                                     _ => {}
