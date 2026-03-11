@@ -1098,92 +1098,126 @@ static SCHEMA_19: &[&str] = &[
 ];
 
 struct Migration {
-    version: u32,
+    version: SchemaVersion,
     statements: &'static [&'static str],
+}
+
+/// Enum representing each schema version. Adding a new schema version requires
+/// adding a variant here, a corresponding entry in `MIGRATIONS`, and a test
+/// case in `test_all_schema_migrations_have_tests` (which uses an exhaustive
+/// match to guarantee compile-time coverage).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u32)]
+enum SchemaVersion {
+    V1 = 1,
+    V2 = 2,
+    V3 = 3,
+    V4 = 4,
+    V5 = 5,
+    V6 = 6,
+    V7 = 7,
+    V8 = 8,
+    V9 = 9,
+    V10 = 10,
+    V11 = 11,
+    V12 = 12,
+    V13 = 13,
+    V14 = 14,
+    V15 = 15,
+    V16 = 16,
+    V17 = 17,
+    V18 = 18,
+    V19 = 19,
+}
+
+impl SchemaVersion {
+    const fn as_u32(self) -> u32 {
+        self as u32
+    }
 }
 
 static MIGRATIONS: &[Migration] = &[
     Migration {
-        version: 1,
+        version: SchemaVersion::V1,
         statements: SCHEMA_1,
     },
     Migration {
-        version: 2,
+        version: SchemaVersion::V2,
         statements: SCHEMA_2,
     },
     Migration {
-        version: 3,
+        version: SchemaVersion::V3,
         statements: SCHEMA_3,
     },
     Migration {
-        version: 4,
+        version: SchemaVersion::V4,
         statements: SCHEMA_4,
     },
     Migration {
-        version: 5,
+        version: SchemaVersion::V5,
         statements: SCHEMA_5,
     },
     Migration {
-        version: 6,
+        version: SchemaVersion::V6,
         statements: SCHEMA_6,
     },
     Migration {
-        version: 7,
+        version: SchemaVersion::V7,
         statements: SCHEMA_7,
     },
     Migration {
-        version: 8,
+        version: SchemaVersion::V8,
         statements: SCHEMA_8,
     },
     Migration {
-        version: 9,
+        version: SchemaVersion::V9,
         statements: SCHEMA_9,
     },
     Migration {
-        version: 10,
+        version: SchemaVersion::V10,
         statements: SCHEMA_10,
     },
     Migration {
-        version: 11,
+        version: SchemaVersion::V11,
         statements: SCHEMA_11,
     },
     Migration {
-        version: 12,
+        version: SchemaVersion::V12,
         statements: SCHEMA_12,
     },
     Migration {
-        version: 13,
+        version: SchemaVersion::V13,
         statements: SCHEMA_13,
     },
     Migration {
-        version: 14,
+        version: SchemaVersion::V14,
         statements: SCHEMA_14,
     },
     Migration {
-        version: 15,
+        version: SchemaVersion::V15,
         statements: SCHEMA_15,
     },
     Migration {
-        version: 16,
+        version: SchemaVersion::V16,
         statements: SCHEMA_16,
     },
     Migration {
-        version: 17,
+        version: SchemaVersion::V17,
         statements: SCHEMA_17,
     },
     Migration {
-        version: 18,
+        version: SchemaVersion::V18,
         statements: SCHEMA_18,
     },
     Migration {
-        version: 19,
+        version: SchemaVersion::V19,
         statements: SCHEMA_19,
     },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 19;
+    pub const SCHEMA_VERSION: u32 = SchemaVersion::V19.as_u32();
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -1259,34 +1293,31 @@ impl SignerDb {
         debug!("Current SignerDB schema version: {}", current_db_version);
 
         for migration in MIGRATIONS.iter() {
-            if current_db_version >= migration.version {
+            let version = migration.version.as_u32();
+            if current_db_version >= version {
                 // don't need this migration, continue to see if we need later migrations
                 continue;
             }
-            if current_db_version != migration.version - 1 {
+            if current_db_version != version - 1 {
                 // This implies a gap or out-of-order migration definition,
                 // or the database is at a version X, and the next migration is X+2 instead of X+1.
                 sql_tx.rollback()?;
                 return Err(DBError::Other(format!(
                     "Migration step missing or out of order. Current DB version: {}, trying to apply migration for version: {}",
-                    current_db_version, migration.version
+                    current_db_version, version
                 )));
             }
-            debug!(
-                "Applying SignerDB migration for schema version {}",
-                migration.version
-            );
+            debug!("Applying SignerDB migration for schema version {}", version);
             for statement in migration.statements.iter() {
                 sql_tx.execute_batch(statement)?;
             }
 
             // Verify that the migration script updated the version correctly
             let new_version_check = Self::get_schema_version(&sql_tx)?;
-            if new_version_check != migration.version {
+            if new_version_check != version {
                 sql_tx.rollback()?;
                 return Err(DBError::Other(format!(
-                    "Migration to version {} failed to update DB version. Expected {}, got {new_version_check}.",
-                    migration.version, migration.version
+                    "Migration to version {version} failed to update DB version. Expected {version}, got {new_version_check}."
                 )));
             }
             current_db_version = new_version_check;
@@ -4461,21 +4492,6 @@ pub mod tests {
 
     /// Run migrations up to (and including) the given version on a raw connection.
     /// Caller must register scalar functions beforehand if running early migrations.
-    fn apply_migrations_to(conn: &mut Connection, target_version: u32) {
-        let tx = tx_begin_immediate(conn).unwrap();
-        for migration in MIGRATIONS.iter() {
-            if migration.version > target_version {
-                break;
-            }
-            for statement in migration.statements.iter() {
-                tx.execute_batch(statement).unwrap();
-            }
-        }
-        tx.commit().unwrap();
-        let version = SignerDb::get_schema_version(conn).unwrap();
-        assert_eq!(version, target_version);
-    }
-
     /// Insert a block into the schema-5 blocks table using raw SQL.
     /// Builds a real `BlockInfo` so the `block_info` JSON is valid for
     /// deserialization after migration. Returns the `Sha512Trunc256Sum`
@@ -4528,202 +4544,185 @@ pub mod tests {
         sighash
     }
 
-    /// Generic migration smoke test: insert data at schema 5 (first
-    /// restructured blocks table), run all remaining migrations through
-    /// `SignerDb::new`, and verify data survives and the DB is usable.
+    /// Progressively applies every migration one at a time, running
+    /// per-version validations at each step. The exhaustive `match` means
+    /// adding a new `SchemaVersion` variant without handling it here will
+    /// cause a compile error.
+    ///
+    /// When adding a new migration:
+    /// 1. Add the `SchemaVersion` variant
+    /// 2. Add the `Migration` entry in `MIGRATIONS`
+    /// 3. Add the variant to the match below with version-specific checks
     #[test]
-    fn test_full_migration_with_data() {
+    fn test_all_schema_migrations() {
         let db_path = tmp_db_path();
         let mut signer_db = SignerDb {
             db: SignerDb::connect(&db_path).unwrap(),
         };
         signer_db.register_scalar_functions().unwrap();
 
-        // Migrate to schema 5 (first restructured blocks table)
-        apply_migrations_to(&mut signer_db.db, 5);
+        let mut hash_signed = Sha512Trunc256Sum([0; 32]);
+        let mut hash_unsigned = Sha512Trunc256Sum([0; 32]);
 
-        // Insert blocks at schema 5
-        let hash_signed =
-            insert_schema5_block(&signer_db.db, ConsensusHash([0x01; 20]), 100, Some(1000));
-        let hash_unsigned =
-            insert_schema5_block(&signer_db.db, ConsensusHash([0x02; 20]), 101, None);
+        for migration in MIGRATIONS {
+            // Apply this single migration
+            let tx = tx_begin_immediate(&mut signer_db.db).unwrap();
+            for statement in migration.statements {
+                tx.execute_batch(statement).unwrap();
+            }
+            tx.commit().unwrap();
 
-        signer_db.remove_scalar_functions().unwrap();
-        drop(signer_db);
+            let version = migration.version.as_u32();
+            assert_eq!(
+                SignerDb::get_schema_version(&signer_db.db).unwrap(),
+                version,
+                "Migration to version {version} did not set the correct schema version"
+            );
 
-        // Reopen — applies all remaining migrations to reach SCHEMA_VERSION
-        let mut db = SignerDb::new(&db_path).expect("Full migration should succeed");
-        assert_eq!(
-            SignerDb::get_schema_version(&db.db).unwrap(),
-            SignerDb::SCHEMA_VERSION,
-        );
+            // Exhaustive match: per-version setup and validation.
+            // Adding a new SchemaVersion variant without a branch here
+            // will fail to compile.
+            match migration.version {
+                SchemaVersion::V1 | SchemaVersion::V2 | SchemaVersion::V3 | SchemaVersion::V4 => {}
+                SchemaVersion::V5 => {
+                    // Schema 5 is the first restructured blocks table.
+                    // Insert test data that must survive all subsequent migrations.
+                    hash_signed = insert_schema5_block(
+                        &signer_db.db,
+                        ConsensusHash([0x01; 20]),
+                        100,
+                        Some(1000),
+                    );
+                    hash_unsigned =
+                        insert_schema5_block(&signer_db.db, ConsensusHash([0x02; 20]), 101, None);
+                }
+                SchemaVersion::V6
+                | SchemaVersion::V7
+                | SchemaVersion::V8
+                | SchemaVersion::V9
+                | SchemaVersion::V10
+                | SchemaVersion::V11
+                | SchemaVersion::V12
+                | SchemaVersion::V13
+                | SchemaVersion::V14
+                | SchemaVersion::V15
+                | SchemaVersion::V16
+                | SchemaVersion::V17 => {}
+                SchemaVersion::V18 => {
+                    // signed_over column should still exist before V19 removes it
+                    let signed_over: i64 = signer_db
+                        .db
+                        .query_row(
+                            &format!(
+                                "SELECT signed_over FROM blocks WHERE signer_signature_hash = '{hash_signed}'"
+                            ),
+                            [],
+                            |row| row.get(0),
+                        )
+                        .unwrap();
+                    assert_eq!(signed_over, 1);
+                }
+                SchemaVersion::V19 => {
+                    // signed_over column should be removed
+                    assert!(
+                        signer_db
+                            .db
+                            .execute("SELECT signed_over FROM blocks LIMIT 1", [])
+                            .is_err(),
+                        "signed_over column should not exist after V19"
+                    );
 
-        // Data survived all migrations — verify via block_lookup
-        let block_signed = db
+                    // approved_time backfilled from signed_self
+                    let approved_time: Option<i64> = signer_db.db.query_row(
+                        &format!("SELECT approved_time FROM blocks WHERE signer_signature_hash = '{hash_signed}'"),
+                        [], |row| row.get(0),
+                    ).unwrap();
+                    assert_eq!(approved_time, Some(1000));
+
+                    let approved_time: Option<i64> = signer_db.db.query_row(
+                        &format!("SELECT approved_time FROM blocks WHERE signer_signature_hash = '{hash_unsigned}'"),
+                        [], |row| row.get(0),
+                    ).unwrap();
+                    assert!(approved_time.is_none());
+
+                    // Verify indexes survived the table rebuild
+                    let index_names: Vec<String> = signer_db
+                        .db
+                        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'blocks'")
+                        .unwrap()
+                        .query_map([], |row| row.get(0))
+                        .unwrap()
+                        .collect::<Result<_, _>>()
+                        .unwrap();
+                    for expected in &[
+                        "blocks_consensus_hash_state",
+                        "blocks_state",
+                        "blocks_signed_group",
+                        "blocks_consensus_hash_state_height",
+                        "blocks_state_height_signed_group",
+                        "blocks_reward_cycle_state",
+                        "idx_blocks_get_last_globally_accepted_block_approved_time",
+                        "idx_blocks_tenure_self_signed",
+                        "idx_blocks_tenure_group_signed",
+                        "idx_blocks_tenure_approved",
+                    ] {
+                        assert!(
+                            index_names.contains(&expected.to_string()),
+                            "Missing index: {expected}"
+                        );
+                    }
+                    for removed in &[
+                        "blocks_signed_over",
+                        "blocks_consensus_hash_status_height",
+                        "idx_blocks_query_opt",
+                    ] {
+                        assert!(
+                            !index_names.contains(&removed.to_string()),
+                            "Index should not exist: {removed}"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Verify data survived all migrations
+        let block_signed = signer_db
             .block_lookup(&hash_signed)
             .unwrap()
-            .expect("Block with signed_self should exist after migration");
+            .expect("Block with signed_self should exist after all migrations");
         assert_eq!(block_signed.block.header.chain_length, 100);
         assert_eq!(block_signed.signed_self, Some(1000));
         assert_eq!(block_signed.state, BlockState::GloballyAccepted);
 
-        let block_unsigned = db
+        let block_unsigned = signer_db
             .block_lookup(&hash_unsigned)
             .unwrap()
-            .expect("Block without signed_self should exist after migration");
+            .expect("Block without signed_self should exist after all migrations");
         assert_eq!(block_unsigned.block.header.chain_length, 101);
         assert!(block_unsigned.signed_self.is_none());
 
-        // Database is usable: insert and read back a new block via the normal API
+        // Database is usable: insert and read back a new block
         let (block_info, block_proposal) = create_block();
-        db.insert_block(&block_info).unwrap();
-        let retrieved = db
+        signer_db.insert_block(&block_info).unwrap();
+        let retrieved = signer_db
             .block_lookup(&block_proposal.block.header.signer_signature_hash())
             .unwrap()
             .expect("Should retrieve inserted block");
         assert_eq!(BlockInfo::from(block_proposal), retrieved);
 
         // Reopening is idempotent
-        drop(db);
+        signer_db.remove_scalar_functions().unwrap();
+        drop(signer_db);
         let db = SignerDb::new(&db_path).expect("Re-opening should succeed");
         assert_eq!(
             SignerDb::get_schema_version(&db.db).unwrap(),
             SignerDb::SCHEMA_VERSION
         );
-    }
 
-    /// Regression test for the schema 19 migration that replaces
-    /// `ALTER TABLE DROP COLUMN signed_over` with a safe recreate-table
-    /// approach. Verifies `approved_time` backfill, `signed_over` removal,
-    /// and index preservation after the table rebuild.
-    #[test]
-    fn test_migration_19_drop_signed_over() {
-        let db_path = tmp_db_path();
-        let mut signer_db = SignerDb {
-            db: SignerDb::connect(&db_path).unwrap(),
-        };
-        signer_db.register_scalar_functions().unwrap();
-
-        // Build up to schema 18 with data
-        apply_migrations_to(&mut signer_db.db, 5);
-        let hash_signed =
-            insert_schema5_block(&signer_db.db, ConsensusHash([0x01; 20]), 100, Some(1000));
-        let hash_unsigned =
-            insert_schema5_block(&signer_db.db, ConsensusHash([0x02; 20]), 101, None);
-
-        let tx = tx_begin_immediate(&mut signer_db.db).unwrap();
-        for migration in MIGRATIONS.iter() {
-            if migration.version <= 5 || migration.version > 18 {
-                continue;
-            }
-            for statement in migration.statements.iter() {
-                tx.execute_batch(statement).unwrap();
-            }
-        }
-        tx.commit().unwrap();
-        assert_eq!(SignerDb::get_schema_version(&signer_db.db).unwrap(), 18);
-
-        // signed_over should exist at schema 18
-        let signed_over: i64 = signer_db
-            .db
-            .query_row(
-                &format!(
-                    "SELECT signed_over FROM blocks WHERE signer_signature_hash = '{hash_signed}'"
-                ),
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(signed_over, 1);
-
-        signer_db.remove_scalar_functions().unwrap();
-        drop(signer_db);
-
-        // Apply migration 19 via SignerDb::new
-        let db = SignerDb::new(&db_path).expect("Migration 19 should succeed");
-
-        // signed_over column removed
-        assert!(
-            db.db
-                .execute("SELECT signed_over FROM blocks LIMIT 1", [])
-                .is_err(),
-            "signed_over column should not exist"
+        assert_eq!(
+            MIGRATIONS.last().unwrap().version.as_u32(),
+            SignerDb::SCHEMA_VERSION,
+            "Last migration version must match SCHEMA_VERSION"
         );
-
-        // Verify blocks survived via block_lookup (deserializes block_info JSON)
-        let block_signed = db
-            .block_lookup(&hash_signed)
-            .unwrap()
-            .expect("Block with signed_self should exist after migration");
-        assert_eq!(block_signed.signed_self, Some(1000));
-        assert_eq!(block_signed.block.header.chain_length, 100);
-
-        let block_unsigned = db
-            .block_lookup(&hash_unsigned)
-            .unwrap()
-            .expect("Block without signed_self should exist after migration");
-        assert!(block_unsigned.signed_self.is_none());
-
-        // Verify approved_time column was backfilled from signed_self.
-        // Note: block_lookup reads from the block_info JSON blob (where
-        // approved_time was null at insert time), so we check the column directly.
-        let approved_time: Option<i64> = db.db.query_row(
-            &format!("SELECT approved_time FROM blocks WHERE signer_signature_hash = '{hash_signed}'"),
-            [], |row| row.get(0),
-        ).unwrap();
-        assert_eq!(approved_time, Some(1000));
-
-        let approved_time: Option<i64> = db.db.query_row(
-            &format!("SELECT approved_time FROM blocks WHERE signer_signature_hash = '{hash_unsigned}'"),
-            [], |row| row.get(0),
-        ).unwrap();
-        assert!(approved_time.is_none());
-
-        // Verify indexes survived the table rebuild
-        let index_names: Vec<String> = db
-            .db
-            .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'blocks'")
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap();
-        // Surviving indexes from earlier migrations
-        for expected in &[
-            "blocks_consensus_hash_state",
-            "blocks_state",
-            "blocks_signed_group",
-            "blocks_consensus_hash_state_height",
-            "blocks_state_height_signed_group",
-            "blocks_reward_cycle_state",
-        ] {
-            assert!(
-                index_names.contains(&expected.to_string()),
-                "Missing index: {expected}"
-            );
-        }
-        // New indexes
-        for expected in &[
-            "idx_blocks_get_last_globally_accepted_block_approved_time",
-            "idx_blocks_tenure_self_signed",
-            "idx_blocks_tenure_group_signed",
-            "idx_blocks_tenure_approved",
-        ] {
-            assert!(
-                index_names.contains(&expected.to_string()),
-                "Missing index: {expected}"
-            );
-        }
-        // Removed indexes
-        for removed in &[
-            "blocks_signed_over",
-            "blocks_consensus_hash_status_height",
-            "idx_blocks_query_opt",
-        ] {
-            assert!(
-                !index_names.contains(&removed.to_string()),
-                "Index should not exist: {removed}"
-            );
-        }
     }
 }
