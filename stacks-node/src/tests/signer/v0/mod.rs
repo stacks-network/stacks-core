@@ -144,12 +144,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
         let reward_cycle = self.get_current_reward_cycle() + 1;
-        let reward_cycle_len = self
+        let next_cycle_start = self
             .running_nodes
-            .conf
+            .btc_regtest_controller
             .get_burnchain()
-            .pox_constants
-            .reward_cycle_length as u64;
+            .nakamoto_first_block_of_cycle(reward_cycle);
         wait_for(240, || {
             match self.stacks_client.get_reward_set_signers(reward_cycle).unwrap_or_default() {
                 Some(reward_set) => {
@@ -158,7 +157,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 }
                 None => {
                     let burn_height = get_chain_info(&self.running_nodes.conf).burn_block_height;
-                    let next_cycle_start = reward_cycle * reward_cycle_len;
                     if burn_height < next_cycle_start {
                         // Still in the prepare phase or before the cycle boundary.
                         // Mining another burn block is safe and may be needed for the
