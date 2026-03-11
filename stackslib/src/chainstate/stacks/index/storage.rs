@@ -869,7 +869,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         .write_children_hashes_empty_finish(start_time);
                 } else if !is_backptr(ptr.id()) {
                     // hash is the hash of this node's children
-                    let node_hash = self.calculate_node_hashes(storage_tx, ptr.ptr() as u64)?;
+                    let node_hash = self.calculate_node_hashes(storage_tx, ptr.ptr())?;
 
                     // count the time taken to store the hash towards the
                     // write_children_hashes_same_benchmark

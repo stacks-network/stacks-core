@@ -587,7 +587,7 @@ pub fn read_node_hash_bytes<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
 ) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
-    f.seek(SeekFrom::Start(ptr.ptr() as u64))
+    f.seek(SeekFrom::Start(ptr.ptr()))
         .map_err(Error::IOError)?;
     read_hash_bytes(f)
 }
@@ -620,7 +620,7 @@ pub fn read_nodetype<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
 ) -> Result<(TrieNodeType, TrieHash), Error> {
-    f.seek(SeekFrom::Start(ptr.ptr() as u64))
+    f.seek(SeekFrom::Start(ptr.ptr()))
         .map_err(Error::IOError)?;
     trace!("read_nodetype at {:?}", ptr);
     read_nodetype_at_head(f, ptr.id())
@@ -634,7 +634,7 @@ pub fn read_nodetype_nohash<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
 ) -> Result<TrieNodeType, Error> {
-    f.seek(SeekFrom::Start(ptr.ptr() as u64))
+    f.seek(SeekFrom::Start(ptr.ptr()))
         .map_err(Error::IOError)?;
     trace!("read_nodetype_nohash at {:?}", ptr);
     read_nodetype_at_head_nohash(f, ptr.id())

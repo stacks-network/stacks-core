@@ -327,7 +327,7 @@ impl NodeHashReader for TrieFileNodeHashReader<'_> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
         let trie_offset = self.file.get_trie_offset(self.db, self.block_id)?;
         self.file
-            .seek(SeekFrom::Start(trie_offset + (ptr.ptr() as u64)))?;
+            .seek(SeekFrom::Start(trie_offset + (ptr.ptr())))?;
         let hash_buff = read_hash_bytes(self.file)?;
         w.write_all(&hash_buff).map_err(|e| e.into())
     }
@@ -362,7 +362,7 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<TrieHash, Error> {
         let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
+        self.seek(SeekFrom::Start(offset + (ptr.ptr())))?;
         let hash_buff = read_hash_bytes(self)?;
         Ok(TrieHash(hash_buff))
     }
@@ -376,7 +376,7 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
         let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
+        self.seek(SeekFrom::Start(offset + (ptr.ptr())))?;
         read_nodetype_at_head(self, ptr.id())
     }
 
@@ -388,7 +388,7 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<TrieNodeType, Error> {
         let offset = self.get_trie_offset(db, block_id)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
+        self.seek(SeekFrom::Start(offset + (ptr.ptr())))?;
         read_nodetype_at_head_nohash(self, ptr.id())
     }
 
@@ -401,7 +401,7 @@ impl TrieFile {
         ptr: &TriePtr,
     ) -> Result<TrieHash, Error> {
         let (offset, _length) = trie_sql::get_external_trie_offset_length_by_bhh(db, bhh)?;
-        self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
+        self.seek(SeekFrom::Start(offset + (ptr.ptr())))?;
         let hash_buff = read_hash_bytes(self)?;
         Ok(TrieHash(hash_buff))
     }
