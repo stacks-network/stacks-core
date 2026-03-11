@@ -927,12 +927,51 @@ fn test_at_block() {
     for (good_test, expected) in good.iter() {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(good_test).unwrap())
+            &format!(
+                "{}",
+                type_check_helper_version(
+                    good_test,
+                    ClarityVersion::Clarity4,
+                    StacksEpochId::Epoch33
+                )
+                .unwrap()
+            )
         );
     }
 
     for (bad_test, expected) in bad.iter() {
-        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(
+            *expected,
+            *type_check_helper_version(bad_test, ClarityVersion::Clarity4, StacksEpochId::Epoch33)
+                .unwrap_err()
+                .err
+        );
+    }
+
+    assert_eq!(
+        StaticCheckErrorKind::AtBlockUnavailable,
+        *type_check_helper_version(
+            "(at-block (sha256 u0) u1)",
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch34
+        )
+        .unwrap_err()
+        .err
+    );
+
+    let mut versions_gt_clarity4 = ClarityVersion::ALL.to_vec();
+    versions_gt_clarity4.retain(|version| *version > ClarityVersion::Clarity4);
+    for version in versions_gt_clarity4 {
+        assert_eq!(
+            StaticCheckErrorKind::UnknownFunction("at-block".to_string()),
+            *type_check_helper_version(
+                "(at-block (sha256 u0) u1)",
+                version,
+                StacksEpochId::latest()
+            )
+            .unwrap_err()
+            .err
+        );
     }
 }
 
