@@ -401,10 +401,3 @@ fn lru_capacity_one() {
     cache.put(2, 22);
     assert_eq!(cache.get(&2), Some(&22));
 }
-
-#[test]
-#[should_panic]
-fn lru_zero_capacity_panics_on_put() {
-    let mut cache = ArrayLru::<u8, u8, 0>::new();
-    cache.put(1, 1);
-}

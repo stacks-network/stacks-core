@@ -346,6 +346,10 @@ pub struct ArrayLru<K, V, const N: usize> {
 
 impl<K: Eq, V, const N: usize> ArrayLru<K, V, N> {
     pub fn new() -> Self {
+        const {
+            assert!(N > 0, "ArrayLru capacity must be greater than zero");
+        }
+
         Self {
             entries: core::array::from_fn(|_| None),
             len: 0,
