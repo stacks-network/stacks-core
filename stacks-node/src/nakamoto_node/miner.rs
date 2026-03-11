@@ -102,6 +102,10 @@ pub static TEST_P2P_BROADCAST_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(Te
 #[cfg(test)]
 // Test flag to skip pushing blocks to the signers
 pub static TEST_BLOCK_PUSH_SKIP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+#[cfg(test)]
+// Test flag to indicate the block that the miner most recently tried to broadcast
+pub static TEST_MINER_BROADCASTING_BLOCK: LazyLock<TestFlag<NakamotoBlock>> =
+    LazyLock::new(TestFlag::default);
 
 #[cfg(test)]
 /// Set the `TEST_MINE_STALL` flag to `Pending` and block until the miner is stalled.
@@ -1098,6 +1102,9 @@ impl BlockMinerThread {
             );
             return Ok(());
         }
+        #[cfg(test)]
+        TEST_MINER_BROADCASTING_BLOCK.set(block.clone());
+
         Self::fault_injection_block_broadcast_stall(block);
 
         let parent_block_info =
