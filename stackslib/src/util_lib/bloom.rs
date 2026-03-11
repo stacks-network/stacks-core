@@ -78,6 +78,10 @@ enum BitFieldEncoding {
     Full = 0x02,
 }
 
+fn should_use_sparse_encoding(non_zero_bytes: usize, total_bytes: usize) -> bool {
+    non_zero_bytes * 5 + 4 < total_bytes
+}
+
 /// Encode the inner count array, using a sparse representation if it would save space
 fn encode_bitfield<W: Write>(fd: &mut W, bytes: &[u8]) -> Result<(), codec_error> {
     let mut num_filled = 0;
@@ -87,7 +91,7 @@ fn encode_bitfield<W: Write>(fd: &mut W, bytes: &[u8]) -> Result<(), codec_error
         }
     }
 
-    if num_filled * 5 + 4 < bytes.len() {
+    if should_use_sparse_encoding(num_filled, bytes.len()) {
         // more efficient to encode as (4-byte-index, 1-byte-value) pairs, with an extra 4-byte header
         write_next(fd, &(BitFieldEncoding::Sparse as u8))?;
         write_next(fd, &(bytes.len() as u32))?;
@@ -118,6 +122,12 @@ fn decode_bitfield<R: Read>(fd: &mut R) -> Result<Vec<u8>, codec_error> {
                 return Err(codec_error::OverflowError("vec_len is too big".into()));
             }
             let num_filled: u32 = read_next(fd)?;
+
+            if !should_use_sparse_encoding(num_filled as usize, vec_len as usize) {
+                return Err(codec_error::OverflowError(
+                    "Non-sparse bitfield should not use sparse encoding.".into(),
+                ));
+            }
 
             let mut ret = vec![0u8; vec_len as usize];
             for _ in 0..num_filled {
@@ -154,6 +164,13 @@ impl StacksMessageCodec for BitField {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BitField, codec_error> {
         let num_bits: u32 = read_next(fd)?;
         let bits: Vec<u8> = decode_bitfield(fd)?;
+        let expected_length = BITVEC_LEN!(num_bits) as usize;
+        let actual_length = bits.len();
+        if expected_length != actual_length {
+            return Err(codec_error::DeserializeError(format!(
+                "Incorrect data size for bitfield of length {num_bits}, expected {expected_length} but got {actual_length}."
+            )));
+        }
         Ok(BitField(bits, num_bits))
     }
 }
@@ -319,6 +336,11 @@ impl StacksMessageCodec for BloomFilter<BloomNodeHasher> {
                 let seed: [u8; 32] = read_next(fd)?;
                 let num_hashes: u32 = read_next(fd)?;
                 let bits: BitField = read_next(fd)?;
+                if bits.num_bits() == 0 {
+                    return Err(codec_error::DeserializeError(
+                        "Bloom filter must have non-zero bin count".into(),
+                    ));
+                }
                 Ok(BloomFilter {
                     hasher: BloomNodeHasher { seed },
                     bits,
@@ -943,6 +965,45 @@ pub mod test {
             assert_eq!(s, "vec_len is too big".to_string());
         } else {
             error!("Unexpected decode_bitfield result: {e:?}");
+            panic!();
+        }
+    }
+
+    #[test]
+    fn test_bloom_bitfield_sparse_threshold() {
+        // a bitfield that has only two bits set, one each in the first two bytes
+        let bitfield = BitField(
+            vec![
+                0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+            ],
+            256,
+        );
+        let mut bytes = bitfield.serialize_to_vec();
+
+        // 4 for bit count, 1 for the encoding marker, 4 for byte length,
+        // 4 for `num_filled`, two times 5 for index/byte pairs
+        assert_eq!(bytes.len(), 23);
+
+        assert_eq!(bytes[4], BitFieldEncoding::Sparse as u8);
+
+        // Change the bit count in the serialization to 16. Technically that is
+        // still a valid representation, but at that size, it should've been
+        // serialized using full, not sparse, encoding.
+        bytes[2] = 0; // bit count 2nd-LSB
+        bytes[3] = 16; // bit count LSB
+        bytes[8] = 2; // byte length LSB
+
+        let result = BitField::consensus_deserialize(&mut &bytes[..]);
+
+        if let Err(codec_error::OverflowError(message)) = result {
+            assert_eq!(
+                message,
+                "Non-sparse bitfield should not use sparse encoding."
+            );
+        } else {
+            error!("Unexpected BitField::consensus_deserialize result: {result:?}");
             panic!();
         }
     }

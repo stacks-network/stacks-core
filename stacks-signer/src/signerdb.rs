@@ -363,6 +363,23 @@ impl BlockInfo {
         matches!(self.state, BlockState::GloballyAccepted)
             && (self.signed_self.is_some() || self.valid == Some(false))
     }
+
+    /// Perform static checks on the BlockInfo and determine if it is syntactically valid.
+    /// Specifically, all integer values must be less than i64::MAX, since these values get stored
+    /// in the sqlite DB via u64_to_sql()
+    pub fn check_static_valid_block(&self) -> bool {
+        let max_val = u64::try_from(i64::MAX).expect("infallible");
+        if self.block.header.chain_length >= max_val {
+            return false;
+        }
+        if self.burn_block_height >= max_val {
+            return false;
+        }
+        if self.reward_cycle >= max_val {
+            return false;
+        }
+        true
+    }
 }
 
 /// This struct manages a SQLite database connection
