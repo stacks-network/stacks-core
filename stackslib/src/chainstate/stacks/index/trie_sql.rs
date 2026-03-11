@@ -24,7 +24,7 @@ use crate::chainstate::stacks::index::bits::read_hash_bytes;
 use crate::chainstate::stacks::index::bits::{
     read_node_hash_bytes as bits_read_node_hash_bytes, read_nodetype, read_nodetype_nohash,
 };
-use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr, TriePtrFormat};
+use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{trie_sql, Error, MarfTrieId};
@@ -476,7 +476,6 @@ pub fn read_node_type(
     conn: &Connection,
     block_id: u32,
     ptr: &TriePtr,
-    ptr_format: TriePtrFormat,
 ) -> Result<(TrieNodeType, TrieHash), Error> {
     let mut blob = conn.blob_open(
         DatabaseName::Main,
@@ -485,7 +484,7 @@ pub fn read_node_type(
         block_id.into(),
         true,
     )?;
-    read_nodetype(&mut blob, ptr, ptr_format)
+    read_nodetype(&mut blob, ptr)
 }
 
 /// Read a node from a sqlite-stored trie blob, excluding its hash.
@@ -493,7 +492,6 @@ pub fn read_node_type_nohash(
     conn: &Connection,
     block_id: u32,
     ptr: &TriePtr,
-    ptr_format: TriePtrFormat,
 ) -> Result<TrieNodeType, Error> {
     let mut blob = conn.blob_open(
         DatabaseName::Main,
@@ -502,7 +500,7 @@ pub fn read_node_type_nohash(
         block_id.into(),
         true,
     )?;
-    read_nodetype_nohash(&mut blob, ptr, ptr_format)
+    read_nodetype_nohash(&mut blob, ptr)
 }
 
 /// Get the offset and length of a trie blob in the trie blobs file.

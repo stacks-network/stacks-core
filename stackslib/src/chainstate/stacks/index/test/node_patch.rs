@@ -59,7 +59,7 @@ fn trie_node_patch_serialize_ok() {
     };
 
     let mut buffer = Cursor::new(Vec::new());
-    TrieNodePatchV1Codec(patch_node)
+    patch_node
         .consensus_serialize(&mut buffer)
         .expect("serialization should be ok");
 
@@ -79,7 +79,7 @@ fn trie_node_patch_serialize_fails_with_ptr_diffs_len_0() {
     };
 
     let mut buffer = Cursor::new(Vec::new());
-    let error = TrieNodePatchV1Codec(patch_node)
+    let error = patch_node
         .consensus_serialize(&mut buffer)
         .expect_err("serialization should fail");
 
@@ -97,7 +97,7 @@ fn trie_node_patch_serialize_ok_with_ptr_diffs_len_256() {
     };
 
     let mut buffer = Cursor::new(Vec::new());
-    let result = TrieNodePatchV1Codec(patch_node).consensus_serialize(&mut buffer);
+    let result = patch_node.consensus_serialize(&mut buffer);
     assert!(
         result.is_ok(),
         "Got Error: {}",
@@ -113,7 +113,7 @@ fn trie_node_patch_serialize_fails_with_ptr_diffs_len_257() {
     };
 
     let mut buffer = Cursor::new(Vec::new());
-    let error = TrieNodePatchV1Codec(patch_node)
+    let error = patch_node
         .consensus_serialize(&mut buffer)
         .expect_err("serialization should fail");
 
@@ -129,9 +129,8 @@ fn trie_node_patch_deserialize_ok_with_ptr_diffs_len_1() {
     let diff_count = 0u8;
     let mut buffer = Cursor::new(vec![6, 65, 10, 0, 0, 0, 0, diff_count, 65, 20, 0, 0, 0, 0]);
 
-    let patch_node = TrieNodePatchV1Codec::consensus_deserialize(&mut buffer)
-        .expect("deserialization should be ok")
-        .0;
+    let patch_node =
+        TrieNodePatch::consensus_deserialize(&mut buffer).expect("deserialization should be ok");
 
     let expected = TrieNodePatch {
         ptr: TriePtr::new(1, 10, 0),
@@ -148,14 +147,12 @@ fn trie_node_patch_v2_roundtrip_ok() {
     };
 
     let mut buffer = Cursor::new(Vec::new());
-    TrieNodePatchV2Codec(patch_node.clone())
+    patch_node
         .consensus_serialize(&mut buffer)
         .expect("v2 serialization should be ok");
 
-    let decoded =
-        TrieNodePatchV2Codec::consensus_deserialize(&mut Cursor::new(buffer.into_inner()))
-            .expect("v2 deserialization should be ok")
-            .0;
+    let decoded = TrieNodePatch::consensus_deserialize(&mut Cursor::new(buffer.into_inner()))
+        .expect("v2 deserialization should be ok");
     assert_eq!(patch_node, decoded);
 }
 
@@ -166,7 +163,7 @@ fn trie_node_patch_v2_serialize_fails_with_ptr_diffs_len_0() {
         ptr_diff: vec![],
     };
     let mut buffer = Cursor::new(Vec::new());
-    let error = TrieNodePatchV2Codec(patch_node)
+    let error = patch_node
         .consensus_serialize(&mut buffer)
         .expect_err("v2 serialization should fail");
     assert!(
@@ -182,7 +179,7 @@ fn trie_node_patch_v2_serialize_fails_with_ptr_diffs_len_257() {
         ptr_diff: vec![TriePtr::new(TrieNodeID::Node4 as u8, 2, 88); 257],
     };
     let mut buffer = Cursor::new(Vec::new());
-    let error = TrieNodePatchV2Codec(patch_node)
+    let error = patch_node
         .consensus_serialize(&mut buffer)
         .expect_err("v2 serialization should fail");
     assert!(
@@ -202,13 +199,13 @@ fn trie_node_patch_v2_deserialize_fails_on_truncated_payload() {
     };
 
     let mut buffer = Cursor::new(Vec::new());
-    TrieNodePatchV2Codec(patch_node)
+    patch_node
         .consensus_serialize(&mut buffer)
         .expect("v2 serialization should be ok");
     let mut payload = buffer.into_inner();
     payload.pop();
 
-    let error = TrieNodePatchV2Codec::consensus_deserialize(&mut Cursor::new(payload))
+    let error = TrieNodePatch::consensus_deserialize(&mut Cursor::new(payload))
         .expect_err("v2 deserialization should fail on truncated payload");
     assert!(
         error.to_string().contains("fill whole buffer"),
@@ -223,7 +220,7 @@ fn trie_node_patch_v2_deserialize_fails_on_malformed_payload() {
         ptr_diff: vec![TriePtr::new(TrieNodeID::Node16 as u8, 2, 3)],
     };
     let mut buffer = Cursor::new(Vec::new());
-    TrieNodePatchV2Codec(patch_node)
+    patch_node
         .consensus_serialize(&mut buffer)
         .expect("v2 serialization should be ok");
     let mut payload = buffer.into_inner();
@@ -231,7 +228,7 @@ fn trie_node_patch_v2_deserialize_fails_on_malformed_payload() {
     // Corrupt the patch node marker.
     payload[0] = TrieNodeID::Leaf as u8;
 
-    let error = TrieNodePatchV2Codec::consensus_deserialize(&mut Cursor::new(payload))
+    let error = TrieNodePatch::consensus_deserialize(&mut Cursor::new(payload))
         .expect_err("v2 deserialization should fail on malformed payload");
     assert!(
         error
@@ -253,13 +250,11 @@ fn trie_node_patch_v2_roundtrip_mixed_backptrs() {
     };
 
     let mut buffer = Cursor::new(Vec::new());
-    TrieNodePatchV2Codec(patch_node.clone())
+    patch_node
         .consensus_serialize(&mut buffer)
         .expect("v2 mixed serialization should be ok");
-    let decoded =
-        TrieNodePatchV2Codec::consensus_deserialize(&mut Cursor::new(buffer.into_inner()))
-            .expect("v2 mixed deserialization should be ok")
-            .0;
+    let decoded = TrieNodePatch::consensus_deserialize(&mut Cursor::new(buffer.into_inner()))
+        .expect("v2 mixed deserialization should be ok");
     assert_eq!(patch_node, decoded);
 }
 

@@ -27,7 +27,7 @@ use rusqlite::Connection;
 use crate::chainstate::stacks::index::bits::{
     read_hash_bytes, read_nodetype_at_head, read_nodetype_at_head_nohash,
 };
-use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr, TriePtrFormat};
+use crate::chainstate::stacks::index::node::{TrieNodeType, TriePtr};
 use crate::chainstate::stacks::index::storage::NodeHashReader;
 #[cfg(test)]
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
@@ -374,11 +374,10 @@ impl TrieFile {
         db: &Connection,
         block_id: u32,
         ptr: &TriePtr,
-        ptr_format: TriePtrFormat,
     ) -> Result<(TrieNodeType, TrieHash), Error> {
         let offset = self.get_trie_offset(db, block_id)?;
         self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
-        read_nodetype_at_head(self, ptr.id(), ptr_format)
+        read_nodetype_at_head(self, ptr.id())
     }
 
     /// Obtain a TrieNodeType, given its block ID and pointer
@@ -387,11 +386,10 @@ impl TrieFile {
         db: &Connection,
         block_id: u32,
         ptr: &TriePtr,
-        ptr_format: TriePtrFormat,
     ) -> Result<TrieNodeType, Error> {
         let offset = self.get_trie_offset(db, block_id)?;
         self.seek(SeekFrom::Start(offset + (ptr.ptr() as u64)))?;
-        read_nodetype_at_head_nohash(self, ptr.id(), ptr_format)
+        read_nodetype_at_head_nohash(self, ptr.id())
     }
 
     /// Obtain a TrieHash for a node, given the node's block's hash (used only in testing)

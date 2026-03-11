@@ -16,6 +16,9 @@
 
 use std::collections::VecDeque;
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
+
+use tempfile::tempdir;
 
 use super::*;
 use crate::chainstate::stacks::index::*;
@@ -343,4 +346,57 @@ fn load_store_trie_4_16_unique_compression_enabled_unconfirmed_stable() {
 #[test]
 fn load_store_trie_4_48_same_compression_enabled_roundtrip() {
     load_store_trie_m_n_same_with_compression(4, 48, true, true);
+}
+
+#[test]
+#[ignore = "synthetic large-offset regression"]
+fn dump_consume_large_offset_sets_u64_ptr_bit() {
+    let dir = tempdir().expect("create temp dir");
+    let path = dir
+        .path()
+        .join("dump_consume_large_offset_sets_u64_ptr_bit.bin");
+
+    let block = StacksBlockId([0x11; 32]);
+    let parent = StacksBlockId([0x22; 32]);
+    let mut trie = TrieRAM::new(&block, 0, &parent);
+
+    let template = TrieNodeType::Node256(Box::new(TrieNode256::new(&[])));
+    let per_node_size = u64::try_from(get_node_byte_len(&template)).expect("infallible");
+    let required_nodes = u64::from(u32::MAX) / per_node_size + 2;
+
+    for i in 0..required_nodes {
+        let mut node = TrieNode256::new(&[]);
+        if i + 1 < required_nodes {
+            assert!(node.insert(&TriePtr::new(TrieNodeID::Node256 as u8, 0x00, i + 1)));
+        }
+        trie.write_nodetype(i, &TrieNodeType::Node256(Box::new(node)), TrieHash([0; 32]))
+            .expect("write trie node");
+    }
+
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&path)
+        .expect("create temp trie dump");
+    let end_offset = trie
+        .dump_consume_for_test(&mut file)
+        .expect("dump large trie");
+    assert!(end_offset > u64::from(u32::MAX));
+
+    let last_node_size = per_node_size;
+    let second_last_node_size = per_node_size + 4;
+    let second_last_node_start = end_offset
+        .checked_sub(last_node_size + second_last_node_size)
+        .expect("second-last node should exist");
+    file.seek(SeekFrom::Start(
+        second_last_node_start
+            + u64::try_from(TRIEHASH_ENCODED_SIZE + 1).expect("infallible"),
+    ))
+    .expect("seek to second-last child ptr id");
+    let mut encoded_id = [0u8; 1];
+    file.read_exact(&mut encoded_id)
+        .expect("read encoded second-last child ptr id");
+    assert!(is_u64_ptr(encoded_id[0]));
 }
