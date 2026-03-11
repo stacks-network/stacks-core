@@ -132,23 +132,24 @@ jobs:
       ## so we can skip full discovery when there are none.
       - name: Detect new proptest tests (git diff)
         id: detect
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || inputs.base_ref }}
         run: |
-          base_ref="${{ github.event.pull_request.base.ref || inputs.base_ref }}"
-          git fetch --depth=1 origin "$base_ref"
+          git fetch --depth=1 origin "$BASE_REF"
 
           found=false
           ## For each .rs file that was added or modified in the PR...
           while IFS= read -r file; do
             ## ...check if any added line contains #[tag(..., prop, ...)]
             ## The tag list may have multiple comma-separated keywords with optional spaces.
-            if git diff "origin/$base_ref" -- "$file" \
+            if git diff "origin/$BASE_REF" -- "$file" \
                  | grep '^+[^+]' \
                  | grep -qP '#\[tag\([^)]*\bprop\b[^)]*\)\]'; then
               echo "Found new proptest tag in: $file"
               found=true
               break
             fi
-          done < <(git diff "origin/$base_ref" --name-only --diff-filter=AM -- '*.rs')
+          done < <(git diff "origin/$BASE_REF" --name-only --diff-filter=AM -- '*.rs')
 
           echo "found=$found" >> "$GITHUB_OUTPUT"
           if [ "$found" = "true" ]; then
@@ -227,12 +228,13 @@ jobs:
       ## every fingerprint, forcing a full recompile regardless — no faster than
       ## using a fresh target directory (and it not worthy using same flag either).
       - name: List BASE branch tests
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || inputs.base_ref }}
         run: |
-          base_ref="${{ github.event.pull_request.base.ref || inputs.base_ref }}"
-          echo "Base branch: $base_ref"
+          echo "Base branch: $BASE_REF"
 
-          git fetch --depth=1 origin "$base_ref"
-          git worktree add --detach /tmp/base-worktree "origin/$base_ref"
+          git fetch --depth=1 origin "$BASE_REF"
+          git worktree add --detach /tmp/base-worktree "origin/$BASE_REF"
 
           ## Capture HEAD workspace root before entering the worktree
           head_target="$(pwd)/target"
