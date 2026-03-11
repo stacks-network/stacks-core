@@ -203,7 +203,7 @@ So to deal with this, we can alter our input generation so that we're getting mo
 
 This technique allows to be sure that proptest generates a lot of cases where there are multiple entries for the same reward address. Unfortunately, this kind of thing tends to be more art than science, which means that PR authors and reviewers will need to be careful about the input strategies for property tests (this should also be aided by the CI task for PRs). This is one of the reasons that property tests can't totally supplant unit tests. However, a lot of the work of property tests helps with writing unit tests: many unit tests can be essentially fixed inputs to the property test.
 
-> NOTE: As a requirements for CI automation, prop tests need to be tagged with `#[tag(prop)]`. 
+> NOTE: As a requirement for CI automation, prop tests need to be tagged with `#[tag(prop)]`. 
 
 ## Reusing Strategies 
 
