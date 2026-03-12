@@ -364,12 +364,9 @@ jobs:
 
       ## On failure, post (or update by delete/create) a PR comment listing the failed tests,
       ## linking to the run and the artifact that holds the regression seeds.
-      ## Skipped when there is no PR context (workflow_dispatch without pr_number).
+      ## Skipped on failure due to test execution.
       - name: Report proptest failure on PR
-        if: >
-          failure() &&
-          steps.run_tests.outcome == 'failure' &&
-          (github.event.pull_request.number || inputs.pr_number)
+        if: failure() && steps.run_tests.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
