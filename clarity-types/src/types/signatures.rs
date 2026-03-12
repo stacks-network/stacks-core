@@ -17,7 +17,6 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hash;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::{cmp, fmt};
 
 use serde::{Deserialize, Serialize};
@@ -68,71 +67,13 @@ impl AssetIdentifier {
     }
 }
 
-/// Sentinel value for [`CachedValueSize`] indicating the size has not been computed.
-/// Safe because `MAX_VALUE_SIZE` (1 MB) is far below `u32::MAX`.
-const CACHED_SIZE_UNSET: u32 = u32::MAX;
-
-/// Lazily-cached value size. Uses `AtomicU32` for `Send`+`Sync` compatibility.
-/// Transparent to equality comparisons and serialization.
-/// Enforces that cached values are <= `MAX_VALUE_SIZE`.
-struct CachedValueSize(AtomicU32);
-
-impl CachedValueSize {
-    fn new() -> Self {
-        CachedValueSize(AtomicU32::new(CACHED_SIZE_UNSET))
-    }
-
-    fn get(&self) -> Option<u32> {
-        let v = self.0.load(Ordering::Relaxed);
-        (v != CACHED_SIZE_UNSET).then_some(v)
-    }
-
-    fn set(&self, size: u32) -> Result<(), ClarityTypeError> {
-        if size == CACHED_SIZE_UNSET {
-            return Err(ClarityTypeError::InvariantViolation(
-                "attempted to cache sentinel value as size".into(),
-            ));
-        }
-        if size > MAX_VALUE_SIZE {
-            return Err(ClarityTypeError::ValueTooLarge);
-        }
-        self.0.store(size, Ordering::Relaxed);
-        Ok(())
-    }
-}
-
-impl Default for CachedValueSize {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Clone for CachedValueSize {
-    fn clone(&self) -> Self {
-        CachedValueSize(AtomicU32::new(self.0.load(Ordering::Relaxed)))
-    }
-}
-
-impl PartialEq for CachedValueSize {
-    fn eq(&self, _other: &Self) -> bool {
-        true
-    }
-}
-
-impl Eq for CachedValueSize {}
-
-impl fmt::Debug for CachedValueSize {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CachedValueSize({:?})", self.get())
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct TupleTypeSignature {
     #[serde(with = "tuple_type_map_serde")]
     type_map: Arc<BTreeMap<ClarityName, TypeSignature>>,
+    /// Value size, computed at construction time.
     #[serde(skip)]
-    cached_size: CachedValueSize,
+    size: u32,
 }
 
 mod tuple_type_map_serde {
@@ -140,7 +81,7 @@ mod tuple_type_map_serde {
     use std::ops::Deref;
     use std::sync::Arc;
 
-    use serde::{Deserializer, Serializer};
+    use serde::Serializer;
 
     use super::TypeSignature;
     use crate::representations::ClarityName;
@@ -151,15 +92,25 @@ mod tuple_type_map_serde {
     ) -> Result<S::Ok, S::Error> {
         serde::Serialize::serialize(map.deref(), ser)
     }
+}
 
-    pub fn deserialize<'de, D>(
-        deser: D,
-    ) -> Result<Arc<BTreeMap<ClarityName, TypeSignature>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let map: BTreeMap<ClarityName, TypeSignature> = serde::Deserialize::deserialize(deser)?;
-        Ok(Arc::new(map))
+/// `size` is not serialized — it is recomputed from the `type_map` on
+/// deserialization. This avoids trusting an untrusted value for a field that
+/// is used in `MAX_VALUE_SIZE` enforcement.
+impl<'de> Deserialize<'de> for TupleTypeSignature {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let type_map: BTreeMap<ClarityName, TypeSignature> =
+            serde::Deserialize::deserialize(deserializer)?;
+        let type_map = Arc::new(type_map);
+        let tmp = TupleTypeSignature { type_map, size: 0 };
+        let size = tmp
+            .inner_size()
+            .map_err(serde::de::Error::custom)?
+            .ok_or_else(|| serde::de::Error::custom("tuple type too large"))?;
+        Ok(TupleTypeSignature {
+            type_map: tmp.type_map,
+            size,
+        })
     }
 }
 
@@ -399,10 +350,37 @@ use self::TypeSignature::{
     ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ListTypeData {
     max_len: u32,
     entry_type: Box<TypeSignature>,
+    /// Value size, computed at construction time.
+    #[serde(skip)]
+    size: u32,
+}
+
+/// `size` is not serialized — it is recomputed from `max_len` and `entry_type`
+/// on deserialization. This avoids trusting an untrusted value for a field that
+/// is used in `MAX_VALUE_SIZE` enforcement.
+impl<'de> Deserialize<'de> for ListTypeData {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            max_len: u32,
+            entry_type: Box<TypeSignature>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        let tmp = ListTypeData {
+            max_len: raw.max_len,
+            entry_type: raw.entry_type,
+            size: 0,
+        };
+        let size = tmp
+            .inner_size()
+            .map_err(serde::de::Error::custom)?
+            .ok_or_else(|| serde::de::Error::custom("list type too large"))?;
+        Ok(ListTypeData { size, ..tmp })
+    }
 }
 
 impl From<ListTypeData> for TypeSignature {
@@ -430,6 +408,7 @@ impl ListTypeData {
         let list_data = ListTypeData {
             entry_type: Box::new(entry_type),
             max_len,
+            size: 0,
         };
         let would_be_size = list_data
             .inner_size()?
@@ -437,7 +416,10 @@ impl ListTypeData {
         if would_be_size > MAX_VALUE_SIZE {
             Err(ClarityTypeError::ValueTooLarge)
         } else {
-            Ok(list_data)
+            Ok(ListTypeData {
+                size: would_be_size,
+                ..list_data
+            })
         }
     }
 
@@ -447,10 +429,16 @@ impl ListTypeData {
 
     // if checks like as-max-len pass, they may _reduce_
     //   but should not increase the type signatures max length
-    pub fn reduce_max_len(&mut self, new_max_len: u32) {
+    pub fn reduce_max_len(&mut self, new_max_len: u32) -> Result<(), ClarityTypeError> {
         if new_max_len <= self.max_len {
             self.max_len = new_max_len;
+            self.size = self.inner_size()?.ok_or_else(|| {
+                ClarityTypeError::InvariantViolation(
+                    "reduce_max_len produced a list whose size overflows".into(),
+                )
+            })?;
         }
+        Ok(())
     }
 
     pub fn get_max_len(&self) -> u32 {
@@ -746,9 +734,11 @@ impl TypeSignature {
     pub fn canonicalize_v2_1(&self) -> TypeSignature {
         match self {
             SequenceType(SequenceSubtype::ListType(list_type)) => {
+                // Canonicalization doesn't change sizes, so reuse the cached size.
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: list_type.max_len,
                     entry_type: Box::new(list_type.entry_type.canonicalize_v2_1()),
+                    size: list_type.size,
                 }))
             }
             OptionalType(inner_type) => OptionalType(Box::new(inner_type.canonicalize_v2_1())),
@@ -761,9 +751,10 @@ impl TypeSignature {
                 for (field_name, field_type) in tuple_sig.get_type_map() {
                     canonicalized_fields.insert(field_name.clone(), field_type.canonicalize_v2_1());
                 }
+                // Canonicalization doesn't change sizes, so reuse the cached size.
                 TypeSignature::from(TupleTypeSignature {
                     type_map: Arc::new(canonicalized_fields),
-                    cached_size: CachedValueSize::new(),
+                    size: tuple_sig.size,
                 })
             }
             TraitReferenceType(trait_id) => CallableType(CallableSubtype::Trait(trait_id.clone())),
@@ -850,17 +841,17 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
             }
         }
         let type_map = Arc::new(type_map.into_iter().collect());
-        let result = TupleTypeSignature {
-            type_map,
-            cached_size: CachedValueSize::new(),
-        };
-        let would_be_size = result
+        let tmp = TupleTypeSignature { type_map, size: 0 };
+        let would_be_size = tmp
             .inner_size()?
             .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
         if would_be_size > MAX_VALUE_SIZE {
             Err(ClarityTypeError::ValueTooLarge)
         } else {
-            Ok(result)
+            Ok(TupleTypeSignature {
+                type_map: tmp.type_map,
+                size: would_be_size,
+            })
         }
     }
 }
@@ -906,9 +897,13 @@ impl TupleTypeSignature {
         Ok(true)
     }
 
-    pub fn shallow_merge(&mut self, update: &mut TupleTypeSignature) {
+    pub fn shallow_merge(
+        &mut self,
+        update: &mut TupleTypeSignature,
+    ) -> Result<(), ClarityTypeError> {
         Arc::make_mut(&mut self.type_map).append(Arc::make_mut(&mut update.type_map));
-        self.cached_size = CachedValueSize::new();
+        self.size = self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)?;
+        Ok(())
     }
 }
 
@@ -1119,10 +1114,12 @@ impl TypeSignature {
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_a,
                     entry_type: entry_a,
+                    ..
                 })),
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_b,
                     entry_type: entry_b,
+                    ..
                 })),
             ) => {
                 let entry_type = if *len_a == 0 {
@@ -1232,10 +1229,12 @@ impl TypeSignature {
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_a,
                     entry_type: entry_a,
+                    ..
                 })),
                 SequenceType(SequenceSubtype::ListType(ListTypeData {
                     max_len: len_b,
                     entry_type: entry_b,
+                    ..
                 })),
             ) => {
                 let entry_type = if *len_a == 0 {
@@ -1361,6 +1360,8 @@ impl TypeSignature {
         ListTypeData {
             entry_type: Box::new(TypeSignature::NoType),
             max_len: 0,
+            // Empty list: type_size (1+4+1=6) + 0 entries = 6
+            size: 6,
         }
     }
 
@@ -1580,13 +1581,8 @@ impl TypeSignature {
 }
 
 impl ListTypeData {
-    pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        self.inner_size()?.ok_or_else(|| {
-            ClarityTypeError::InvariantViolation(
-                "FAIL: .size() overflowed on too large of a type. Construction should have failed!"
-                    .into(),
-            )
-        })
+    pub fn size(&self) -> u32 {
+        self.size
     }
 
     /// List Size: type_signature_size + max_len * entry_type.size()
@@ -1639,15 +1635,8 @@ impl TupleTypeSignature {
         }
     }
 
-    pub fn size(&self) -> Result<u32, ClarityTypeError> {
-        if let Some(cached) = self.cached_size.get() {
-            return Ok(cached);
-        }
-        let computed = self.inner_size()?.ok_or_else(|| {
-            ClarityTypeError::InvariantViolation("size() overflowed on a constructed type.".into())
-        })?;
-        self.cached_size.set(computed)?;
-        Ok(computed)
+    pub fn size(&self) -> u32 {
+        self.size
     }
 
     fn max_depth(&self) -> u8 {

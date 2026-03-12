@@ -108,6 +108,6 @@ pub fn tuple_merge(base: Value, update: Value) -> Result<Value, VmExecutionError
         ))),
     }?;
 
-    let combined = TupleData::shallow_merge(initial_values, new_values);
+    let combined = TupleData::shallow_merge(initial_values, new_values)?;
     Ok(Value::Tuple(combined))
 }

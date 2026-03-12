@@ -378,7 +378,7 @@ pub fn special_as_max_len(
             Ok(Value::none())
         } else {
             if let Value::Sequence(SequenceData::List(ref mut list)) = sequence {
-                list.type_signature.reduce_max_len(*expected_len as u32);
+                list.type_signature.reduce_max_len(*expected_len as u32)?;
             }
             Ok(Value::some(sequence)?)
         }
