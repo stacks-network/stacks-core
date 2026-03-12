@@ -12,6 +12,15 @@ extern crate slog;
 #[macro_use]
 extern crate serde_derive;
 
+#[macro_use]
+extern crate stacks_codec;
+
+// Re-export stacks_codec macros at the crate root so downstream crates
+// can continue to import them as `stacks_common::impl_byte_array_message_codec`, etc.
+pub use stacks_codec::{
+    impl_byte_array_message_codec, impl_stacks_message_codec_for_int, BITVEC_LEN,
+};
+
 #[cfg(all(unix, feature = "ctrlc-handler"))]
 extern crate nix;
 
@@ -21,7 +30,6 @@ extern crate winapi;
 #[macro_use]
 pub mod util;
 
-#[macro_use]
 pub mod codec;
 
 pub mod types;
