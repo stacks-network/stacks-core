@@ -1094,12 +1094,23 @@ fn test_at_unknown_block(
         )
         .unwrap_err();
     eprintln!("{err}");
-    match err {
-        ClarityEvalError::Vm(VmExecutionError::Runtime(x, _)) => assert_eq!(
-            x,
-            RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(vec![2_u8; 32].as_slice()))
-        ),
-        e => panic!("Unexpected error: {e}"),
+    if epoch.supports_at_block() {
+        match err {
+            ClarityEvalError::Vm(VmExecutionError::Runtime(x, _)) => assert_eq!(
+                x,
+                RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(
+                    vec![2_u8; 32].as_slice()
+                ))
+            ),
+            e => panic!("Unexpected error: {e}"),
+        }
+    } else {
+        match err {
+            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(x)) => {
+                assert_eq!(x, RuntimeCheckErrorKind::AtBlockUnavailable)
+            }
+            e => panic!("Unexpected error: {e}"),
+        }
     }
 }
 

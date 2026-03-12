@@ -99,27 +99,46 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
         epoch,
         initialize,
         |x| {
-            assert_eq!(
-                branch(x, version, 1, "working").unwrap(),
-                Value::okay(Value::Int(1)).unwrap()
-            );
-            assert_eq!(
-                branch(x, version, 1, "broken").unwrap(),
-                Value::okay(Value::Int(1)).unwrap()
-            );
-            assert_eq!(
-                branch(x, version, 10, "working").unwrap(),
-                Value::okay(Value::Int(1)).unwrap()
-            );
-            // make this test fail: this assertion _should_ be
-            //  true, but at-block is broken. when a context
-            //  switches to an at-block context, _any_ of the db
-            //  wrapping that the Clarity VM does needs to be
-            //  ignored.
-            assert_eq!(
-                branch(x, version, 10, "broken").unwrap(),
-                Value::okay(Value::Int(1)).unwrap()
-            );
+            if epoch.supports_at_block() {
+                assert_eq!(
+                    branch(x, version, 1, "working").unwrap(),
+                    Value::okay(Value::Int(1)).unwrap()
+                );
+                assert_eq!(
+                    branch(x, version, 1, "broken").unwrap(),
+                    Value::okay(Value::Int(1)).unwrap()
+                );
+                assert_eq!(
+                    branch(x, version, 10, "working").unwrap(),
+                    Value::okay(Value::Int(1)).unwrap()
+                );
+                // make this test fail: this assertion _should_ be
+                //  true, but at-block is broken. when a context
+                //  switches to an at-block context, _any_ of the db
+                //  wrapping that the Clarity VM does needs to be
+                //  ignored.
+                assert_eq!(
+                    branch(x, version, 10, "broken").unwrap(),
+                    Value::okay(Value::Int(1)).unwrap()
+                );
+            } else {
+                assert_eq!(
+                    branch(x, version, 1, "working").unwrap_err(),
+                    RuntimeCheckErrorKind::AtBlockUnavailable.into()
+                );
+                assert_eq!(
+                    branch(x, version, 1, "broken").unwrap_err(),
+                    RuntimeCheckErrorKind::AtBlockUnavailable.into()
+                );
+                assert_eq!(
+                    branch(x, version, 1, "working").unwrap_err(),
+                    RuntimeCheckErrorKind::AtBlockUnavailable.into()
+                );
+                assert_eq!(
+                    branch(x, version, 1, "broken").unwrap_err(),
+                    RuntimeCheckErrorKind::AtBlockUnavailable.into()
+                );
+            }
         },
         |_x| {},
         |_x| {},
@@ -185,21 +204,32 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         |x| {
             let resp = branch(x, version, 1, "reset").unwrap_err();
             eprintln!("{}", resp);
-            match resp {
-                VmExecutionError::Runtime(x, _) => assert_eq!(
-                    x,
-                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(
-                        vec![2; 32].as_slice()
-                    ))
-                ),
-                _ => panic!("Unexpected error"),
+            if epoch.supports_at_block() {
+                match resp {
+                    VmExecutionError::Runtime(x, _) => assert_eq!(
+                        x,
+                        RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(
+                            vec![2; 32].as_slice()
+                        ))
+                    ),
+                    _ => panic!("Unexpected error"),
+                }
+            } else {
+                assert_eq!(resp, RuntimeCheckErrorKind::AtBlockUnavailable.into());
             }
         },
         |x| {
-            assert_eq!(
-                branch(x, version, 10, "reset").unwrap(),
-                Value::okay(Value::Int(11)).unwrap()
-            );
+            if epoch.supports_at_block() {
+                assert_eq!(
+                    branch(x, version, 10, "reset").unwrap(),
+                    Value::okay(Value::Int(11)).unwrap()
+                );
+            } else {
+                assert_eq!(
+                    branch(x, version, 10, "reset").unwrap_err(),
+                    RuntimeCheckErrorKind::AtBlockUnavailable.into()
+                );
+            }
         },
     );
 }
@@ -244,13 +274,17 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
         |_| {},
         |env| {
             let err = initialize_2(env);
-            assert_eq!(
-                err,
-                RuntimeCheckErrorKind::NoSuchContract(
-                    "S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()
-                )
-                .into()
-            );
+            if epoch.supports_at_block() {
+                assert_eq!(
+                    err,
+                    RuntimeCheckErrorKind::NoSuchContract(
+                        "S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()
+                    )
+                    .into()
+                );
+            } else {
+                assert_eq!(err, RuntimeCheckErrorKind::AtBlockUnavailable.into());
+            }
         },
     );
 }
