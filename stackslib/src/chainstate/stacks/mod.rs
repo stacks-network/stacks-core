@@ -123,6 +123,7 @@ pub enum Error {
     InvalidChildOfNakomotoBlock,
     NoRegisteredSigners(u64),
     TenureTooBigError,
+    TxWouldNotFitError,
     /// This error indicates an internal state or condition that should never actually happen
     Expects(String),
 }
@@ -228,6 +229,7 @@ impl fmt::Display for Error {
                 write!(f, "The supplied block identifiers are not in the same fork")
             }
             Error::TenureTooBigError => write!(f, "Too much data in tenure"),
+            Error::TxWouldNotFitError => write!(f, "Transaction would not fit in this block"),
             Error::Expects(ref msg) => write!(f, "Unexpected state: {msg}"),
         }
     }
@@ -276,6 +278,7 @@ impl error::Error for Error {
             Error::NoRegisteredSigners(_) => None,
             Error::NotInSameFork => None,
             Error::TenureTooBigError => None,
+            Error::TxWouldNotFitError => None,
             Error::Expects(ref _msg) => None,
         }
     }
@@ -324,6 +327,7 @@ impl Error {
             Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
             Error::NotInSameFork => "NotInSameFork",
             Error::TenureTooBigError => "TenureTooBigError",
+            Error::TxWouldNotFitError => "TxWouldNotFitError",
             Error::Expects(_) => "Expects",
         }
     }

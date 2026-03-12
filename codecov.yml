@@ -1,22 +1,35 @@
 # https://docs.codecov.com/docs/codecovyml-reference
 codecov:
-  require_ci_to_pass: false
   notify:
-    wait_for_ci: true
+    wait_for_ci: false
+    manual_trigger: true
+    notify_error: true
 coverage:
   range: 60..79
   round: down
   precision: 2
   status:
-    changes: false
-    patch: false
     project:
       default:
         target: auto
         threshold: 0%
+        removed_code_behavior: adjust_base
+        if_not_found: success
+        if_ci_failed: success
+        only_pulls: true
+    changes: off
+    patch:
+      default:
+        target: 70%
+        threshold: 0%
+        if_ci_failed: success
+        only_pulls: true
 comment:
   layout: "condensed_header, diff, files, footer"
+  behavior: new
+  require_changes: false
+  require_base: true
+  require_head: true
   hide_project_coverage: false
-  after_n_builds: 35
 github_checks:
   annotations: false
