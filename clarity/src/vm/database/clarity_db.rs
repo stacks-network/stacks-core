@@ -449,12 +449,13 @@ impl<'a> ClarityDatabase<'a> {
         store: &'a mut dyn ClarityBackingStore,
         headers_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
+        cached_epoch: Option<StacksEpochId>,
     ) -> ClarityDatabase<'a> {
         ClarityDatabase {
             store: RollbackWrapper::new(store),
             headers_db,
             burn_state_db,
-            cached_epoch: None,
+            cached_epoch,
         }
     }
 
@@ -462,12 +463,13 @@ impl<'a> ClarityDatabase<'a> {
         store: RollbackWrapper<'a>,
         headers_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
+        cached_epoch: Option<StacksEpochId>,
     ) -> ClarityDatabase<'a> {
         ClarityDatabase {
             store,
             headers_db,
             burn_state_db,
-            cached_epoch: None,
+            cached_epoch,
         }
     }
 
@@ -871,16 +873,37 @@ impl<'a> ClarityDatabase<'a> {
     /// Since Clarity did not exist in stacks 1.0, the lowest valid epoch ID is stacks 2.0.
     /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
     /// Clarity is updated in that epoch.
+    /// Convert a stored epoch u32 to a `StacksEpochId`, defaulting to `Epoch20`
+    /// if no value is stored.
+    fn parse_epoch(stored: Option<u32>) -> Result<StacksEpochId, VmExecutionError> {
+        match stored {
+            Some(x) => u32::try_into(x).map_err(|_| {
+                VmInternalError::Expect("Bad Clarity epoch version in stored Clarity state".into())
+                    .into()
+            }),
+            None => Ok(StacksEpochId::Epoch20),
+        }
+    }
+
+    /// Read the epoch version directly from a backing store, without needing
+    /// a fully constructed `ClarityDatabase`. Useful when the caller needs to
+    /// discover the epoch before constructing the database (e.g., read-only
+    /// connections where the epoch is not known in advance).
+    pub fn read_epoch_from_store(
+        store: &mut dyn ClarityBackingStore,
+    ) -> Result<StacksEpochId, VmExecutionError> {
+        let raw = match store.get_data(Self::clarity_state_epoch_key())? {
+            Some(x) => Some(u32::deserialize(&x)?),
+            None => None,
+        };
+        Self::parse_epoch(raw)
+    }
+
     pub fn get_clarity_epoch_version(&mut self) -> Result<StacksEpochId, VmExecutionError> {
         if let Some(epoch) = self.cached_epoch {
             return Ok(epoch);
         }
-        let out = match self.get_data(Self::clarity_state_epoch_key())? {
-            Some(x) => u32::try_into(x).map_err(|_| {
-                VmInternalError::Expect("Bad Clarity epoch version in stored Clarity state".into())
-            })?,
-            None => StacksEpochId::Epoch20,
-        };
+        let out = Self::parse_epoch(self.get_data(Self::clarity_state_epoch_key())?)?;
         self.cached_epoch = Some(out);
         Ok(out)
     }

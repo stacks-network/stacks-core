@@ -302,7 +302,7 @@ impl MemoryBackingStore {
     }
 
     pub fn as_clarity_db(&mut self) -> ClarityDatabase<'_> {
-        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB, None)
     }
 
     pub fn as_analysis_db(&mut self) -> AnalysisDatabase<'_> {

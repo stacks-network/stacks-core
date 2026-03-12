@@ -3040,7 +3040,7 @@ mod test {
 
     impl MemoryBackingStore {
         pub fn as_docs_clarity_db(&mut self) -> ClarityDatabase<'_> {
-            ClarityDatabase::new(self, &DOC_HEADER_DB, &DOC_POX_STATE_DB)
+            ClarityDatabase::new(self, &DOC_HEADER_DB, &DOC_POX_STATE_DB, None)
         }
     }
 
