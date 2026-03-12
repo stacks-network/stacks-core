@@ -16,6 +16,8 @@
 
 use clarity_types::errors::IncomparableError;
 use rusqlite::{Connection, OptionalExtension, params};
+#[cfg(test)]
+use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::db::tx_busy_handler;
@@ -423,4 +425,43 @@ fn trigger_bad_block_height() {
         ),
         "Expected BadBlockHeight. Got {err}"
     );
+}
+
+#[test]
+fn epoch_recovers_after_rollback() {
+    let mut store = MemoryBackingStore::default();
+    let mut db = store.as_clarity_db();
+
+    assert!(
+        matches!(
+            db.get_clarity_epoch_version().unwrap_err(),
+            VmExecutionError::Internal(VmInternalError::Expect(_))
+        ),
+        "Expected error when getting clarity epoch version is accessed in a non-nested context"
+    );
+
+    // Outer nest — simulates a block-level transaction
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch25)
+        .unwrap();
+
+    // Inner nest — simulates a clarity transaction that bumps the epoch then rolls back
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch30)
+        .unwrap();
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30
+    );
+
+    db.roll_back().unwrap();
+
+    // After rollback the epoch should revert to the outer layer's stored value,
+    // not remain at Epoch30.
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch25,
+        "epoch should have reverted after rollback"
+    );
+    db.roll_back().unwrap();
 }
