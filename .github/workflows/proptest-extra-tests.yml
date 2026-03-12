@@ -161,6 +161,8 @@ jobs:
   proptests-run:
     ## NOTE: This job name is used as a required Status Check in branch
     ## protection rules. Renaming requires branch protection to be updated too.
+    ## When skipped via its `if:` condition, GitHub reports the status as
+    ## 'Success', so skipped runs are not blocking.
     name: Run New Proptest Tests
     needs: [check-approvals, check-changes]
     if: |
