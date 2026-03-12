@@ -933,23 +933,24 @@ impl Trie {
 
                 let content_hash = get_nodetype_hash(storage, &node)?;
                 let root_ptr = storage.root_trieptr();
-                let is_root_node = node.is_node256() && ptr == root_ptr;
+                let is_root_node = ptr == root_ptr;
+                let root_node_preflush = is_root_node && update_skiplist;
 
-                if is_root_node && update_skiplist {
+                if root_node_preflush {
                     // Flush the root node's pointers before calculating the skiplist hash.
                     // Root hash derivation performs ancestor lookups that expect the current
                     // trie structure to be materialized. Not needed when skipping the skiplist.
                     storage.write_nodetype(ptr.ptr(), &node, TrieHash::from_data(&[]))?;
                 }
 
-                let h = if !node.is_node256() {
+                let node_hash = if !node.is_node256() {
                     trace!(
                         "update_root_hash: Updated {node:?} with {child_ptr:?} from {_cur_hash:?} to {content_hash:?}",
                     );
                     content_hash
                 } else {
-                    let node_hash = if ptr == root_ptr {
-                        let h = if update_skiplist {
+                    let node_hash = if is_root_node {
+                        let root_hash = if update_skiplist {
                             Trie::get_trie_root_hash(storage, &content_hash)?
                         } else {
                             content_hash
@@ -957,14 +958,14 @@ impl Trie {
 
                         if cfg!(test) && is_trace() {
                             let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &content_hash)
-                                        .map(|_hs| {
-                                            storage.clear_cached_ancestor_hashes_bytes();
-                                            trace!("update_root_hash: Updated {node:?} with {child_ptr:?} from {_cur_hash:?} to {content_hash:?} + {:?} = {h:?}", &_hs.get(1..));
-                                        });
+                                .map(|_hs| {
+                                    storage.clear_cached_ancestor_hashes_bytes();
+                                    trace!("update_root_hash: Updated {node:?} with {child_ptr:?} from {_cur_hash:?} to {content_hash:?} + {:?} = {root_hash:?}", &_hs.get(1..));
+                                });
                         }
 
-                        debug!("Next root hash is {h} (update_skiplist={update_skiplist})");
-                        h
+                        debug!("Next root hash is {root_hash} (update_skiplist={update_skiplist})");
+                        root_hash
                     } else {
                         trace!(
                             "update_root_hash: Updated {node:?} with {child_ptr:?} from {_cur_hash:?} to {content_hash:?}",
@@ -974,11 +975,11 @@ impl Trie {
                     node_hash
                 };
 
-                if is_root_node && update_skiplist {
+                if root_node_preflush {
                     // Root was already flushed with updated pointers above.
-                    storage.write_node_hash(ptr.ptr(), h)?;
+                    storage.write_node_hash(ptr.ptr(), node_hash)?;
                 } else {
-                    storage.write_nodetype(ptr.ptr(), &node, h)?;
+                    storage.write_nodetype(ptr.ptr(), &node, node_hash)?;
                 }
 
                 child_ptr = ptr;
