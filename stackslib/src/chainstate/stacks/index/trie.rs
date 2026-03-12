@@ -940,7 +940,7 @@ impl Trie {
                     // Flush the root node's pointers before calculating the skiplist hash.
                     // Root hash derivation performs ancestor lookups that expect the current
                     // trie structure to be materialized. Not needed when skipping the skiplist.
-                    storage.write_nodetype(ptr.ptr(), &node, TrieHash::from_data(&[]))?;
+                    storage.write_nodetype(ptr.ptr(), &node, TrieHash::ZERO)?;
                 }
 
                 let node_hash = if !node.is_node256() {
