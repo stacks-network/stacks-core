@@ -1271,7 +1271,7 @@ impl ConversationP2P {
              "supports_mempool_query" => Self::supports_mempool_query(handshake_data.services),
         );
 
-        if updated {
+        if updated && self.stats.outbound {
             // save the new key
             let tx = network.peerdb_tx_begin().map_err(net_error::DBError)?;
             let (mut neighbor, _) = Neighbor::load_and_update(
