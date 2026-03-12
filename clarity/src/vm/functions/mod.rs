@@ -663,8 +663,9 @@ fn special_print(
         debug!("{}", input.as_ref());
     }
 
-    exec_state.register_print_event(invoke_ctx, input.as_ref())?;
-    input.clone_with_cost(exec_state)
+    let value = input.clone_with_cost(exec_state)?;
+    exec_state.register_print_event(invoke_ctx, value.clone())?;
+    Ok(value)
 }
 
 fn special_if(
