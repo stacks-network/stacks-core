@@ -2219,9 +2219,11 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
     info!("------------------------- Wait for Miner 1's Block N+1 to be Mined ------------------------";
         "stacks_height_before" => %stacks_height_before);
 
-    let miner_1_block_n_1 =
-        wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_1)
-            .expect("Timed out waiting for block proposal N+1 from miner 1");
+    let _miner_1_block_n_1 =
+        wait_for_block_pushed_and_tip(30, stacks_height_before + 1, &miner_pk_1, || {
+            miners.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for block proposal N+1 from miner 1");
 
     let miner_2_block_n_1 =
         wait_for_block_proposal_block(30, stacks_height_before + 1, &miner_pk_2)
@@ -2233,12 +2235,6 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
         num_signers,
     )
     .expect("Timed out waiting for global rejection of Miner 2's block N+1'");
-
-    wait_for(30, || {
-        let info = miners.get_peer_info();
-        Ok(info.stacks_tip == miner_1_block_n_1.header.block_hash())
-    })
-    .expect("Tip did not advance to expected block");
 
     info!(
         "------------------------- Verify Tenure Change Extend Tx in Miner 1's Block N+1 -------------------------"
@@ -2420,15 +2416,11 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
     // Miner 2's proposed block should get approved and pushed.
     // Use wait_for_block_pushed_by_miner_key to avoid matching a stale proposal
     // (there may be multiple proposals for the same height).
-    let miner_2_block_n_1 =
-        wait_for_block_pushed_by_miner_key(60, stacks_height_before + 1, &miner_pk_2)
-            .expect("Timed out waiting for Block N+1 to be pushed");
-
-    wait_for(30, || {
-        let info = miners.get_peer_info();
-        Ok(info.stacks_tip == miner_2_block_n_1.header.block_hash())
-    })
-    .expect("Tip did not advance to expected block");
+    let _miner_2_block_n_1 =
+        wait_for_block_pushed_and_tip(60, stacks_height_before + 1, &miner_pk_2, || {
+            miners.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for Block N+1 to be pushed");
 
     info!(
         "------------------------- Verify BlockFound in Miner 2's Block N+1 -------------------------"
@@ -2565,15 +2557,11 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
 
     info!("------------------------- Get Miner 2's N+1 block -------------------------");
 
-    let miner_2_block_n_1 =
-        wait_for_block_pushed_by_miner_key(60, stacks_height_before + 1, &miner_pk_2)
-            .expect("Timed out waiting for N+1 block to be approved");
-
-    wait_for(30, || {
-        let info = miners.get_peer_info();
-        Ok(info.stacks_tip == miner_2_block_n_1.header.block_hash())
-    })
-    .expect("Tip did not advance to expected block");
+    let _miner_2_block_n_1 =
+        wait_for_block_pushed_and_tip(60, stacks_height_before + 1, &miner_pk_2, || {
+            miners.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for N+1 block to be approved");
     let peer_info = miners.get_peer_info();
 
     let stacks_height_before = peer_info.stacks_tip_height;
@@ -3623,14 +3611,11 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         test_observer::clear();
         TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
-        let miner_1_block_n_1 =
-            wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_1)
-                .expect("Timed out waiting for Miner 1 to mine N+1");
-        wait_for(30, || {
-            let info = miners.get_peer_info();
-            Ok(info.stacks_tip == miner_1_block_n_1.header.block_hash())
-        })
-        .expect("Tip did not advance to expected block");
+        let _miner_1_block_n_1 =
+            wait_for_block_pushed_and_tip(30, stacks_height_before + 1, &miner_pk_1, || {
+                miners.get_peer_info().stacks_tip
+            })
+            .expect("Timed out waiting for Miner 1 to mine N+1");
 
         info!(
             "------------------------- Verify Extended in Miner 1's Block N+1 -------------------------"
@@ -3680,13 +3665,10 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
         let miner_2_block_n_1 =
-            wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, &miner_pk_2)
-                .expect("Miner 2's block N+1 was not mined");
-        wait_for(30, || {
-            let info = miners.get_peer_info();
-            Ok(info.stacks_tip == miner_2_block_n_1.header.block_hash())
-        })
-        .expect("Tip did not advance to expected block");
+            wait_for_block_pushed_and_tip(30, stacks_height_before + 1, &miner_pk_2, || {
+                miners.get_peer_info().stacks_tip
+            })
+            .expect("Miner 2's block N+1 was not mined");
 
         if matches!(variant, NonBlockingMinorityVariant::FavourPrevMiner) {
             info!(
@@ -3729,14 +3711,10 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         &miner_pk_2
     };
     let block_n_2 =
-        wait_for_block_pushed_by_miner_key(30, stacks_height_before + 1, continuing_miner_pk)
-            .expect("Timed out waiting for block N+2");
-
-    wait_for(30, || {
-        let info = miners.get_peer_info();
-        Ok(info.stacks_tip == block_n_2.header.block_hash())
-    })
-    .expect("Tip did not advance to expected block");
+        wait_for_block_pushed_and_tip(30, stacks_height_before + 1, continuing_miner_pk, || {
+            miners.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for block N+2");
 
     // V1 variant additionally verifies minority rejection for N+2
     if matches!(variant, NonBlockingMinorityVariant::FavourPrevMinerV1) {
@@ -4355,13 +4333,10 @@ fn continue_after_fast_block_no_sortition() {
     info!("------------------------- Wait for Miner B's Block N+2 -------------------------");
 
     let miner_2_block_n_2 =
-        wait_for_block_pushed_by_miner_key(30, stacks_height_before + 2, &miner_pk_2)
-            .expect("Did not mine Miner 2's Block N+2");
-    wait_for(30, || {
-        let info = miners.get_peer_info();
-        Ok(info.stacks_tip == miner_2_block_n_2.header.block_hash())
-    })
-    .expect("Tip did not advance to expected block");
+        wait_for_block_pushed_and_tip(30, stacks_height_before + 2, &miner_pk_2, || {
+            miners.get_peer_info().stacks_tip
+        })
+        .expect("Did not mine Miner 2's Block N+2");
 
     info!("------------------------- Verify Miner B's Block N+2 -------------------------");
     assert!(miner_2_block_n_2
@@ -4379,7 +4354,10 @@ fn continue_after_fast_block_no_sortition() {
 
     info!("------------------------- Verify Miner B's Block N+3 -------------------------");
 
-    let block_n_3 = wait_for_block_pushed_by_miner_key(30, stacks_height_before + 3, &miner_pk_2)
+    let block_n_3 =
+        wait_for_block_pushed_and_tip(30, stacks_height_before + 3, &miner_pk_2, || {
+            miners.get_peer_info().stacks_tip
+        })
         .expect("Did not mine Miner 2's Block N+3");
     assert!(block_n_3
         .txs

@@ -1357,7 +1357,28 @@ pub fn wait_for_block_pushed_by_miner_key(
         }
         Ok(false)
     })?;
+
     block.ok_or_else(|| "Failed to find block pushed".to_string())
+}
+
+/// Waits for a block to be pushed by the specified miner, then waits for
+/// the node's tip to advance to that block. This prevents race conditions
+/// where subsequent calls read a stale `stacks_tip_height` because the
+/// coordinator hasn't yet processed the pushed block.
+///
+/// `get_tip` should return the current stacks tip hash (e.g. from
+/// `get_peer_info().stacks_tip` or `get_chain_info().stacks_tip`).
+pub fn wait_for_block_pushed_and_tip(
+    timeout_secs: u64,
+    expected_height: u64,
+    expected_miner: &StacksPublicKey,
+    get_tip: impl Fn() -> BlockHeaderHash,
+) -> Result<NakamotoBlock, String> {
+    let block = wait_for_block_pushed_by_miner_key(timeout_secs, expected_height, expected_miner)?;
+    let block_hash = block.header.block_hash();
+    wait_for(timeout_secs, || Ok(get_tip() == block_hash))
+        .map_err(|e| format!("Tip did not advance to pushed block: {e}"))?;
+    Ok(block)
 }
 
 /// Waits for all of the provided signers to send a pre-commit for a block
@@ -4058,14 +4079,10 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     info!("Submitted tx {tx} in to mine block N");
     sender_nonce += 1;
     let block_n =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
-            .expect("Timed out waiting for block N to be mined");
-
-    wait_for(30, || {
-        let info = signer_test.get_peer_info();
-        Ok(info.stacks_tip == block_n.header.block_hash())
-    })
-    .expect("Tip did not advance to block N");
+        wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 1, &miner_pk, || {
+            signer_test.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for block N to be mined");
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
     // Propose a valid block, but force the miner to ignore the returned signatures and delay the block being
@@ -4212,14 +4229,10 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         info_before.stacks_tip_height + 2
     );
     let block_n_2 =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 2, &miner_pk)
-            .expect("Timed out waiting for block N+2 to be mined");
-
-    wait_for(30, || {
-        let info = signer_test.get_peer_info();
-        Ok(info.stacks_tip == block_n_2.header.block_hash())
-    })
-    .expect("Tip did not advance to block N+2");
+        wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 2, &miner_pk, || {
+            signer_test.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for block N+2 to be mined");
     assert_eq!(
         block_n_2.header.parent_block_id,
         block_n_1.header.block_id()

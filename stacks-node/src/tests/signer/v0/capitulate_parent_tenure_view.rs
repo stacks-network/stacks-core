@@ -133,12 +133,13 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     .expect("Timed out waiting for N to be mined and processed");
 
     // Ensure that the block was accepted globally so the stacks tip has advanced to N
-    let block_n =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
-            .expect("Timed out waiting for block N to be mined");
+    let _block_n =
+        wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 1, &miner_pk, || {
+            signer_test.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for block N to be mined");
 
     let info_after = signer_test.get_peer_info();
-    assert_eq!(info_after.stacks_tip, block_n.header.block_hash());
     assert_eq!(
         info_after.stacks_tip_height,
         info_before.stacks_tip_height + 1
@@ -400,12 +401,13 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     .expect("Timed out waiting for N to be mined and processed");
 
     // Ensure that the block was accepted globally so the stacks tip has advanced to N
-    let block_n =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
-            .expect("Timed out waiting for block N to be mined");
+    let _block_n =
+        wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 1, &miner_pk, || {
+            signer_test.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for block N to be mined");
 
     let info_after = signer_test.get_peer_info();
-    assert_eq!(info_after.stacks_tip, block_n.header.block_hash());
     assert_eq!(
         info_after.stacks_tip_height,
         info_before.stacks_tip_height + 1

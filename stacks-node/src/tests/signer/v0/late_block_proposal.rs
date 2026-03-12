@@ -31,7 +31,7 @@ use super::SignerTest;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
 use crate::tests::signer::v0::{
-    get_stackerdb_signer_messages, wait_for_block_proposal, wait_for_block_pushed_by_miner_key,
+    get_stackerdb_signer_messages, wait_for_block_proposal, wait_for_block_pushed_and_tip,
 };
 
 #[tag(bitcoind)]
@@ -108,15 +108,10 @@ fn signer_rejects_proposal_after_block_pushed() {
         wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
             .expect("Timed out waiting for block N+1 to be proposed");
     let signer_signature_hash = block_n_proposal.block.header.signer_signature_hash();
-    let _ = wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
-        .expect("Failed to get BlockPushed for block N");
-    info!("------------------------- Advance Chain to Include Block N -------------------------");
-    // Shouldn't have to wait long for the chain to advance
-    wait_for(10, || {
-        let info_after = get_chain_info(&signer_test.running_nodes.conf);
-        Ok(info_after.stacks_tip_height >= info_before.stacks_tip_height + 1)
+    let _ = wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 1, &miner_pk, || {
+        get_chain_info(&signer_test.running_nodes.conf).stacks_tip
     })
-    .expect("Chain did not advance to block N+1");
+    .expect("Failed to get BlockPushed for block N");
 
     info!("------------------------- Verify Signer 1 did NOT respond to the Block Proposal -------------------------");
     let messages = get_stackerdb_signer_messages();
