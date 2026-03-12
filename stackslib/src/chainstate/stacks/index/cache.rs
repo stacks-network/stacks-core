@@ -329,8 +329,7 @@ impl<T: MarfTrieId> TrieCache<T> {
     }
 }
 
-/// A small array-backed (fixed-capacity, stack-allocated) Least-Recently-Used
-/// (LRU) cache.
+/// A small array-backed (fixed-capacity, stack-allocated) Least-Recently-Used (LRU) cache.
 ///
 /// Entries are stored in MRU-to-LRU order:
 ///
@@ -338,6 +337,16 @@ impl<T: MarfTrieId> TrieCache<T> {
 /// * The last occupied slot is the least-recently-used entry.
 /// * On lookup or update, a hit is promoted to index 0.
 /// * On insert when full, the least-recently-used entry is evicted.
+///
+/// ## Notes
+///
+/// The value of `N` must be greater than zero, which is enforced by a compile-time assertion in
+/// [`ArrayLru::new()`]. The following will fail to compile:
+///
+/// ```compile_fail
+/// # use crate::chainstate::stacks::index::cache::ArrayLru;
+/// let _cache = ArrayLru::<u8, u8, 0>::new();
+/// ```
 #[derive(Debug, Clone)]
 pub struct ArrayLru<K, V, const N: usize> {
     entries: [Option<(K, V)>; N],
