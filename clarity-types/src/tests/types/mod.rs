@@ -356,7 +356,7 @@ fn test_ascii_data_to_value_returns_clarity_type_error() {
 
 #[test]
 fn test_utf8_data_to_value_returns_clarity_types_error_invalid_utf8_encoding() {
-    let err = UTF8Data::to_value(&Utf8Char([0xED, 0xA0, 0x80, 0x00])).unwrap_err();
+    let err = UTF8Data::to_value(&Utf8Char::new_unchecked([0xED, 0xA0, 0x80, 0x00])).unwrap_err();
     assert_eq!(ClarityTypeError::InvalidUtf8Encoding, err);
 }
 
@@ -655,12 +655,12 @@ fn utf8_char_byte_len_four_byte() {
 fn utf8_char_byte_len_invalid_leading_byte() {
     // Continuation byte as leading byte → error
     assert!(matches!(
-        Utf8Char([0x80, 0, 0, 0]).byte_len(),
+        Utf8Char::new_unchecked([0x80, 0, 0, 0]).byte_len(),
         Err(ClarityTypeError::InvalidUtf8Encoding)
     ));
     // 0xF8+ is invalid UTF-8
     assert!(matches!(
-        Utf8Char([0xFF, 0, 0, 0]).byte_len(),
+        Utf8Char::new_unchecked([0xFF, 0, 0, 0]).byte_len(),
         Err(ClarityTypeError::InvalidUtf8Encoding)
     ));
 }
@@ -756,4 +756,25 @@ fn utf8data_serde_roundtrip_empty() {
     assert_eq!(json, "[]");
     let deserialized: UTF8Data = serde_json::from_str(&json).unwrap();
     assert_eq!(data, deserialized);
+}
+
+#[test]
+fn utf8data_deserialize_rejects_invalid_utf8() {
+    // 0xFF is not a valid UTF-8 leading byte
+    let json = "[[255]]";
+    serde_json::from_str::<UTF8Data>(json).unwrap_err();
+}
+
+#[test]
+fn utf8data_deserialize_rejects_empty_entry() {
+    // An empty byte array doesn't represent a character
+    let json = "[[]]";
+    serde_json::from_str::<UTF8Data>(json).unwrap_err();
+}
+
+#[test]
+fn utf8data_deserialize_rejects_multi_codepoint_entry() {
+    // Two ASCII chars in a single entry
+    let json = "[[65, 66]]";
+    serde_json::from_str::<UTF8Data>(json).unwrap_err();
 }

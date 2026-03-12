@@ -23,6 +23,7 @@ stacks_common = { package = "stacks-common", path = "../stacks-common", default-
 criterion = { workspace = true}
 mutants = "0.0.3"
 rstest = "0.17.0"
+serde_json = "1.0"
 
 [[bench]]
 name = "utf8_data"

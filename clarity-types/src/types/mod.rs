@@ -701,7 +701,7 @@ impl fmt::Display for ASCIIData {
 /// A single Unicode codepoint stored as a zero-padded UTF-8 byte array.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct Utf8Char(pub(crate) [u8; 4]);
+pub struct Utf8Char([u8; 4]);
 
 impl Utf8Char {
     /// Create from a `char`.
@@ -709,6 +709,13 @@ impl Utf8Char {
         let mut buf = [0u8; 4];
         c.encode_utf8(&mut buf);
         Self(buf)
+    }
+
+    /// Create from raw bytes without validation.
+    /// Only available in tests for constructing intentionally invalid values.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_unchecked(bytes: [u8; 4]) -> Self {
+        Self(bytes)
     }
 
     /// Number of significant UTF-8 bytes (1–4).
@@ -756,12 +763,19 @@ impl<'de> Deserialize<'de> for UTF8Data {
         let data = compat
             .into_iter()
             .map(|bytes| {
-                let mut buf = [0u8; 4];
-                let len = bytes.len().min(4);
-                buf[..len].copy_from_slice(&bytes[..len]);
-                Utf8Char(buf)
+                let s = std::str::from_utf8(&bytes).map_err(serde::de::Error::custom)?;
+                let mut chars = s.chars();
+                let c = chars
+                    .next()
+                    .ok_or_else(|| serde::de::Error::custom("empty UTF-8 character entry"))?;
+                if chars.next().is_some() {
+                    return Err(serde::de::Error::custom(
+                        "expected a single codepoint per UTF-8 character entry",
+                    ));
+                }
+                Ok(Utf8Char::from_char(c))
             })
-            .collect();
+            .collect::<Result<_, D::Error>>()?;
         Ok(UTF8Data { data })
     }
 }

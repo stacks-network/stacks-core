@@ -1080,7 +1080,11 @@ impl Value {
                     |len, c| -> Result<u32, SerializationError> {
                         let char_len = u32::try_from(c.byte_len()?)
                             .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?;
-                        Ok(len + char_len)
+                        Ok(len.checked_add(char_len).ok_or_else(|| {
+                            SerializationError::SerializationFailure(
+                                "UTF8 string byte length overflow".to_string(),
+                            )
+                        })?)
                     },
                 )?;
                 w.write_all(&(total_len.to_be_bytes()))?;
