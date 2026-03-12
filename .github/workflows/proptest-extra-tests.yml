@@ -26,13 +26,12 @@ on:
     inputs:
       base_ref:
         description: "BASE branch to diff against (default: develop)"
-        required: false
+        required: true
         default: "develop"
         type: string
       pr_number:
-        description: "PR number to allow stateful run (default: none)"
-        required: false
-        default: ""
+        description: "PR number for stateful run (artifact naming, PR comments)"
+        required: true
         type: string
 
 defaults:
@@ -41,7 +40,7 @@ defaults:
 
 ## Allow the job to be canceled when in progress due to new approval
 concurrency:
-  group: proptest-extra-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+  group: proptest-extra-${{ github.event.pull_request.number || inputs.pr_number }}
   cancel-in-progress: true
 
 env:
@@ -293,11 +292,10 @@ jobs:
       - name: Restore proptest regression (if any)
         env:
           GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: proptest-extra-pr-${{ github.event.pull_request.number || inputs.pr_number }}
         run: |
-          artifact_name="proptest-regressions-pr-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}"
-
           artifact_url=$(gh api \
-            "repos/${{ github.repository }}/actions/artifacts?name=${artifact_name}&per_page=1" \
+            "repos/${{ github.repository }}/actions/artifacts?name=${ARTIFACT_NAME}&per_page=1" \
             --jq '.artifacts[0] | select(.expired == false) | .archive_download_url // empty')
 
           if [[ -z "$artifact_url" ]]; then
@@ -305,7 +303,7 @@ jobs:
             exit 0
           fi
 
-          echo "Restoring regression artifact: $artifact_name"
+          echo "Restoring regression artifact: $ARTIFACT_NAME"
           curl -fsSL \
             -H "Authorization: Bearer $GH_TOKEN" \
             "$artifact_url" \
@@ -355,9 +353,11 @@ jobs:
       ## file format: <package>/proptest-regressions/<test-path>/<test-module>.txt
       - name: Save proptest regression (if any)
         if: failure() && steps.run_tests.outcome == 'failure'
+        env:
+          ARTIFACT_NAME: proptest-extra-pr-${{ github.event.pull_request.number || inputs.pr_number }}
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
-          name: proptest-regressions-pr-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: "**/proptest-regressions/"
           if-no-files-found: ignore
           overwrite: true
@@ -372,8 +372,8 @@ jobs:
           (github.event.pull_request.number || inputs.pr_number)
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
         run: |
-          pr="${{ github.event.pull_request.number || inputs.pr_number }}"
           run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           failed_tests=$(cat /tmp/failed-prop-tests.txt 2>/dev/null || echo "(unknown)")
 
@@ -390,7 +390,7 @@ jobs:
           [View run and artifact]($run_url)"
 
           existing=$(gh api \
-            "repos/${{ github.repository }}/issues/$pr/comments" \
+            "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
             --jq '[.[] | select(.body | startswith("<!-- proptest-regression-report -->"))][0].id // empty')
 
           if [[ -n "$existing" ]]; then
@@ -398,6 +398,6 @@ jobs:
             echo "Deleted previous comment $existing"
           fi
 
-          gh api "repos/${{ github.repository }}/issues/$pr/comments" \
+          gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
             -X POST --field body="$body"
           echo "Posted new comment"
