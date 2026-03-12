@@ -504,13 +504,6 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
     );
-    let rl1_skip_commit_op = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .skip_commit_op
-        .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -519,7 +512,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
     // Make sure Miner 2 cannot win a sortition at first.
-    rl2_skip_commit_op.set(true);
+    miners.pause_commits_miner_2();
 
     miners.boot_to_epoch_3();
 
@@ -527,7 +520,8 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     info!("------------------------- Pause Miner 1's Block Commits -------------------------");
-    rl1_skip_commit_op.set(true);
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
 
     info!("------------------------- Miner 1 Mines a Nakamoto Block N -------------------------");
     let stacks_height_before = miners.get_peer_stacks_tip_height();
@@ -553,7 +547,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
     info!("------------------------- Miner 2 Submits a Block Commit -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     info!("------------------------- Pause Miner 2's Block Proposals -------------------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2.clone()]);
@@ -567,7 +561,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     info!("------------------------- Miner 1 Submits a Block Commit -------------------------");
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
 
     info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
     test_observer::clear();
@@ -594,7 +588,7 @@ fn allow_reorg_within_first_proposal_burn_block_timing_secs() {
     assert_ne!(miner_1_block_n_1_prime, miner_2_block_n_1);
 
     info!("------------------------- Miner 1 Submits a Block Commit -------------------------");
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
 
     info!("------------------------- Miner 1 Mines N+2' -------------------------");
 
@@ -684,16 +678,13 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
         },
-        |_| {},
-        |_| {},
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
-    let rl1_skip_commit_op = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .skip_commit_op
-        .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -702,7 +693,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
     // Make sure Miner 2 cannot win a sortition at first.
-    rl2_skip_commit_op.set(true);
+    miners.pause_commits_miner_2();
 
     miners.boot_to_epoch_3();
 
@@ -710,7 +701,9 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     info!("------------------------- Pause Miner 1's Block Commits -------------------------");
-    rl1_skip_commit_op.set(true);
+    // Before pausing, make sure the miner is pointing to the right sortition DB state.
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
 
     info!("------------------------- Miner 1 Mines a Nakamoto Block N -------------------------");
     let stacks_height_before = miners.get_peer_stacks_tip_height();
@@ -736,7 +729,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
     info!("------------------------- Miner 2 Submits a Block Commit -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     info!("------------------------- Pause Miner 2's Block Mining -------------------------");
     fault_injection_stall_miner();
@@ -747,7 +740,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
         .expect("Failed to mine BTC block");
 
     info!("------------------------- Miner 1 Submits a Block Commit -------------------------");
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
 
     info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
 
@@ -899,14 +892,6 @@ fn interrupt_miner_on_new_stacks_tip() {
         },
     );
 
-    let skip_commit_op_rl1 = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .skip_commit_op
-        .clone();
-    let skip_commit_op_rl2 = miners.rl2_counters.skip_commit_op.clone();
-
     let (conf_1, conf_2) = miners.get_node_configs();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -914,13 +899,14 @@ fn interrupt_miner_on_new_stacks_tip() {
     let all_signers = miners.signer_test.signer_test_pks();
 
     // Pause Miner 2's commits to ensure Miner 1 wins the first sortition.
-    skip_commit_op_rl2.set(true);
+    miners.pause_commits_miner_2();
     miners.boot_to_epoch_3();
 
     let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
 
+    miners.ensure_commit_miner_1(&sortdb);
     info!("Pausing miner 1's block commit submissions");
-    skip_commit_op_rl1.set(true);
+    miners.pause_commits_miner_1();
 
     info!("------------------------- RL1 Wins Sortition -------------------------");
     info!("Mine RL1 Tenure");
@@ -959,7 +945,7 @@ fn interrupt_miner_on_new_stacks_tip() {
     info!("Block N is {}", block_n.stacks_height);
 
     info!("------------------------- RL2 Wins Sortition -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     info!("Make signers ignore all block proposals, so that they don't reject it quickly");
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(all_signers.clone());
@@ -1019,8 +1005,8 @@ fn interrupt_miner_on_new_stacks_tip() {
     );
 
     info!("------------------------- Next Tenure Builds on N+1 -------------------------");
-    miners.submit_commit_miner_1(&sortdb);
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
@@ -1299,12 +1285,6 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
 
-    let rl1_skip_commit_op = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .skip_commit_op
-        .clone();
     let blocks_mined1 = miners
         .signer_test
         .running_nodes
@@ -1313,7 +1293,6 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         .clone();
 
     let Counters {
-        skip_commit_op: rl2_skip_commit_op,
         naka_mined_blocks: blocks_mined2,
         naka_rejected_blocks: rl2_rejections,
         ..
@@ -1322,7 +1301,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
     // Make sure Miner 2 cannot win a sortition at first.
-    rl2_skip_commit_op.set(true);
+    miners.pause_commits_miner_2();
 
     miners.boot_to_epoch_3();
 
@@ -1332,7 +1311,8 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     let starting_peer_height = get_chain_info(&conf_1).stacks_tip_height;
 
     info!("------------------------- Pause Miner 1's Block Commits -------------------------");
-    rl1_skip_commit_op.set(true);
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
 
     info!("------------------------- Miner 1 Mines a Nakamoto Block N (Globally Accepted) -------------------------");
     let stacks_height_before = miners.get_peer_stacks_tip_height();
@@ -1376,7 +1356,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     debug!("Miner 1 proposed block N+1: {block_n_1_signature_hash}");
 
     info!("------------------------- Unpause Miner 2's Block Commits -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     info!("------------------------- Pause Block Validation Submission of N+1'-------------------------");
     TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(true);
@@ -3497,7 +3477,7 @@ fn bitcoin_reorg_extended_tenure() {
         .submit_burn_block_call_and_wait(&miners.sender_sk)
         .expect("Timed out waiting for contract-call");
 
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
         .unwrap();
@@ -3551,15 +3531,6 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
         },
         |_| {},
     );
-    let rl1_skip_commit_op = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .skip_commit_op
-        .clone();
-
-    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
-
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
@@ -3574,7 +3545,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
     // Make sure Miner 2 cannot win a sortition at first.
-    rl2_skip_commit_op.set(true);
+    miners.pause_commits_miner_2();
 
     miners.boot_to_epoch_3();
 
@@ -3588,9 +3559,8 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     )
     .unwrap();
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
-
-    // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
-    rl1_skip_commit_op.set(true);
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
 
     info!("------------------------- Miner 1 Wins Normal Tenure A -------------------------");
     miners
@@ -3612,7 +3582,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone()]);
     TEST_BLOCK_ANNOUNCE_STALL.set(true);
 
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb); 
 
     info!("------------------------- Miner 1 Wins Tenure B -------------------------");
     miners
@@ -3622,7 +3592,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
     info!("----------------- Miner 2 Submits Block Commit for Tenure C Before Any Tenure B Blocks Produced ------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     let info = get_chain_info(&conf_1);
     info!("----------------------------- Resume Block Production for Tenure B -----------------------------");
@@ -3726,7 +3696,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
         .expect("Failed to mine tx");
 
     info!("------------------------- Miner 2 Mines the Next Tenure -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
@@ -3810,14 +3780,6 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
             rejecting_signers.push(public_key);
         }
     }
-    let rl1_skip_commit_op = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .skip_commit_op
-        .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
-
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -3825,7 +3787,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
     // Make sure Miner 2 cannot win a sortition at first.
-    rl2_skip_commit_op.set(true);
+    miners.pause_commits_miner_2();
 
     miners.boot_to_epoch_3();
 
@@ -3833,7 +3795,8 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     info!("------------------------- Pause Miner 1's Block Commits -------------------------");
-    rl1_skip_commit_op.set(true);
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
 
     info!("------------------------- Miner 1 Mines a Nakamoto Block N -------------------------");
     let info_before = get_chain_info(&conf_1);
@@ -3860,7 +3823,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     .expect("Tip did not advance to block N");
 
     info!("------------------------- Miner 2 Submits a Block Commit -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     info!("------------------------- Pause Miner 2's Block Mining -------------------------");
     fault_injection_stall_miner();
@@ -3871,7 +3834,7 @@ fn mark_miner_as_invalid_if_reorg_is_rejected_v1() {
     miners.signer_test.check_signer_states_normal();
 
     info!("------------------------- Miner 1 Submits a Block Commit -------------------------");
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
 
     info!("------------------------- Miner 2 Mines Block N+1 -------------------------");
     fault_injection_unstall_miner();
@@ -3983,17 +3946,9 @@ fn miner_forking() {
     let (mining_pk_1, mining_pk_2) = miners.get_miner_public_keys();
     let (mining_pkh_1, mining_pkh_2) = miners.get_miner_public_key_hashes();
 
-    let skip_commit_op_rl1 = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .skip_commit_op
-        .clone();
-    let skip_commit_op_rl2 = miners.rl2_counters.skip_commit_op.clone();
-
     // Make sure that the first miner wins the first sortition.
     info!("Pausing miner 2's block commit submissions");
-    skip_commit_op_rl2.set(true);
+    miners.pause_commits_miner_2();
     miners.boot_to_epoch_3();
 
     let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
@@ -4005,7 +3960,8 @@ fn miner_forking() {
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![mining_pk_1.clone(), mining_pk_2.clone()]);
 
     info!("Pausing commits from RL1");
-    skip_commit_op_rl1.set(true);
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
 
     info!("Mine RL1 Tenure");
     miners
@@ -4021,7 +3977,7 @@ fn miner_forking() {
     info!(
         "------------------------- RL2 Wins Sortition With Outdated View -------------------------"
     );
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     // unblock block mining
     let blocks_len = test_observer::get_blocks().len();
@@ -4099,7 +4055,7 @@ fn miner_forking() {
     info!("------------------------- RL1 RBFs its Own Commit -------------------------");
     info!("Pausing stacks block proposal to test RBF capability");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![mining_pk_1.clone(), mining_pk_2.clone()]);
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
 
     info!("Mine RL1 Tenure");
     miners
@@ -4108,7 +4064,7 @@ fn miner_forking() {
     miners
         .signer_test
         .check_signer_states_reorg(&miners.signer_test.signer_test_pks(), &[]);
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
     // unblock block mining
     let blocks_len = test_observer::get_blocks().len();
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
@@ -4118,7 +4074,7 @@ fn miner_forking() {
         .expect("Timed out waiting for a block to be processed");
 
     info!("Ensure that RL1 performs an RBF after unblocking block broadcast");
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
 
     info!("Mine RL1 Tenure");
     miners
@@ -4660,16 +4616,15 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
         },
-        |config| config.miner.max_execution_time_secs = Some(0),
-        |config| config.miner.max_execution_time_secs = None,
+        |config| {
+            config.miner.max_execution_time_secs = Some(0);
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.max_execution_time_secs = None;
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
-    let rl1_skip_commit_op = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .skip_commit_op
-        .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -4678,7 +4633,7 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
     // Make sure Miner 2 cannot win a sortition at first.
-    rl2_skip_commit_op.set(true);
+    miners.pause_commits_miner_2();
 
     miners.boot_to_epoch_3();
 
@@ -4686,7 +4641,8 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     info!("------------------------- Pause Miner 1's Block Commits -------------------------");
-    rl1_skip_commit_op.set(true);
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
 
     info!("------------------------- Miner 1 Mines a Nakamoto Block N -------------------------");
     miners
@@ -4740,7 +4696,7 @@ fn miner_rejection_by_contract_call_execution_time_expired() {
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
     info!("------------------------- Miner 2 Submits a Block Commit -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     info!("------------------------- Mine Tenure -------------------------");
     miners
@@ -4800,16 +4756,15 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
             signer_config.tenure_last_block_proposal_timeout = Duration::from_secs(1800);
             signer_config.first_proposal_burn_block_timing = Duration::from_secs(1800);
         },
-        |config| config.miner.max_execution_time_secs = Some(0),
-        |config| config.miner.max_execution_time_secs = None,
+        |config| {
+            config.miner.max_execution_time_secs = Some(0);
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.max_execution_time_secs = None;
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
     );
-    let rl1_skip_commit_op = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .skip_commit_op
-        .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
@@ -4818,7 +4773,7 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
     // Make sure Miner 2 cannot win a sortition at first.
-    rl2_skip_commit_op.set(true);
+    miners.pause_commits_miner_2();
 
     miners.boot_to_epoch_3();
 
@@ -4826,7 +4781,9 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     info!("------------------------- Pause Miner 1's Block Commits -------------------------");
-    rl1_skip_commit_op.set(true);
+    // Before pausing, make sure the miner is pointing to the right sortition DB state.
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
 
     info!("------------------------- Miner 1 Mines a Nakamoto Block N -------------------------");
     miners
@@ -4850,7 +4807,7 @@ fn miner_rejection_by_contract_publish_execution_time_expired() {
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
     info!("------------------------- Miner 2 Submits a Block Commit -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     info!("------------------------- Mine Tenure -------------------------");
     miners

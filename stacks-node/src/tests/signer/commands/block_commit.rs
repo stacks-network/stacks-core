@@ -49,13 +49,13 @@ impl Command<SignerTestState, SignerTestContext> for MinerSubmitNakaBlockCommit 
                 .miners
                 .lock()
                 .unwrap()
-                .submit_commit_miner_1(&sortdb),
+                .ensure_commit_miner_1(&sortdb),
             2 => self
                 .ctx
                 .miners
                 .lock()
                 .unwrap()
-                .submit_commit_miner_2(&sortdb),
+                .ensure_commit_miner_2(&sortdb),
             _ => panic!(
                 "Invalid miner index: {}. Expected 1 or 2.",
                 self.miner_index

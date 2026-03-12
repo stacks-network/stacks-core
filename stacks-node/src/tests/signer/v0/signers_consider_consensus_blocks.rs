@@ -119,10 +119,6 @@ fn signers_do_not_reconsider_globally_accepted_and_responded_blocks() {
     miners.pause_commits_miner_2();
     miners.boot_to_epoch_3();
 
-    // Make sure we know which miner will win in the stalled block
-    miners.pause_commits_miner_1();
-    info!("------------------------- Mine First Block N -------------------------");
-
     let sortdb = SortitionDB::open(
         &conf_1.get_burn_db_file_path(),
         false,
@@ -130,11 +126,16 @@ fn signers_do_not_reconsider_globally_accepted_and_responded_blocks() {
         None,
     )
     .unwrap();
+
+    // Make sure we know which miner will win in the stalled block
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
+    info!("------------------------- Mine First Block N -------------------------");
     // Mine an initial block to establish state
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
         .expect("Failed to mine BTC block followed by tenure change tx");
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
     miners.signer_test.check_signer_states_normal();
 
     let info_before = miners.get_peer_info();
@@ -249,6 +250,14 @@ fn signers_respond_to_unprocessed_globally_accepted_block_proposals() {
     miners.boot_to_epoch_3();
 
     // Make sure we know which miner will win the tenure
+    let sortdb = SortitionDB::open(
+        &miners.get_node_configs().0.get_burn_db_file_path(),
+        false,
+        miners.get_node_configs().0.get_burnchain().pox_constants,
+        None,
+    )
+    .unwrap();
+    miners.ensure_commit_miner_1(&sortdb);
     miners.pause_commits_miner_1();
     TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING.set(nonprocessing_signers.clone());
 

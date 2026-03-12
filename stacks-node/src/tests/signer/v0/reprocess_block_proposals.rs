@@ -96,20 +96,20 @@ fn signers_reprocess_bitcoin_block_not_found_proposals() {
     miners.boot_to_epoch_3();
 
     // Make sure we know which miner will win in the stalled block
-    miners.pause_commits_miner_1();
-    info!("------------------------- Mine First Block N -------------------------");
-
     let sortdb = SortitionDB::open(
-        &conf_1.get_burn_db_file_path(),
-        false,
-        conf_1.get_burnchain().pox_constants,
+    &conf_1.get_burn_db_file_path(),
+    false,
+    conf_1.get_burnchain().pox_constants,
     )
     .unwrap();
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
+    info!("------------------------- Mine First Block N -------------------------");
     // Mine an initial block to establish state
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
         .expect("Failed to mine BTC block followed by tenure change tx");
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
     miners.signer_test.check_signer_states_normal();
 
     let info_before = miners.get_peer_info();

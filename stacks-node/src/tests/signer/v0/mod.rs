@@ -1035,45 +1035,56 @@ impl MultipleMinerTest {
     }
 
     /// Ensures that miner 2 submits a commit pointing to the current view reported by the stacks node as expected
-    pub fn submit_commit_miner_2(&mut self, sortdb: &SortitionDB) {
-        if !self.rl2_counters.skip_commit_op.get() {
-            warn!("Miner 2's commit ops were not paused. This may result in no commit being submitted.");
-        }
+    /// Ensures that miner 2 has submitted a commit pointing to the current
+    /// view reported by the stacks node. Temporarily unpauses commits if
+    /// needed, waits until the commit counters reflect the current burn
+    /// height and stacks tip, then restores the previous pause state.
+    pub fn ensure_commit_miner_2(&mut self, sortdb: &SortitionDB) {
         let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
             .block_height;
-
         let stacks_height_before = self.get_peer_stacks_tip_height();
-        let rl2_commits_before = self
-            .rl2_counters
-            .naka_submitted_commits
-            .load(Ordering::SeqCst);
+        let was_paused = self.rl2_counters.skip_commit_op.get();
+        let commits_before = if was_paused {
+            info!("Unpausing commits from RL2");
+            Some(
+                self.rl2_counters
+                    .naka_submitted_commits
+                    .load(Ordering::SeqCst),
+            )
+        } else {
+            None
+        };
+        self.unpause_commits_miner_2();
 
-        info!("Unpausing commits from RL2");
-        self.rl2_counters.skip_commit_op.set(false);
-
-        info!("Waiting for commits from RL2");
+        info!("Waiting for RL2 commit at burn_height={burn_height}, stacks_height={stacks_height_before}");
         wait_for(30, || {
-            Ok(self
+            let height_ok = self
                 .rl2_counters
-                .naka_submitted_commits
+                .naka_submitted_commit_last_burn_height
                 .load(Ordering::SeqCst)
-                > rl2_commits_before
-                && self
-                    .rl2_counters
-                    .naka_submitted_commit_last_burn_height
-                    .load(Ordering::SeqCst)
-                    >= burn_height
+                >= burn_height
                 && self
                     .rl2_counters
                     .naka_submitted_commit_last_stacks_tip
                     .load(Ordering::SeqCst)
-                    >= stacks_height_before)
+                    >= stacks_height_before;
+            let commit_incremented = commits_before
+                .map(|before| {
+                    self.rl2_counters
+                        .naka_submitted_commits
+                        .load(Ordering::SeqCst)
+                        > before
+                })
+                .unwrap_or(true);
+            Ok(height_ok && commit_incremented)
         })
         .expect("Timed out waiting for miner 2 to submit a commit op");
 
-        info!("Pausing commits from RL2");
-        self.rl2_counters.skip_commit_op.set(true);
+        if was_paused {
+            info!("Restoring paused state for RL2");
+            self.pause_commits_miner_2();
+        }
     }
 
     /// Pause miner 1's commits
@@ -1085,66 +1096,83 @@ impl MultipleMinerTest {
             .set(true);
     }
 
-    /// Pause miner 2's commits
-    pub fn pause_commits_miner_2(&mut self) {
-        self.rl2_counters.skip_commit_op.set(true);
-    }
-
-    /// Ensures that miner 1 submits a commit pointing to the current view reported by the stacks node as expected
-    pub fn submit_commit_miner_1(&mut self, sortdb: &SortitionDB) {
-        if !self.signer_test.running_nodes.counters.skip_commit_op.get() {
-            warn!("Miner 1's commit ops were not paused. This may result in no commit being submitted.");
-        }
-        let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-            .unwrap()
-            .block_height;
-        let stacks_height_before = self.get_peer_stacks_tip_height();
-        let rl1_commits_before = self
-            .signer_test
-            .running_nodes
-            .counters
-            .naka_submitted_commits
-            .load(Ordering::SeqCst);
-
-        info!("Unpausing commits from RL1");
+    /// Unpause miner 1's commits
+    pub fn unpause_commits_miner_1(&mut self) {
         self.signer_test
             .running_nodes
             .counters
             .skip_commit_op
             .set(false);
+    }
 
-        info!("Waiting for commits from RL1");
+    /// Pause miner 2's commits
+    pub fn pause_commits_miner_2(&mut self) {
+        self.rl2_counters.skip_commit_op.set(true);
+    }
+
+    /// Unpause miner 2's commits
+    pub fn unpause_commits_miner_2(&mut self) {
+        self.rl2_counters.skip_commit_op.set(false);
+    }
+
+    /// Ensures that miner 1 has submitted a commit pointing to the current
+    /// view reported by the stacks node. Temporarily unpauses commits if
+    /// needed, waits until the commit counters reflect the current burn
+    /// height and stacks tip, then restores the previous pause state.
+    pub fn ensure_commit_miner_1(&mut self, sortdb: &SortitionDB) {
+        let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .unwrap()
+            .block_height;
+        let stacks_height_before = self.get_peer_stacks_tip_height();
+        let was_paused = self.signer_test.running_nodes.counters.skip_commit_op.get();
+        let commits_before = if was_paused {
+            info!("Unpausing commits from RL1");
+            Some(
+                self.signer_test
+                    .running_nodes
+                    .counters
+                    .naka_submitted_commits
+                    .load(Ordering::SeqCst),
+            )
+        } else {
+            None
+        };
+        self.unpause_commits_miner_1();
+
+        info!("Waiting for RL1 commit at burn_height={burn_height}, stacks_height={stacks_height_before}");
         wait_for(30, || {
-            Ok(self
+            let height_ok = self
                 .signer_test
                 .running_nodes
                 .counters
-                .naka_submitted_commits
+                .naka_submitted_commit_last_burn_height
                 .load(Ordering::SeqCst)
-                > rl1_commits_before
-                && self
-                    .signer_test
-                    .running_nodes
-                    .counters
-                    .naka_submitted_commit_last_burn_height
-                    .load(Ordering::SeqCst)
-                    >= burn_height
+                >= burn_height
                 && self
                     .signer_test
                     .running_nodes
                     .counters
                     .naka_submitted_commit_last_stacks_tip
                     .load(Ordering::SeqCst)
-                    >= stacks_height_before)
+                    >= stacks_height_before;
+            let commit_incremented = commits_before
+                .map(|before| {
+                    self.signer_test
+                        .running_nodes
+                        .counters
+                        .naka_submitted_commits
+                        .load(Ordering::SeqCst)
+                        > before
+                })
+                .unwrap_or(true);
+            Ok(height_ok && commit_incremented)
         })
         .expect("Timed out waiting for miner 1 to submit a commit op");
 
-        info!("Pausing commits from RL1");
-        self.signer_test
-            .running_nodes
-            .counters
-            .skip_commit_op
-            .set(true);
+        if was_paused {
+            info!("Restoring paused state for RL1");
+            self.pause_commits_miner_1();
+        }
     }
 
     /// Shutdown the test harness
@@ -1257,12 +1285,14 @@ pub fn wait_for_block_proposal_block(
 
 /// Returns all successfully deserialized (StackerDBChunkData, SignerMessage) pairs
 /// from the test_observer stackerdb chunks, filtered to only include chunks from
-/// signer contract IDs.
+/// signer and miner contract IDs.
 pub fn get_stackerdb_signer_messages() -> Vec<(StackerDBChunkData, SignerMessage)> {
     test_observer::get_stackerdb_chunks()
         .into_iter()
         .filter(|event| {
-            event.contract_id.is_boot() && event.contract_id.name.starts_with(SIGNERS_NAME)
+            event.contract_id.is_boot()
+                && (event.contract_id.name.starts_with(SIGNERS_NAME)
+                    || event.contract_id.name.starts_with(MINERS_NAME))
         })
         .flat_map(|chunk| chunk.modified_slots)
         .filter_map(|chunk| {
@@ -6915,14 +6945,6 @@ fn signers_send_state_message_updates() {
         },
     );
 
-    let rl1_skip_commit_op = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .skip_commit_op
-        .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.skip_commit_op.clone();
-
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
@@ -6930,7 +6952,7 @@ fn signers_send_state_message_updates() {
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
     // Make sure Miner 2 cannot win a sortition at first.
-    rl2_skip_commit_op.set(true);
+    miners.pause_commits_miner_2();
 
     miners.boot_to_epoch_3();
 
@@ -6950,11 +6972,10 @@ fn signers_send_state_message_updates() {
     let starting_peer_height = get_chain_info(&conf_1).stacks_tip_height;
     let starting_burn_height = get_burn_height();
     let mut btc_blocks_mined = 0;
-
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
     // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
-    rl1_skip_commit_op.set(true);
-
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
     info!("------------------------- Miner 1 Tenure Starts and Mines Block N-------------------------");
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
@@ -6977,7 +6998,7 @@ fn signers_send_state_message_updates() {
 
     info!("------------------------- Submit Miner 2 Block Commit -------------------------");
     test_observer::clear();
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     // Pause the block proposal broadcast so that miner 2 will be unable to broadcast its
     // tenure change proposal BEFORE the block_proposal_timeout and will be marked invalid.
@@ -7010,9 +7031,6 @@ fn signers_send_state_message_updates() {
     );
     // Make sure that miner 2 gets marked invalid by not proposing a block BEFORE block_proposal_timeout
     std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
-    // Allow miner 2 to propose its late block and see the signer get marked malicious
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
-
     info!("------------------------- Confirm Miner 1 is the Active Miner Again -------------------------");
     wait_for_state_machine_update(
         60,
@@ -7022,6 +7040,9 @@ fn signers_send_state_message_updates() {
         &miners.signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signers to send their state update");
+
+    // Allow miner 2 to propose its late block and see the signer get marked malicious
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
 
     info!(
         "------------------------- Confirm Burn and Stacks Block Heights -------------------------"
@@ -7478,8 +7499,9 @@ fn miner_stackerdb_version_rollover() {
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
-
-    // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
+    // Make sure the miner has submitted a commit for the latest burn block and also make sure it pauses
+    // before mining the bitcoin block so that the miner won't accidentally extend its tenure before we pause it.
+    miners.ensure_commit_miner_1(&sortdb);
     miners.pause_commits_miner_1();
 
     info!("------------------------- Miner 1 Wins Normal Tenure A -------------------------");
@@ -7519,7 +7541,7 @@ fn miner_stackerdb_version_rollover() {
     let max_chunk = max_chunk.expect("Should have found a miner stackerdb message from Miner 1");
 
     info!("------------------------- Miner 2 Wins Tenure B -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
@@ -7527,7 +7549,7 @@ fn miner_stackerdb_version_rollover() {
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     info!("------------------------- Miner 2 Wins Tenure C -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
@@ -7535,7 +7557,7 @@ fn miner_stackerdb_version_rollover() {
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     info!("------------------------- Miner 2 Wins Tenure D -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
@@ -7543,7 +7565,7 @@ fn miner_stackerdb_version_rollover() {
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     info!("----------------- Miner 1 Submits Block Commit ------------------");
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
 
     info!("------------------------- Miner 1 Wins Tenure E -------------------------");
     miners
@@ -7865,7 +7887,7 @@ fn signer_loads_stackerdb_updates_on_startup() {
     .expect("Not all signers accepted the block");
 
     info!("------------------------- Miner B Wins Tenure B -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
     // Let's not mine anything until we see consensus on new tenure start.
     TEST_MINE_SKIP.set(true);
     miners.signer_test.mine_bitcoin_block();
@@ -8207,6 +8229,10 @@ fn burn_block_payload_includes_pox_transactions() {
     let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
 
     info!("---- Starting test -----");
+
+    // Ensure both miners have submitted commits before mining the next BTC block
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
