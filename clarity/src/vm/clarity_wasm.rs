@@ -1551,7 +1551,7 @@ fn get_required_bytes(ty: &TypeSignature, value: &Value) -> Result<usize, Error>
             )
         }
         Value::Sequence(SequenceData::String(CharType::ASCII(s))) => Ok(s.data.len()),
-        Value::Sequence(SequenceData::String(CharType::UTF8(s))) => Ok(s.data.len()),
+        Value::Sequence(SequenceData::String(CharType::UTF8(s))) => Ok(s.data.len() * 4),
         Value::Sequence(SequenceData::Buffer(b)) => Ok(b.data.len()),
         Value::Sequence(SequenceData::List(l)) => {
             let TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) = ty else {
