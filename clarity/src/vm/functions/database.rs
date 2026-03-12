@@ -184,6 +184,7 @@ pub fn special_contract_call(
                             .into());
                         }
 
+                        // If this check succeeds, the subsequent trait reference and method checks cannot fail
                         function_to_check.check_trait_expectations(
                             env.epoch(),
                             &contract_context_defining_trait,
@@ -483,6 +484,9 @@ pub fn special_at_block(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
+    if !env.epoch().supports_at_block() {
+        return Err(RuntimeCheckErrorKind::AtBlockUnavailable.into());
+    }
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::AtBlock, env, 0)?;

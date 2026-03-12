@@ -1470,7 +1470,9 @@ const AT_BLOCK: SpecialAPI = SpecialAPI {
     snippet: "at-block ${1:id-header-hash} ${2:expr}",
     output_type: "A",
     signature: "(at-block id-block-hash expr)",
-    description: "The `at-block` function evaluates the expression `expr` _as if_ it were evaluated at the end of the
+    description: "Removed in Epoch 3.4 (see SIP-042).
+
+The `at-block` function evaluates the expression `expr` _as if_ it were evaluated at the end of the
 block indicated by the _block-hash_ argument. The `expr` closure must be read-only.
 
 Note: The block identifying hash must be a hash returned by the `id-header-hash` block information

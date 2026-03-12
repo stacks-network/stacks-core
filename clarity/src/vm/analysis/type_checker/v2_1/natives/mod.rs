@@ -132,6 +132,9 @@ fn check_special_at_block(
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
+    if !checker.epoch.supports_at_block() {
+        return Err(StaticCheckErrorKind::AtBlockUnavailable.into());
+    }
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
     checker.type_check(&args[1], context)
 }
