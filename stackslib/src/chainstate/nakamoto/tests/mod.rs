@@ -2219,7 +2219,7 @@ fn test_make_miners_stackerdb_config() {
             )
             .unwrap();
         tx.test_update_canonical_stacks_tip(
-            &snapshot.sortition_id,
+            &snapshot.canonical_stacks_tip_consensus_hash,
             &snapshot.canonical_stacks_tip_consensus_hash,
             &snapshot.canonical_stacks_tip_hash,
             snapshot.canonical_stacks_tip_height,
@@ -2340,6 +2340,82 @@ fn test_make_miners_stackerdb_config() {
 
     assert_eq!(miner_hashbytes[8].1, miner_hash160s[8]);
     assert_eq!(miner_hashbytes[9].1, miner_hash160s[8]);
+}
+
+#[test]
+fn test_get_highest_canonical_block_header_from_candidates_epoch2_deterministic() {
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+
+    let sort_db = peer.chain.sortdb.as_mut().unwrap();
+    let tip_snapshot = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    let canonical_ch = tip_snapshot.consensus_hash.clone();
+
+    let epoch2_proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+    let epoch2_proof = VRFProof::from_bytes(&epoch2_proof_bytes[..]).unwrap();
+
+    let mut candidates = Vec::new();
+    // Make the middle candidate the canonical one.
+    let canonical_index = 5;
+    for i in 0..10 {
+        let work = 110u64.saturating_sub(i as u64);
+        let header = StacksBlockHeader {
+            version: 0,
+            total_work: StacksWorkScore { burn: 1, work },
+            proof: epoch2_proof.clone(),
+            parent_block: BlockHeaderHash([(0x11 + i as u8); 32]),
+            parent_microblock: BlockHeaderHash([0x00; 32]),
+            parent_microblock_sequence: 0,
+            tx_merkle_root: Sha512Trunc256Sum([(0x22 + i as u8); 32]),
+            state_index_root: TrieHash([(0x33 + i as u8); 32]),
+            microblock_pubkey_hash: Hash160([(0x44 + i as u8); 20]),
+        };
+
+        // Make sure the candidate with the correct consensus hash is selected based on the first in the list (i.e.
+        // the one with the highest stacks block height as well as correct consensus hash)
+        let consensus_hash = if i >= canonical_index {
+            canonical_ch.clone()
+        } else {
+            ConsensusHash([(0x50 + i as u8); 20])
+        };
+
+        let candidate = StacksHeaderInfo {
+            anchored_header: StacksBlockHeaderTypes::Epoch2(header),
+            microblock_tail: None,
+            // Make the stacks block height decrease with each candidate, since get_highest_canonical_block_header_from_candidates
+            // expects a height-ordered list of candidates
+            stacks_block_height: work,
+            index_root: TrieHash([(0x60 + i as u8); 32]),
+            consensus_hash,
+            burn_header_hash: tip_snapshot.burn_header_hash.clone(),
+            burn_header_height: tip_snapshot.block_height as u32,
+            burn_header_timestamp: tip_snapshot.burn_header_timestamp,
+            anchored_block_size: 120 + i as u64,
+            burn_view: None,
+            total_tenure_size: 0,
+        };
+        candidates.push(candidate);
+    }
+    let canonical_candidate = candidates[canonical_index].clone();
+    let selected =
+        NakamotoChainState::get_highest_canonical_block_header_from_candidates(sort_db, candidates)
+            .unwrap()
+            .expect("Expected a canonical epoch2 header");
+
+    assert_eq!(
+        selected.anchored_header.block_hash(),
+        canonical_candidate.anchored_header.block_hash()
+    );
+    assert_eq!(
+        selected.stacks_block_height,
+        canonical_candidate.stacks_block_height
+    );
 }
 
 #[test]

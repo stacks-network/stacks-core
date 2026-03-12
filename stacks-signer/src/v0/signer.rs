@@ -522,7 +522,7 @@ impl Signer {
                     messages.len()
                 );
                 // try and gather signatures
-                for (signer_public_key, message) in messages {
+                for (_slot_id, signer_public_key, message) in messages {
                     let signer_address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
                     if !self.is_valid_signer(&signer_address) {
                         debug!("{self}: Received a message from an unknown signer. Ignoring...";
@@ -798,7 +798,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         sortition_state: &mut Option<SortitionsView>,
-        block: &NakamotoBlock,
+        block_info: &BlockInfo,
     ) -> Option<BlockRejection> {
         // First update our global state evaluator with our local state if we have one
         let local_version = self.get_signer_protocol_version();
@@ -812,15 +812,27 @@ impl Signer {
         let Some(state_version) = self.determine_active_signer_protocol_version() else {
             warn!(
                 "{self}: No consensus on signer protocol version. Unable to validate block. Rejecting.";
-                "signer_signature_hash" => %block.header.signer_signature_hash(),
-                "block_id" => %block.block_id(),
+                "signer_signature_hash" => %block_info.block.header.signer_signature_hash(),
+                "block_id" => %block_info.block.block_id(),
             );
-            return Some(self.create_block_rejection(RejectReason::NoSignerConsensus, block));
+            return Some(
+                self.create_block_rejection(RejectReason::NoSignerConsensus, &block_info.block),
+            );
         };
+
+        // reject if the block itself is malformed
+        if !block_info.check_static_valid_block() {
+            debug!("{self}: Block is syntatically invalid; will not process");
+            return Some(self.create_block_rejection(
+                RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
+                &block_info.block,
+            ));
+        }
+
         if state_version.uses_global_state() {
-            self.check_block_against_global_state(stacks_client, block)
+            self.check_block_against_global_state(stacks_client, &block_info.block)
         } else {
-            self.check_block_against_local_state(stacks_client, sortition_state, block)
+            self.check_block_against_local_state(stacks_client, sortition_state, &block_info.block)
         }
     }
 
@@ -1291,7 +1303,7 @@ impl Signer {
 
         // Check if proposal can be rejected now if not valid against sortition view
         let block_rejection =
-            self.check_block_against_state(stacks_client, sortition_state, &block_proposal.block);
+            self.check_block_against_state(stacks_client, sortition_state, &block_info);
 
         #[cfg(any(test, feature = "testing"))]
         let block_rejection =
@@ -1554,6 +1566,10 @@ impl Signer {
             );
             return;
         }
+        if !block_info.check_static_valid_block() {
+            debug!("{self}: Block is syntatically invalid; will not store");
+            return;
+        }
 
         if let Some(block_rejection) =
             self.check_block_against_signer_db_state(stacks_client, &block_info.block)
@@ -1618,6 +1634,10 @@ impl Signer {
             warn!(
                 "{self}: Already processed a block validate response for block {}. Ignoring validation response.", block_info.block.header.signer_signature_hash(); "valid" => ?block_info.valid,
             );
+            return;
+        }
+        if !block_info.check_static_valid_block() {
+            debug!("{self}: Block is syntatically invalid; will not store");
             return;
         }
         if let Err(e) = block_info.mark_locally_rejected() {
