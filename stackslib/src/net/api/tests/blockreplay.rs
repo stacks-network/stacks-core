@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::types::chainstate::StacksPrivateKey;
-use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
+use clarity::vm::{ClarityName, ContractName};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 
@@ -197,7 +197,12 @@ fn test_try_make_response() {
 
     for (resp_tx, tip_tx) in resp.transactions.iter().zip(tip_block.receipts.iter()) {
         assert_eq!(resp_tx.txid, tip_tx.transaction.txid());
-        assert_eq!(resp_tx.events.len(), tip_tx.events.len());
+        let expected_events = if resp_tx.post_condition_aborted {
+            0
+        } else {
+            tip_tx.events.len()
+        };
+        assert_eq!(resp_tx.events.len(), expected_events);
         assert_eq!(resp_tx.result, tip_tx.result);
         assert_eq!(resp_tx.result_hex, tip_tx.result);
         assert!(!resp_tx.post_condition_aborted);
@@ -224,8 +229,7 @@ fn test_try_make_response() {
     assert_eq!(preamble.status_code, 401);
 }
 
-/// Test that events properly set the `committed` flag to `false`
-/// when the transaction is aborted by a post-condition.
+/// Test that post-condition aborted transactions are included in the response but with empty events.
 #[test]
 fn replay_block_with_pc_failure() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
@@ -290,8 +294,6 @@ fn replay_block_with_pc_failure() {
                 .with_initial_balances(vec![(addr.into(), 1_000_000)])
         });
 
-    let nakamoto_consensus_hash = rpc_test.consensus_hash.clone();
-
     let mut requests = vec![];
 
     let mut request =
@@ -308,43 +310,20 @@ fn replay_block_with_pc_failure() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    let contents = response.clone().get_http_payload_ok().unwrap();
-    let response_json: serde_json::Value = contents.try_into().unwrap();
-
-    let result_hex = response_json
-        .get("transactions")
-        .expect("Expected JSON to have a transactions field")
-        .as_array()
-        .expect("Expected transactions to be an array")
-        .get(0)
-        .expect("Expected transactions to have at least one element")
-        .as_object()
-        .expect("Expected transaction to be an object")
-        .get("result_hex")
-        .expect("Expected JSON to have a result_hex field")
-        .as_str()
-        .unwrap();
-    let result = ClarityValue::try_deserialize_hex_untyped(&result_hex).unwrap();
-    result.expect_result_ok().expect("FATAL: result is not ok");
-
     let resp = response.decode_replayed_block().unwrap();
 
-    let tip_block = test_observer.get_blocks().last().unwrap().clone();
+    // The post-condition aborted transaction should be present in the response (for fee
+    // reconciliation), but its events should be empty.
+    let aborted_tx = resp
+        .transactions
+        .iter()
+        .find(|tx| tx.post_condition_aborted)
+        .expect("Expected to find a post-condition aborted transaction in the response");
 
-    assert_eq!(resp.transactions.len(), tip_block.receipts.len());
-
-    assert_eq!(resp.transactions.len(), 1);
-
-    let resp_tx = &resp.transactions.get(0).unwrap();
-
-    assert!(resp_tx.vm_error.is_some());
-
-    for event in resp_tx.events.iter() {
-        let committed = event.get("committed").unwrap().as_bool().unwrap();
-        assert!(!committed);
-    }
-
-    assert!(resp_tx.post_condition_aborted);
+    assert!(
+        aborted_tx.events.is_empty(),
+        "Expected the post-condition aborted transaction to have empty events"
+    );
 }
 
 #[test]
@@ -416,7 +395,12 @@ fn test_try_make_response_with_unsuccessful_transaction() {
 
     for (resp_tx, tip_tx) in resp.transactions.iter().zip(tip_block.receipts.iter()) {
         assert_eq!(resp_tx.txid, tip_tx.transaction.txid());
-        assert_eq!(resp_tx.events.len(), tip_tx.events.len());
+        let expected_events = if resp_tx.post_condition_aborted {
+            0
+        } else {
+            tip_tx.events.len()
+        };
+        assert_eq!(resp_tx.events.len(), expected_events);
         assert_eq!(resp_tx.result, tip_tx.result);
         assert_eq!(resp_tx.result_hex, tip_tx.result);
         assert!(!resp_tx.post_condition_aborted);

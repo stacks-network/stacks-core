@@ -143,6 +143,7 @@ impl BurnchainController for MocknetController {
             self.burnchain.pox_constants.clone(),
             None,
             true,
+            None,
         ) {
             Ok(db) => db,
             Err(_) => panic!("Error while connecting to burnchain db"),
