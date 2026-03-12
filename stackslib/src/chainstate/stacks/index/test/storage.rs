@@ -362,8 +362,7 @@ fn marf_root_cache_respects_requested_root_node_type() {
 
 #[test]
 fn marf_root_cache_skips_unconfirmed_block_ids() {
-    let (_tmp_dir, marf_path) =
-        make_test_marf_path("test_marf_root_cache_skips_unconfirmed_block_ids");
+    let (_tmp_dir, marf_path) = make_test_marf_path(function_name_no_ns!());
 
     let confirmed_tip = StacksBlockId([0x77; 32]);
     initialize_marf_with_tip(&marf_path, &confirmed_tip);
@@ -399,8 +398,7 @@ fn marf_root_cache_skips_unconfirmed_block_ids() {
 
 #[test]
 fn marf_root_cache_evicts_oldest_committed_block() {
-    let (_tmp_dir, marf_path) =
-        make_test_marf_path("test_marf_root_cache_evicts_oldest_committed_block");
+    let (_tmp_dir, marf_path) = make_test_marf_path(function_name_no_ns!());
 
     let tips = {
         let storage = TrieFileStorage::open(&marf_path, MARFOpenOpts::default()).unwrap();
