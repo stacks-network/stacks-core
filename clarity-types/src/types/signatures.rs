@@ -67,13 +67,39 @@ impl AssetIdentifier {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize)]
+/// `size` is not serialized — it is recomputed from the `type_map` on
+/// deserialization via `TryFrom<TupleTypeSignatureRaw>`. This avoids
+/// trusting an untrusted value for a field used in `MAX_VALUE_SIZE`
+/// enforcement.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "TupleTypeSignatureRaw")]
 pub struct TupleTypeSignature {
-    #[serde(with = "tuple_type_map_serde")]
+    #[serde(serialize_with = "tuple_type_map_serde::serialize")]
     type_map: Arc<BTreeMap<ClarityName, TypeSignature>>,
-    /// Value size, computed at construction time.
     #[serde(skip)]
     size: u32,
+}
+
+/// Deserialization-only mirror of `TupleTypeSignature` (no `size` field).
+#[derive(Deserialize)]
+struct TupleTypeSignatureRaw {
+    type_map: BTreeMap<ClarityName, TypeSignature>,
+}
+
+impl TryFrom<TupleTypeSignatureRaw> for TupleTypeSignature {
+    type Error = String;
+    fn try_from(raw: TupleTypeSignatureRaw) -> Result<Self, Self::Error> {
+        let type_map = Arc::new(raw.type_map);
+        let tmp = TupleTypeSignature { type_map, size: 0 };
+        let size = tmp
+            .inner_size()
+            .map_err(|e| format!("{e}"))?
+            .ok_or("tuple type too large")?;
+        Ok(TupleTypeSignature {
+            type_map: tmp.type_map,
+            size,
+        })
+    }
 }
 
 mod tuple_type_map_serde {
@@ -91,26 +117,6 @@ mod tuple_type_map_serde {
         ser: S,
     ) -> Result<S::Ok, S::Error> {
         serde::Serialize::serialize(map.deref(), ser)
-    }
-}
-
-/// `size` is not serialized — it is recomputed from the `type_map` on
-/// deserialization. This avoids trusting an untrusted value for a field that
-/// is used in `MAX_VALUE_SIZE` enforcement.
-impl<'de> Deserialize<'de> for TupleTypeSignature {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let type_map: BTreeMap<ClarityName, TypeSignature> =
-            serde::Deserialize::deserialize(deserializer)?;
-        let type_map = Arc::new(type_map);
-        let tmp = TupleTypeSignature { type_map, size: 0 };
-        let size = tmp
-            .inner_size()
-            .map_err(serde::de::Error::custom)?
-            .ok_or_else(|| serde::de::Error::custom("tuple type too large"))?;
-        Ok(TupleTypeSignature {
-            type_map: tmp.type_map,
-            size,
-        })
     }
 }
 
