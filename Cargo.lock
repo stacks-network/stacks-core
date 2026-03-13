@@ -3751,6 +3751,7 @@ dependencies = [
  "nix",
  "percent-encoding",
  "perf-event2",
+ "pinny",
  "pox-locking 2.4.0",
  "prometheus",
  "proptest",

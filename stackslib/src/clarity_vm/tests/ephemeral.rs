@@ -17,6 +17,7 @@ use std::fs;
 
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::{ClarityName, ContractName};
+use pinny::tag;
 use proptest::prelude::*;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -766,6 +767,7 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
     }
 }
 
+#[tag(t_prop)]
 #[test]
 fn prop_ephemeral_tip_height_matches_current() {
     proptest!(|(n in 1usize..=12)| {
