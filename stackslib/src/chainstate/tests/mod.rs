@@ -1993,7 +1993,7 @@ fn advance_through_nakamoto_bootstrapped() {
             .unwrap()
             .unwrap()
             .epoch_id;
-    assert_eq!(current_epoch, StacksEpochId::Epoch33);
+    assert_eq!(current_epoch, StacksEpochId::Epoch34);
     let next_epoch =
         SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height + 1)
             .unwrap()
