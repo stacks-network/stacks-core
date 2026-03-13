@@ -46,36 +46,43 @@ fn test_dynamic_dispatch_by_defining_trait(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -102,36 +109,43 @@ fn test_dynamic_dispatch_pass_trait_nested_in_let(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -157,36 +171,43 @@ fn test_dynamic_dispatch_pass_trait(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -211,30 +232,36 @@ fn test_dynamic_dispatch_intra_contract_call(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
-            contract_defining_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
+                contract_defining_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
-        let err_result = env
+        let err_result = exec_state
             .execute_contract(
+                &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
                 &symbols_from_values(vec![target_contract]),
@@ -268,41 +295,50 @@ fn test_dynamic_dispatch_by_implementing_imported_trait(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
-            contract_defining_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
+                contract_defining_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -330,41 +366,50 @@ fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
-            contract_defining_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
+                contract_defining_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -389,41 +434,50 @@ fn test_dynamic_dispatch_by_importing_trait(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
-            contract_defining_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
+                contract_defining_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -455,32 +509,43 @@ fn test_dynamic_dispatch_including_nested_trait(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("contract-defining-nested-trait").unwrap(),
-            contract_defining_nested_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
-            contract_defining_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-nested-contract").unwrap(),
-            target_nested_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract-defining-nested-trait").unwrap(),
+                contract_defining_nested_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
+                contract_defining_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-nested-contract").unwrap(),
+                target_nested_contract,
+            )
+            .unwrap();
     }
 
     {
@@ -490,19 +555,21 @@ fn test_dynamic_dispatch_including_nested_trait(
         let target_nested_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-nested-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract, target_nested_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract, target_nested_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(99)).unwrap()
         );
     }
@@ -526,30 +593,36 @@ fn test_dynamic_dispatch_mismatched_args(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
-        let err_result = env
+        let err_result = exec_state
             .execute_contract(
+                &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
                 &symbols_from_values(vec![target_contract]),
@@ -582,30 +655,36 @@ fn test_dynamic_dispatch_mismatched_returned(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
-        let err_result = env
+        let err_result = exec_state
             .execute_contract(
+                &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
                 &symbols_from_values(vec![target_contract]),
@@ -639,30 +718,36 @@ fn test_reentrant_dynamic_dispatch(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
-        let err_result = env
+        let err_result = exec_state
             .execute_contract(
+                &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
                 &symbols_from_values(vec![target_contract]),
@@ -694,30 +779,36 @@ fn test_readwrite_dynamic_dispatch(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
-        let err_result = env
+        let err_result = exec_state
             .execute_contract(
+                &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
                 &symbols_from_values(vec![target_contract]),
@@ -752,30 +843,36 @@ fn test_readwrite_violation_dynamic_dispatch(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
-        let err_result = env
+        let err_result = exec_state
             .execute_contract(
+                &invoke_ctx,
                 &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
                 "wrapped-get-1",
                 &symbols_from_values(vec![target_contract]),
@@ -816,43 +913,54 @@ fn test_bad_call_with_trait(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("defun").unwrap(),
-            contract_defining_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatch").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("implem").unwrap(),
-            impl_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("call").unwrap(),
-            caller_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("defun").unwrap(),
+                contract_defining_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatch").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("implem").unwrap(),
+                impl_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("call").unwrap(),
+                caller_contract,
+            )
+            .unwrap();
     }
 
     {
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("call").unwrap(),
-                "foo-bar",
-                &symbols_from_values(vec![]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("call").unwrap(),
+                    "foo-bar",
+                    &symbols_from_values(vec![]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(99)).unwrap()
         );
     }
@@ -880,43 +988,54 @@ fn test_good_call_with_trait(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("defun").unwrap(),
-            contract_defining_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatch").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("implem").unwrap(),
-            impl_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("call").unwrap(),
-            caller_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("defun").unwrap(),
+                contract_defining_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatch").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("implem").unwrap(),
+                impl_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("call").unwrap(),
+                caller_contract,
+            )
+            .unwrap();
     }
 
     {
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("call").unwrap(),
-                "foo-bar",
-                &symbols_from_values(vec![]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("call").unwrap(),
+                    "foo-bar",
+                    &symbols_from_values(vec![]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(99)).unwrap()
         );
     }
@@ -945,47 +1064,58 @@ fn test_good_call_2_with_trait(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("defun").unwrap(),
-            contract_defining_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatch").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("implem").unwrap(),
-            impl_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("call").unwrap(),
-            caller_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("defun").unwrap(),
+                contract_defining_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatch").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("implem").unwrap(),
+                impl_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("call").unwrap(),
+                caller_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("implem").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
 
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("call").unwrap(),
-                "foo-bar",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("call").unwrap(),
+                    "foo-bar",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(99)).unwrap()
         );
     }
@@ -1012,41 +1142,50 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
-            contract_defining_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
+                contract_defining_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -1072,22 +1211,29 @@ fn test_contract_of_value(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("defun").unwrap(),
-            contract_defining_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatch").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("implem").unwrap(),
-            impl_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("defun").unwrap(),
+                contract_defining_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatch").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("implem").unwrap(),
+                impl_contract,
+            )
+            .unwrap();
     }
 
     {
@@ -1095,20 +1241,22 @@ fn test_contract_of_value(
             QualifiedContractIdentifier::local("implem").unwrap(),
         ));
         let result_contract = target_contract.clone();
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
 
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatch").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatch").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(result_contract).unwrap()
         );
     }
@@ -1136,22 +1284,29 @@ fn test_contract_of_no_impl(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("defun").unwrap(),
-            contract_defining_trait,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatch").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("implem").unwrap(),
-            impl_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("defun").unwrap(),
+                contract_defining_trait,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatch").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("implem").unwrap(),
+                impl_contract,
+            )
+            .unwrap();
     }
 
     {
@@ -1159,20 +1314,22 @@ fn test_contract_of_no_impl(
             QualifiedContractIdentifier::local("implem").unwrap(),
         ));
         let result_contract = target_contract.clone();
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
 
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatch").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatch").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(result_contract).unwrap()
         );
     }
@@ -1198,36 +1355,43 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract.clone()]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract.clone()]),
+                    false
+                )
+                .unwrap(),
             Value::okay(target_contract).unwrap()
         );
     }
@@ -1253,36 +1417,43 @@ fn test_return_trait_with_contract_of_wrapped_in_let(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract.clone()]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract.clone()]),
+                    false
+                )
+                .unwrap(),
             Value::okay(target_contract).unwrap()
         );
     }
@@ -1306,36 +1477,43 @@ fn test_return_trait_with_contract_of(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract.clone()]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract.clone()]),
+                    false
+                )
+                .unwrap(),
             Value::okay(target_contract).unwrap()
         );
     }
@@ -1368,37 +1546,44 @@ fn test_pass_trait_to_subtrait(epoch: StacksEpochId, mut env_factory: MemoryEnvi
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
 
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -1428,18 +1613,23 @@ fn test_embedded_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentG
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
 
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
@@ -1447,19 +1637,21 @@ fn test_embedded_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentG
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
         let opt_target = Value::some(target_contract).unwrap();
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "may-echo",
-                &symbols_from_values(vec![opt_target]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "may-echo",
+                    &symbols_from_values(vec![opt_target]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(42)).unwrap()
         );
     }
@@ -1499,37 +1691,44 @@ fn test_pass_embedded_trait_to_subtrait_optional(
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
 
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-opt-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-opt-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -1569,37 +1768,44 @@ fn test_pass_embedded_trait_to_subtrait_ok(
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
 
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-ok-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-ok-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -1639,37 +1845,44 @@ fn test_pass_embedded_trait_to_subtrait_err(
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
 
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-err-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-err-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -1709,37 +1922,44 @@ fn test_pass_embedded_trait_to_subtrait_list(
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
 
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-list-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-list-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -1782,37 +2002,44 @@ fn test_pass_embedded_trait_to_subtrait_list_option(
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
 
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-list-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-list-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -1855,37 +2082,44 @@ fn test_pass_embedded_trait_to_subtrait_option_list(
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
 
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-list-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-list-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }
@@ -1914,37 +2148,44 @@ fn test_let_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenera
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
 
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "let-echo",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "let-echo",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(42)).unwrap()
         );
     }
@@ -1977,37 +2218,44 @@ fn test_let3_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGener
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
 
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "let-echo",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "let-echo",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(42)).unwrap()
         );
     }
@@ -2036,37 +2284,44 @@ fn test_pass_principal_literal_to_trait(
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
+        let (mut exec_state, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                dispatching_contract,
+            )
+            .unwrap();
 
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
+        exec_state
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("target-contract").unwrap(),
+                target_contract,
+            )
+            .unwrap();
     }
 
     {
         let target_contract = Value::from(PrincipalData::Contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
         ));
-        let mut env = owned_env.get_exec_environment(
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
         );
         assert_eq!(
-            env.execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false
-            )
-            .unwrap(),
+            exec_state
+                .execute_contract(
+                    &invoke_ctx,
+                    &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                    "wrapped-get-1",
+                    &symbols_from_values(vec![target_contract]),
+                    false
+                )
+                .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
     }

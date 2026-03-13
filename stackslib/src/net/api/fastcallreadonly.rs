@@ -228,11 +228,12 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                             sender,
                             sponsor,
                             LimitedCostTracker::new_free(),
-                            |env| {
+                            |exec_state, invoke_ctx| {
                                 // cost tracking in read only calls is meamingful mainly from a security point of view
                                 // for this reason we enforce max_execution_time when cost tracking is disabled/free
 
-                                env.global_context
+                                exec_state
+                                    .global_context
                                     .set_max_execution_time(self.read_only_max_execution_time);
 
                                 // we want to execute any function as long as no actual writes are made as
@@ -241,13 +242,15 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                                 // can be called, and also circumvents limitations on `define-read-only`
                                 // functions that can not use `contrac-call?`, even when calling other
                                 // read-only functions
-                                env.execute_contract(
-                                    &contract_identifier,
-                                    function.as_str(),
-                                    &args,
-                                    false,
-                                )
-                                .map_err(ClarityEvalError::from)
+                                exec_state
+                                    .execute_contract(
+                                        invoke_ctx,
+                                        &contract_identifier,
+                                        function.as_str(),
+                                        &args,
+                                        false,
+                                    )
+                                    .map_err(ClarityEvalError::from)
                             },
                         )
                     },
