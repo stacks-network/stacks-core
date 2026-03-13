@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -47,6 +47,7 @@ use stacks::net::p2p::NetworkHandle;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::net::{NakamotoBlocksData, StacksMessageType};
 use stacks::types::chainstate::BlockHeaderHash;
+use stacks::types::MinerDiagnosticData;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::MessageSignature;
 #[cfg(test)]
@@ -958,6 +959,12 @@ impl BlockMinerThread {
                     "Failed to open chainstate DB. Cannot mine! {e:?}"
                 ))
             })?;
+
+        let diagnostics = MinerDiagnosticData {
+            burnchain_tip_height: SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?
+                .block_height,
+        };
+
         coordinator.propose_block(
             new_block,
             &self.burnchain,
@@ -967,6 +974,7 @@ impl BlockMinerThread {
             &self.globals.counters,
             &self.burn_election_block,
             &self.miner_db,
+            diagnostics,
         )
     }
 

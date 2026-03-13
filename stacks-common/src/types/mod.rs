@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,6 +16,7 @@
 
 use std::cmp::Ordering;
 use std::fmt;
+use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -29,6 +30,7 @@ use crate::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use crate::consts::{
     MICROSTACKS_PER_STACKS, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
@@ -1285,5 +1287,35 @@ impl<L: Clone> Deref for EpochList<L> {
 impl<L: Clone> DerefMut for EpochList<L> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MinerDiagnosticData {
+    pub burnchain_tip_height: u64,
+}
+
+impl StacksMessageCodec for MinerDiagnosticData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.burnchain_tip_height)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let burnchain_tip_height = read_next(fd)?;
+
+        Ok(MinerDiagnosticData {
+            burnchain_tip_height,
+        })
+    }
+}
+
+impl MinerDiagnosticData {
+    //FIXME
+    //#[cfg(test)]
+    pub fn dummy() -> MinerDiagnosticData {
+        MinerDiagnosticData {
+            burnchain_tip_height: 42,
+        }
     }
 }
