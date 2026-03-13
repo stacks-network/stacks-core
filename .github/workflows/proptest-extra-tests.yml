@@ -1,21 +1,27 @@
 ## GitHub workflow to run newly introduced proptests with higher case counts.
 ##
 ## This works for tests tagged with `prop` tag like this:
-##  
+## 
+## ```rust 
 ## [tag(prop)]
 ## fn my_prop_test() { ... }
+##  ```
 ##
 ## Triggered by PR review events (submitted/dismissed) and manual dispatch.
 ## Manual dispatch always runs; PR-review runs proceed only for approved
-## reviews targeting the develop base branch.
+## reviews targeting the `develop` base branch.
 ##
 ## It uses two gates: approval threshold first, then quick diff detection of
 ## new proptest tests (tag based), to avoid expensive runs when not needed.
 ##
-## Discovery strategy:
+## Once the gates are passed, the test discovery strategy is:
 ##   - HEAD: list tests from nextest archive (cache restore when available)
 ##   - BASE: compile/list tests in a temporary git worktree
 ##   - New tests: tagged tests present in HEAD but not in BASE
+##
+## On tests execution failure, a comment is added to the PR listing the failed
+## tests, with a link to the workflow run and the proptest-regression files
+## downloadable as a workflow artifact.
 
 name: Tests::Proptest Extra
 
@@ -38,7 +44,7 @@ defaults:
   run:
     shell: bash
 
-## Allow the job to be canceled when in progress due to new approval
+## Cancel any in-progress run for the same PR when a new trigger arrives
 concurrency:
   group: proptest-extra-${{ github.event.pull_request.number || inputs.pr_number }}
   cancel-in-progress: true
