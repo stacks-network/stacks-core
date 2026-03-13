@@ -48,6 +48,10 @@ harness = false
 name = "value_size"
 harness = false
 
+[[bench]]
+name = "value_ref"
+harness = false
+
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 serde_stacker = "0.1"
 
