@@ -273,7 +273,12 @@ impl StacksBlockHeader {
         };
 
         if !valid {
-            let msg = format!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}", self.block_hash(), leader_key.public_key.to_hex(), burn_chain_tip.sortition_hash);
+            let msg = format!(
+                "Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof over {}",
+                self.block_hash(),
+                leader_key.public_key.to_hex(),
+                burn_chain_tip.sortition_hash
+            );
             warn!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
         }
@@ -568,6 +573,24 @@ impl StacksBlock {
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
     ) -> bool {
+        if tx.post_condition_mode == TransactionPostConditionMode::Originator
+            && !epoch_id.supports_sip040_post_conditions()
+        {
+            error!("Originator post-condition mode is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
+            return false;
+        }
+        if !epoch_id.supports_sip040_post_conditions() {
+            for post_condition in tx.post_conditions.iter() {
+                if let TransactionPostCondition::Nonfungible(_, _, _, condition_code) =
+                    post_condition
+                {
+                    if *condition_code == NonfungibleConditionCode::MaybeSent {
+                        error!("NFT MaybeSent post-condition is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
+                        return false;
+                    }
+                }
+            }
+        }
         if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
             if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
                 // not supported
@@ -936,6 +959,7 @@ impl StacksMicroblock {
 #[cfg(test)]
 mod test {
     use clarity::types::PublicKey;
+    use rstest::rstest;
     use stacks_common::address::*;
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::*;
@@ -2116,6 +2140,87 @@ mod test {
             &tx_future_clarity,
             StacksEpochId::Epoch35
         ));
+    }
+
+    #[rstest]
+    #[case(StacksEpochId::Epoch30, false)]
+    #[case(StacksEpochId::Epoch31, false)]
+    #[case(StacksEpochId::Epoch32, false)]
+    #[case(StacksEpochId::Epoch33, false)]
+    #[case(StacksEpochId::Epoch34, true)]
+    fn test_validate_transaction_static_epoch_originator_mode_gated_to_epoch34(
+        #[case] epoch_id: StacksEpochId,
+        #[case] expected: bool,
+    ) {
+        let privk = StacksPrivateKey::random();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth,
+            TransactionPayload::TokenTransfer(
+                PrincipalData::from(StacksAddress::new(1, Hash160([0x11; 20])).unwrap()),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        tx.post_condition_mode = TransactionPostConditionMode::Originator;
+
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id),
+            expected
+        );
+    }
+
+    #[rstest]
+    #[case(StacksEpochId::Epoch30, false)]
+    #[case(StacksEpochId::Epoch31, false)]
+    #[case(StacksEpochId::Epoch32, false)]
+    #[case(StacksEpochId::Epoch33, false)]
+    #[case(StacksEpochId::Epoch34, true)]
+    fn test_validate_transaction_static_epoch_nft_maybesent_gated_to_epoch34(
+        #[case] epoch_id: StacksEpochId,
+        #[case] expected: bool,
+    ) {
+        let privk = StacksPrivateKey::random();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth,
+            TransactionPayload::TokenTransfer(
+                PrincipalData::from(StacksAddress::new(1, Hash160([0x11; 20])).unwrap()),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+
+        tx.post_conditions
+            .push(TransactionPostCondition::Nonfungible(
+                PostConditionPrincipal::Origin,
+                AssetInfo {
+                    contract_address: StacksAddress::new(1, Hash160([0x22; 20])).unwrap(),
+                    contract_name: ContractName::try_from("hello-world").unwrap(),
+                    asset_name: ClarityName::try_from("asset").unwrap(),
+                },
+                Value::Int(1),
+                NonfungibleConditionCode::MaybeSent,
+            ));
+
+        assert_eq!(
+            StacksBlock::validate_transaction_static_epoch(&tx, epoch_id),
+            expected
+        );
     }
 
     // TODO:

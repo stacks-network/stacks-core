@@ -47,7 +47,8 @@ use super::{SignerTest, *};
 use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
-    TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_SKIP, TEST_P2P_BROADCAST_STALL,
+    TEST_BROADCAST_PROPOSAL_STALL, TEST_MINER_BROADCASTING_BLOCK, TEST_MINE_SKIP,
+    TEST_P2P_BROADCAST_STALL,
 };
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
@@ -4970,16 +4971,40 @@ fn btc_fork_on_midtenure_accept() {
     //  by the stacks node _before_ the block is accepted by the chainstate
     TEST_P2P_BROADCAST_STALL.set(true);
     info!("Stalling miner block broadcast and submitting a transfer tx");
+
+    let (stalled_ch, stalled_stacks_tip_hash, stalled_stacks_tip_height) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn()).unwrap();
+
     let (_, sender_nonce) = signer_test
         .submit_transfer_tx(&sender_sk, send_fee, send_amt)
         .unwrap();
 
-    let (_, stalled_stacks_tip_hash, stalled_stacks_tip_height) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn()).unwrap();
+    // store the intermediate stacks block so we can check it shows up as the future
+    //  chain tip after the fork
+    let mut intermediate_tip = None;
 
+    // make sure the stacks miner stalls while producing an intermediate stacks block
+    // *before* we produce the intermediate bitcoin block
+    wait_for(60, || {
+        let Some(broadcasting_block) = TEST_MINER_BROADCASTING_BLOCK.get_opt() else {
+            info!("Waiting for miner to try to broadcast a block");
+            return Ok(false);
+        };
+        intermediate_tip = Some(broadcasting_block.clone());
+        Ok(broadcasting_block.header.chain_length == stalled_stacks_tip_height + 1)
+    })
+    .unwrap();
+
+    let intermediate_tip = intermediate_tip.unwrap();
+
+    info!(
+        "Stalled stacks tip height and hash: ({}, {}, {})",
+        &stalled_ch, &stalled_stacks_tip_hash, stalled_stacks_tip_height
+    );
     info!("Mining an intermediate bitcoin block");
     signer_test.mine_bitcoin_block();
     wait_for(60, || {
+        // wait for the sortitiondb to have caught up with the burnchaindb
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
             .block_height;
@@ -4987,6 +5012,7 @@ fn btc_fork_on_midtenure_accept() {
         Ok(sort_tip == info_tip)
     })
     .unwrap();
+
     TEST_P2P_BROADCAST_STALL.set(false);
 
     info!("Unstalling block broadcast and waiting for block to process");
@@ -4997,7 +5023,7 @@ fn btc_fork_on_midtenure_accept() {
     })
     .unwrap();
 
-    info!("Wait for next block to be mined by stacks miner");
+    info!("Wait for next block (tenure-extend to the intermediate bitcoin block) to be mined by stacks miner");
     wait_for(60, || {
         Ok(get_account(&http_origin, &miner_address).nonce > pre_fork_0_nonce)
     })
@@ -5010,7 +5036,7 @@ fn btc_fork_on_midtenure_accept() {
         pre_epoch_3_nonce + 2 * (pre_fork_tenures + 1)
     );
 
-    let (_, _, pre_fork_stacks_tip_height) =
+    let (_pre_fork_ch, _pre_fork_stacks_bhh, pre_fork_stacks_tip_height) =
         SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn()).unwrap();
 
     assert_eq!(pre_fork_stacks_tip_height - 2, stalled_stacks_tip_height);
@@ -5086,14 +5112,24 @@ fn btc_fork_on_midtenure_accept() {
     // We should have forked 1 block (-2 nonces)
     assert_eq!(post_fork_1_nonce, pre_fork_1_nonce - 2);
 
-    // we should have borked the SortitionDB's memoized stacks tip
-    //  it now reverts to the first block mined in the last
-    //  common ancestor's tenure (which wasn't the last block of that tenure)
-    let (_, post_fork_stacks_tip_hash, post_fork_stacks_tip_height) =
+    // Prior to fixing the SortitionDB's memoized stacks tip look ups, this test
+    //  would break the canonical stacks tip lookup.
+    // With PR #6881, this was fixed, and now this will correctly point at the intermediate tip.
+    let (post_fork_ch, post_fork_stacks_tip_hash, post_fork_stacks_tip_height) =
         SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn()).unwrap();
 
-    assert_eq!(post_fork_stacks_tip_height, stalled_stacks_tip_height);
-    assert_eq!(post_fork_stacks_tip_hash, stalled_stacks_tip_hash);
+    info!(
+        "Post-fork tip: ({} {} {})",
+        &post_fork_ch, &post_fork_stacks_tip_hash, &post_fork_stacks_tip_height
+    );
+    assert_eq!(
+        post_fork_stacks_tip_height,
+        intermediate_tip.header.chain_length
+    );
+    assert_eq!(
+        post_fork_stacks_tip_hash,
+        intermediate_tip.header.block_hash()
+    );
 
     fault_injection_unstall_miner();
     for i in 0..5 {

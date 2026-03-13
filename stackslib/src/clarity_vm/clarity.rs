@@ -1943,7 +1943,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch34;
             });
 
-            debug!("Epoch 3.4 initialized");
+            info!("Epoch 3.4 initialized");
             (old_cost_tracker, Ok(vec![]))
         })
     }
