@@ -274,7 +274,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             .map_err(db_error::SerializationError)?
             .unwrap_or_default();
 
-        let descends_from_anchor_block: bool = row.get("descends_from_anchor_block")?;
+        let descends_from_anchor_block_opt: Option<bool> = row.get("descends_from_anchor_block")?;
         let block_commit = LeaderBlockCommitOp {
             block_header_hash,
             new_seed,
@@ -295,7 +295,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             block_height,
             burn_header_hash,
             treatment: punished,
-            descends_from_anchor_block,
+            descends_from_anchor_block: descends_from_anchor_block_opt.unwrap_or(false),
         };
         Ok(block_commit)
     }
