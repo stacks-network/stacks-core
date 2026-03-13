@@ -520,6 +520,7 @@ mod tests {
 
 #[cfg(test)]
 mod property_tests {
+    use pinny::tag;
     use proptest::prelude::*;
 
     use super::tests::SimpleLRU;
@@ -545,6 +546,7 @@ mod property_tests {
     }
 
     proptest! {
+        #[tag(t_prop)]
         #[test]
         fn doesnt_crash_with_random_operations(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
             let mut cache = LruCache::new(10);
@@ -558,6 +560,7 @@ mod property_tests {
             }
         }
 
+        #[tag(t_prop)]
         #[test]
         fn maintains_size_invariant(ops in prop::collection::vec(0..100u32, 1..1000)) {
             let capacity = 10;
@@ -569,6 +572,7 @@ mod property_tests {
             }
         }
 
+        #[tag(t_prop)]
         #[test]
         fn maintains_linked_list_integrity(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
             let mut cache = LruCache::new(10);
@@ -597,6 +601,7 @@ mod property_tests {
             }
         }
 
+        #[tag(t_prop)]
         #[test]
         fn maintains_lru_correctness(ops in prop::collection::vec(arbitrary_op(), 1..1000)) {
             let mut cache = LruCache::new(5);

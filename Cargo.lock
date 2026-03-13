@@ -3555,6 +3555,7 @@ dependencies = [
  "libsecp256k1",
  "nix",
  "p256",
+ "pinny",
  "proptest",
  "rand 0.8.5",
  "ripemd",
