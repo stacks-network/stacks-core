@@ -1333,6 +1333,7 @@ mod test {
             burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
 
             burn_header_hash: BurnchainHeaderHash([0xff; 32]),
+            descends_from_anchor_block: false,
         };
 
         burn_chain_tip.winning_stacks_block_hash = header.block_hash();

@@ -117,6 +117,7 @@ impl LeaderBlockCommitOp {
             vtxindex: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
             treatment: vec![],
+            descends_from_anchor_block: false,
         }
     }
 
@@ -157,6 +158,7 @@ impl LeaderBlockCommitOp {
 
             burn_header_hash: BurnchainHeaderHash::zero(),
             treatment: vec![],
+            descends_from_anchor_block: false,
         }
     }
 
@@ -447,6 +449,7 @@ impl LeaderBlockCommitOp {
             vtxindex: tx.vtxindex(),
             block_height,
             burn_header_hash: block_hash.clone(),
+            descends_from_anchor_block: false,
         })
     }
 
@@ -590,7 +593,7 @@ impl LeaderBlockCommitOp {
     /// indexes are *ignored* (and *must be* ignored, since this method gets called by
     /// `check_intneded_sortition()`, which does not have this information).
     fn check_pox<SH: SortitionHandle>(
-        &self,
+        &mut self,
         epoch_id: StacksEpochId,
         burnchain: &Burnchain,
         tx: &mut SH,
@@ -692,15 +695,80 @@ impl LeaderBlockCommitOp {
             && self.parent_block_ptr != 0
             && self.parent_vtxindex == 0;
 
-        let descended_from_anchor = directly_descended_from_anchor
-            || maybe_shadow_parent
-            || tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
+        // third, if we have had a shadow block, it's possible that the shadow block was the PoX
+        // anchor block.  If so, then it won't have a sortition, and thus we can't use the usual
+        // SortitionHandle::descended_from() function.  Instead, we'll need to look at the parent
+        // block commit to see if it was descended from this block commit's reward cycle's anchor block.
+        // This only applies if the parent block commit is in the same reward cycle as this block-commit.
+        let tx_tip = tx.tip();
+        let parent_descended_from_same_anchor = if let Some(parent_reward_cycle) =
+            burnchain.block_height_to_reward_cycle(self.parent_block_ptr.into())
+        {
+            let my_reward_cycle = burnchain
+                .block_height_to_reward_cycle(self.block_height)
+                .ok_or_else(|| {
+                    error!("This block-commit {} has no reward cycle", &self.txid);
+                    op_error::BlockCommitAnchorCheck
+                })?;
+
+            if my_reward_cycle == parent_reward_cycle {
+                // can inherit the parent's anchor-block descendancy
+                tx.get_block_commit_parent(
+                    self.parent_block_ptr.into(),
+                    self.parent_vtxindex.into(),
+                    &tx_tip,
+                )
+                .map_err(|e| {
+                    error!("Failed to look up parent block commit: {e:?}";
+                           "parent_block_height" => self.parent_block_ptr,
+                           "parent_vtxindex" => self.parent_vtxindex,
+                           "tx_tip" => %tx_tip);
+                    op_error::BlockCommitAnchorCheck
+                })?
+                .map(|parent_commit| parent_commit.descends_from_anchor_block)
+                .unwrap_or(false)
+            } else {
+                // crosses a reward cycle boundary, so the parent does not descend from the same
+                // anchor block we must descend from
+                debug!(
+                    "Parent block-commit at {},{} is not in the same reward cycle as us ({},{})",
+                    self.parent_block_ptr, self.parent_vtxindex, self.block_height, self.vtxindex
+                );
+
+                false
+            }
+        } else {
+            error!(
+                "Parent block-commit of {} does not have a reward cycle",
+                &self.txid
+            );
+            return Err(op_error::BlockCommitAnchorCheck);
+        };
+
+        // NOTE: we check tx.descended_from() first, even though it's more expensive, since that's
+        // what the code used to do before the `parent_descended_from_anchor` check was added.  We
+        // keep it this way out of an abundance of caution.  Future hard forks may reverse the
+        // check order.
+        let commit_descended_from_anchor = tx.descended_from(parent_block_height, &reward_set_info.anchor_block)
             .map_err(|e| {
                 error!("Failed to check whether parent (height={}) is descendent of anchor block={}: {}",
                        parent_block_height, &reward_set_info.anchor_block, e);
                 op_error::BlockCommitAnchorCheck
             })?;
 
+        let descended_from_anchor = directly_descended_from_anchor
+            || maybe_shadow_parent
+            || commit_descended_from_anchor
+            || parent_descended_from_same_anchor;
+
+        test_debug!("Commit {} anchor status", &self.txid;
+            "descended_from_anchor" => descended_from_anchor,
+            "directly_descended_from_anchor" => directly_descended_from_anchor,
+            "commit_descended_from_anchor" => commit_descended_from_anchor,
+            "parent_descended_from_same_anchor" => parent_descended_from_same_anchor
+        );
+
+        self.descends_from_anchor_block = descended_from_anchor;
         if self.all_outputs_burn() {
             // If we're not descended from the anchor, then great, this is just a "normal" non-descendant burn commit
             // But, if we are descended from the anchor and nakamoto pox punishments are allowed, this commit may have
@@ -853,7 +921,7 @@ impl LeaderBlockCommitOp {
     /// Verify that a missed block-commit would have been valid if it was not missed.
     /// This contains epoch-specific checks.
     fn check_intended_sortition(
-        &self,
+        &mut self,
         epoch_id: StacksEpochId,
         burnchain: &Burnchain,
         tx: &mut SortitionHandleTx,
@@ -1739,7 +1807,9 @@ mod tests {
                     block_height,
                     burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash,
-                    treatment: vec![],                })
+                    treatment: vec![],
+                    descends_from_anchor_block: false,
+                })
             },
             OpFixture {
                 // invalid -- wrong opcode
@@ -1991,6 +2061,7 @@ mod tests {
             block_height: 125,
             burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_125_hash.clone(),
+            descends_from_anchor_block: false,
         };
 
         let mut db = SortitionDB::connect_test_with_epochs(
@@ -2148,6 +2219,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Ok(()),
             },
@@ -2199,6 +2271,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Ok(()),
             },
@@ -2250,6 +2323,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Ok(()),
             },
@@ -2301,6 +2375,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Err(op_error::MissedBlockCommit(MissedBlockCommit {
                     input: (Txid([0; 32]), 0),
@@ -2364,6 +2439,7 @@ mod tests {
                     block_height: 124,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 // miss distance from height 124 was 3, which corresponds to the hash at height
                 // 121 (intended modulus = (((125 % 5) + 1) % 5) = 1, actual modulus = 124 % 5 = 4
@@ -2530,6 +2606,7 @@ mod tests {
             block_height: 125,
             burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: block_125_hash.clone(),
+            descends_from_anchor_block: false,
         };
 
         let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
@@ -2684,6 +2761,7 @@ mod tests {
                     block_height: 80,
                     burn_parent_modulus: (79 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Err(op_error::BlockCommitPredatesGenesis),
             },
@@ -2735,6 +2813,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Err(op_error::BlockCommitNoLeaderKey),
             },
@@ -2786,6 +2865,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Err(op_error::BlockCommitNoParent),
             },
@@ -2837,6 +2917,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Err(op_error::BlockCommitNoParent),
             },
@@ -2890,6 +2971,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Ok(()),
             },
@@ -2941,6 +3023,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Err(op_error::BlockCommitBadInput),
             },
@@ -2992,6 +3075,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Ok(()),
             },
@@ -3043,6 +3127,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Ok(()),
             },
@@ -3094,6 +3179,7 @@ mod tests {
                     block_height: 126,
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
+                    descends_from_anchor_block: false,
                 },
                 res: Ok(()),
             },
@@ -3146,13 +3232,21 @@ mod tests {
         }
 
         fn tip(&self) -> SortitionId {
-            panic!("Cannot evaluate");
+            SortitionId([0x00; 32])
         }
 
         fn get_nakamoto_tip(
             &self,
         ) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
             panic!("Cannot evaluate");
+        }
+
+        fn get_ancestor_sort_id(
+            &mut self,
+            block_height: u64,
+            tip: &SortitionId,
+        ) -> Result<Option<SortitionId>, db_error> {
+            Ok(None)
         }
 
         fn descended_from(
@@ -3213,6 +3307,7 @@ mod tests {
             block_height: 128,
             burn_parent_modulus: (128 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x11; 32]),
+            descends_from_anchor_block: true,
         };
 
         let anchor_block_hash = BlockHeaderHash([0xaa; 32]);
@@ -3549,6 +3644,7 @@ mod tests {
             block_height: first_block_height + 2,
             burn_parent_modulus: ((first_block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            descends_from_anchor_block: false,
         };
 
         let block_commit_post_2_05_valid = LeaderBlockCommitOp {
@@ -3579,6 +3675,7 @@ mod tests {
             block_height: epoch_2_05_start,
             burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            descends_from_anchor_block: false,
         };
 
         let block_commit_post_2_05_valid_bigger_epoch = LeaderBlockCommitOp {
@@ -3609,6 +3706,7 @@ mod tests {
             block_height: epoch_2_05_start,
             burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            descends_from_anchor_block: false,
         };
 
         let block_commit_post_2_05_invalid_bad_memo = LeaderBlockCommitOp {
@@ -3639,6 +3737,7 @@ mod tests {
             block_height: epoch_2_05_start,
             burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            descends_from_anchor_block: false,
         };
 
         let block_commit_post_2_05_invalid_no_memo = LeaderBlockCommitOp {
@@ -3669,6 +3768,7 @@ mod tests {
             block_height: epoch_2_05_start,
             burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            descends_from_anchor_block: false,
         };
 
         let block_commit_post_2_1_valid = LeaderBlockCommitOp {
@@ -3699,6 +3799,7 @@ mod tests {
             block_height: epoch_2_1_start,
             burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            descends_from_anchor_block: false,
         };
 
         let block_commit_post_2_1_valid_bigger_epoch = LeaderBlockCommitOp {
@@ -3729,6 +3830,7 @@ mod tests {
             block_height: epoch_2_1_start,
             burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            descends_from_anchor_block: false,
         };
 
         let block_commit_post_2_1_invalid_bad_memo = LeaderBlockCommitOp {
@@ -3759,6 +3861,7 @@ mod tests {
             block_height: epoch_2_1_start,
             burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            descends_from_anchor_block: false,
         };
 
         let block_commit_post_2_1_invalid_no_memo = LeaderBlockCommitOp {
@@ -3789,6 +3892,7 @@ mod tests {
             block_height: epoch_2_1_start,
             burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+            descends_from_anchor_block: false,
         };
 
         let all_leader_key_ops = vec![leader_key];

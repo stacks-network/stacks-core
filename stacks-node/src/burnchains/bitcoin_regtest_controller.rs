@@ -2578,6 +2578,7 @@ mod tests {
                 vtxindex: 0,
                 block_height: 2212,
                 burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+                descends_from_anchor_block: true,
             }
         }
 
@@ -2864,6 +2865,7 @@ mod tests {
             vtxindex: 0,
             block_height: 2212,
             burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+            descends_from_anchor_block: true,
         };
 
         assert_eq!(to_hex(&commit_op.serialize_to_vec()), "5be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a".to_string());

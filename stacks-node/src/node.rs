@@ -1061,6 +1061,7 @@ impl Node {
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
             burn_parent_modulus,
+            descends_from_anchor_block: true,
         })
     }
 
