@@ -40,6 +40,9 @@ pub struct Epoch33ToEpoch34TestState {
     /// Model: STX balance of the with-stx contract. Updated on deploy (funded)
     /// and on successful as-contract? calls (drained).
     pub contract_stx_balance: u64,
+    /// Model: next NFT ID to mint. Incremented per mint attempt so IDs stay
+    /// unique even when a transaction is aborted by post-conditions.
+    pub nft_next_id: u64,
 }
 
 impl fmt::Debug for Epoch33ToEpoch34TestState {
@@ -50,6 +53,7 @@ impl fmt::Debug for Epoch33ToEpoch34TestState {
             .field("nonce", &self.next_nonce)
             .field("deployed", &self.deployed)
             .field("contract_stx_balance", &self.contract_stx_balance)
+            .field("nft_next_id", &self.nft_next_id)
             .finish()
     }
 }
@@ -84,6 +88,7 @@ impl Default for Epoch33ToEpoch34TestState {
             next_nonce: 0,
             deployed: HashSet::new(),
             contract_stx_balance: 0,
+            nft_next_id: 1,
         }
     }
 }

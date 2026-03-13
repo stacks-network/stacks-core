@@ -18,6 +18,7 @@ pub mod cross_call;
 pub mod depth;
 pub mod postcond;
 pub mod relay;
+pub mod sip040;
 
 pub use advance::AdvanceToEpoch34;
 
@@ -41,6 +42,25 @@ pub fn unwrap_single_tx_success<'a>(
     &output.transactions[0]
 }
 
+/// Unwrap a multi-tx block success. Panics with `label` on failure or
+/// unexpected tx count.
+pub fn unwrap_multi_tx_success<'a>(
+    result: &'a ExpectedResult,
+    label: &str,
+    expected_count: usize,
+) -> &'a [ExpectedTransactionOutput] {
+    let ExpectedResult::Success(output) = result else {
+        panic!("{label}: expected block success, got: {result:?}");
+    };
+    assert_eq!(
+        output.transactions.len(),
+        expected_count,
+        "{label}: expected {expected_count} tx outputs, got {}",
+        output.transactions.len(),
+    );
+    &output.transactions
+}
+
 /// Unwrap a block failure. Panics with `label` if the block succeeded.
 pub fn unwrap_block_failure(result: &ExpectedResult, label: &str) {
     let ExpectedResult::Failure(_) = result else {
@@ -57,3 +77,9 @@ pub use postcond::{
     CallRestrictWithStxCombinedExceeds, CallRestrictWithStxSafe, DeployContractLvlPostCondContract,
 };
 pub use relay::RelayDeepContract;
+pub use sip040::{
+    DeployNftContract, MintNftMaybeSentNotSent, MintSendDenyMode, MintSendOriginatorMode,
+    MultiTxMintThenSend, MultiTxStxPerTxPostConds, OriginatorMultiTxMixed,
+    OriginatorSendsNoPostCond, OriginatorSendsWithPostCond, PreEpoch34SIP040Rejected,
+    SendNftMaybeSentActuallySent,
+};

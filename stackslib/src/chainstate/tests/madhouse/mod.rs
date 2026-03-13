@@ -99,6 +99,35 @@ fn scenario_cross_version_calls() {
     ];
 }
 
+/// SIP-040 post-condition new features: `Originator` mode and `MaybeSent`
+/// condition code. Pre-Epoch34 both features are rejected by static epoch
+/// validation. Epoch34 exercises all happy and failure paths.
+#[test]
+fn scenario_sip040_postconditions() {
+    let ctx = Arc::new(Epoch33ToEpoch34TestContext::default());
+
+    scenario![
+        ctx,
+        // -- Deploy (Epoch33) --
+        DeployNftContract,
+        // -- Epoch33: SIP-040 features rejected --
+        PreEpoch34SIP040Rejected,
+        // -- Transition --
+        AdvanceToEpoch34,
+        // -- Epoch34: Originator + MaybeSent --
+        MintSendOriginatorMode,
+        MintSendDenyMode,
+        OriginatorSendsWithPostCond,
+        SendNftMaybeSentActuallySent,
+        MintNftMaybeSentNotSent,
+        OriginatorSendsNoPostCond,
+        // -- Multi-tx sequences --
+        MultiTxMintThenSend,
+        MultiTxStxPerTxPostConds,
+        OriginatorMultiTxMixed,
+    ];
+}
+
 /// The same command checks the relay filter AND mines the contract. Pre-Epoch34
 /// the relay rejects (no mining). Epoch34 the relay accepts and the contract is
 /// deployed on-chain.
@@ -131,6 +160,7 @@ fn scenario_epoch34_full() {
         // -- Deploy contracts (Epoch33) --
         DeployContractLvlPostCondContract,
         DeployCallChainShort,
+        DeployNftContract,
         // -- Epoch33 behavior --
         RelayDeepContract,
         CallRestrictWithStxSafe,
@@ -138,6 +168,7 @@ fn scenario_epoch34_full() {
         CallAsContractWithStxSafe,
         CallAsContractWithStxCombinedExceeds,
         CallChainShort,
+        PreEpoch34SIP040Rejected,
         // -- Transition --
         AdvanceToEpoch34,
         // -- Epoch34 behavior --
@@ -155,5 +186,15 @@ fn scenario_epoch34_full() {
         CallChainLong,
         DeployCallChainTooLong,
         CallChainTooLong,
+        // -- SIP-040 --
+        MintSendOriginatorMode,
+        MintSendDenyMode,
+        OriginatorSendsWithPostCond,
+        SendNftMaybeSentActuallySent,
+        MintNftMaybeSentNotSent,
+        OriginatorSendsNoPostCond,
+        MultiTxMintThenSend,
+        MultiTxStxPerTxPostConds,
+        OriginatorMultiTxMixed,
     ];
 }

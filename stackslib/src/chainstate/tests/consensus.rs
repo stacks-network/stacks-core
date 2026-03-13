@@ -39,13 +39,14 @@ use crate::chainstate::stacks::miner::BlockBuilder;
 use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksTransaction,
-    TransactionContractCall, TransactionPayload, TransactionSmartContract,
-    MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+    StacksTransactionSigner, TransactionAnchorMode, TransactionContractCall, TransactionPayload,
+    TransactionPostCondition, TransactionPostConditionMode, TransactionSmartContract,
+    TransactionVersion, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::chainstate::tests::TestChainstate;
 use crate::core::test_util::{
     make_contract_call, make_contract_call_tx, make_contract_publish_versioned,
-    make_stacks_transfer_tx, to_addr,
+    make_stacks_transfer_tx, make_unsigned_tx, to_addr,
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::tests::NakamotoBootPlan;
@@ -1820,6 +1821,42 @@ impl ConsensusUtils {
             funct_name,
             args,
         )
+    }
+
+    /// Build a contract-call transaction with custom post-condition mode and
+    /// post-conditions.
+    pub fn new_call_tx_with_postconds(
+        nonce: u64,
+        contract_name: &str,
+        funct_name: &str,
+        args: &[ClarityValue],
+        mode: TransactionPostConditionMode,
+        postconds: Vec<TransactionPostCondition>,
+    ) -> StacksTransaction {
+        let payload = TransactionContractCall {
+            address: FAUCET_ADDRESS.clone(),
+            contract_name: contract_name.into(),
+            function_name: funct_name.into(),
+            function_args: args.to_vec(),
+        };
+
+        let mut unsigned_tx = make_unsigned_tx(
+            payload.into(),
+            &FAUCET_PRIV_KEY,
+            None,
+            nonce,
+            None,
+            200,
+            CHAIN_ID_TESTNET,
+            TransactionAnchorMode::OnChainOnly,
+            TransactionVersion::Testnet,
+        );
+        unsigned_tx.post_condition_mode = mode;
+        unsigned_tx.post_conditions = postconds;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(&FAUCET_PRIV_KEY).unwrap();
+        tx_signer.get_tx().unwrap()
     }
 }
 
