@@ -167,6 +167,16 @@ impl GlobalStateView {
         }
 
         if let Some(tenure_change) = block.get_tenure_change_tx_payload() {
+            if &tenure_change.prev_tenure_consensus_hash != parent_tenure_id {
+                warn!(
+                    "Block commit parent tenure mismatch: the block commit's parent_block_ptr does not correspond to the actual parent tenure";
+                    "committed_parent_tenure" => %parent_tenure_id,
+                    "actual_parent_tenure" => %tenure_change.prev_tenure_consensus_hash,
+                    "consensus_hash" => %block.header.consensus_hash,
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
+                );
+                return Err(RejectReason::InvalidParentBlock);
+            }
             Self::validate_tenure_change_payload(
                 tenure_change,
                 block,
