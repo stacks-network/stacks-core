@@ -622,7 +622,7 @@ impl StacksChainState {
 
             // Add synthetic print event for `handle-unlock`, since it alters stacking state
             let tx_event =
-                ExecutionState::construct_print_transaction_event(&pox_contract, &event_info);
+                ExecutionState::construct_print_transaction_event(pox_contract.clone(), event_info);
             events.push(tx_event);
             total_events.extend(events.into_iter());
         }

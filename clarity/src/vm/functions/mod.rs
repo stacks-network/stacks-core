@@ -152,7 +152,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     AsContract("as-contract", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity3)),
     ContractOf("contract-of", ClarityVersion::Clarity1, None),
     PrincipalOf("principal-of?", ClarityVersion::Clarity1, None),
-    AtBlock("at-block", ClarityVersion::Clarity1, None),
+    AtBlock("at-block", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity4)),
     GetBlockInfo("get-block-info?", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity2)),
     GetBurnBlockInfo("get-burn-block-info?", ClarityVersion::Clarity2, None),
     ConsError("err", ClarityVersion::Clarity1, None),
@@ -663,8 +663,9 @@ fn special_print(
         debug!("{}", input.as_ref());
     }
 
-    exec_state.register_print_event(invoke_ctx, input.as_ref())?;
-    input.clone_with_cost(exec_state)
+    let value = input.clone_with_cost(exec_state)?;
+    exec_state.register_print_event(invoke_ctx, value.clone())?;
+    Ok(value)
 }
 
 fn special_if(

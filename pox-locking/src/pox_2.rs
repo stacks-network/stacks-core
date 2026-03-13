@@ -514,8 +514,10 @@ pub fn handle_contract_call(
             if let Some(event_info) = event_info_opt {
                 let event_response =
                     Value::okay(event_info).expect("FATAL: failed to construct (ok event-info)");
-                let tx_event =
-                    ExecutionState::construct_print_transaction_event(contract_id, &event_response);
+                let tx_event = ExecutionState::construct_print_transaction_event(
+                    contract_id.clone(),
+                    event_response,
+                );
                 Some(tx_event)
             } else {
                 None

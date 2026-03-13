@@ -1514,13 +1514,12 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
     }
 
     pub fn construct_print_transaction_event(
-        contract_id: &QualifiedContractIdentifier,
-        value: &Value,
+        contract_id: QualifiedContractIdentifier,
+        value: Value,
     ) -> StacksTransactionEvent {
         let print_event = SmartContractEventData {
-            key: (contract_id.clone(), "print".to_string()),
-            // TODO: why isn't this charged for?
-            value: value.clone(),
+            key: (contract_id, "print".to_string()),
+            value,
         };
 
         StacksTransactionEvent::SmartContractEvent(print_event)
@@ -1529,10 +1528,10 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
     pub fn register_print_event(
         &mut self,
         invoke_ctx: &InvocationContext,
-        value: &Value,
+        value: Value,
     ) -> Result<(), VmExecutionError> {
         let event = Self::construct_print_transaction_event(
-            &invoke_ctx.contract_context.contract_identifier,
+            invoke_ctx.contract_context.contract_identifier.clone(),
             value,
         );
 
