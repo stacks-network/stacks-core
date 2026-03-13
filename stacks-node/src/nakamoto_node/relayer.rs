@@ -1702,7 +1702,7 @@ impl RelayerThread {
 
     #[cfg(test)]
     fn fault_injection_skip_block_commit(&self) -> bool {
-        self.globals.counters.naka_skip_commit_op.get()
+        self.globals.counters.skip_commit_op.get()
     }
 
     #[cfg(not(test))]
