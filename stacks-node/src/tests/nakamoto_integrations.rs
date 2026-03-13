@@ -19350,6 +19350,7 @@ fn hot_reload_miner_config() {
 
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
 
+    // enable hot-reload
     conf.miner.hot_reload = true;
 
     let password = "12345".to_string();
@@ -19390,10 +19391,13 @@ fn hot_reload_miner_config() {
 
         let new_config = format!(
             r#"
+            [node]
+            seed = {}
             [burnchain]
             burn_fee_cap = {}
             satoshis_per_byte = {}
             "#,
+            conf.miner.mining_key.unwrap().to_hex(),
             burn_fee_cap, sats_vbyte,
         );
         // Write to a file
