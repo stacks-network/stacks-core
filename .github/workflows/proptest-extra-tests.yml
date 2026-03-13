@@ -364,17 +364,18 @@ jobs:
 
       ## On failure, post (or update by delete/create) a PR comment listing the failed tests,
       ## linking to the run and the artifact that holds the regression seeds.
-      ## Skipped on failure due to test execution.
+      ## Skipped if the failure originated from a step other than test execution.
       - name: Report proptest failure on PR
         if: failure() && steps.run_tests.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          MSG_TAG: "<!-- proptest-extra-report -->"
         run: |
           run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           failed_tests=$(cat /tmp/failed-prop-tests.txt 2>/dev/null || echo "(unknown)")
 
-          body="<!-- proptest-regression-report -->
+          body="$MSG_TAG
           **Proptest failures detected**
 
           The following tests failed:
@@ -388,7 +389,7 @@ jobs:
 
           existing=$(gh api \
             "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
-            --jq '[.[] | select(.body | startswith("<!-- proptest-regression-report -->"))][0].id // empty')
+            --jq "[.[] | select(.body | startswith(\"$MSG_TAG\"))][0].id // empty")
 
           if [[ -n "$existing" ]]; then
             gh api "repos/${{ github.repository }}/issues/comments/$existing" -X DELETE
