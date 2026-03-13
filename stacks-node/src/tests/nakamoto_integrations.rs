@@ -19388,7 +19388,7 @@ fn hot_reload_miner_config() {
     conf.config_path = Some(conf_path.clone().to_str().unwrap().to_string());
 
     // update config with a new block_reward_recipient
-    let update_config = |reward_recipient: &PrincipalData| {
+    let update_config = |reward_recipient: &PrincipalData, hot_reload| {
         use std::io::Write;
 
         let new_config = format!(
@@ -19396,10 +19396,11 @@ fn hot_reload_miner_config() {
             [node]
             seed = "{}"
             [miner]
-            hot_reload = true
+            hot_reload = {}
             block_reward_recipient = "{}"
             "#,
             conf.miner.mining_key.clone().unwrap().to_hex(),
+            if hot_reload { "true" } else { "false" },
             reward_recipient.to_string(),
         );
         // Write to a file
@@ -19469,26 +19470,50 @@ fn hot_reload_miner_config() {
 
     info!("---- Updating config ----");
 
-    let reward_recipient = Secp256k1PrivateKey::random();
-    let reward_recipient_principal_data = PrincipalData::from(tests::to_addr(&reward_recipient));
-    update_config(&reward_recipient_principal_data);
+    let reward_recipient1 = Secp256k1PrivateKey::random();
+    let reward_recipient1_principal_data = PrincipalData::from(tests::to_addr(&reward_recipient1));
+    update_config(&reward_recipient1_principal_data, true);
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     assert_eq!(
         get_last_block_coinbase().unwrap(),
-        reward_recipient_principal_data
+        reward_recipient1_principal_data
     );
 
-    let reward_recipient = Secp256k1PrivateKey::random();
-    let reward_recipient_principal_data = PrincipalData::from(tests::to_addr(&reward_recipient));
-    update_config(&reward_recipient_principal_data);
+    let reward_recipient2 = Secp256k1PrivateKey::random();
+    let reward_recipient2_principal_data = PrincipalData::from(tests::to_addr(&reward_recipient2));
+    update_config(&reward_recipient2_principal_data, true);
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     assert_eq!(
         get_last_block_coinbase().unwrap(),
-        reward_recipient_principal_data
+        reward_recipient2_principal_data
+    );
+
+    // turn off hot-reload
+    let reward_recipient3 = Secp256k1PrivateKey::random();
+    let reward_recipient3_principal_data = PrincipalData::from(tests::to_addr(&reward_recipient3));
+    update_config(&reward_recipient3_principal_data, false);
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+
+    assert_eq!(
+        get_last_block_coinbase().unwrap(),
+        reward_recipient3_principal_data
+    );
+
+    // this is going to be ignored as hot-reload is off
+    let reward_recipient4 = Secp256k1PrivateKey::random();
+    let reward_recipient4_principal_data = PrincipalData::from(tests::to_addr(&reward_recipient4));
+    update_config(&reward_recipient4_principal_data, true);
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+
+    assert_eq!(
+        get_last_block_coinbase().unwrap(),
+        reward_recipient3_principal_data
     );
 
     coord_channel
