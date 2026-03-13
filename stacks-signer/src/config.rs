@@ -825,6 +825,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_example_confs() {
+        // Validate that all sample signer config files in sample/conf/signer/ parse as valid TOML.
+        // Uses RawConfigFile (not GlobalConfig) since reference configs have placeholder values.
+        let conf_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../sample/conf/signer");
+        println!("Reading signer config files from: {conf_dir:?}");
+        let conf_files = fs::read_dir(&conf_dir).unwrap();
+
+        for entry in conf_files {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_file() {
+                let file_name = path.file_name().unwrap().to_str().unwrap();
+                if file_name.ends_with(".toml") {
+                    let data = fs::read_to_string(&path).unwrap();
+                    RawConfigFile::load_from_str(&data)
+                        .unwrap_or_else(|e| panic!("Failed to parse {file_name}: {e}"));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn build_signer_config_tomls_should_produce_deserializable_strings() {
         let pk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
