@@ -164,6 +164,13 @@ impl StacksMessageCodec for BitField {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BitField, codec_error> {
         let num_bits: u32 = read_next(fd)?;
         let bits: Vec<u8> = decode_bitfield(fd)?;
+        let expected_length = BITVEC_LEN!(num_bits) as usize;
+        let actual_length = bits.len();
+        if expected_length != actual_length {
+            return Err(codec_error::DeserializeError(format!(
+                "Incorrect data size for bitfield of length {num_bits}, expected {expected_length} but got {actual_length}."
+            )));
+        }
         Ok(BitField(bits, num_bits))
     }
 }
@@ -329,6 +336,11 @@ impl StacksMessageCodec for BloomFilter<BloomNodeHasher> {
                 let seed: [u8; 32] = read_next(fd)?;
                 let num_hashes: u32 = read_next(fd)?;
                 let bits: BitField = read_next(fd)?;
+                if bits.num_bits() == 0 {
+                    return Err(codec_error::DeserializeError(
+                        "Bloom filter must have non-zero bin count".into(),
+                    ));
+                }
                 Ok(BloomFilter {
                     hasher: BloomNodeHasher { seed },
                     bits,

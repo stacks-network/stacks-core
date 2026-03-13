@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -7833,6 +7833,19 @@ fn check_block_times() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
+    // Keep this test in Epoch 3.3 so `at-block` remains available.
+    {
+        let epochs = naka_conf
+            .burnchain
+            .epochs
+            .as_mut()
+            .expect("Missing burnchain epochs in config");
+        epochs.truncate_after(StacksEpochId::Epoch33);
+        epochs
+            .get_mut(StacksEpochId::Epoch33)
+            .expect("Missing epoch 3.3 in config")
+            .end_height = STACKS_EPOCH_MAX;
+    }
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -14185,8 +14198,9 @@ fn test_sip_031_last_phase_out_of_epoch() {
                     PrincipalData::Standard(StandardPrincipalData::transient()),
                     None,
                     LimitedCostTracker::new_free(),
-                    |tx| {
-                        tx.eval_read_only(
+                    |exec_state, invoke_ctx| {
+                        exec_state.eval_read_only(
+                            &invoke_ctx,
                             &boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()),
                             "(get-recipient)",
                         )
@@ -15442,6 +15456,19 @@ fn check_block_time_keyword() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
+    // Keep this test below Epoch 3.4 so `at-block` stays valid.
+    {
+        let epochs = naka_conf
+            .burnchain
+            .epochs
+            .as_mut()
+            .expect("Missing burnchain epochs in config");
+        epochs.truncate_after(StacksEpochId::Epoch33);
+        epochs
+            .get_mut(StacksEpochId::Epoch33)
+            .expect("Missing epoch 3.3 in config")
+            .end_height = STACKS_EPOCH_MAX;
+    }
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -15565,7 +15592,7 @@ fn check_block_time_keyword() {
         naka_conf.burnchain.chain_id,
         contract_name,
         contract,
-        Some(ClarityVersion::latest()),
+        Some(ClarityVersion::Clarity4),
     );
     sender_nonce += 1;
     submit_tx(&http_origin, &contract_tx);
