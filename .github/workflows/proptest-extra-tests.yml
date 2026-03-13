@@ -1,9 +1,8 @@
 ## GitHub workflow to run newly introduced proptests with higher case counts.
 ##
-## This works for tests tagged with `prop` tag like this:
-## 
-## ```rust 
-## [tag(prop)]
+## This works for tests tagged with `t_prop` tag like this:
+##  
+## #[tag(t_prop)]
 ## fn my_prop_test() { ... }
 ##  ```
 ##
@@ -150,11 +149,11 @@ jobs:
           found=false
           ## For each .rs file that was added or modified in the PR...
           while IFS= read -r file; do
-            ## ...check if any added line contains #[tag(..., prop, ...)]
+            ## ...check if any added line contains #[tag(..., t_prop, ...)]
             ## The tag list may have multiple comma-separated keywords with optional spaces.
             if git diff "origin/$BASE_REF" -- "$file" \
                  | grep '^+[^+]' \
-                 | grep -qP '#\[tag\([^)]*\bprop\b[^)]*\)\]'; then
+                 | grep -qP '#\[tag\([^)]*\bt_prop\b[^)]*\)\]'; then
               echo "Found new proptest tag in: $file"
               found=true
               break
@@ -273,14 +272,14 @@ jobs:
           echo "Base tests: $(wc -l < /tmp/base-tests.txt)"
 
       ## Compare the HEAD and base test lists and keep only tests that are new in HEAD.
-      ## Then filter to only those tagged with :t::...:prop:, i.e. test names of the form:
-      ##   mod1::mod2::testname::t::prop::t
-      ##   mod1::mod2::testname::t::other::prop::t
+      ## Then filter to only those tagged with :t::...:t_prop:, i.e. test names of the form:
+      ##   mod1::mod2::testname::t::t_prop::t
+      ##   mod1::mod2::testname::t::other::t_prop::t
       - name: Discover new tests
         id: discover
         run: |
           comm -23 /tmp/head-tests.txt /tmp/base-tests.txt \
-            | grep -P ':t::(?:.*::)?prop::' \
+            | grep -P ':t::(?:.*::)?t_prop::' \
             > /tmp/new-prop-tests.txt || true
           count=$(wc -l < /tmp/new-prop-tests.txt | tr -d ' ')
           echo "count=$count" >> "$GITHUB_OUTPUT"

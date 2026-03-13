@@ -142,7 +142,7 @@ Finally, we can actually write the property test:
 ```rust
 
 proptest! {
-    #[tag(prop)]
+    #[tag(t_prop)]
     #[test]
     fn make_reward_set(
         pox_slots in 1..4_000u32,
@@ -180,7 +180,7 @@ For the above example, one thing we really want to be sure of is that multiple e
 So to deal with this, we can alter our input generation so that we're getting more interesting test cases:
 
 ```rust
-    #[tag(prop)]
+    #[tag(t_prop)]
     #[test]
     fn make_reward_set(
         pox_slots in 1..4_000u32,
@@ -203,7 +203,7 @@ So to deal with this, we can alter our input generation so that we're getting mo
 
 This technique allows to be sure that proptest generates a lot of cases where there are multiple entries for the same reward address. Unfortunately, this kind of thing tends to be more art than science, which means that PR authors and reviewers will need to be careful about the input strategies for property tests (this should also be aided by the CI task for PRs). This is one of the reasons that property tests can't totally supplant unit tests. However, a lot of the work of property tests helps with writing unit tests: many unit tests can be essentially fixed inputs to the property test.
 
-> NOTE: As a requirement for CI automation, prop tests need to be tagged with `#[tag(prop)]`. 
+> NOTE: As a requirement for CI automation, prop tests need to be tagged with `#[tag(t_prop)]`. 
 
 ## Reusing Strategies 
 
@@ -218,5 +218,5 @@ By default, we'll get some CI integration from `proptest` automatically: the new
 The environment variable `PROPTEST_CASES` can be set to a higher number (e.g., `PROPTEST_CASES=2500`) to explore more test cases before declaring success. From the CI, we have then a job which:
 
 1. Executes once a PR has been approved.
-2. Discovers the set of new prop tests introduced (NOTE: is relevant for this stage that prop tests are tagged with `#[tag(prop)]`. See examples above).
+2. Discovers the set of new prop tests introduced (NOTE: is relevant for this stage that prop tests are tagged with `#[tag(t_prop)]`. See examples above).
 3. Executes the new tests with the environment variable `PROPTEST_CASES` set to `2500`.
