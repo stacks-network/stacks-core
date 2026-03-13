@@ -643,6 +643,7 @@ dependencies = [
  "integer-sqrt",
  "lazy_static",
  "mutants",
+ "pinny",
  "proptest",
  "regex",
  "rstest",
