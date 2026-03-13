@@ -19422,7 +19422,11 @@ fn hot_reload_miner_config() {
         let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
         let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
         let (_, recipient, _) = parsed.try_as_coinbase().unwrap();
-        recipient
+        if let Some(recipient) = recipient {
+            Some(*recipient)
+        } else {
+            None
+        }
     };
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
@@ -19472,7 +19476,7 @@ fn hot_reload_miner_config() {
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     assert_eq!(
-        *get_last_block_coinbase().unwrap(),
+        get_last_block_coinbase().unwrap(),
         reward_recipient_principal_data
     );
 
@@ -19483,7 +19487,7 @@ fn hot_reload_miner_config() {
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
     assert_eq!(
-        *get_last_block_coinbase().unwrap(),
+        get_last_block_coinbase().unwrap(),
         reward_recipient_principal_data
     );
 
