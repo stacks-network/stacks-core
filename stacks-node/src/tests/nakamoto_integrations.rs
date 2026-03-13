@@ -19423,7 +19423,7 @@ fn hot_reload_miner_config() {
         let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
         let (_, recipient, _) = parsed.try_as_coinbase().unwrap();
         if let Some(recipient) = recipient {
-            Some(*recipient)
+            Some(recipient.clone())
         } else {
             None
         }
