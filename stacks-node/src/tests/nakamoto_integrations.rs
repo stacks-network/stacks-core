@@ -19387,12 +19387,8 @@ fn hot_reload_miner_config() {
     ));
     conf.config_path = Some(conf_path.clone().to_str().unwrap().to_string());
 
-    let reward_recipient = Secp256k1PrivateKey::random();
-    let reward_recipient_address = tests::to_addr(&reward_recipient);
-    let reward_recipient_principal_data = PrincipalData::from(reward_recipient_address).to_string();
-
     // update config with a new block_reward_recipient
-    let update_config = |burn_fee_cap: u64, sats_vbyte: u64| {
+    let update_config = |reward_recipient: &PrincipalData| {
         use std::io::Write;
 
         let new_config = format!(
@@ -19402,18 +19398,31 @@ fn hot_reload_miner_config() {
             [miner]
             hot_reload = true
             block_reward_recipient = "{}"
-            [burnchain]
-            burn_fee_cap = {}
-            satoshis_per_byte = {}
             "#,
             conf.miner.mining_key.clone().unwrap().to_hex(),
-            reward_recipient_principal_data,
-            burn_fee_cap,
-            sats_vbyte,
+            reward_recipient.to_string(),
         );
         // Write to a file
         let mut file = File::create(&conf_path).unwrap();
         file.write_all(new_config.as_bytes()).unwrap();
+    };
+
+    let get_last_block_coinbase = || {
+        let blocks = test_observer::get_blocks();
+        let transactions = blocks
+            .last()
+            .unwrap()
+            .get("transactions")
+            .unwrap()
+            .as_array()
+            .unwrap();
+
+        let tx = &transactions[1];
+        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+        let (_, recipient, _) = parsed.try_as_coinbase().unwrap();
+        recipient.unwrap().clone()
     };
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
@@ -19448,60 +19457,30 @@ fn hot_reload_miner_config() {
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
-
-    let burn_blocks = test_observer::get_burn_blocks();
-    let burn_block = burn_blocks.last().unwrap();
-    info!("Burn block: {:?}", &burn_block);
-
-    let reward_amount = burn_block
-        .reward_recipients
-        .iter()
-        .map(|r| r.amt)
-        .sum::<u64>();
-
-    let burn_amount = burn_block.burn_amount;
-
-    assert_eq!(reward_amount + burn_amount, old_burn_fee_cap);
-
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+
+    assert_eq!(
+        get_last_block_coinbase(),
+        PrincipalData::from(tests::to_addr(&conf.miner.mining_key.clone().unwrap()))
+    );
 
     info!("---- Updating config ----");
-    let new_amount = 150000;
-    update_config(new_amount, 55);
 
-    // Due to timing of commits, just mine two blocks
-
-    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
-
-    let blocks = test_observer::get_blocks();
-    let transactions = blocks.last().unwrap()
-        .get("transactions")
-        .unwrap()
-        .as_array()
-        .unwrap();
-    assert_eq!(transactions.len(), 2); // Should contain a block found and a coinbase
-    let tx = transactions.first().unwrap();
-    let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-    let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-    let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-    let tenure_change = parsed.try_as_tenure_change().unwrap();
-    assert!(tenure_change.cause.is_eq(&TenureChangeCause::BlockFound));
+    let reward_recipient = Secp256k1PrivateKey::random();
+    let reward_recipient_principal_data = PrincipalData::from(tests::to_addr(&reward_recipient));
+    update_config(&reward_recipient_principal_data);
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
-    let burn_blocks = test_observer::get_burn_blocks();
-    let burn_block = burn_blocks.last().unwrap();
-    info!("Burn block: {:?}", &burn_block);
+    assert_eq!(get_last_block_coinbase(), reward_recipient_principal_data);
 
-    let reward_amount = burn_block
-        .reward_recipients
-        .iter()
-        .map(|r| r.amt)
-        .sum::<u64>();
+    let reward_recipient = Secp256k1PrivateKey::random();
+    let reward_recipient_principal_data = PrincipalData::from(tests::to_addr(&reward_recipient));
+    update_config(&reward_recipient_principal_data);
 
-    let burn_amount = burn_block.burn_amount;
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
-    assert_eq!(reward_amount + burn_amount, new_amount);
+    assert_eq!(get_last_block_coinbase(), reward_recipient_principal_data);
 
     coord_channel
         .lock()
