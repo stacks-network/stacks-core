@@ -3107,6 +3107,10 @@ pub struct MinerConfig {
     /// @notes:
     ///   - Primarily intended for testing purposes.
     pub log_skipped_transactions: bool,
+    /// Force the miner to re-read configuration file at every block production
+    /// ---
+    /// @default: `false`
+    pub hot_reload: bool,
 }
 
 impl Default for MinerConfig {
@@ -3165,6 +3169,7 @@ impl Default for MinerConfig {
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
             max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             log_skipped_transactions: false,
+            hot_reload: false,
         }
     }
 }
@@ -4116,6 +4121,7 @@ pub struct MinerConfigFile {
     pub stackerdb_timeout_secs: Option<u64>,
     pub max_tenure_bytes: Option<u64>,
     pub log_skipped_transactions: Option<bool>,
+    pub hot_reload: Option<bool>,
 }
 
 impl MinerConfigFile {
@@ -4311,6 +4317,7 @@ impl MinerConfigFile {
             max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
             log_skipped_transactions: self.log_skipped_transactions.unwrap_or(miner_default_config.log_skipped_transactions),
             read_count_extend_cost_threshold: miner_default_config.read_count_extend_cost_threshold,
+            hot_reload: self.hot_reload.unwrap_or(miner_default_config.hot_reload)
         })
     }
 }
