@@ -2071,3 +2071,42 @@ fn test_pass_principal_literal_to_trait(
         );
     }
 }
+
+#[apply(test_clarity_versions)]
+fn test_trait_use_at_top_level_same_contract(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    let mut owned_env = env_factory.get_env(epoch);
+
+    let contract_foo = "(define-public (foo) (ok true))";
+
+    let contract_bar = "(define-trait trait-1 (
+            (foo () (response bool uint))))
+        (define-private (bar (F <trait-1>))
+            (unwrap-panic (contract-call? F foo)))
+        (bar .c-foo)";
+
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+
+    env.initialize_contract(
+        QualifiedContractIdentifier::local("c-foo").unwrap(),
+        contract_foo,
+    )
+    .unwrap();
+
+    let contract_init_result = env.initialize_contract(
+        QualifiedContractIdentifier::local("c-bar").unwrap(),
+        contract_bar,
+    );
+
+    if version.allows_local_trait_lookup() {
+        contract_init_result.expect("should initialize successfully");
+    } else {
+        contract_init_result
+            .expect_err("should fail in Clarity versions without local trait lookup");
+    }
+}

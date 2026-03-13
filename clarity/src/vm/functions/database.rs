@@ -146,18 +146,28 @@ pub fn special_contract_call(
                     } else {
                         let trait_name = trait_identifier.name.to_string();
 
-                        // Retrieve, from the trait definition, the expected method signature
-                        let contract_defining_trait = env
-                            .global_context
-                            .database
-                            .get_contract(&trait_identifier.contract_identifier)
-                            .map_err(|_e| {
-                                RuntimeCheckErrorKind::NoSuchContract(
-                                    trait_identifier.contract_identifier.to_string(),
-                                )
-                            })?;
-                        let contract_context_defining_trait =
-                            contract_defining_trait.contract_context;
+                        // Retrieve, from the trait definition, the expected method signature.
+                        // Check if the trait is defined in the contract context (Clarity >= 5).
+                        let contract_context_defining_trait = if env
+                            .contract_context
+                            .get_clarity_version()
+                            .allows_local_trait_lookup()
+                            && trait_identifier.contract_identifier
+                                == env.contract_context.contract_identifier
+                        {
+                            env.contract_context.clone()
+                        } else {
+                            let contract_defining_trait = env
+                                .global_context
+                                .database
+                                .get_contract(&trait_identifier.contract_identifier)
+                                .map_err(|_e| {
+                                    RuntimeCheckErrorKind::NoSuchContract(
+                                        trait_identifier.contract_identifier.to_string(),
+                                    )
+                                })?;
+                            contract_defining_trait.contract_context
+                        };
 
                         // Retrieve the function that will be invoked
                         let function_to_check = contract_context_to_check

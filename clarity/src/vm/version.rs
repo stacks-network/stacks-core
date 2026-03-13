@@ -51,6 +51,16 @@ impl ClarityVersion {
         ClarityVersion::Clarity5,
     ];
 
+    pub fn allows_local_trait_lookup(&self) -> bool {
+        match self {
+            ClarityVersion::Clarity1
+            | ClarityVersion::Clarity2
+            | ClarityVersion::Clarity3
+            | ClarityVersion::Clarity4 => false,
+            ClarityVersion::Clarity5 => true,
+        }
+    }
+
     pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
         match epoch_id {
             StacksEpochId::Epoch10 => {
