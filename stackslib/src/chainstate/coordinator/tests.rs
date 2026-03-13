@@ -1282,7 +1282,7 @@ fn missed_block_commits_2_05() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -1631,7 +1631,7 @@ fn missed_block_commits_2_1() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -1978,7 +1978,7 @@ fn late_block_commits_2_1() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -2152,7 +2152,7 @@ fn test_simple_setup() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -2455,7 +2455,7 @@ fn test_sortition_with_reward_set() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -2697,7 +2697,7 @@ fn test_sortition_with_burner_reward_set() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -2985,7 +2985,7 @@ fn test_pox_btc_ops() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -3328,7 +3328,7 @@ fn test_stx_transfer_btc_ops() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -3365,14 +3365,14 @@ fn get_delegation_info_pox_2(
                 PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                 None,
                 LimitedCostTracker::new_free(),
-                |env| {
+                |exec_state, invoke_ctx| {
                     let eval_str = format!(
                         "(contract-call? '{}.pox-2 get-delegation-info '{})",
                         &boot_code_addr(false),
                         del_addr
                     );
 
-                    let result = env.eval_raw(&eval_str).unwrap();
+                    let result = exec_state.eval_raw(invoke_ctx, &eval_str).unwrap();
                     Ok(result)
                 },
             )
@@ -3724,7 +3724,7 @@ fn test_delegate_stx_btc_ops() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -3967,7 +3967,7 @@ fn test_initial_coinbase_reward_distributions() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -4882,7 +4882,7 @@ fn get_total_stacked_info(
                 PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                 None,
                 LimitedCostTracker::new_free(),
-                |env| {
+                |exec_state, invoke_ctx| {
                     let eval_str = format!(
                         "(contract-call? '{}.{} get-total-ustx-stacked u{})",
                         &boot_code_addr(false),
@@ -4890,7 +4890,9 @@ fn get_total_stacked_info(
                         reward_cycle
                     );
 
-                    let result = env.eval_raw(&eval_str).map(|v| v.expect_u128().unwrap());
+                    let result = exec_state
+                        .eval_raw(invoke_ctx, &eval_str)
+                        .map(|v| v.expect_u128().unwrap());
                     Ok(result)
                 },
             )
@@ -5493,7 +5495,7 @@ fn test_sortition_with_sunset() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -5841,7 +5843,7 @@ fn test_sortition_with_sunset_and_epoch_switch() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw("block-height")
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, "block-height")
                     )
                     .unwrap()
             )
@@ -6399,7 +6401,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                     None,
                     LimitedCostTracker::new_free(),
-                    |env| env.eval_raw(eval),
+                    |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, eval),
                 )
                 .unwrap()
             },

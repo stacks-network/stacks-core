@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14225,8 +14225,9 @@ fn test_sip_031_last_phase_out_of_epoch() {
                     PrincipalData::Standard(StandardPrincipalData::transient()),
                     None,
                     LimitedCostTracker::new_free(),
-                    |tx| {
-                        tx.eval_read_only(
+                    |exec_state, invoke_ctx| {
+                        exec_state.eval_read_only(
+                            &invoke_ctx,
                             &boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()),
                             "(get-recipient)",
                         )

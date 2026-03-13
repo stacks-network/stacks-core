@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -3752,35 +3752,44 @@ fn test_contract_call_across_clarity_versions() {
                         PrincipalData::parse(&format!("{}", &addr_anchored)).unwrap(),
                         Some(PrincipalData::parse(&format!("{}", &addr_anchored)).unwrap()),
                         LimitedCostTracker::new_free(),
-                        |env| {
+                        |exec_state, invoke_ctx| {
                             test_debug!("check tenure {}", tenure_id);
 
                             // .contract-call? worked
-                            let call_count_value = env
-                                .eval_raw(&format!(
-                                    "(contract-call? '{}.test-{} get-call-count)",
-                                    &addr_anchored, tenure_id
-                                ))
+                            let call_count_value = exec_state
+                                .eval_raw(
+                                    invoke_ctx,
+                                    &format!(
+                                        "(contract-call? '{}.test-{} get-call-count)",
+                                        &addr_anchored, tenure_id
+                                    ),
+                                )
                                 .unwrap();
                             let call_count = call_count_value.expect_u128().unwrap();
                             assert_eq!(call_count, (num_blocks - tenure_id - 1) as u128);
 
                             // contract-call transaction worked
-                            let call_count_value = env
-                                .eval_raw(&format!(
-                                    "(contract-call? '{}.test-{} get-cc-call-count)",
-                                    &addr_anchored, tenure_id
-                                ))
+                            let call_count_value = exec_state
+                                .eval_raw(
+                                    invoke_ctx,
+                                    &format!(
+                                        "(contract-call? '{}.test-{} get-cc-call-count)",
+                                        &addr_anchored, tenure_id
+                                    ),
+                                )
                                 .unwrap();
                             let call_count = call_count_value.expect_u128().unwrap();
                             assert_eq!(call_count, (num_blocks - tenure_id - 1) as u128);
 
                             // at-block transaction worked
-                            let at_block_count_value = env
-                                .eval_raw(&format!(
-                                    "(contract-call? '{}.test-{} get-at-block-count)",
-                                    &addr_anchored, tenure_id
-                                ))
+                            let at_block_count_value = exec_state
+                                .eval_raw(
+                                    invoke_ctx,
+                                    &format!(
+                                        "(contract-call? '{}.test-{} get-at-block-count)",
+                                        &addr_anchored, tenure_id
+                                    ),
+                                )
                                 .unwrap();
                             let call_count = at_block_count_value.expect_u128().unwrap();
 
