@@ -133,7 +133,7 @@ fn variant_coverage_report(variant: ParseErrorKind) {
 fn test_cost_balance_exceeded() {
     const RUNTIME_LIMIT: u64 = BLOCK_LIMIT_MAINNET_21.runtime;
     // Arbitrary parameters determined through empirical testing
-    const CONTRACT_FUNC_INVOCATIONS: u64 = 29_022;
+    const CONTRACT_FUNC_INVOCATIONS: u64 = 50_022;
     const CALL_RUNTIME_COST: u64 = 249_996_284;
     const CALLS_NEEDED: u64 = RUNTIME_LIMIT / CALL_RUNTIME_COST - 1;
 
