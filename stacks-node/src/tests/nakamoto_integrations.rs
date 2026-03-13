@@ -19422,7 +19422,7 @@ fn hot_reload_miner_config() {
         let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
         let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
         let (_, recipient, _) = parsed.try_as_coinbase().unwrap();
-        recipient.unwrap().clone()
+        recipient
     };
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
@@ -19455,14 +19455,13 @@ fn hot_reload_miner_config() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    assert!(get_last_block_coinbase().is_none());
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    assert!(get_last_block_coinbase().is_none());
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    assert!(get_last_block_coinbase().is_none());
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
-
-    assert_eq!(
-        get_last_block_coinbase(),
-        PrincipalData::from(tests::to_addr(&conf.miner.mining_key.clone().unwrap()))
-    );
+    assert!(get_last_block_coinbase().is_none());
 
     info!("---- Updating config ----");
 
@@ -19472,7 +19471,10 @@ fn hot_reload_miner_config() {
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
-    assert_eq!(get_last_block_coinbase(), reward_recipient_principal_data);
+    assert_eq!(
+        *get_last_block_coinbase().unwrap(),
+        reward_recipient_principal_data
+    );
 
     let reward_recipient = Secp256k1PrivateKey::random();
     let reward_recipient_principal_data = PrincipalData::from(tests::to_addr(&reward_recipient));
@@ -19480,7 +19482,10 @@ fn hot_reload_miner_config() {
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
 
-    assert_eq!(get_last_block_coinbase(), reward_recipient_principal_data);
+    assert_eq!(
+        *get_last_block_coinbase().unwrap(),
+        reward_recipient_principal_data
+    );
 
     coord_channel
         .lock()
