@@ -34,6 +34,7 @@ rusqlite = { version = "0.31.0", features = ["blob", "serde_json", "i128_blob", 
 tikv-jemallocator = "0.5.4"
 thiserror = "1.0.65"
 toml = "0.5.6"
+pinny = { git = "https://github.com/BitcoinL2-Labs/pinny-rs.git", rev = "54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49" } #v0.0.2
 
 # Use a bit more than default optimization for
 # dev builds to speed up test execution
