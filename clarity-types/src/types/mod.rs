@@ -60,7 +60,7 @@ pub const WRAPPER_VALUE_SIZE: u32 = 1;
 /// Maximum byte length for Value string representations in error messages.
 const MAX_ERROR_VALUE_DISPLAY_LEN: usize = 512;
 /// Size of an Int or UInt value (i128 = 16 bytes)
-pub const INT_SIZE: u32 = 16;
+pub const INT_SIZE: u32 = std::mem::size_of::<i128>() as u32;
 /// Size of a Bool value
 pub const BOOL_SIZE: u32 = 1;
 /// Pessimistic upper-bound size of a principal value.
