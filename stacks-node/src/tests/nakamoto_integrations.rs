@@ -19339,3 +19339,145 @@ fn tenure_extend_no_commits() {
 
     run_loop_thread.join().unwrap();
 }
+
+/// Test (true) hot-reloading of miner config
+#[test]
+#[ignore]
+fn hot_reload_miner_config() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+
+    conf.miner.hot_reload = true;
+
+    let password = "12345".to_string();
+    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
+    conf.connection_options.auth_token = Some(password.clone());
+    let stacker_sk = setup_stacker(&mut conf);
+    let signer_sk = Secp256k1PrivateKey::random();
+    let signer_addr = tests::to_addr(&signer_sk);
+    let sender_sk = Secp256k1PrivateKey::random();
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let old_burn_fee_cap: u64 = 100000;
+    conf.burnchain.burn_fee_cap = old_burn_fee_cap;
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        1000000,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
+
+    test_observer::spawn();
+    test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let conf_path =
+        std::env::temp_dir().join(format!("miner-hot-reload-config-test-{}.toml", rand::random::<u64>()));
+    conf.config_path = Some(conf_path.clone().to_str().unwrap().to_string());
+
+    // Make a minimum-viable config file
+    let update_config = |burn_fee_cap: u64, sats_vbyte: u64| {
+        use std::io::Write;
+
+        let new_config = format!(
+            r#"
+            [burnchain]
+            burn_fee_cap = {}
+            satoshis_per_byte = {}
+            "#,
+            burn_fee_cap, sats_vbyte,
+        );
+        // Write to a file
+        let mut file = File::create(&conf_path).unwrap();
+        file.write_all(new_config.as_bytes()).unwrap();
+    };
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let counters = run_loop.counters();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    blind_signer(&conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+
+    let burn_blocks = test_observer::get_burn_blocks();
+    let burn_block = burn_blocks.last().unwrap();
+    info!("Burn block: {:?}", &burn_block);
+
+    let reward_amount = burn_block
+        .reward_recipients
+        .iter()
+        .map(|r| r.amt)
+        .sum::<u64>();
+
+    let burn_amount = burn_block.burn_amount;
+
+    assert_eq!(reward_amount + burn_amount, old_burn_fee_cap);
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+
+    info!("---- Updating config ----");
+    let new_amount = 150000;
+    update_config(new_amount, 55);
+
+    // Due to timing of commits, just mine two blocks
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &conf, &counters).unwrap();
+
+    let burn_blocks = test_observer::get_burn_blocks();
+    let burn_block = burn_blocks.last().unwrap();
+    info!("Burn block: {:?}", &burn_block);
+
+    let reward_amount = burn_block
+        .reward_recipients
+        .iter()
+        .map(|r| r.amt)
+        .sum::<u64>();
+
+    let burn_amount = burn_block.burn_amount;
+
+    assert_eq!(reward_amount + burn_amount, new_amount);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
