@@ -488,7 +488,7 @@ impl BlockMinerThread {
                 if let Ok(config_file) = ConfigFile::from_path(config_file) {
                     if let Ok(config) = Config::from_config_file(config_file, false) {
                         if config.miner != self.config.miner {
-                            info!("Miner configuration detected by hot-reload system");
+                            info!("Miner configuration change detected by hot-reload system");
                             self.config.miner = config.miner;
                         }
                     }
