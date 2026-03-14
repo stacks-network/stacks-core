@@ -8300,3 +8300,59 @@ fn burn_block_payload_includes_pox_transactions() {
 
     assert_eq!(total_per_recipient, total_per_recipient_from_transactions);
 }
+
+#[test]
+fn test_vtxindex_zero_acceptance() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let timeout = Duration::from_secs(200);
+    signer_test.boot_to_epoch_3();
+    let epoch_34_height = signer_test
+        .running_nodes
+        .conf
+        .burnchain
+        .epochs
+        .as_ref()
+        .unwrap()[StacksEpochId::Epoch34]
+        .start_height;
+
+    info!("------------------------- Mine to 3.4 start height -------------------------");
+    signer_test.run_until_burnchain_height_nakamoto(timeout, epoch_34_height, num_signers);
+
+    std::env::set_var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL", "1");
+    std::env::set_var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL", "1");
+
+    // Mine 1 tenure successfully
+    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
+
+    // Now, the block commits will be invalid, so blocks should be rejected by the signers
+    test_observer::clear();
+    signer_test.mine_bitcoin_block();
+
+    // Wait for signers to reject the block with InvalidParentBlock
+    wait_for(30, || {
+        let found = get_stackerdb_signer_messages()
+            .into_iter()
+            .any(|(_chunk, message)| {
+                matches!(
+                    &message,
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection))
+                        if rejection.response_data.reject_reason == RejectReason::InvalidParentBlock
+                )
+            });
+        Ok(found)
+    })
+    .expect("Expected block to be rejected with InvalidParentBlock");
+
+    signer_test.shutdown();
+}
