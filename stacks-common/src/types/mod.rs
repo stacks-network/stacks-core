@@ -658,7 +658,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33 => false,
-            StacksEpochId::Epoch34 => true,
+            StacksEpochId::Epoch34 | StacksEpochId::Epoch35 => true,
         }
     }
 
