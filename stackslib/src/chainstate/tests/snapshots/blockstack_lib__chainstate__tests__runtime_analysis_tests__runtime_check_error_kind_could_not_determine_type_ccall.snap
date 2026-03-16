@@ -229,7 +229,7 @@ expression: result
           write_count: 0,
           read_length: 720,
           read_count: 3,
-          runtime: 1426,
+          runtime: 799,
         ),
       ),
     ],
@@ -238,7 +238,7 @@ expression: result
       write_count: 0,
       read_length: 720,
       read_count: 3,
-      runtime: 1426,
+      runtime: 799,
     ),
   )),
 ]

@@ -709,7 +709,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_0-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -739,7 +739,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_05-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -769,7 +769,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_1-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -799,7 +799,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_1-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -829,7 +829,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_2-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -859,7 +859,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_2-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -889,7 +889,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_3-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -919,7 +919,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_3-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -949,7 +949,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_4-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -979,7 +979,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_4-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1009,7 +1009,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_5-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1039,7 +1039,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_5-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1069,7 +1069,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_0-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1099,7 +1099,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_0-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1129,7 +1129,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_0-Clarity3, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1159,7 +1159,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_1-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1189,7 +1189,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_1-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1219,7 +1219,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_1-Clarity3, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1249,7 +1249,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_2-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1279,7 +1279,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_2-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1309,7 +1309,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_2-Clarity3, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1339,7 +1339,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_3-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1369,7 +1369,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_3-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1399,7 +1399,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_3-Clarity3, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1429,7 +1429,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_3-Clarity4, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1599,7 +1599,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_0-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1629,7 +1629,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_05-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1659,7 +1659,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_1-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1689,7 +1689,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_1-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1719,7 +1719,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_2-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1749,7 +1749,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_2-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1779,7 +1779,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_3-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1809,7 +1809,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_3-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1839,7 +1839,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_4-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1869,7 +1869,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_4-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1899,7 +1899,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_5-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1929,7 +1929,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch2_5-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1959,7 +1959,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_0-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -1989,7 +1989,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_0-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2019,7 +2019,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_0-Clarity3, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2049,7 +2049,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_1-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2079,7 +2079,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_1-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2109,7 +2109,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_1-Clarity3, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2139,7 +2139,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_2-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2169,7 +2169,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_2-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2199,7 +2199,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_2-Clarity3, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2229,7 +2229,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_3-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2259,7 +2259,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_3-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2289,7 +2289,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_3-Clarity3, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2319,7 +2319,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_3-Clarity4, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2349,7 +2349,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_4-Clarity1, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2379,7 +2379,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_4-Clarity2, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2409,7 +2409,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_4-Clarity3, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2439,7 +2439,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_4-Clarity4, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -2469,7 +2469,7 @@ expression: result
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: check-error-kind-Epoch3_4-Clarity5, function_name: trigger-error, function_args: [[Bool(true)]])",
-        vm_error: "Some(TypeValueError(UIntType, Bool(true))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(UIntType, \"Bool(true)\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(

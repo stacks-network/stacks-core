@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -1943,7 +1943,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch34;
             });
 
-            debug!("Epoch 3.4 initialized");
+            info!("Epoch 3.4 initialized");
             (old_cost_tracker, Ok(vec![]))
         })
     }
@@ -2198,10 +2198,11 @@ impl ClarityTransactionConnection<'_, '_> {
         self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .execute_in_env(sender.clone(), None, None, |env| {
-                        env.run_as_transaction(|env| {
+                    .execute_in_env(sender.clone(), None, None, |exec_state, invoke_ctx| {
+                        exec_state.run_as_transaction(invoke_ctx, |exec_state, invoke_ctx| {
                             StacksChainState::handle_poison_microblock(
-                                env,
+                                exec_state,
+                                invoke_ctx,
                                 mblock_header_1,
                                 mblock_header_2,
                             )
