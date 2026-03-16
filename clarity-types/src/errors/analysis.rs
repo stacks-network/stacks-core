@@ -21,7 +21,7 @@ use crate::diagnostic::{DiagnosableError, Diagnostic};
 use crate::errors::{ClarityTypeError, CostErrors};
 use crate::execution_cost::ExecutionCost;
 use crate::representations::SymbolicExpression;
-use crate::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
+use crate::types::{TraitIdentifier, TupleTypeSignature, TypeSignature};
 
 /// What kind of syntax binding was found to be in error?
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -569,17 +569,19 @@ pub enum RuntimeCheckErrorKind {
     /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
     TypeError(Box<TypeSignature>, Box<TypeSignature>),
     /// Value does not match the expected type during type-checking.
-    /// The `Box<TypeSignature>` wraps the expected type, and the `Box<Value>` wraps the invalid value.
-    TypeValueError(Box<TypeSignature>, Box<Value>),
+    /// The `Box<TypeSignature>` wraps the expected type, and the `String` is a
+    /// truncated display representation of the invalid value.
+    TypeValueError(Box<TypeSignature>, String),
 
     // Union type mismatch
     /// Value does not belong to the expected union of types during type-checking.
-    /// The `Vec<TypeSignature>` represents the expected types, and the `Box<Value>` wraps the invalid value.
-    UnionTypeValueError(Vec<TypeSignature>, Box<Value>),
+    /// The `Vec<TypeSignature>` represents the expected types, and the `String` is a
+    /// truncated display representation of the invalid value.
+    UnionTypeValueError(Vec<TypeSignature>, String),
 
     /// Expected a contract principal value but found a different value.
-    /// The `Box<Value>` wraps the actual value provided.
-    ExpectedContractPrincipalValue(Box<Value>),
+    /// The `String` is a truncated display representation of the actual value provided.
+    ExpectedContractPrincipalValue(String),
 
     // Match type errors
     /// Could not determine the type of an expression during analysis.
@@ -789,7 +791,9 @@ impl From<ClarityTypeError> for RuntimeCheckErrorKind {
             ClarityTypeError::TypeSignatureTooDeep => Self::TypeSignatureTooDeep,
             ClarityTypeError::ValueOutOfBounds => Self::ValueOutOfBounds,
             ClarityTypeError::DuplicateTupleField(name) => Self::NameAlreadyUsed(name),
-            ClarityTypeError::TypeMismatchValue(ty, value) => Self::TypeValueError(ty, value),
+            ClarityTypeError::TypeMismatchValue(ty, value) => {
+                Self::TypeValueError(ty, value.to_error_string())
+            }
             ClarityTypeError::TypeMismatch(expected, found) => Self::TypeError(expected, found),
             ClarityTypeError::ListTypeMismatch => Self::ListTypesMustMatch,
             ClarityTypeError::InvalidAsciiCharacter(_) => Self::InvalidCharactersDetected,

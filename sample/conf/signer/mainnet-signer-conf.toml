@@ -1,0 +1,242 @@
+# ============================================================
+# STACKS SIGNER - MAINNET REFERENCE CONFIGURATION
+# ============================================================
+#
+# This is a comprehensive reference configuration for the stacks-signer
+# binary on mainnet. This file configures the SIGNER PROCESS, not the
+# stacks-node (see mainnet-signer.toml for the node-side config).
+#
+# To use: copy this file, fill in the REQUIRED fields, and optionally
+# uncomment any settings you want to override.
+#
+# At minimum, you must set:
+#   - stacks_private_key (your signer's private key)
+#   - node_host (your stacks-node's RPC address)
+#   - endpoint (where this signer listens for events)
+#   - network ("mainnet")
+#   - auth_password (must match node's [connection_options] auth_token)
+#   - db_path (signer database location)
+#
+# Lines with "# key = value" show the default; uncomment to override.
+
+# ============================================================
+# Required Settings
+# ============================================================
+
+# REQUIRED: Hex-encoded Stacks private key for this signer.
+# 64 hex chars (uncompressed) or 66 hex chars (with "01" compression suffix).
+# This key determines the signer's on-chain identity and STX address.
+# Must correspond to the public key used to register this signer via
+# stack-stx or stack-aggregation-commit Clarity function calls.
+stacks_private_key = "<YOUR_SIGNER_PRIVATE_KEY_HEX>"
+
+# REQUIRED: The Stacks node RPC endpoint to connect to.
+# Must match the node's [node] rpc_bind address.
+node_host = "127.0.0.1:20443"
+
+# REQUIRED: Local endpoint this signer listens on for events from the node.
+# Must match the endpoint in the node's [[events_observer]] section.
+endpoint = "0.0.0.0:30000"
+
+# REQUIRED: Network selection.
+# Valid values: "mainnet", "testnet", "mocknet"
+network = "mainnet"
+
+# REQUIRED: Authorization password for the node's block proposal endpoint.
+#
+# WARNING: This MUST match the `auth_token` in the stacks-node's
+# [connection_options] section. If they do not match, the signer
+# cannot communicate with the node and will fail silently.
+auth_password = "<YOUR_AUTH_PASSWORD>"
+
+# REQUIRED: Path to the signer's SQLite database file.
+# Use an absolute path for production deployments.
+db_path = "/var/lib/stacks-signer/signerdb.sqlite"
+
+
+# ============================================================
+# Block Proposal Settings
+# ============================================================
+
+# How long to wait for the current sortition winner to propose a block
+# before the signer marks that miner as inactive.
+#
+# When a new sortition happens, the signer gives the winning miner this
+# much time to propose a block. If no proposal arrives, the signer marks
+# the winner as InvalidatedBeforeFirstBlock. This is one of two gates
+# that must be satisfied before the signer will accept a tenure extend
+# from the PREVIOUS miner (the other gate is `tenure_idle_timeout_secs`).
+#
+# WARNING: Interacts with miner's `tenure_extend_wait_timeout_ms` (default 120_000ms).
+# The miner waits `tenure_extend_wait_timeout_ms` before attempting to extend.
+#
+# If miner's value < this value:
+#   Miner extends BEFORE signer invalidates the new winner -> REJECTED
+# If miner's value >= this value:
+#   Signer invalidates new winner first, then accepts extend -> OK
+#
+# Recommended: keep this <= miner's tenure_extend_wait_timeout_ms.
+#
+# Default: 120_000
+# Units: milliseconds
+# block_proposal_timeout_ms = 120000
+
+# How long to wait for the node to validate a block proposal before
+# marking the block as invalid and rejecting it.
+# Default: 120_000
+# Units: milliseconds
+# block_proposal_validation_timeout_ms = 120000
+
+# Maximum age of a block proposal that will be processed.
+# Proposals older than this are silently dropped.
+# Default: 600
+# Units: seconds
+# block_proposal_max_age_secs = 600
+
+
+# ============================================================
+# Tenure Management Settings
+# ============================================================
+
+# How much time since the last block in a tenure must pass before the
+# signer will allow a tenure extend.
+#
+# When the signer accepts a block, it computes an extend timestamp:
+#   extend_timestamp = last_block_time + tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs
+# The signer includes this timestamp in its BlockAccepted response.
+# The miner cannot extend until current_time >= extend_timestamp.
+#
+# This is one of two gates for tenure extends (the other is
+# `block_proposal_timeout_ms` for new-winner invalidation).
+#
+# WARNING: Must coordinate with the miner's settings:
+#   - Miner `tenure_timeout_secs` (default 180s): must be > this + buffer
+#   - Miner `tenure_extend_wait_timeout_ms` (default 120_000ms): should
+#     be >= this + buffer so the miner doesn't extend too early
+#
+# Default: 60
+# Units: seconds
+# tenure_idle_timeout_secs = 60
+
+# Buffer added to the tenure idle timeout to account for clock skew
+# between signer and miner nodes. The effective idle timeout sent to
+# miners is: tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs.
+#
+# Default: 2
+# Units: seconds
+# tenure_idle_timeout_buffer_secs = 2
+
+# How much idle time must pass before allowing a read-count tenure extend.
+# Triggered when the read-count budget is nearly exhausted.
+# Default: 20
+# Units: seconds
+# read_count_idle_timeout_secs = 20
+
+# Time to wait for the last block of a tenure to be globally accepted
+# or rejected before considering a new miner's block at the same height
+# as potentially valid.
+# Default: 30
+# Units: seconds
+# tenure_last_block_proposal_timeout_secs = 30
+
+
+# ============================================================
+# Miner Coordination Settings
+# ============================================================
+
+# Reorg protection window. Measures the time between when the first block
+# of a tenure was signed and when the next burn block (sortition) arrived.
+#
+# If a new miner tries to reorg a tenure that already produced blocks:
+#   - If (burn_block_received - first_block_signed) < this value:
+#     Reorg is ALLOWED (the tenure was "poorly timed" and the incoming
+#     miner did not have sufficient time to RBF an outdated commit)
+#   - If (burn_block_received - first_block_signed) >= this value:
+#     Reorg is DENIED (the tenure was established long enough for the
+#     incoming miner to RBF any outdated commit)
+#
+# WARNING: Setting this too LOW allows dangerous reorgs of established
+# tenures. Setting it too HIGH blocks legitimate miner handoffs when
+# the previous tenure's first block arrived shortly before the sortition.
+#
+# Default: 60
+# Units: seconds
+# first_proposal_burn_block_timing_secs = 60
+
+# Time following a block's global acceptance during which the signer will
+# consider a miner's reorg attempt as valid miner activity (not malicious).
+# Default: 200_000
+# Units: milliseconds
+# reorg_attempts_activity_timeout_ms = 200000
+
+
+# ============================================================
+# State Machine Settings
+# ============================================================
+
+# Time to wait between updating the local state machine view and
+# capitulating to the consensus view of other signers.
+# Lower values mean faster convergence; higher values give more time
+# for independent verification.
+#
+# WARNING: Setting this too low can cause the signer to flip-flop
+# between viewpoints. It must allow enough time for other signers to
+# receive updates and publish their own updated views before this
+# signer gives up on its own viewpoint and converges.
+#
+# Default: 20
+# Units: seconds
+# capitulate_miner_view_timeout_secs = 20
+
+# Time to wait before submitting a block proposal if the signer cannot
+# confirm the stacks-node has processed the parent block.
+# Default: 15
+# Units: seconds
+# proposal_wait_for_parent_time_secs = 15
+
+
+# ============================================================
+# Advanced Settings
+# ============================================================
+
+# Run in dry-run mode. The signer logs actions but does not submit
+# StackerDB messages or participate in signing. Useful for testing
+# or monitoring.
+#
+# WARNING: If you enable dry_run, make sure this signer is NOT running
+# with a valid registered signer key. A registered signer in dry-run
+# mode will not participate in signing, which harms network liveness.
+#
+# Default: false
+# dry_run = false
+
+# Enforce transaction replay during stacks block validation following a
+# bitcoin block reorg (experimental). Ensures that a miner includes the
+# expected transactions from reorged stacks blocks that can be replayed.
+# Default: false
+# validate_with_replay_tx = false
+
+# Number of bitcoin blocks after a bitcoin fork to reset the replay set.
+# Acts as a failsafe to ensure that signers do not permanently prevent
+# valid stacks block production based solely on transaction replay.
+# Default: 2
+# Units: bitcoin blocks
+# reset_replay_set_after_fork_blocks = 2
+
+# HTTP timeout for StackerDB read/write operations.
+# Default: 120
+# Units: seconds
+# stackerdb_timeout_secs = 120
+
+# Timeout for receiving events from the stacks-node.
+# Default: 5_000
+# Units: milliseconds
+# event_timeout_ms = 5000
+
+# Custom Chain ID (only for private/custom networks).
+# Default: 0x00000001 (mainnet) or 0x80000000 (testnet)
+# chain_id = 1
+
+# Prometheus metrics endpoint. Uncomment to enable.
+# Format: "host:port"
+# metrics_endpoint = "0.0.0.0:9090"

@@ -110,15 +110,15 @@ fn test_index_of() {
         )),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_MIN),
-            Box::new(execute("\"a\"").unwrap().unwrap()),
+            execute("\"a\"").unwrap().unwrap().to_error_string(),
         ),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::STRING_UTF8_MIN),
-            Box::new(execute("\"a\"").unwrap().unwrap()),
+            execute("\"a\"").unwrap().unwrap().to_error_string(),
         ),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::STRING_ASCII_MIN),
-            Box::new(execute("u\"a\"").unwrap().unwrap()),
+            execute("u\"a\"").unwrap().unwrap().to_error_string(),
         ),
     ];
 
@@ -174,7 +174,7 @@ fn test_element_at() {
         )),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
-            Box::new(Value::Int(1)),
+            Value::Int(1).to_error_string(),
         ),
     ];
 
@@ -755,14 +755,18 @@ fn test_simple_list_replace_at() {
     // The type of the index should be uint.
     assert_eq!(
         execute_v2("(replace-at? (list 1) 0 0)").unwrap_err(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(UIntType), Box::new(Value::Int(0))).into()
+        RuntimeCheckErrorKind::TypeValueError(Box::new(UIntType), Value::Int(0).to_error_string())
+            .into()
     );
 
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? (list 2 3) u0 true)").unwrap_err(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(IntType), Box::new(Value::Bool(true)))
-            .into()
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(IntType),
+            Value::Bool(true).to_error_string()
+        )
+        .into()
     );
 
     // The element input has the wrong type
@@ -770,7 +774,7 @@ fn test_simple_list_replace_at() {
         execute_v2("(replace-at? (list 2 3) u0 0x00)").unwrap_err(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(IntType),
-            Box::new(Value::buff_from_byte(0))
+            Value::buff_from_byte(0).to_error_string()
         )
         .into()
     );
@@ -818,7 +822,8 @@ fn test_simple_buff_replace_at() {
     // The type of the index should be uint.
     assert_eq!(
         execute_v2("(replace-at? 0x002244 0 0x99)").unwrap_err(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(UIntType), Box::new(Value::Int(0))).into()
+        RuntimeCheckErrorKind::TypeValueError(Box::new(UIntType), Value::Int(0).to_error_string())
+            .into()
     );
 
     // The element input has the wrong type
@@ -827,7 +832,7 @@ fn test_simple_buff_replace_at() {
         execute_v2("(replace-at? 0x445522 u0 55)").unwrap_err(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(buff_len.clone()))),
-            Box::new(Value::Int(55))
+            Value::Int(55).to_error_string()
         )
         .into()
     );
@@ -837,7 +842,9 @@ fn test_simple_buff_replace_at() {
         execute_v2("(replace-at? 0x445522 u0 (list 5))").unwrap_err(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(buff_len.clone()))),
-            Box::new(Value::list_from(vec![Value::Int(5)]).unwrap())
+            Value::list_from(vec![Value::Int(5)])
+                .unwrap()
+                .to_error_string()
         )
         .into()
     );
@@ -847,7 +854,7 @@ fn test_simple_buff_replace_at() {
         execute_v2("(replace-at? 0x445522 u0 0x0044)").unwrap_err(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(buff_len))),
-            Box::new(Value::buff_from(vec![0, 68]).unwrap())
+            Value::buff_from(vec![0, 68]).unwrap().to_error_string()
         )
         .into()
     );
@@ -895,7 +902,8 @@ fn test_simple_string_ascii_replace_at() {
     // The type of the index should be uint.
     assert_eq!(
         execute_v2("(replace-at? \"abc\" 0 \"c\")").unwrap_err(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(UIntType), Box::new(Value::Int(0))).into()
+        RuntimeCheckErrorKind::TypeValueError(Box::new(UIntType), Value::Int(0).to_error_string())
+            .into()
     );
 
     // The element input has the wrong type
@@ -904,7 +912,7 @@ fn test_simple_string_ascii_replace_at() {
         execute_v2("(replace-at? \"abc\" u0 55)").unwrap_err(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(StringType(ASCII(buff_len.clone())))),
-            Box::new(Value::Int(55))
+            Value::Int(55).to_error_string()
         )
         .into()
     );
@@ -914,7 +922,7 @@ fn test_simple_string_ascii_replace_at() {
         execute_v2("(replace-at? \"abc\" u0 0x00)").unwrap_err(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(StringType(ASCII(buff_len.clone())))),
-            Box::new(Value::buff_from_byte(0))
+            Value::buff_from_byte(0).to_error_string()
         )
         .into()
     );
@@ -924,7 +932,9 @@ fn test_simple_string_ascii_replace_at() {
         execute_v2("(replace-at? \"abc\" u0 \"de\")").unwrap_err(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(SequenceType(StringType(ASCII(buff_len)))),
-            Box::new(Value::string_ascii_from_bytes("de".into()).unwrap())
+            Value::string_ascii_from_bytes("de".into())
+                .unwrap()
+                .to_error_string()
         )
         .into()
     );
@@ -976,7 +986,8 @@ fn test_simple_string_utf8_replace_at() {
     // The type of the index should be uint.
     assert_eq!(
         execute_v2("(replace-at? u\"abc\" 0 u\"c\")").unwrap_err(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(UIntType), Box::new(Value::Int(0))).into()
+        RuntimeCheckErrorKind::TypeValueError(Box::new(UIntType), Value::Int(0).to_error_string())
+            .into()
     );
 
     // The element input has the wrong type
@@ -987,7 +998,7 @@ fn test_simple_string_utf8_replace_at() {
             Box::new(TypeSignature::SequenceType(StringType(
                 StringSubtype::UTF8(str_len.clone())
             ))),
-            Box::new(Value::Int(55))
+            Value::Int(55).to_error_string()
         )
         .into()
     );
@@ -999,7 +1010,7 @@ fn test_simple_string_utf8_replace_at() {
             Box::new(TypeSignature::SequenceType(StringType(
                 StringSubtype::UTF8(str_len.clone())
             ))),
-            Box::new(Value::buff_from_byte(0))
+            Value::buff_from_byte(0).to_error_string()
         )
         .into()
     );
@@ -1011,7 +1022,9 @@ fn test_simple_string_utf8_replace_at() {
             Box::new(TypeSignature::SequenceType(StringType(
                 StringSubtype::UTF8(str_len)
             ))),
-            Box::new(Value::string_utf8_from_string_utf8_literal("de".to_string()).unwrap())
+            Value::string_utf8_from_string_utf8_literal("de".to_string())
+                .unwrap()
+                .to_error_string()
         )
         .into()
     );

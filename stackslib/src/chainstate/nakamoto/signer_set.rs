@@ -407,14 +407,16 @@ impl NakamotoSigners {
 
         let (value, _, events, _) = clarity.with_abort_callback(
             |vm_env| {
-                vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
-                    env.execute_contract_allow_private(
+                vm_env.execute_in_env(sender_addr.clone(), None, None, |exec_state, invoke_ctx| {
+                    exec_state.execute_contract_allow_private(
+                        invoke_ctx,
                         signers_contract,
                         "stackerdb-set-signer-slots",
                         &set_stackerdb_args,
                         false,
                     )?;
-                    env.execute_contract_allow_private(
+                    exec_state.execute_contract_allow_private(
+                        invoke_ctx,
                         signers_contract,
                         "set-signers",
                         &set_signers_args,

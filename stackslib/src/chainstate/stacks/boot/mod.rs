@@ -21,6 +21,7 @@ use std::sync::LazyLock;
 use clarity::types::Address;
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::clarity::{ClarityError, TransactionConnection};
+use clarity::vm::contexts::ExecutionState;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use clarity::vm::errors::{ClarityEvalError, VmExecutionError};
@@ -29,7 +30,7 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, Value,
 };
-use clarity::vm::{Environment, SymbolicExpression};
+use clarity::vm::SymbolicExpression;
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
@@ -393,8 +394,9 @@ impl StacksChainState {
                 sender_addr,
                 None,
                 LimitedCostTracker::new_free(),
-                |vm_env| {
-                    vm_env.eval_read_only(
+                |exec_state, invoke_ctx| {
+                    exec_state.eval_read_only(
+                        invoke_ctx,
                         &pox_contract,
                         &format!(r#"
                             (unwrap-panic (map-get? stacking-state {{ stacker: '{unlocked_principal} }}))
@@ -441,8 +443,9 @@ impl StacksChainState {
                 sender_addr,
                 None,
                 LimitedCostTracker::new_free(),
-                |vm_env| {
-                    vm_env.eval_read_only(
+                |exec_state, invoke_ctx| {
+                    exec_state.eval_read_only(
+                        invoke_ctx,
                         &pox_contract,
                         &format!(
                             r#"
@@ -587,20 +590,26 @@ impl StacksChainState {
             let (result, _, mut events, _) = clarity
                 .with_abort_callback(
                     |vm_env| {
-                        vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
-                            env.execute_contract_allow_private(
-                                &pox_contract,
-                                "handle-unlock",
-                                &[
-                                    SymbolicExpression::atom_value(principal.clone().into()),
-                                    SymbolicExpression::atom_value(Value::UInt(*amount_locked)),
-                                    SymbolicExpression::atom_value(Value::UInt(
-                                        cycle_number.into(),
-                                    )),
-                                ],
-                                false,
-                            )
-                        })
+                        vm_env.execute_in_env(
+                            sender_addr.clone(),
+                            None,
+                            None,
+                            |exec_state, invoke_ctx| {
+                                exec_state.execute_contract_allow_private(
+                                    invoke_ctx,
+                                    &pox_contract,
+                                    "handle-unlock",
+                                    &[
+                                        SymbolicExpression::atom_value(principal.clone().into()),
+                                        SymbolicExpression::atom_value(Value::UInt(*amount_locked)),
+                                        SymbolicExpression::atom_value(Value::UInt(
+                                            cycle_number.into(),
+                                        )),
+                                    ],
+                                    false,
+                                )
+                            },
+                        )
                     },
                     |_, _| None,
                 )
@@ -617,7 +626,7 @@ impl StacksChainState {
 
             // Add synthetic print event for `handle-unlock`, since it alters stacking state
             let tx_event =
-                Environment::construct_print_transaction_event(&pox_contract, &event_info);
+                ExecutionState::construct_print_transaction_event(pox_contract.clone(), event_info);
             events.push(tx_event);
             total_events.extend(events.into_iter());
         }
@@ -699,14 +708,16 @@ impl StacksChainState {
                         sender,
                         None,
                         cost_track,
-                        |env| {
-                            env.execute_contract(
-                                &contract_identifier,
-                                function,
-                                &[SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
-                                true,
-                            )
-                            .map_err(ClarityEvalError::from)
+                        |exec_state, invoke_ctx| {
+                            exec_state
+                                .execute_contract(
+                                    invoke_ctx,
+                                    &contract_identifier,
+                                    function,
+                                    &[SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
+                                    true,
+                                )
+                                .map_err(ClarityEvalError::from)
                         },
                     )
                 },

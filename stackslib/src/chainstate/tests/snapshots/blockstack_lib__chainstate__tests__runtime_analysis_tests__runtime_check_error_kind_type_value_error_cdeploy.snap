@@ -588,7 +588,7 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: check-error-kind-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), Sequence(Buffer()))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -618,7 +618,7 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: check-error-kind-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), Sequence(Buffer()))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -648,7 +648,7 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: check-error-kind-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), Sequence(Buffer()))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -678,7 +678,7 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: check-error-kind-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), Sequence(Buffer()))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -708,7 +708,7 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: check-error-kind-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), Sequence(Buffer()))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -738,7 +738,7 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: check-error-kind-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), Sequence(Buffer()))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -768,7 +768,7 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: check-error-kind-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), Sequence(Buffer()))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -798,7 +798,7 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: check-error-kind-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), Sequence(Buffer()))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -828,7 +828,7 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: check-error-kind-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), Sequence(Buffer()))) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(TypeValueError(SequenceType(BufferType(BufferLength(33))), \"Sequence(Buffer())\")) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(

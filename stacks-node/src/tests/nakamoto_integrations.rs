@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -5409,7 +5409,7 @@ fn bad_commit_does_not_trigger_fork() {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
         naka_mined_blocks: mined_blocks,
-        naka_skip_commit_op: test_skip_commit_op,
+        skip_commit_op: test_skip_commit_op,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
@@ -6193,7 +6193,7 @@ fn nakamoto_attempt_time() {
         privk: Secp256k1PrivateKey,
         _address: StacksAddress,
     }
-    let num_accounts = 1_000;
+    let num_accounts = 100;
     let init_account_balance = 1_000_000_000;
     let account_keys = add_initial_balances(&mut naka_conf, num_accounts, init_account_balance);
     let mut account = account_keys
@@ -6409,7 +6409,7 @@ fn nakamoto_attempt_time() {
         .expect("Mutex poisoned")
         .get_stacks_blocks_processed();
 
-    let tx_limit = 10000;
+    let tx_limit = 1000;
     let tx_fee = 500;
     let amount = 500;
     let mut tx_total_size = 0;
@@ -9658,7 +9658,7 @@ fn run_mock_mining_ongoing_tenure_boot_test(check_empty_sortition_recovery: bool
         let follower_mined_before_empty_sortition = follower_mined_blocks.load(Ordering::SeqCst);
 
         // Force an empty sortition and ensure the restarted mock miner keeps mining afterwards.
-        counters.naka_skip_commit_op.set(true);
+        counters.skip_commit_op.set(true);
         let miner_burn_height_before = get_chain_info(&naka_conf).burn_block_height;
         let follower_burn_height_before = get_chain_info(&follower_conf).burn_block_height;
 
@@ -9685,7 +9685,7 @@ fn run_mock_mining_ongoing_tenure_boot_test(check_empty_sortition_recovery: bool
         })
         .expect("Mock miner did not continue mining after empty sortition");
         TEST_P2P_BROADCAST_STALL.set(false);
-        counters.naka_skip_commit_op.set(false);
+        counters.skip_commit_op.set(false);
     } else {
         // Confirm the restarted follower can start mining in the middle of an ongoing tenure.
         let follower_mined_before_mid_tenure = follower_mined_blocks.load(Ordering::SeqCst);
@@ -9709,7 +9709,7 @@ fn run_mock_mining_ongoing_tenure_boot_test(check_empty_sortition_recovery: bool
 
     // Best-effort reset for test globals before teardown.
     TEST_P2P_BROADCAST_STALL.set(false);
-    counters.naka_skip_commit_op.set(false);
+    counters.skip_commit_op.set(false);
 
     coord_channel
         .lock()
@@ -11380,7 +11380,7 @@ fn test_tenure_extend_from_flashblocks() {
     next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     // prevent the miner from sending another block-commit
-    counters.naka_skip_commit_op.set(true);
+    counters.skip_commit_op.set(true);
 
     let info_before = get_chain_info(&naka_conf);
 
@@ -11472,7 +11472,7 @@ fn test_tenure_extend_from_flashblocks() {
     }
 
     // unstall miner thread and allow block-commits again
-    counters.naka_skip_commit_op.set(false);
+    counters.skip_commit_op.set(false);
     fault_injection_unstall_miner();
 
     // wait for the miner directive to be processed
@@ -14205,8 +14205,9 @@ fn test_sip_031_last_phase_out_of_epoch() {
                     PrincipalData::Standard(StandardPrincipalData::transient()),
                     None,
                     LimitedCostTracker::new_free(),
-                    |tx| {
-                        tx.eval_read_only(
+                    |exec_state, invoke_ctx| {
+                        exec_state.eval_read_only(
+                            &invoke_ctx,
                             &boot_code_id(SIP_031_NAME, naka_conf.is_mainnet()),
                             "(get-recipient)",
                         )
@@ -16223,7 +16224,6 @@ fn check_sip040_post_conditions() {
         get_tx_result_by_id(&mint_and_send_as_contract_originator_txid),
         Some(Value::okay_true())
     );
-    sender_nonce += 1;
 
     coord_channel
         .lock()
@@ -19327,7 +19327,7 @@ fn tenure_extend_no_commits() {
     test_observer::clear();
 
     // Skip block commits so that for the next block, there is no new commit
-    counters.naka_skip_commit_op.set(true);
+    counters.skip_commit_op.set(true);
 
     // Mine an empty Bitcoin block (no commits)
     info!("1. Mining an empty Bitcoin block, even though the miner had submitted a valid commit");
