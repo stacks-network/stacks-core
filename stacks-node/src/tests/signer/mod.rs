@@ -1530,6 +1530,16 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     fn shutdown_and_make_snapshot(mut self, needs_snapshot: bool) {
         check_nakamoto_empty_block_heuristics(self.stacks_client.mainnet);
 
+        // Stop signers first while the node is still fully operational.
+        // If signers are stopped after the coordinator, their in-flight
+        // HTTP requests to the node can hang (the node accepts the
+        // connection but the handler blocks on the stopped coordinator),
+        // preventing both the signer threads and the run loop thread
+        // from exiting.
+        for signer in self.spawned_signers {
+            assert!(signer.stop().is_none());
+        }
+
         self.running_nodes
             .coord_channel
             .lock()
@@ -1548,10 +1558,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 &self.running_nodes.conf.get_working_dir(),
                 &self.snapshot_path,
             );
-        }
-
-        for signer in self.spawned_signers {
-            assert!(signer.stop().is_none());
         }
     }
 
