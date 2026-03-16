@@ -1,0 +1,2 @@
+Replaced `Utf8Data` internal representation from `Vec<Vec<u8>>` to `Vec<Utf8Char>` (`[u8; 4]`), reducing heap allocations and speeding up clones.
+Made `Utf8Char` inner field private with validation on deserialization
