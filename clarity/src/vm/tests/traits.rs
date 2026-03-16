@@ -2348,9 +2348,14 @@ fn deploy_and_dispatch(
     );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &ctx);
+        let (mut exec_state, invoke_ctx) = owned_env.get_exec_environment(None, None, &ctx);
         for &(name, src) in contracts {
-            env.initialize_contract(QualifiedContractIdentifier::local(name).unwrap(), src)
+            exec_state
+                .initialize_contract(
+                    &invoke_ctx,
+                    QualifiedContractIdentifier::local(name).unwrap(),
+                    src,
+                )
                 .unwrap_or_else(|e| panic!("{name}: {e:?}"));
         }
     }
@@ -2359,8 +2364,10 @@ fn deploy_and_dispatch(
     let impl_val = Value::from(PrincipalData::Contract(
         QualifiedContractIdentifier::local(implementor).unwrap(),
     ));
-    let mut env = owned_env.get_exec_environment(Some(p1.expect_principal().unwrap()), None, &ctx);
-    env.execute_contract(
+    let (mut exec_state, invoke_ctx) =
+        owned_env.get_exec_environment(Some(p1.expect_principal().unwrap()), None, &ctx);
+    exec_state.execute_contract(
+        &invoke_ctx,
         &QualifiedContractIdentifier::local(dispatcher).unwrap(),
         "dispatch",
         &symbols_from_values(vec![impl_val]),
