@@ -927,12 +927,51 @@ fn test_at_block() {
     for (good_test, expected) in good.iter() {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(good_test).unwrap())
+            &format!(
+                "{}",
+                type_check_helper_version(
+                    good_test,
+                    ClarityVersion::Clarity4,
+                    StacksEpochId::Epoch33
+                )
+                .unwrap()
+            )
         );
     }
 
     for (bad_test, expected) in bad.iter() {
-        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(
+            *expected,
+            *type_check_helper_version(bad_test, ClarityVersion::Clarity4, StacksEpochId::Epoch33)
+                .unwrap_err()
+                .err
+        );
+    }
+
+    assert_eq!(
+        StaticCheckErrorKind::AtBlockUnavailable,
+        *type_check_helper_version(
+            "(at-block (sha256 u0) u1)",
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch34
+        )
+        .unwrap_err()
+        .err
+    );
+
+    let mut versions_gt_clarity4 = ClarityVersion::ALL.to_vec();
+    versions_gt_clarity4.retain(|version| *version > ClarityVersion::Clarity4);
+    for version in versions_gt_clarity4 {
+        assert_eq!(
+            StaticCheckErrorKind::UnknownFunction("at-block".to_string()),
+            *type_check_helper_version(
+                "(at-block (sha256 u0) u1)",
+                version,
+                StacksEpochId::latest()
+            )
+            .unwrap_err()
+            .err
+        );
     }
 }
 
@@ -4232,5 +4271,38 @@ fn test_secp256r1_verify_type_check() {
             bad_expr
         );
         assert_eq!(*expected_err, *result.unwrap_err().err);
+    }
+}
+
+#[apply(test_clarity_versions)]
+fn test_contract_call_with_non_callable_constant_target(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let bad_cases = [
+        (
+            "(define-constant bad u1) (define-public (call) (contract-call? bad foo))",
+            TypeSignature::UIntType,
+        ),
+        (
+            "(define-constant bad 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+             (define-public (call) (contract-call? bad foo))",
+            TypeSignature::PrincipalType,
+        ),
+    ];
+
+    for (bad_contract, expected_bad_type) in bad_cases {
+        let err = type_check_helper_version(bad_contract, version, epoch).unwrap_err();
+        if version.supports_callables() {
+            assert_eq!(
+                *err.err,
+                StaticCheckErrorKind::ExpectedCallableType(Box::new(expected_bad_type.clone()))
+            );
+        } else {
+            assert_eq!(
+                *err.err,
+                StaticCheckErrorKind::TraitReferenceUnknown("bad".to_string())
+            );
+        }
     }
 }

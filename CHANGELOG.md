@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [3.3.0.0.6]
 
 ### Added
 
@@ -13,12 +13,23 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Implemented the updated behavior for `secp256r1-verify`, effective in Clarity 5, in which the `message-hash` is no longer hashed again. See SIP-035 for details.
 - Increased allowed stack depth from 64 to 128, effective in epoch 3.4
 - Prepare for epoch 3.4's improved transaction inclusion, allowing transactions with certain errors to be included in blocks which would cause them to be rejected in earlier epochs.
+- Added `marf_compress` as a node configuration parameter to enable MARF compression feature ([#6811](https://github.com/stacks-network/stacks-core/pull/6811))
+- Effective in epoch 3.4 `contract-call?`s can accept a constant as the contract to be called
+- Added post-condition enhancements for epoch 3.4 (SIP-040): `Originator` post-condition mode (`0x03`) and NFT `MAY SEND` condition code (`0x12`), including serialization support and epoch-gated validation/enforcement.
+- Disabled `at-block` starting from Epoch 3.4 (see SIP-042). New contracts referencing `at-block` are rejected during static analysis. Existing contracts that invoke it will fail at runtime with an `AtBlockUnavailable` error.
 
 ### Fixed
 
 - Improved the cost-tracking for `from-consensus-buff?`, effective in epoch 3.4, so that when an empty buffer is passed, users will see a `none` result, rather than a confusing runtime error.
 - Resolved several cases where a mock-miner would stop mining
 - /v2/pox endpoint now returns the `pox_ustx_threshold` stored in the reward set instead of a live computed value, which incorrectly accounts for STX locked during the prepare phase, after the reward set has been set.
+- Signer protocol version negotiation now properly handles downgrades based on majority consensus, not just upgrades
+- The sortition DB now tracks canonical Stacks tip by its burn view, allowing it to recover from a chain freeze if the Bitcoin block upon which the ongoing tenure is based is orphened before the last tenure block is processed.
+
+### Changed
+
+- `/v3/blocks/simulate/{block_id}` and `/v3/block/replay ` no longer emit transaction events for post condition aborted transactions.
+- `EventDispatcher` no longer emits transaction events for post condition aborted transactions.
 
 ## [3.3.0.0.5]
 

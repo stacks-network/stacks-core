@@ -204,7 +204,12 @@ fn spawn_peer(
         };
 
         loop {
-            let sortdb = match SortitionDB::open(&burn_db_path, false, pox_consts.clone()) {
+            let sortdb = match SortitionDB::open(
+                &burn_db_path,
+                false,
+                pox_consts.clone(),
+                Some(config.node.get_marf_opts()),
+            ) {
                 Ok(x) => x,
                 Err(e) => {
                     warn!("Error while connecting burnchain db in peer loop: {e}");
@@ -418,6 +423,7 @@ impl Node {
             &self.config.get_burn_db_file_path(),
             true,
             burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .expect("Error while instantiating burnchain db");
 
@@ -561,6 +567,7 @@ impl Node {
             &self.config.get_burn_db_file_path(),
             true,
             burnchain.pox_constants.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .expect("Error while opening sortition db");
 
@@ -671,6 +678,7 @@ impl Node {
             &self.config.get_burn_db_file_path(),
             true,
             burnchain.pox_constants,
+            Some(self.config.node.get_marf_opts()),
         )
         .expect("Error while opening sortition db");
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
@@ -773,6 +781,7 @@ impl Node {
                 &self.config.get_burn_db_file_path(),
                 true,
                 burnchain.pox_constants,
+                Some(self.config.node.get_marf_opts()),
             )
             .expect("Error while opening sortition db");
 

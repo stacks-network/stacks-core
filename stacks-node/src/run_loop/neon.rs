@@ -151,7 +151,7 @@ pub struct Counters {
     pub naka_miner_current_rejections_timeout_secs: RunLoopCounter,
 
     #[cfg(test)]
-    pub naka_skip_commit_op: TestFlag<bool>,
+    pub skip_commit_op: TestFlag<bool>,
 }
 
 impl Counters {

@@ -40,7 +40,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
-use stacks::chainstate::stacks::boot::MINERS_NAME;
+use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{TransactionEvent, TransactionSuccessEvent};
 use stacks::chainstate::stacks::{StacksTransaction, TenureChangeCause, TransactionPayload};
@@ -144,24 +144,40 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
         let reward_cycle = self.get_current_reward_cycle() + 1;
-        let mut last_probe = Instant::now();
-        wait_for(120, || {
+        let next_cycle_start = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_burnchain()
+            .nakamoto_first_block_of_cycle(reward_cycle);
+        wait_for(240, || {
             match self.stacks_client.get_reward_set_signers(reward_cycle).unwrap_or_default() {
                 Some(reward_set) => {
                     debug!("Signer set: {reward_set:?}");
                     Ok(true)
                 }
                 None => {
-                    // If we've been waiting ~30s since the last probe, maybe the last block failed
-                    // so we should try to mine another block
-                    if last_probe.elapsed() >= Duration::from_secs(30) {
+                    let burn_height = get_chain_info(&self.running_nodes.conf).burn_block_height;
+                    if burn_height < next_cycle_start {
+                        // Still in the prepare phase or before the cycle boundary.
+                        // Mining another burn block is safe and may be needed for the
+                        // anchor block to be determined.
                         warn!(
-                            "Timed out waiting for reward set calculation. Mining another block to try again."
+                            "Reward set not yet available (burn_height={burn_height}, \
+                             cycle_start={next_cycle_start}). Mining another block."
                         );
-                        self.running_nodes
-                            .btc_regtest_controller
-                            .build_next_block(1);
-                        last_probe = Instant::now();
+                        next_block_and_wait(
+                            &self.running_nodes.btc_regtest_controller,
+                            &self.running_nodes.counters.blocks_processed,
+                        );
+                    } else {
+                        // We've already crossed into the next cycle. Mining more burn
+                        // blocks won't help — the anchor block should have been determined
+                        // during the prepare phase. Just wait for the Stacks chain to
+                        // catch up and process the existing blocks.
+                        debug!(
+                            "Reward set not yet available but already at burn_height={burn_height} \
+                             (>= cycle_start={next_cycle_start}). Waiting for Stacks chain to catch up."
+                        );
                     }
                     Ok(false)
                 }
@@ -748,13 +764,25 @@ impl MultipleMinerTest {
             .clone()
     }
 
-    /// Boot node 1 to epoch 3.0 and wait for node 2 to catch up.
+    /// Boot both miners to epoch 3.0 and wait for them to sync.
     pub fn boot_to_epoch_3(&mut self) {
         info!(
             "------------------------- Booting Both Miners to Epoch 3.0 -------------------------"
         );
 
+        // Prevent miner 2 from submitting block-commits during the boot
+        // phase. If miner 2 wins sortitions before its VRF key is properly
+        // registered it produces blocks with invalid VRF proofs, which can
+        // stall the chain and prevent the PoX anchor block from being
+        // determined. Save and restore the previous state so we don't
+        // clobber any test-level skip that was set before boot.
+        let prev_skip = self.rl2_counters.skip_commit_op.get();
+        self.rl2_counters.skip_commit_op.set(true);
+
         self.signer_test.boot_to_epoch_3();
+
+        self.rl2_counters.skip_commit_op.set(prev_skip);
+
         // Use a longer timeout for the miners to advance to epoch 3.0 and so that CI runners don't timeout.
         self.wait_for_chains(600);
 
@@ -1007,45 +1035,56 @@ impl MultipleMinerTest {
     }
 
     /// Ensures that miner 2 submits a commit pointing to the current view reported by the stacks node as expected
-    pub fn submit_commit_miner_2(&mut self, sortdb: &SortitionDB) {
-        if !self.rl2_counters.naka_skip_commit_op.get() {
-            warn!("Miner 2's commit ops were not paused. This may result in no commit being submitted.");
-        }
+    /// Ensures that miner 2 has submitted a commit pointing to the current
+    /// view reported by the stacks node. Temporarily unpauses commits if
+    /// needed, waits until the commit counters reflect the current burn
+    /// height and stacks tip, then restores the previous pause state.
+    pub fn ensure_commit_miner_2(&mut self, sortdb: &SortitionDB) {
         let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
             .block_height;
-
         let stacks_height_before = self.get_peer_stacks_tip_height();
-        let rl2_commits_before = self
-            .rl2_counters
-            .naka_submitted_commits
-            .load(Ordering::SeqCst);
+        let was_paused = self.rl2_counters.skip_commit_op.get();
+        let commits_before = if was_paused {
+            info!("Unpausing commits from RL2");
+            Some(
+                self.rl2_counters
+                    .naka_submitted_commits
+                    .load(Ordering::SeqCst),
+            )
+        } else {
+            None
+        };
+        self.unpause_commits_miner_2();
 
-        info!("Unpausing commits from RL2");
-        self.rl2_counters.naka_skip_commit_op.set(false);
-
-        info!("Waiting for commits from RL2");
+        info!("Waiting for RL2 commit at burn_height={burn_height}, stacks_height={stacks_height_before}");
         wait_for(30, || {
-            Ok(self
+            let height_ok = self
                 .rl2_counters
-                .naka_submitted_commits
+                .naka_submitted_commit_last_burn_height
                 .load(Ordering::SeqCst)
-                > rl2_commits_before
-                && self
-                    .rl2_counters
-                    .naka_submitted_commit_last_burn_height
-                    .load(Ordering::SeqCst)
-                    >= burn_height
+                >= burn_height
                 && self
                     .rl2_counters
                     .naka_submitted_commit_last_stacks_tip
                     .load(Ordering::SeqCst)
-                    >= stacks_height_before)
+                    >= stacks_height_before;
+            let commit_incremented = commits_before
+                .map(|before| {
+                    self.rl2_counters
+                        .naka_submitted_commits
+                        .load(Ordering::SeqCst)
+                        > before
+                })
+                .unwrap_or(true);
+            Ok(height_ok && commit_incremented)
         })
         .expect("Timed out waiting for miner 2 to submit a commit op");
 
-        info!("Pausing commits from RL2");
-        self.rl2_counters.naka_skip_commit_op.set(true);
+        if was_paused {
+            info!("Restoring paused state for RL2");
+            self.pause_commits_miner_2();
+        }
     }
 
     /// Pause miner 1's commits
@@ -1053,76 +1092,87 @@ impl MultipleMinerTest {
         self.signer_test
             .running_nodes
             .counters
-            .naka_skip_commit_op
+            .skip_commit_op
             .set(true);
+    }
+
+    /// Unpause miner 1's commits
+    pub fn unpause_commits_miner_1(&mut self) {
+        self.signer_test
+            .running_nodes
+            .counters
+            .skip_commit_op
+            .set(false);
     }
 
     /// Pause miner 2's commits
     pub fn pause_commits_miner_2(&mut self) {
-        self.rl2_counters.naka_skip_commit_op.set(true);
+        self.rl2_counters.skip_commit_op.set(true);
     }
 
-    /// Ensures that miner 1 submits a commit pointing to the current view reported by the stacks node as expected
-    pub fn submit_commit_miner_1(&mut self, sortdb: &SortitionDB) {
-        if !self
-            .signer_test
-            .running_nodes
-            .counters
-            .naka_skip_commit_op
-            .get()
-        {
-            warn!("Miner 1's commit ops were not paused. This may result in no commit being submitted.");
-        }
+    /// Unpause miner 2's commits
+    pub fn unpause_commits_miner_2(&mut self) {
+        self.rl2_counters.skip_commit_op.set(false);
+    }
+
+    /// Ensures that miner 1 has submitted a commit pointing to the current
+    /// view reported by the stacks node. Temporarily unpauses commits if
+    /// needed, waits until the commit counters reflect the current burn
+    /// height and stacks tip, then restores the previous pause state.
+    pub fn ensure_commit_miner_1(&mut self, sortdb: &SortitionDB) {
         let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
             .block_height;
         let stacks_height_before = self.get_peer_stacks_tip_height();
-        let rl1_commits_before = self
-            .signer_test
-            .running_nodes
-            .counters
-            .naka_submitted_commits
-            .load(Ordering::SeqCst);
+        let was_paused = self.signer_test.running_nodes.counters.skip_commit_op.get();
+        let commits_before = if was_paused {
+            info!("Unpausing commits from RL1");
+            Some(
+                self.signer_test
+                    .running_nodes
+                    .counters
+                    .naka_submitted_commits
+                    .load(Ordering::SeqCst),
+            )
+        } else {
+            None
+        };
+        self.unpause_commits_miner_1();
 
-        info!("Unpausing commits from RL1");
-        self.signer_test
-            .running_nodes
-            .counters
-            .naka_skip_commit_op
-            .set(false);
-
-        info!("Waiting for commits from RL1");
+        info!("Waiting for RL1 commit at burn_height={burn_height}, stacks_height={stacks_height_before}");
         wait_for(30, || {
-            Ok(self
+            let height_ok = self
                 .signer_test
                 .running_nodes
                 .counters
-                .naka_submitted_commits
+                .naka_submitted_commit_last_burn_height
                 .load(Ordering::SeqCst)
-                > rl1_commits_before
-                && self
-                    .signer_test
-                    .running_nodes
-                    .counters
-                    .naka_submitted_commit_last_burn_height
-                    .load(Ordering::SeqCst)
-                    >= burn_height
+                >= burn_height
                 && self
                     .signer_test
                     .running_nodes
                     .counters
                     .naka_submitted_commit_last_stacks_tip
                     .load(Ordering::SeqCst)
-                    >= stacks_height_before)
+                    >= stacks_height_before;
+            let commit_incremented = commits_before
+                .map(|before| {
+                    self.signer_test
+                        .running_nodes
+                        .counters
+                        .naka_submitted_commits
+                        .load(Ordering::SeqCst)
+                        > before
+                })
+                .unwrap_or(true);
+            Ok(height_ok && commit_incremented)
         })
         .expect("Timed out waiting for miner 1 to submit a commit op");
 
-        info!("Pausing commits from RL1");
-        self.signer_test
-            .running_nodes
-            .counters
-            .naka_skip_commit_op
-            .set(true);
+        if was_paused {
+            info!("Restoring paused state for RL1");
+            self.pause_commits_miner_1();
+        }
     }
 
     /// Shutdown the test harness
@@ -1233,6 +1283,26 @@ pub fn wait_for_block_proposal_block(
         .and_then(|proposal| Ok(proposal.block))
 }
 
+/// Returns all successfully deserialized (StackerDBChunkData, SignerMessage) pairs
+/// from the test_observer stackerdb chunks, filtered to only include chunks from
+/// signer and miner contract IDs.
+pub fn get_stackerdb_signer_messages() -> Vec<(StackerDBChunkData, SignerMessage)> {
+    test_observer::get_stackerdb_chunks()
+        .into_iter()
+        .filter(|event| {
+            event.contract_id.is_boot()
+                && (event.contract_id.name.starts_with(SIGNERS_NAME)
+                    || event.contract_id.name.starts_with(MINERS_NAME))
+        })
+        .flat_map(|chunk| chunk.modified_slots)
+        .filter_map(|chunk| {
+            SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                .ok()
+                .map(|msg| (chunk, msg))
+        })
+        .collect()
+}
+
 /// Waits for a block proposal to be observed in the test_observer stackerdb chunks at the expected height
 /// and signed by the expected miner. Returns the BlockProposal.
 pub fn wait_for_block_proposal(
@@ -1242,12 +1312,7 @@ pub fn wait_for_block_proposal(
 ) -> Result<BlockProposal, String> {
     let mut proposed_block = None;
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::BlockProposal(proposal) = message else {
                 continue;
             };
@@ -1266,32 +1331,6 @@ pub fn wait_for_block_proposal(
     proposed_block.ok_or_else(|| "Failed to find block proposal".to_string())
 }
 
-/// Waits for a BlockPushed to be observed in the test_observer stackerdb chunks for a block
-/// with the provided signer signature hash
-fn wait_for_block_pushed(
-    timeout_secs: u64,
-    block_signer_signature_hash: &Sha512Trunc256Sum,
-) -> Result<NakamotoBlock, String> {
-    let mut block = None;
-    wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
-            if let SignerMessage::BlockPushed(pushed_block) = message {
-                if &pushed_block.header.signer_signature_hash() == block_signer_signature_hash {
-                    block = Some(pushed_block);
-                    return Ok(true);
-                }
-            }
-        }
-        Ok(false)
-    })?;
-    block.ok_or_else(|| "Failed to find block pushed".to_string())
-}
-
 /// Waits for a block with the provided expected height to be proposed and pushed by the miner with the provided public key.
 pub fn wait_for_block_pushed_by_miner_key(
     timeout_secs: u64,
@@ -1302,12 +1341,7 @@ pub fn wait_for_block_pushed_by_miner_key(
     // if the signers haven't yet updated their miner viewpoint before a miner proposes a block.
     let mut block = None;
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_signer_messages() {
             if let SignerMessage::BlockPushed(pushed_block) = message {
                 let block_stacks_height = pushed_block.header.chain_length;
                 if block_stacks_height != expected_height {
@@ -1323,7 +1357,28 @@ pub fn wait_for_block_pushed_by_miner_key(
         }
         Ok(false)
     })?;
+
     block.ok_or_else(|| "Failed to find block pushed".to_string())
+}
+
+/// Waits for a block to be pushed by the specified miner, then waits for
+/// the node's tip to advance to that block. This prevents race conditions
+/// where subsequent calls read a stale `stacks_tip_height` because the
+/// coordinator hasn't yet processed the pushed block.
+///
+/// `get_tip` should return the current stacks tip hash (e.g. from
+/// `get_peer_info().stacks_tip` or `get_chain_info().stacks_tip`).
+pub fn wait_for_block_pushed_and_tip(
+    timeout_secs: u64,
+    expected_height: u64,
+    expected_miner: &StacksPublicKey,
+    get_tip: impl Fn() -> BlockHeaderHash,
+) -> Result<NakamotoBlock, String> {
+    let block = wait_for_block_pushed_by_miner_key(timeout_secs, expected_height, expected_miner)?;
+    let block_hash = block.header.block_hash();
+    wait_for(timeout_secs, || Ok(get_tip() == block_hash))
+        .map_err(|e| format!("Tip did not advance to pushed block: {e}"))?;
+    Ok(block)
 }
 
 /// Waits for all of the provided signers to send a pre-commit for a block
@@ -1334,16 +1389,13 @@ pub fn wait_for_block_pre_commits_from_signers(
     expected_signers: &[StacksPublicKey],
 ) -> Result<(), String> {
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks()
+        let chunks = get_stackerdb_signer_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
+            .filter_map(|(chunk, message)| {
                 let pk = chunk.recover_pk().expect("Failed to recover pk");
                 if !expected_signers.contains(&pk) {
                     return None;
                 }
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
 
                 if let SignerMessage::BlockPreCommit(hash) = message {
                     if hash == *signer_signature_hash {
@@ -1366,12 +1418,7 @@ fn wait_for_block_global_rejection(
 ) -> Result<(), String> {
     let mut found_rejections = HashSet::new();
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_signer_messages() {
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 signer_signature_hash,
                 signature,
@@ -1397,12 +1444,7 @@ pub fn wait_for_block_global_rejection_with_reject_reason(
 ) -> Result<(), String> {
     let mut found_rejections = HashSet::new();
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_signer_messages() {
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 signer_signature_hash,
                 signature,
@@ -1425,7 +1467,7 @@ pub fn wait_for_block_global_rejection_with_reject_reason(
     })
 }
 
-/// Waits for the provided number of block rejections to be observed in the test_observer stackerdb chunks for a block
+/// Waits for at least the provided number of block rejections to be observed in the test_observer stackerdb chunks for a block
 /// with the provided signer signature hash
 fn wait_for_block_rejections(
     timeout_secs: u64,
@@ -1434,12 +1476,7 @@ fn wait_for_block_rejections(
 ) -> Result<(), String> {
     let mut found_rejections = HashSet::new();
     wait_for(timeout_secs, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_signer_messages() {
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 signer_signature_hash,
                 signature,
@@ -1451,7 +1488,7 @@ fn wait_for_block_rejections(
                 }
             }
         }
-        Ok(found_rejections.len() == num_rejections)
+        Ok(found_rejections.len() >= num_rejections)
     })
 }
 
@@ -1464,12 +1501,9 @@ pub fn wait_for_block_global_acceptance_from_signers(
 ) -> Result<(), String> {
     // Make sure that at least 70% of signers accepted the block proposal
     wait_for(timeout_secs, || {
-        let signatures = test_observer::get_stackerdb_chunks()
+        let signatures = get_stackerdb_signer_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
+            .filter_map(|(_chunk, message)| {
                 if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
                     if &accepted.signer_signature_hash == signer_signature_hash
                         && expected_signers.iter().any(|pk| {
@@ -1496,12 +1530,9 @@ pub fn wait_for_block_acceptance_from_signers(
 ) -> Result<Vec<BlockAccepted>, String> {
     let mut result = vec![];
     wait_for(timeout_secs, || {
-        let signatures = test_observer::get_stackerdb_chunks()
+        let signatures = get_stackerdb_signer_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
+            .filter_map(|(_chunk, message)| {
                 if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
                     if &accepted.signer_signature_hash == signer_signature_hash
                         && expected_signers.iter().any(|pk| {
@@ -1533,28 +1564,22 @@ pub fn wait_for_block_rejections_from_signers(
 ) -> Result<Vec<BlockRejection>, String> {
     let mut result = Vec::new();
     wait_for(timeout_secs, || {
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        let block_rejections: HashMap<_, _> = stackerdb_events
+        let block_rejections: HashMap<_, _> = get_stackerdb_signer_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
-                match message {
-                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
-                        let rejected_pubkey = rejection
-                            .recover_public_key()
-                            .expect("Failed to recover public key from rejection");
-                        if &rejection.signer_signature_hash == signer_signature_hash
-                            && expected_signers.contains(&rejected_pubkey)
-                        {
-                            Some((rejected_pubkey, rejection))
-                        } else {
-                            None
-                        }
+            .filter_map(|(_chunk, message)| match message {
+                SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) => {
+                    let rejected_pubkey = rejection
+                        .recover_public_key()
+                        .expect("Failed to recover public key from rejection");
+                    if &rejection.signer_signature_hash == signer_signature_hash
+                        && expected_signers.contains(&rejected_pubkey)
+                    {
+                        Some((rejected_pubkey, rejection))
+                    } else {
+                        None
                     }
-                    _ => None,
                 }
+                _ => None,
             })
             .collect();
         if block_rejections.len() == expected_signers.len() {
@@ -1565,7 +1590,6 @@ pub fn wait_for_block_rejections_from_signers(
     })?;
     Ok(result)
 }
-
 /// Waits for at least 70% of the provided signers to send an update for a block with the specificed burn block height and parent tenure stacks block height and message version
 pub fn wait_for_state_machine_update(
     timeout_secs: u64,
@@ -1575,24 +1599,27 @@ pub fn wait_for_state_machine_update(
     signer_addresses: &[(StacksAddress, u64)],
 ) -> Result<(), String> {
     wait_for(timeout_secs, || {
-        let mut found_updates = HashSet::new();
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
+        let mut found_updates: HashSet<StacksAddress> = HashSet::new();
+        for (chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
             let Some((address, version)) = signer_addresses
                 .iter()
-                .find(|(addr, _)| chunk.verify(addr).unwrap())
+                .find(|(addr, _)| chunk.verify(addr).unwrap_or(false))
             else {
                 continue;
             };
-            let (burn_block, burn_block_height, current_miner) = match (version, &update.content) {
+
+            let negotiated = update
+                .active_signer_protocol_version
+                .min(update.local_supported_signer_protocol_version);
+            if negotiated != *version {
+                continue;
+            }
+
+            let (burn_block, burn_block_height, current_miner) = match (negotiated, &update.content)
+            {
                 (
                     0,
                     StateMachineUpdateContent::V0 {
@@ -1647,7 +1674,7 @@ pub fn wait_for_state_machine_update(
                 }
             };
             // We only need one update to match our conditions
-            found_updates.insert(address);
+            found_updates.insert(address.clone());
         }
         Ok(found_updates.len() > signer_addresses.len() * 7 / 10)
     })
@@ -1660,24 +1687,26 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
     signer_addresses: &[(StacksAddress, u64)],
 ) -> Result<(), String> {
     wait_for(timeout_secs, || {
-        let mut found_updates = HashSet::new();
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
+        let mut found_updates: HashSet<StacksAddress> = HashSet::new();
+        for (chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
             let Some((address, version)) = signer_addresses
                 .iter()
-                .find(|(addr, _)| chunk.verify(addr).unwrap())
+                .find(|(addr, _)| chunk.verify(addr).unwrap_or(false))
             else {
                 continue;
             };
-            match (version, &update.content) {
+            // Version sanity + expectation:
+            let negotiated = update
+                .active_signer_protocol_version
+                .min(update.local_supported_signer_protocol_version);
+            debug!("Found update from address {address} with version {version}. We expect version {negotiated}.");
+            if negotiated != *version {
+                continue;
+            }
+            match (negotiated, &update.content) {
                 (
                     0,
                     StateMachineUpdateContent::V0 {
@@ -1700,10 +1729,10 @@ pub fn wait_for_state_machine_update_by_miner_tenure_id(
                     },
                 ) => {
                     if tenure_id == expected_tenure_id {
-                        found_updates.insert(address);
+                        found_updates.insert(address.clone());
                     }
                 }
-                (_, _) => {}
+                (_, _) => continue,
             };
         }
         Ok(found_updates.len() > signer_addresses.len() * 7 / 10)
@@ -1743,7 +1772,10 @@ fn block_proposal_rejection() {
     signer_test.boot_to_epoch_3();
     let short_timeout = Duration::from_secs(30);
 
+    // Wait for the first block to be mined successfully so we have the most up to date sortition view
+    signer_test.wait_for_validate_ok_response(short_timeout.as_secs());
     info!("------------------------- Send Block Proposal To Signers -------------------------");
+    test_observer::clear();
     let proposal_conf = ProposalEvalConfig {
         proposal_wait_for_parent_time: Duration::from_secs(0),
         first_proposal_burn_block_timing: Duration::from_secs(0),
@@ -1760,6 +1792,7 @@ fn block_proposal_rejection() {
         txs: vec![],
     };
     block.header.timestamp = get_epoch_time_secs();
+    let block_1_consensus_hash = block.header.consensus_hash.clone();
 
     // First propose a block to the signers that does not have the correct consensus hash or BitVec. This should be rejected BEFORE
     // the block is submitted to the node for validation.
@@ -1770,14 +1803,12 @@ fn block_proposal_rejection() {
     let block_signer_signature_hash_1 = block.header.signer_signature_hash();
     signer_test.propose_block(block.clone(), short_timeout);
 
-    // Wait for the first block to be mined successfully so we have the most up to date sortition view
-    signer_test.wait_for_validate_ok_response(short_timeout.as_secs());
-
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
     block.header.pox_treatment = BitVec::ones(1).unwrap();
     block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     block.header.chain_length = 35; // We have mined 35 blocks so far.
+    let block_2_consensus_hash = block.header.consensus_hash.clone();
 
     block
         .header
@@ -1798,14 +1829,13 @@ fn block_proposal_rejection() {
     let start_polling = Instant::now();
     let mut found_signer_signature_hash_1 = false;
     let mut found_signer_signature_hash_2 = false;
+    let block_1_rejection_reason = RejectReason::ConsensusHashMismatch {
+        expected: block_2_consensus_hash,
+        actual: block_1_consensus_hash,
+    };
     while !found_signer_signature_hash_1 && !found_signer_signature_hash_2 {
         std::thread::sleep(Duration::from_secs(1));
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_signer_messages() {
             if let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason: _reason,
                 reason_code,
@@ -1817,7 +1847,7 @@ fn block_proposal_rejection() {
                 if signer_signature_hash == block_signer_signature_hash_1 {
                     found_signer_signature_hash_1 = true;
                     assert_eq!(reason_code, RejectCode::SortitionViewMismatch,);
-                    assert_eq!(response_data.reject_reason, RejectReason::InvalidBitvec);
+                    assert_eq!(response_data.reject_reason, block_1_rejection_reason);
                 } else if signer_signature_hash == block_signer_signature_hash_2 {
                     found_signer_signature_hash_2 = true;
                     assert!(matches!(
@@ -2761,7 +2791,8 @@ fn empty_tenure_delayed() {
         .collect();
     assert_eq!(signer_slot_ids.len(), num_signers);
 
-    // The miner's proposed block should get rejected by all the signers
+    // The miner's proposed block should get rejected by all the signers as the consensus hash does not match
+    // the active miner's tenure id
     let mut found_rejections = Vec::new();
     wait_for(short_timeout.as_secs(), || {
         for slot_id in signer_slot_ids.iter() {
@@ -2787,7 +2818,7 @@ fn empty_tenure_delayed() {
             })) = latest_msg
             {
                 assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
-                assert_eq!(response_data.reject_reason, RejectReason::InvalidMiner);
+                assert!(matches!(response_data.reject_reason, RejectReason::ConsensusHashMismatch { .. }), "Unexpected reject reason: {}", response_data.reject_reason);
                 assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {
@@ -3523,12 +3554,9 @@ fn duplicate_signers() {
     let start_polling = Instant::now();
     while start_polling.elapsed() <= timeout {
         std::thread::sleep(Duration::from_secs(1));
-        let messages = test_observer::get_stackerdb_chunks()
+        let messages = get_stackerdb_signer_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                SignerMessage::consensus_deserialize(&mut chunk.data.as_slice()).ok()
-            })
+            .map(|(_chunk, message)| message)
             .filter_map(|message| match message {
                 SignerMessage::BlockResponse(BlockResponse::Accepted(m)) => {
                     info!("Message(accepted): {m:?}");
@@ -4051,15 +4079,10 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     info!("Submitted tx {tx} in to mine block N");
     sender_nonce += 1;
     let block_n =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
-            .expect("Timed out waiting for block N to be mined");
-
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(
-        info_before.stacks_tip_height + 1,
-        info_after.stacks_tip_height
-    );
-    assert_eq!(info_after.stacks_tip, block_n.header.block_hash());
+        wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 1, &miner_pk, || {
+            signer_test.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for block N to be mined");
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 -------------------------");
     // Propose a valid block, but force the miner to ignore the returned signatures and delay the block being
@@ -4206,18 +4229,13 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
         info_before.stacks_tip_height + 2
     );
     let block_n_2 =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 2, &miner_pk)
-            .expect("Timed out waiting for block N+2 to be mined");
-
-    let info_after = signer_test.get_peer_info();
+        wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 2, &miner_pk, || {
+            signer_test.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for block N+2 to be mined");
     assert_eq!(
         block_n_2.header.parent_block_id,
         block_n_1.header.block_id()
-    );
-    assert_eq!(info_after.stacks_tip, block_n_2.header.block_hash());
-    assert_eq!(
-        info_before.stacks_tip_height + 2,
-        info_after.stacks_tip_height
     );
 }
 
@@ -4663,12 +4681,7 @@ fn block_validation_response_timeout() {
     info!("------------------------- Wait for Block Rejection Due to Timeout -------------------------");
     // Verify that the signer that submits the block to the node will issue a ConnectivityIssues rejection
     wait_for(30, || {
-        let chunks = test_observer::get_stackerdb_chunks();
-        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason: _reason,
                 reason_code,
@@ -5084,14 +5097,7 @@ fn block_proposal_max_age_rejections() {
     // Verify the signers rejected only the SECOND block proposal. The first was not even processed.
     wait_for(120, || {
         let mut status_map = HashMap::new();
-        for chunk in test_observer::get_stackerdb_chunks()
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-            else {
-                continue;
-            };
+        for (_chunk, message) in get_stackerdb_signer_messages() {
             match message {
                 SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                     signer_signature_hash,
@@ -5774,12 +5780,9 @@ fn injected_signatures_are_ignored_across_boundaries() {
     info!("Submitted tx {tx} in attempt to mine block N");
     let mut new_signature_hash = None;
     wait_for(30, || {
-        let accepted_signers: HashSet<_> = test_observer::get_stackerdb_chunks()
+        let accepted_signers: HashSet<_> = get_stackerdb_signer_messages()
             .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-            .filter_map(|chunk| {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
+            .filter_map(|(_chunk, message)| {
                 if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
                     new_signature_hash = Some(accepted.signer_signature_hash.clone());
                     return non_ignoring_signers.iter().find(|key| {
@@ -5805,12 +5808,9 @@ fn injected_signatures_are_ignored_across_boundaries() {
     );
 
     // Get the last block proposal
-    let block_proposal = test_observer::get_stackerdb_chunks()
-        .iter()
-        .flat_map(|chunk| chunk.modified_slots.clone())
-        .filter_map(|chunk| {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
+    let block_proposal = get_stackerdb_signer_messages()
+        .into_iter()
+        .filter_map(|(_chunk, message)| {
             if let SignerMessage::BlockProposal(proposal) = message {
                 assert_eq!(proposal.reward_cycle, curr_reward_cycle);
                 assert_eq!(
@@ -5859,8 +5859,11 @@ fn injected_signatures_are_ignored_across_boundaries() {
     })
     .expect("Timed out waiting for block to be mined");
 
-    let info_after = signer_test.get_peer_info();
-    assert_eq!(info_after.stacks_tip.to_string(), block.block_hash,);
+    wait_for(30, || {
+        let info = signer_test.get_peer_info();
+        Ok(info.stacks_tip.to_string() == block.block_hash)
+    })
+    .expect("Tip did not advance to block N");
     // Wait 5 seconds in case there are any lingering block pushes from the signers
     std::thread::sleep(Duration::from_secs(5));
     signer_test.shutdown();
@@ -6955,14 +6958,6 @@ fn signers_send_state_message_updates() {
         },
     );
 
-    let rl1_skip_commit_op = miners
-        .signer_test
-        .running_nodes
-        .counters
-        .naka_skip_commit_op
-        .clone();
-    let rl2_skip_commit_op = miners.rl2_counters.naka_skip_commit_op.clone();
-
     let (conf_1, _) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
@@ -6970,7 +6965,7 @@ fn signers_send_state_message_updates() {
     info!("------------------------- Pause Miner 2's Block Commits -------------------------");
 
     // Make sure Miner 2 cannot win a sortition at first.
-    rl2_skip_commit_op.set(true);
+    miners.pause_commits_miner_2();
 
     miners.boot_to_epoch_3();
 
@@ -6990,11 +6985,10 @@ fn signers_send_state_message_updates() {
     let starting_peer_height = get_chain_info(&conf_1).stacks_tip_height;
     let starting_burn_height = get_burn_height();
     let mut btc_blocks_mined = 0;
-
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
     // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
-    rl1_skip_commit_op.set(true);
-
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
     info!("------------------------- Miner 1 Tenure Starts and Mines Block N-------------------------");
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
@@ -7017,7 +7011,7 @@ fn signers_send_state_message_updates() {
 
     info!("------------------------- Submit Miner 2 Block Commit -------------------------");
     test_observer::clear();
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     // Pause the block proposal broadcast so that miner 2 will be unable to broadcast its
     // tenure change proposal BEFORE the block_proposal_timeout and will be marked invalid.
@@ -7050,9 +7044,6 @@ fn signers_send_state_message_updates() {
     );
     // Make sure that miner 2 gets marked invalid by not proposing a block BEFORE block_proposal_timeout
     std::thread::sleep(block_proposal_timeout.add(Duration::from_secs(1)));
-    // Allow miner 2 to propose its late block and see the signer get marked malicious
-    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
-
     info!("------------------------- Confirm Miner 1 is the Active Miner Again -------------------------");
     wait_for_state_machine_update(
         60,
@@ -7062,6 +7053,9 @@ fn signers_send_state_message_updates() {
         &miners.signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signers to send their state update");
+
+    // Allow miner 2 to propose its late block and see the signer get marked malicious
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1]);
 
     info!(
         "------------------------- Confirm Burn and Stacks Block Heights -------------------------"
@@ -7247,115 +7241,36 @@ fn verify_mempool_caches() {
     signer_test.shutdown();
 }
 
-/// Tests that signers are able to upgrade or downgrade their active protocol version numbers based on
-/// the majority of other signers current local supported version numbers
-#[test]
-#[ignore]
-fn rollover_signer_protocol_version() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-    let num_signers = 5;
-
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
-    signer_test.boot_to_epoch_3();
-
-    let conf = signer_test.running_nodes.conf.clone();
-
-    let burnchain = conf.get_burnchain();
-    let sortdb = burnchain.open_sortition_db(true).unwrap();
-
-    let all_signers = signer_test.signer_test_pks();
-    info!(
-        "------------------------- Miner Tenure Starts and Mines Block N-------------------------"
-    );
+fn mine_burn_block_and_confirm_signer_rollover(
+    signer_test: &mut SignerTest<SpawnedSigner>,
+    expected_versions: &[(StacksAddress, u64)],
+) {
     test_observer::clear();
-    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
-
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let burn_consensus_hash = tip.consensus_hash;
-    let burn_height = tip.block_height;
-
-    info!("------------------------- Confirm Miner is the Active Miner in Update and All Signers Are Using Protocol Number {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------");
-    // Verify that signers first sent a bitcoin block update
-    wait_for_state_machine_update(
-        60,
-        &burn_consensus_hash,
-        burn_height,
-        None,
-        &signer_test.signer_addresses_versions(),
-    )
-    .expect("Timed out waiting for signers to send a state update for block N");
-
-    test_observer::clear();
-    let downgraded_version = SUPPORTED_SIGNER_PROTOCOL_VERSION.saturating_sub(1);
-    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 20 Percent of Signers -------------------------");
-    // Take a non blocking minority of signers (20%) and downgrade their version number
-    let pinned_signers: Vec<_> = all_signers
-        .iter()
-        .take(num_signers * 2 / 10)
-        .cloned()
-        .collect();
-    let pinned_signers_versions: HashMap<StacksPublicKey, u64> = pinned_signers
-        .iter()
-        .map(|signer| (signer.clone(), downgraded_version))
-        .collect();
-    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers_versions);
-
-    info!("------------------------- Confirm Signers Still Manage to Sign a Stacks Block With Misaligned Version Numbers -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
-
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let burn_consensus_hash = tip.consensus_hash;
-    let burn_height = tip.block_height;
-    // Only one signer is downgraded so the active protocol version remains the same.
-    wait_for_state_machine_update(
-        60,
-        &burn_consensus_hash,
-        burn_height,
-        None,
-        &signer_test.signer_addresses_versions(),
-    )
-    .expect("Timed out waiting for signers to send their downgraded state update for block N+1");
-
-    test_observer::clear();
-    info!("------------------------- Confirm Signer Version Downgrades Fully Once 70 percent of Signers Downgrade -------------------------");
-    let pinned_signers: Vec<_> = all_signers
-        .iter()
-        .take(num_signers * 7 / 10)
-        .cloned()
-        .collect();
-    let pinned_signers_versions: HashMap<StacksPublicKey, u64> = pinned_signers
-        .iter()
-        .map(|signer| (signer.clone(), downgraded_version))
-        .collect();
-    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(pinned_signers_versions);
-
-    // Not strictly necessary, but makes it easier to logic out if miner doesn't send a proposal until signers are on same page...
     TEST_MINE_SKIP.set(true);
-    info!("------------------------- Confirm Signers Sent Downgraded State Machine Updates -------------------------");
-    // Cannot use any built in functions that call mine_nakamoto_block since it expects signer updates matching the majority version and we are manually messing with these versions
+    info!("------------------------- Mine Bitcoin Block -------------------------");
     signer_test.mine_bitcoin_block();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let burn_consensus_hash = tip.consensus_hash;
-    let burn_height = tip.block_height;
-    // Confirm ALL signers downgrade their supported version and then send a corresponding message in that version message
-    let downgraded_versions: Vec<_> = signer_test
-        .signer_addresses_versions()
-        .into_iter()
-        .map(|(address, _)| (address, downgraded_version))
-        .collect();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(
+        signer_test
+            .running_nodes
+            .conf
+            .get_burnchain()
+            .open_sortition_db(true)
+            .unwrap()
+            .conn(),
+    )
+    .unwrap();
     wait_for_state_machine_update(
         60,
-        &burn_consensus_hash,
-        burn_height,
+        &tip.consensus_hash,
+        tip.block_height,
         None,
-        &downgraded_versions,
+        &expected_versions,
     )
-    .expect("Timed out waiting for signers to send their state update for block N+2");
-
+    .expect("Timed out waiting for signers to send their state updates after a bitcoin block");
     let info = signer_test.get_peer_info();
-    info!("------------------------- Confirm Signers Sign The Block After Complete Downgraded Version Number -------------------------");
+    info!(
+        "------------------------- Mine Tenure Change Stacks Transaction -------------------------"
+    );
     TEST_MINE_SKIP.set(false);
     let expected_miner = StacksPublicKey::from_private(
         &signer_test
@@ -7366,17 +7281,153 @@ fn rollover_signer_protocol_version() {
             .clone()
             .unwrap(),
     );
-    let block = wait_for_block_pushed_by_miner_key(60, info.stacks_tip_height + 1, &expected_miner)
-        .expect("Failed to mine block after downgraded version number.");
-    // Expect ALL signers even after downgrade to approve the proposed blocks
-    wait_for_block_acceptance_from_signers(30, &block.header.signer_signature_hash(), &all_signers)
-        .expect("Failed to confirm all signers accepted last block");
 
-    info!("------------------------- Reset All Signers to {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------");
-    TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION.set(HashMap::new());
-    test_observer::clear();
-    info!("------------------------- Confirm Signers Sign The Block After Upgraded Version Number -------------------------");
-    signer_test.mine_and_verify_confirmed_naka_block(Duration::from_secs(30), num_signers, true);
+    let block = wait_for_block_pushed_by_miner_key(60, info.stacks_tip_height + 1, &expected_miner)
+        .expect("Failed to mine block after upgraded version number.");
+    wait_for_block_acceptance_from_signers(
+        30,
+        &block.header.signer_signature_hash(),
+        &signer_test.signer_test_pks(),
+    )
+    .expect("Failed to confirm all signers accepted block");
+}
+
+/// Tests that signers negotiate their **active** signer protocol version based on the
+/// **majority of locally supported** signer protocol versions.
+///
+/// Scenario (10 signers):
+/// 1) Baseline: all signers start on `SUPPORTED_SIGNER_PROTOCOL_VERSION` and can sign blocks.
+/// 2) Downgrade 30%: non-blocking minority downgraded. Stays at `SUPPORTED_SIGNER_PROTOCOL_VERSION`.
+/// 3) Downgrade 40%: blocking minority downgraded. Downgrades to `SUPPORTED_SIGNER_PROTOCOL_VERSION - 1`.
+/// 4) Upgrade 70%: majority upgraded. Upgrades back to `SUPPORTED_SIGNER_PROTOCOL_VERSION`.
+#[test]
+#[ignore]
+fn downgrade_signer_protocol_version() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    // To make the math easier, use 10 signers
+    let num_signers: usize = 10;
+
+    // Integer percent helper (e.g. 30 => 3 when num_signers=10)
+    fn pct(num_signers: usize, percent: usize) -> usize {
+        (num_signers * percent) / 100
+    }
+
+    // Boot with the most recent supported version
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    signer_test.boot_to_epoch_3();
+
+    info!(
+        "------------------------- Confirm miner tenure continues and all signers use protocol {SUPPORTED_SIGNER_PROTOCOL_VERSION} -------------------------"
+    );
+    let versions = signer_test.signer_addresses_versions();
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &versions);
+
+    let downgraded_version = SUPPORTED_SIGNER_PROTOCOL_VERSION.saturating_sub(1);
+    let downgraded_versions = signer_test
+        .signer_addresses_versions()
+        .into_iter()
+        .map(|(addr, _)| (addr, downgraded_version))
+        .collect::<Vec<_>>();
+    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 30 Percent of Signers -------------------------");
+    // Since only 30 percent downgraded. Active protocol version should stay the same
+    signer_test
+        .restart_first_n_signers_with_supported_version(pct(num_signers, 30), downgraded_version);
+    let versions = signer_test.signer_addresses_versions();
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &versions);
+    info!("------------------------- Downgrading Signer Versions to {downgraded_version} for 40 Percent of Signers -------------------------");
+    // A blocking minority has downgraded, so expect everyone to negotiate to downgraded_version.
+    signer_test
+        .restart_first_n_signers_with_supported_version(pct(num_signers, 40), downgraded_version);
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &downgraded_versions);
+
+    info!("------------------------- Upgrade Signer Versions to {SUPPORTED_SIGNER_PROTOCOL_VERSION} for 70 Percent of Signers -------------------------");
+    signer_test.restart_first_n_signers_with_supported_version(
+        pct(num_signers, 70),
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    );
+    let versions = signer_test.signer_addresses_versions();
+    // A majority of signers have upgraded, expect everyone to negotiate back to the supported version.
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &versions);
+    signer_test.shutdown();
+}
+
+/// Tests the latest activation rollover behavior across different activation
+/// percentages, ensuring that block signing continues as old signers can still communicate with new signers.
+///
+/// Scenario (10 signers):
+/// 1) 30% activated: non-blocking minority activated.
+/// 2) 40% activated: blocking minority activated .
+/// 3) 60% activated: blocking minority unactivated.
+/// 4) 70% activated: non-blocking minority unactivated.
+/// 5) 100% activated: all signers activated.
+#[test]
+#[ignore]
+fn rollover_signer_protocol_version() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // To make the math easier, use 10 signers
+    let num_signers: usize = 10;
+
+    // Integer percent helper (e.g. 30 => 3 when num_signers=10)
+    fn pct(num_signers: usize, percent: usize) -> usize {
+        (num_signers * percent) / 100
+    }
+
+    let old_version = SUPPORTED_SIGNER_PROTOCOL_VERSION.saturating_sub(1);
+    // Start with 30% of signers activated
+    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |signer_config| {
+            // 30% of 10 is 3 signers
+            let activated_signers = pct(num_signers, 30) as u16;
+
+            // signer_nmb in [0, num_signers-1]
+            let signer_nmb = signer_config.endpoint.port() % num_signers as u16;
+
+            let signer_version = if signer_nmb < activated_signers {
+                SUPPORTED_SIGNER_PROTOCOL_VERSION
+            } else {
+                old_version
+            };
+
+            signer_config.supported_signer_protocol_version = signer_version;
+        },
+        |_| {},
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+
+    let old_versions: Vec<_> = signer_test
+        .signer_addresses_versions()
+        .into_iter()
+        .map(|(address, _)| (address, old_version))
+        .collect();
+
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &old_versions);
+
+    for percent in [40, 60, 70] {
+        info!("------------------------- Upgrade to {SUPPORTED_SIGNER_PROTOCOL_VERSION} for {percent}% of signers -------------------------");
+        signer_test.restart_first_n_signers_with_supported_version(
+            pct(num_signers, percent),
+            SUPPORTED_SIGNER_PROTOCOL_VERSION,
+        );
+        mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &old_versions);
+    }
+
+    info!("------------------------- Upgrade to {SUPPORTED_SIGNER_PROTOCOL_VERSION} for 100% of signers -------------------------");
+    signer_test.restart_first_n_signers_with_supported_version(
+        num_signers,
+        SUPPORTED_SIGNER_PROTOCOL_VERSION,
+    );
+    let new_versions = signer_test.signer_addresses_versions();
+    mine_burn_block_and_confirm_signer_rollover(&mut signer_test, &new_versions);
 
     signer_test.shutdown();
 }
@@ -7461,8 +7512,9 @@ fn miner_stackerdb_version_rollover() {
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     info!("------------------------- Pause Miner 1's Block Commit -------------------------");
-
-    // Make sure miner 1 doesn't submit any further block commits for the next tenure BEFORE mining the bitcoin block
+    // Make sure the miner has submitted a commit for the latest burn block and also make sure it pauses
+    // before mining the bitcoin block so that the miner won't accidentally extend its tenure before we pause it.
+    miners.ensure_commit_miner_1(&sortdb);
     miners.pause_commits_miner_1();
 
     info!("------------------------- Miner 1 Wins Normal Tenure A -------------------------");
@@ -7502,7 +7554,7 @@ fn miner_stackerdb_version_rollover() {
     let max_chunk = max_chunk.expect("Should have found a miner stackerdb message from Miner 1");
 
     info!("------------------------- Miner 2 Wins Tenure B -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
@@ -7510,7 +7562,7 @@ fn miner_stackerdb_version_rollover() {
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     info!("------------------------- Miner 2 Wins Tenure C -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
@@ -7518,7 +7570,7 @@ fn miner_stackerdb_version_rollover() {
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     info!("------------------------- Miner 2 Wins Tenure D -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
@@ -7526,7 +7578,7 @@ fn miner_stackerdb_version_rollover() {
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
     info!("----------------- Miner 1 Submits Block Commit ------------------");
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
 
     info!("------------------------- Miner 1 Wins Tenure E -------------------------");
     miners
@@ -7664,13 +7716,7 @@ fn multiversioned_signer_protocol_version_calculation() {
     info!("------------------------- Verifying Signers ONLY Sends Acceptances -------------------------");
     wait_for(30, || {
         let mut nmb_accept = 0;
-        let stackerdb_events = test_observer::get_stackerdb_chunks();
-        for chunk in stackerdb_events
-            .into_iter()
-            .flat_map(|chunk| chunk.modified_slots)
-        {
-            let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                .expect("Failed to deserialize SignerMessage");
+        for (_chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::BlockResponse(response) = message else {
                 continue;
             };
@@ -7807,9 +7853,9 @@ fn signer_loads_stackerdb_updates_on_startup() {
         .signer_test
         .running_nodes
         .counters
-        .naka_skip_commit_op
+        .skip_commit_op
         .clone();
-    let skip_commit_op_rl2 = miners.rl2_counters.naka_skip_commit_op.clone();
+    let skip_commit_op_rl2 = miners.rl2_counters.skip_commit_op.clone();
 
     let (conf_1, _conf_2) = miners.get_node_configs();
     let (miner_pk_1, miner_pk_2) = miners.get_miner_public_keys();
@@ -7854,7 +7900,7 @@ fn signer_loads_stackerdb_updates_on_startup() {
     .expect("Not all signers accepted the block");
 
     info!("------------------------- Miner B Wins Tenure B -------------------------");
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
     // Let's not mine anything until we see consensus on new tenure start.
     TEST_MINE_SKIP.set(true);
     miners.signer_test.mine_bitcoin_block();
@@ -7952,9 +7998,13 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
     let ignore_signers: Vec<_> = ignore_slice.to_vec();
     let pre_commit_signers: Vec<_> = pre_commit_slice.to_vec();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(ignore_signers);
+    // Pause the miner proposing blocks because we need to make sure that the global signer state updates before we evaluate the proposal to ensure
+    // it is isn't immediately rejected under global signer state conditions
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk.clone()]);
     test_observer::clear();
     let blocks_before = test_observer::get_mined_nakamoto_blocks().len();
     let height_before = signer_test.get_peer_info().stacks_tip_height;
+    info!("------------------------- Start Tenure A -------------------------");
     next_block_and(
         &mut signer_test.running_nodes.btc_regtest_controller,
         30,
@@ -7962,19 +8012,24 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
     )
     .unwrap();
 
+    let expected_tenure_id = signer_test.get_peer_info().pox_consensus;
+    wait_for_state_machine_update_by_miner_tenure_id(
+        30,
+        &expected_tenure_id,
+        &signer_test.signer_addresses_versions(),
+    )
+    .expect("Signers failed to update their state for the new tenure");
+    TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let proposal = wait_for_block_proposal_block(30, height_before + 1, &miner_pk)
         .expect("Timed out waiting for block proposal");
     let hash = proposal.header.signer_signature_hash();
+
+    info!("------------------------- Wait for pre-commits for N ({hash})-------------------------");
     wait_for_block_pre_commits_from_signers(30, &hash, &pre_commit_signers)
         .expect("Timed out waiting for pre-commits");
     assert!(
         wait_for(30, || {
-            for chunk in test_observer::get_stackerdb_chunks()
-                .into_iter()
-                .flat_map(|chunk| chunk.modified_slots)
-            {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
+            for (_chunk, message) in get_stackerdb_signer_messages() {
                 if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
                     if accepted.signer_signature_hash == hash {
                         return Ok(true);
@@ -8035,6 +8090,7 @@ fn signers_treat_signatures_as_precommits() {
         "------------------------- Trigger Tenure Change Block Proposal -------------------------"
     );
     signer_test.mine_bitcoin_block();
+    signer_test.wait_for_signer_state_update();
 
     let block_proposal =
         wait_for_block_proposal_block(30, peer_info.stacks_tip_height + 1, &miner_pk)
@@ -8127,12 +8183,7 @@ fn signers_treat_signatures_as_precommits() {
             info!("------------------------- Verifying Operating Signer Issues a Signature ------------------------");
         }
         let result = wait_for(20, || {
-            for chunk in test_observer::get_stackerdb_chunks()
-                .into_iter()
-                .flat_map(|chunk| chunk.modified_slots)
-            {
-                let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                    .expect("Failed to deserialize SignerMessage");
+            for (_chunk, message) in get_stackerdb_signer_messages() {
                 let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message
                 else {
                     continue;
@@ -8191,6 +8242,10 @@ fn burn_block_payload_includes_pox_transactions() {
     let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
 
     info!("---- Starting test -----");
+
+    // Ensure both miners have submitted commits before mining the next BTC block
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)

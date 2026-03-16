@@ -21,7 +21,7 @@ use crate::diagnostic::{DiagnosableError, Diagnostic};
 use crate::errors::{ClarityTypeError, CostErrors};
 use crate::execution_cost::ExecutionCost;
 use crate::representations::SymbolicExpression;
-use crate::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
+use crate::types::{TraitIdentifier, TupleTypeSignature, TypeSignature};
 
 /// What kind of syntax binding was found to be in error?
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -498,6 +498,8 @@ pub enum StaticCheckErrorKind {
     WriteAttemptedInReadOnly,
     /// `at-block` closure must be read-only but contains write operations.
     AtBlockClosureMustBeReadOnly,
+    /// `at-block` is not available in this epoch.
+    AtBlockUnavailable,
 
     // contract post-conditions
     /// Post-condition expects a list of asset allowances but received invalid input.
@@ -567,17 +569,19 @@ pub enum RuntimeCheckErrorKind {
     /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
     TypeError(Box<TypeSignature>, Box<TypeSignature>),
     /// Value does not match the expected type during type-checking.
-    /// The `Box<TypeSignature>` wraps the expected type, and the `Box<Value>` wraps the invalid value.
-    TypeValueError(Box<TypeSignature>, Box<Value>),
+    /// The `Box<TypeSignature>` wraps the expected type, and the `String` is a
+    /// truncated display representation of the invalid value.
+    TypeValueError(Box<TypeSignature>, String),
 
     // Union type mismatch
     /// Value does not belong to the expected union of types during type-checking.
-    /// The `Vec<TypeSignature>` represents the expected types, and the `Box<Value>` wraps the invalid value.
-    UnionTypeValueError(Vec<TypeSignature>, Box<Value>),
+    /// The `Vec<TypeSignature>` represents the expected types, and the `String` is a
+    /// truncated display representation of the invalid value.
+    UnionTypeValueError(Vec<TypeSignature>, String),
 
     /// Expected a contract principal value but found a different value.
-    /// The `Box<Value>` wraps the actual value provided.
-    ExpectedContractPrincipalValue(Box<Value>),
+    /// The `String` is a truncated display representation of the actual value provided.
+    ExpectedContractPrincipalValue(String),
 
     // Match type errors
     /// Could not determine the type of an expression during analysis.
@@ -609,6 +613,8 @@ pub enum RuntimeCheckErrorKind {
     /// Referenced function is not defined in the current scope.
     /// The `String` wraps the non-existent function name.
     UndefinedFunction(String),
+    /// `at-block` is not available in this epoch.
+    AtBlockUnavailable,
 
     // Argument counts
     /// Incorrect number of arguments provided to a function.
@@ -616,6 +622,16 @@ pub enum RuntimeCheckErrorKind {
     IncorrectArgumentCount(usize, usize),
 
     // Traits
+    /// Referenced trait is not defined or cannot be found.
+    /// The `String` wraps the non-existent trait name.
+    /// This is only reachable at runtime via contracts deployed with Clarity 1 as its
+    /// static analysis is not as strict as later clarity versions.
+    TraitReferenceUnknown(String),
+    /// Referenced method does not exist in the specified trait.
+    /// The first `String` wraps the trait name, and the second wraps the method name.
+    /// This is only reachable at runtime via contracts deployed with Clarity 1 as its
+    /// static analysis is not as strict as later clarity versions.
+    TraitMethodUnknown(String, String),
     /// Invalid implementation of a trait method.
     /// The first `String` wraps the trait name, and the second wraps the method name.
     BadTraitImplementation(String, String),
@@ -775,7 +791,9 @@ impl From<ClarityTypeError> for RuntimeCheckErrorKind {
             ClarityTypeError::TypeSignatureTooDeep => Self::TypeSignatureTooDeep,
             ClarityTypeError::ValueOutOfBounds => Self::ValueOutOfBounds,
             ClarityTypeError::DuplicateTupleField(name) => Self::NameAlreadyUsed(name),
-            ClarityTypeError::TypeMismatchValue(ty, value) => Self::TypeValueError(ty, value),
+            ClarityTypeError::TypeMismatchValue(ty, value) => {
+                Self::TypeValueError(ty, value.to_error_string())
+            }
             ClarityTypeError::TypeMismatch(expected, found) => Self::TypeError(expected, found),
             ClarityTypeError::ListTypeMismatch => Self::ListTypesMustMatch,
             ClarityTypeError::InvalidAsciiCharacter(_) => Self::InvalidCharactersDetected,
@@ -1171,6 +1189,7 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::TooManyFunctionParameters(found, allowed) => format!("too many function parameters specified: found {found}, the maximum is {allowed}"),
             StaticCheckErrorKind::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
             StaticCheckErrorKind::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),
+            StaticCheckErrorKind::AtBlockUnavailable => "(at-block ...) is not available in this epoch".into(),
             StaticCheckErrorKind::BadTokenName => "expecting an token name as an argument".into(),
             StaticCheckErrorKind::DefineNFTBadSignature => "(define-asset ...) expects an asset name and an asset identifier type signature as arguments".into(),
             StaticCheckErrorKind::NoSuchNFT(asset_name) => format!("tried to use asset function with a undefined asset ('{asset_name}')"),
