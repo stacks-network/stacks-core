@@ -15,10 +15,11 @@
 
 use std::sync::Arc;
 
-use clarity::vm::types::{PrincipalData, ResponseData, StacksAddressExtensions};
+use clarity::vm::types::{PrincipalData, ResponseData};
 use clarity::vm::{ClarityVersion, Value};
 use madhouse::{Command, CommandWrapper};
-use proptest::prelude::{Just, Strategy};
+use proptest::array::uniform4;
+use proptest::prelude::{any, Just, Strategy};
 
 use super::{unwrap_block_failure, unwrap_multi_tx_success, unwrap_single_tx_success};
 use crate::chainstate::stacks::{
@@ -130,7 +131,9 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for DeployN
 
 /// Originator mode allows the contract to move assets without post-conditions
 /// covering its operations.
-pub struct MintSendOriginatorMode;
+pub struct MintSendOriginatorMode {
+    recipient_seed: [u8; 4],
+}
 
 impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for MintSendOriginatorMode {
     fn check(&self, state: &Epoch33ToEpoch34TestState) -> bool {
@@ -147,7 +150,7 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for MintSen
             "mint-and-send-as-contract",
             &[
                 Value::UInt(nft_id as u128),
-                Value::Principal(FAUCET_ADDRESS.to_account_principal()),
+                Value::Principal(recipient_principal(&self.recipient_seed)),
             ],
             TransactionPostConditionMode::Originator,
             vec![],
@@ -182,13 +185,19 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for MintSen
         _ctx: Arc<Epoch33ToEpoch34TestContext>,
     ) -> impl Strategy<Value = CommandWrapper<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext>>
     {
-        Just(CommandWrapper::new(MintSendOriginatorMode))
+        uniform4(any::<u8>()).prop_map(|seed| {
+            CommandWrapper::new(MintSendOriginatorMode {
+                recipient_seed: seed,
+            })
+        })
     }
 }
 
 /// Same operation under Deny mode fails because the contract's unchecked asset
 /// movement is denied.
-pub struct MintSendDenyMode;
+pub struct MintSendDenyMode {
+    recipient_seed: [u8; 4],
+}
 
 impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for MintSendDenyMode {
     fn check(&self, state: &Epoch33ToEpoch34TestState) -> bool {
@@ -205,7 +214,7 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for MintSen
             "mint-and-send-as-contract",
             &[
                 Value::UInt(nft_id as u128),
-                Value::Principal(FAUCET_ADDRESS.to_account_principal()),
+                Value::Principal(recipient_principal(&self.recipient_seed)),
             ],
             TransactionPostConditionMode::Deny,
             vec![],
@@ -231,7 +240,11 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for MintSen
         _ctx: Arc<Epoch33ToEpoch34TestContext>,
     ) -> impl Strategy<Value = CommandWrapper<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext>>
     {
-        Just(CommandWrapper::new(MintSendDenyMode))
+        uniform4(any::<u8>()).prop_map(|seed| {
+            CommandWrapper::new(MintSendDenyMode {
+                recipient_seed: seed,
+            })
+        })
     }
 }
 
@@ -311,8 +324,11 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext>
         _ctx: Arc<Epoch33ToEpoch34TestContext>,
     ) -> impl Strategy<Value = CommandWrapper<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext>>
     {
-        proptest::array::uniform4(proptest::num::u8::ANY)
-            .prop_map(|seed| CommandWrapper::new(OriginatorSendsWithPostCond { recipient_seed: seed }))
+        uniform4(any::<u8>()).prop_map(|seed| {
+            CommandWrapper::new(OriginatorSendsWithPostCond {
+                recipient_seed: seed,
+            })
+        })
     }
 }
 
@@ -386,8 +402,11 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext>
         _ctx: Arc<Epoch33ToEpoch34TestContext>,
     ) -> impl Strategy<Value = CommandWrapper<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext>>
     {
-        proptest::array::uniform4(proptest::num::u8::ANY)
-            .prop_map(|seed| CommandWrapper::new(SendNftMaybeSentActuallySent { recipient_seed: seed }))
+        uniform4(any::<u8>()).prop_map(|seed| {
+            CommandWrapper::new(SendNftMaybeSentActuallySent {
+                recipient_seed: seed,
+            })
+        })
     }
 }
 
@@ -512,8 +531,11 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for Origina
         _ctx: Arc<Epoch33ToEpoch34TestContext>,
     ) -> impl Strategy<Value = CommandWrapper<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext>>
     {
-        proptest::array::uniform4(proptest::num::u8::ANY)
-            .prop_map(|seed| CommandWrapper::new(OriginatorSendsNoPostCond { recipient_seed: seed }))
+        uniform4(any::<u8>()).prop_map(|seed| {
+            CommandWrapper::new(OriginatorSendsNoPostCond {
+                recipient_seed: seed,
+            })
+        })
     }
 }
 
@@ -655,8 +677,11 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for MultiTx
         _ctx: Arc<Epoch33ToEpoch34TestContext>,
     ) -> impl Strategy<Value = CommandWrapper<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext>>
     {
-        proptest::array::uniform4(proptest::num::u8::ANY)
-            .prop_map(|seed| CommandWrapper::new(MultiTxMintThenSend { recipient_seed: seed }))
+        uniform4(any::<u8>()).prop_map(|seed| {
+            CommandWrapper::new(MultiTxMintThenSend {
+                recipient_seed: seed,
+            })
+        })
     }
 }
 
@@ -742,7 +767,9 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for MultiTx
 
 /// Originator mode applies per-tx, not across a block. tx1 uses Originator
 /// mode (succeeds), tx2 uses Deny mode (post-condition abort).
-pub struct OriginatorMultiTxMixed;
+pub struct OriginatorMultiTxMixed {
+    recipient_seed: [u8; 4],
+}
 
 impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for OriginatorMultiTxMixed {
     fn check(&self, state: &Epoch33ToEpoch34TestState) -> bool {
@@ -761,7 +788,7 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for Origina
             "mint-and-send-as-contract",
             &[
                 Value::UInt(nft_id1 as u128),
-                Value::Principal(FAUCET_ADDRESS.to_account_principal()),
+                Value::Principal(recipient_principal(&self.recipient_seed)),
             ],
             TransactionPostConditionMode::Originator,
             vec![],
@@ -774,7 +801,7 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for Origina
             "mint-and-send-as-contract",
             &[
                 Value::UInt(nft_id2 as u128),
-                Value::Principal(FAUCET_ADDRESS.to_account_principal()),
+                Value::Principal(recipient_principal(&self.recipient_seed)),
             ],
             TransactionPostConditionMode::Deny,
             vec![],
@@ -809,6 +836,10 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for Origina
         _ctx: Arc<Epoch33ToEpoch34TestContext>,
     ) -> impl Strategy<Value = CommandWrapper<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext>>
     {
-        Just(CommandWrapper::new(OriginatorMultiTxMixed))
+        uniform4(any::<u8>()).prop_map(|seed| {
+            CommandWrapper::new(OriginatorMultiTxMixed {
+                recipient_seed: seed,
+            })
+        })
     }
 }
