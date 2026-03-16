@@ -70,30 +70,32 @@ pub fn special_filter(
     let function = lookup_function(function_name, env)?;
 
     match sequence {
-        Value::Sequence(ref mut sequence_data) => {
-            sequence_data
-                .retain_values(
-                    &mut |atom: SymbolicExpression| -> Result<bool, VmExecutionError> {
-                        let filter_eval = apply(&function, &[atom], env, context)?;
-                        if let Value::Bool(include) = filter_eval {
-                            Ok(include)
-                        } else {
-                            Err(RuntimeCheckErrorKind::TypeValueError(
-                                Box::new(BoolType),
-                                Box::new(filter_eval),
-                            )
-                            .into())
+        Value::Sequence(sequence_data) => {
+            sequence = Value::Sequence(
+                sequence_data
+                    .try_retain(
+                        &mut |atom: SymbolicExpression| -> Result<bool, VmExecutionError> {
+                            let filter_eval = apply(&function, &[atom], env, context)?;
+                            if let Value::Bool(include) = filter_eval {
+                                Ok(include)
+                            } else {
+                                Err(RuntimeCheckErrorKind::TypeValueError(
+                                    Box::new(BoolType),
+                                    Box::new(filter_eval),
+                                )
+                                .into())
+                            }
+                        },
+                    )
+                    .map_err(|e| match e {
+                        RetainValuesError::Internal(err) => {
+                            VmExecutionError::Internal(VmInternalError::Expect(format!(
+                                "Internal error occurred while filtering sequence value: {err}"
+                            )))
                         }
-                    },
-                )
-                .map_err(|e| match e {
-                    RetainValuesError::Internal(err) => {
-                        VmExecutionError::Internal(VmInternalError::Expect(format!(
-                            "Internal error occurred while filtering sequence value: {err}"
-                        )))
-                    }
-                    RetainValuesError::Predicate(vm_err) => vm_err,
-                })?;
+                        RetainValuesError::Predicate(vm_err) => vm_err,
+                    })?,
+            );
         }
         _ => {
             return Err(RuntimeCheckErrorKind::Unreachable(format!(

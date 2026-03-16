@@ -333,7 +333,7 @@ pub enum SequenceData {
     String(CharType),
 }
 
-/// A helper to properly propogate errors from retain_values
+/// A helper to properly propagate errors from try_retain
 #[derive(Debug)]
 pub enum RetainValuesError<E> {
     /// An internal error from Clarity type system operations occurred
@@ -541,16 +541,14 @@ impl SequenceData {
         }
     }
 
-    /// Filters the sequence in-place, retaining only elements for which the
-    /// predicate returns `Ok(true)`.
-    ///
-    /// Uses a single forward pass (O(n)): kept elements are swapped to the
-    /// front, then the tail is truncated.
-    ///
-    /// On error the sequence is left in a partially-filtered state — some
-    /// elements may already have been reordered or removed. Callers should
-    /// treat the sequence as invalid after an error.
-    pub fn retain_values<E, F>(&mut self, mut predicate: F) -> Result<(), RetainValuesError<E>>
+    /// Filters the sequence in-place, retaining only elements for which the                                                                                    
+    /// predicate returns `Ok(true)`.                                                                                                                           
+    ///                                                                                                                                                         
+    /// Uses a single forward pass (O(n)): kept elements are swapped to the                                                                                     
+    /// front, then the tail is truncated.                                                                                                                      
+    ///                                                         
+    /// On error the sequence is consumed and cannot be recovered
+    pub fn try_retain<E, F>(mut self, mut predicate: F) -> Result<Self, RetainValuesError<E>>
     where
         F: FnMut(SymbolicExpression) -> Result<bool, E>,
     {
@@ -574,13 +572,13 @@ impl SequenceData {
             }};
         }
 
-        match self {
+        match &mut self {
             SequenceData::Buffer(data) => retain_inner!(data, BuffData),
             SequenceData::List(data) => retain_inner!(data, ListData),
             SequenceData::String(CharType::ASCII(data)) => retain_inner!(data, ASCIIData),
             SequenceData::String(CharType::UTF8(data)) => retain_inner!(data, UTF8Data),
         }
-        Ok(())
+        Ok(self)
     }
 
     pub fn concat(

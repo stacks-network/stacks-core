@@ -245,11 +245,11 @@ fn bench_atom_values_utf8(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
-// retain_values benchmarks (O(n) swap-to-front vs old O(n²) Vec::remove)
+// try_retain benchmarks (O(n) swap-to-front vs old O(n²) Vec::remove)
 // ---------------------------------------------------------------------------
 
-/// Simulates the old O(n²) retain_values: Vec::remove(i) on every discard.
-fn old_retain_values_quadratic(
+/// Simulates the old O(n²) filter: Vec::remove(i) on every discard.
+fn old_retain_quadratic(
     sequence_data: &mut SequenceData,
     predicate: &mut impl FnMut(SymbolicExpression) -> Result<bool, ()>,
 ) {
@@ -276,18 +276,18 @@ fn old_retain_values_quadratic(
     }
 }
 
-/// Uses the new O(n) retain_values (swap-to-front + truncate).
-fn new_retain_values_linear(
-    sequence_data: &mut SequenceData,
+/// Uses the new O(n) try_retain (swap-to-front + truncate).
+fn new_try_retain_linear(
+    sequence_data: SequenceData,
     predicate: &mut impl FnMut(SymbolicExpression) -> Result<bool, ()>,
-) {
+) -> SequenceData {
     sequence_data
-        .retain_values::<(), _>(|sym| predicate(sym))
-        .unwrap();
+        .try_retain::<(), _>(|sym| predicate(sym))
+        .unwrap()
 }
 
-fn bench_retain_values(c: &mut Criterion) {
-    let mut group = c.benchmark_group("retain_values");
+fn bench_try_retain(c: &mut Criterion) {
+    let mut group = c.benchmark_group("try_retain");
 
     // Alternate keep/discard (~50% filtered out).
     let mut counter = 0usize;
@@ -303,7 +303,7 @@ fn bench_retain_values(c: &mut Criterion) {
                     || make_nested_list(outer, inner),
                     |mut seq| {
                         counter = 0;
-                        old_retain_values_quadratic(&mut seq, &mut |_sym| {
+                        old_retain_quadratic(&mut seq, &mut |_sym| {
                             counter += 1;
                             Ok(counter % 2 == 0)
                         });
@@ -320,9 +320,9 @@ fn bench_retain_values(c: &mut Criterion) {
             |b, &(outer, inner)| {
                 b.iter_batched(
                     || make_nested_list(outer, inner),
-                    |mut seq| {
+                    |seq| {
                         counter = 0;
-                        new_retain_values_linear(&mut seq, &mut |_sym| {
+                        let seq = new_try_retain_linear(seq, &mut |_sym| {
                             counter += 1;
                             Ok(counter % 2 == 0)
                         });
@@ -344,6 +344,6 @@ criterion_group!(
     bench_atom_values_buffer,
     bench_atom_values_ascii,
     bench_atom_values_utf8,
-    bench_retain_values,
+    bench_try_retain,
 );
 criterion_main!(benches);
