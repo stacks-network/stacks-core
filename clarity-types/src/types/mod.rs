@@ -57,6 +57,8 @@ pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
 pub const MAX_TYPE_DEPTH: u8 = 32;
 /// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
+/// Maximum byte length for Value string representations in error messages.
+const MAX_ERROR_VALUE_DISPLAY_LEN: usize = 512;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
@@ -1346,6 +1348,21 @@ impl Value {
                 Box::new(TypeSignature::STRING_ASCII_MIN),
                 Box::new(self),
             ))
+        }
+    }
+
+    /// Format as a truncated string for use in error messages.
+    /// Avoids cloning potentially large Values in error paths.
+    pub fn to_error_string(&self) -> String {
+        let full = format!("{self:?}");
+        if full.len() <= MAX_ERROR_VALUE_DISPLAY_LEN {
+            full
+        } else {
+            let end = (0..=MAX_ERROR_VALUE_DISPLAY_LEN)
+                .rev()
+                .find(|&i| full.is_char_boundary(i))
+                .unwrap_or(0);
+            format!("{}...", &full[..end])
         }
     }
 }
