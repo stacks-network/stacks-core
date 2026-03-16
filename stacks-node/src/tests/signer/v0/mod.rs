@@ -8341,18 +8341,153 @@ fn test_vtxindex_zero_acceptance() {
 
     // Wait for signers to reject the block with InvalidParentBlock
     wait_for(30, || {
-        let found = get_stackerdb_signer_messages()
-            .into_iter()
-            .any(|(_chunk, message)| {
-                matches!(
-                    &message,
-                    SignerMessage::BlockResponse(BlockResponse::Rejected(rejection))
-                        if rejection.response_data.reject_reason == RejectReason::InvalidParentBlock
-                )
-            });
-        Ok(found)
+        let chunks = test_observer::get_stackerdb_chunks();
+        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
+            if let SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) = &message {
+                if rejection.response_data.reject_reason == RejectReason::InvalidParentBlock {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     })
     .expect("Expected block to be rejected with InvalidParentBlock");
 
     signer_test.shutdown();
+}
+
+/// Test that when one miner wins a sortition with a bad block commit (vtxindex=0, wrong parent),
+/// signers reject that miner's proposals and the previous miner continues via tenure extend.
+#[test]
+fn test_vtxindex_zero_two_miners() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+
+    let block_proposal_timeout = Duration::from_secs(10);
+    let tenure_extend_wait_timeout = block_proposal_timeout;
+
+    let mut miners = MultipleMinerTest::new_with_config_modifications(
+        num_signers,
+        0,
+        |signer_config| {
+            signer_config.block_proposal_timeout = block_proposal_timeout;
+        },
+        |config| {
+            config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+    );
+
+    let (conf_1, _conf_2) = miners.get_node_configs();
+    let (mining_pkh_1, _mining_pkh_2) = miners.get_miner_public_key_hashes();
+
+    // Pause miner 2 before boot so miner 1 wins initial sortitions.
+    miners.pause_commits_miner_2();
+    miners.boot_to_epoch_3();
+
+    let sortdb = conf_1.get_burnchain().open_sortition_db(true).unwrap();
+    let epoch_34_height =
+        conf_1.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch34].start_height;
+
+    info!("------------------------- Mine to 3.4 start height -------------------------");
+    miners.signer_test.run_until_burnchain_height_nakamoto(
+        Duration::from_secs(60),
+        epoch_34_height,
+        num_signers,
+    );
+
+    info!("------------------------- Miner 1 mines a normal tenure -------------------------");
+    // Pause miner 1 too so we can control commits precisely
+    miners.pause_commits_miner_1();
+
+    miners
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
+        .expect("Miner 1 should mine a normal tenure");
+    verify_sortition_winner(&sortdb, &mining_pkh_1);
+    let stacks_height_before = miners.get_peer_stacks_tip_height();
+
+    info!("------------------------- Miner 2 submits bad commit -------------------------");
+    // Enable fault injection BEFORE miner 2 submits its commit.
+    // Miner 1's commits are already paused so it won't be affected.
+    std::env::set_var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL", "1");
+    std::env::set_var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL", "1");
+
+    // Let miner 2 submit a commit (it will be bad due to fault injection)
+    miners.submit_commit_miner_2(&sortdb);
+
+    // Disable fault injection now that the bad commit is submitted
+    std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL");
+    std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL");
+
+    info!("------------------------- Miner 2 wins sortition with bad commit -------------------------");
+    test_observer::clear();
+
+    // Mine a bitcoin block so miner 2's bad commit wins the sortition
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .expect("Failed to mine bitcoin block");
+
+    info!("------------------------- Verify signers reject miner 2's proposals -------------------------");
+    // Wait for signers to reject miner 2's block with InvalidParentBlock
+    wait_for(60, || {
+        let chunks = test_observer::get_stackerdb_chunks();
+        for chunk in chunks.into_iter().flat_map(|chunk| chunk.modified_slots) {
+            let Ok(message) = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+            else {
+                continue;
+            };
+            if let SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) = &message {
+                if rejection.response_data.reject_reason == RejectReason::InvalidParentBlock {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    })
+    .expect("Expected miner 2's block to be rejected with InvalidParentBlock");
+
+    info!("------------------------- Verify miner 1 extends its tenure -------------------------");
+    // After the block_proposal_timeout expires, signers will accept a tenure extend
+    // from miner 1 (the previous tenure's miner) since miner 2's tenure was rejected.
+    let (mining_pk_1, _) = miners.get_miner_public_keys();
+    wait_for(tenure_extend_wait_timeout.as_secs() + 30, || {
+        Ok(miners.get_peer_stacks_tip_height() > stacks_height_before
+            && last_block_contains_tenure_change_tx(TenureChangeCause::Extended))
+    })
+    .expect("Expected miner 1 to produce a tenure extend");
+
+    // Verify the tenure extend block was actually produced by miner 1
+    let header = get_nakamoto_headers(&conf_1)
+        .into_iter()
+        .last()
+        .unwrap()
+        .anchored_header
+        .as_stacks_nakamoto()
+        .unwrap()
+        .clone();
+    mining_pk_1
+        .verify(
+            header.miner_signature_hash().as_bytes(),
+            &header.miner_signature,
+        )
+        .expect("Tenure extend block should be signed by miner 1");
+
+    info!("Chain continued successfully via tenure extend after bad miner was rejected");
+    miners.shutdown();
 }
