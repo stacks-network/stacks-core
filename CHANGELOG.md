@@ -21,8 +21,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Prepare for epoch 3.4's improved transaction inclusion, allowing transactions with certain errors to be included in blocks which would cause them to be rejected in earlier epochs.
 - Added `marf_compress` as a node configuration parameter to enable MARF compression feature ([#6811](https://github.com/stacks-network/stacks-core/pull/6811))
 - Effective in epoch 3.4 `contract-call?`s can accept a constant as the contract to be called
-- Added post-condition enhancements for epoch 3.4 (SIP-040): `Originator` post-condition mode (`0x03`) and NFT `MAY SEND` condition code (`0x12`), including serialization support and epoch-gated validation/enforcement.
-- Disabled `at-block` starting from Epoch 3.4 (see SIP-042). New contracts referencing `at-block` are rejected during static analysis. Existing contracts that invoke it will fail at runtime with an `AtBlockUnavailable` error.
 
 ### Fixed
 
@@ -34,7 +32,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
-- `/v3/blocks/simulate/{block_id}` and `/v3/block/replay ` no longer emit transaction events for post condition aborted transactions.
 - `EventDispatcher` no longer emits transaction events for post condition aborted transactions.
 
 ## [3.3.0.0.5]
