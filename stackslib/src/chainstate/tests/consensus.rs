@@ -1643,12 +1643,7 @@ macro_rules! contract_call_consensus_test {
     ) => {
         {
              // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
-            // let deploy_epochs = clarity::types::StacksEpochId::since(clarity::types::StacksEpochId::Epoch20);
-
-            // TODO: Remove this once Epoch 3.5 is fully working with pox-5
-            let mut deploy_epochs = clarity::types::StacksEpochId::since(clarity::types::StacksEpochId::Epoch20);
-            deploy_epochs = &deploy_epochs[..deploy_epochs.len() - 1];
-            $(let deploy_epochs = $deploy_epochs;)?
+            let deploy_epochs = clarity::types::StacksEpochId::since(clarity::types::StacksEpochId::Epoch20);
 
             // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
             let call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
