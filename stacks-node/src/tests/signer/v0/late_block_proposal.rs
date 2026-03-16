@@ -88,7 +88,7 @@ fn signer_rejects_proposal_after_block_pushed() {
     let all_signers = signer_test.signer_test_pks();
     let signer_1 = all_signers[0].clone();
     info!("------------------------- Ignore all Proposals for Signer 1 -------------------------"; "signer_public_key" => ?signer_1);
-    signer_test.running_nodes.test_observer.clear();
+    signer_test.get_test_observer().clear();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![signer_1.clone()]);
     info!("------------------------- Force Miner to Send a Block Proposal To Signers -------------------------");
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
@@ -104,7 +104,7 @@ fn signer_rejects_proposal_after_block_pushed() {
     );
     submit_tx(&http_origin, &transfer_tx);
     // Grab the proposal itself so it can be reproposed later
-    let test_observer = &signer_test.running_nodes.test_observer;
+    let test_observer = signer_test.get_test_observer();
     let block_n_proposal = wait_for_block_proposal(
         30,
         info_before.stacks_tip_height + 1,
@@ -161,7 +161,7 @@ fn signer_rejects_proposal_after_block_pushed() {
     );
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![]);
     info!("------------------------- Re-Propose Block N to the Signers -------------------------");
-    let test_observer = &signer_test.running_nodes.test_observer;
+    let test_observer = signer_test.get_test_observer();
     test_observer.clear();
     signer_test.send_block_proposal(block_n_proposal, Duration::from_secs(30));
     info!(

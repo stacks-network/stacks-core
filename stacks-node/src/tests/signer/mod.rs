@@ -602,7 +602,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             peer_info.burn_block_height,
             None,
             &self.signer_addresses_versions_majority(),
-            &self.running_nodes.test_observer,
+            self.get_test_observer(),
         )
         .expect("Signers failed to update to new burn block view");
         TEST_MINE_SKIP.set(was_skipping);
@@ -1199,7 +1199,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             timeout.as_secs(),
             &get_chain_info(&self.running_nodes.conf).pox_consensus,
             &self.signer_addresses_versions_majority(),
-            &self.running_nodes.test_observer,
+            self.get_test_observer(),
         )
         .expect("Failed to update signer state machine");
 
@@ -1248,7 +1248,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         node_counters: &[&Counters],
         timeout: Duration,
     ) {
-        let test_observer = &self.running_nodes.test_observer;
+        let test_observer = self.get_test_observer();
 
         let blocks_len = test_observer.get_blocks().len();
         let mined_block_time = Instant::now();
@@ -1319,7 +1319,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         block_signer_sighash: &Sha512Trunc256Sum,
         timeout: Duration,
     ) -> serde_json::Map<String, serde_json::Value> {
-        let test_observer = &self.running_nodes.test_observer;
+        let test_observer = self.get_test_observer();
         let t_start = Instant::now();
         while t_start.elapsed() <= timeout {
             let blocks = test_observer.get_blocks();
@@ -1346,7 +1346,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     fn wait_for_validate_ok_response(&self, timeout_secs: u64) -> BlockValidateOk {
         // Wait for the block to show up in the test observer
         let mut validate = None;
-        let test_observer = &self.running_nodes.test_observer;
+        let test_observer = self.get_test_observer();
         wait_for(timeout_secs, || {
             let responses = test_observer.get_proposal_responses();
             for response in responses {
@@ -1369,7 +1369,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     ) -> BlockValidateReject {
         // Wait for the block to show up in the test observer
         let mut reject = None;
-        let test_observer = &self.running_nodes.test_observer;
+        let test_observer = self.get_test_observer();
         wait_for(timeout_secs, || {
             let responses = test_observer.get_proposal_responses();
             for response in responses {
@@ -1553,10 +1553,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     }
 
     fn shutdown_and_make_snapshot(mut self, needs_snapshot: bool) {
-        check_nakamoto_empty_block_heuristics(
-            self.stacks_client.mainnet,
-            &self.running_nodes.test_observer,
-        );
+        check_nakamoto_empty_block_heuristics(self.stacks_client.mainnet, self.get_test_observer());
 
         self.running_nodes
             .coord_channel
@@ -1648,8 +1645,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Get miner stackerDB messages
     pub fn get_miner_proposal_messages(&self) -> Vec<BlockProposal> {
         let proposals: Vec<_> = self
-            .running_nodes
-            .test_observer
+            .get_test_observer()
             .get_stackerdb_chunks()
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
@@ -1790,6 +1786,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             self.restart_signer_with_supported_version(idx, version);
         }
         self.wait_for_registered();
+    }
+
+    pub fn get_test_observer(&self) -> &TestObserver {
+        &self.running_nodes.test_observer
     }
 }
 

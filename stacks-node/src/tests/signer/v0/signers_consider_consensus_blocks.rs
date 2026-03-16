@@ -163,7 +163,7 @@ fn signers_do_not_reconsider_globally_accepted_and_responded_blocks() {
         30,
         info_before.stacks_tip_height + 1,
         &miner_pk_1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Failed to mine block N+1");
     info!("------------------------- Check Signer Rejected Due to TestingDirective -------------------------");
@@ -286,19 +286,15 @@ fn signers_respond_to_unprocessed_globally_accepted_block_proposals() {
     miners.signer_test.mine_bitcoin_block();
     miners.signer_test.wait_for_signer_state_update();
     info!("------------------------- Wait for block proposal -------------------------");
-    let block_proposal = wait_for_block_proposal(
-        30,
-        expected_height,
-        &miner_pk_1,
-        &miners.signer_test.running_nodes.test_observer,
-    )
-    .expect("Miner failed to propose tenure start block");
+    let block_proposal =
+        wait_for_block_proposal(30, expected_height, &miner_pk_1, miners.get_test_observer())
+            .expect("Miner failed to propose tenure start block");
     let sighash = block_proposal.block.header.signer_signature_hash();
     wait_for_block_pushed_by_miner_key(
         30,
         expected_height,
         &miner_pk_1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Block proposal was not globally accepted");
     info!(
@@ -437,7 +433,7 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
         30,
         expected_height,
         &miner_pk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Failed to mine block N");
     let expected_height = expected_height.saturating_add(1);
@@ -463,7 +459,7 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
         30,
         expected_height,
         &miner_pk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Miner failed to propose tenure start block");
     let sighash = block_proposal.block.header.signer_signature_hash();
@@ -472,7 +468,7 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
         30,
         &sighash,
         &processing_signers,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Processing signers failed to reject block proposal");
     // Only wait a few seconds longer than it takes for the non-processing signers to reject for the remaining non-processing signer.
@@ -481,7 +477,7 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
             2,
             &sighash,
             &nonprocessing_signers,
-            &signer_test.running_nodes.test_observer
+            signer_test.get_test_observer()
         )
         .is_err(),
         "Non-processing signer should not have pre-committed to block proposal"
@@ -491,7 +487,7 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
             2,
             &sighash,
             &nonprocessing_signers,
-            &signer_test.running_nodes.test_observer
+            signer_test.get_test_observer()
         )
         .is_err(),
         "Non-processing signer should not have signed the block proposal"
@@ -501,7 +497,7 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
             2,
             &sighash,
             &nonprocessing_signers,
-            &signer_test.running_nodes.test_observer
+            signer_test.get_test_observer()
         )
         .is_err(),
         "Non-processing signer should not have rejected the block proposal"
@@ -515,7 +511,7 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
 
     signer_test.send_block_proposal(block_proposal.clone(), Duration::from_secs(20));
     wait_for_block_pre_commits_from_signers(30, &sighash, &nonprocessing_signers,
-        &signer_test.running_nodes.test_observer).expect(
+        signer_test.get_test_observer()).expect(
         "Non-processing signers failed to pre-commit to the block proposal after being allowed to process it",
     );
 
@@ -526,7 +522,7 @@ fn signers_respond_to_unprocessed_globally_rejected_block_proposals() {
         30,
         &sighash,
         &all_signers,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect(
         "Failed to globally accept the block proposal after allowing all signers to process it",

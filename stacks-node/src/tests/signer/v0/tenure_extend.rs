@@ -119,7 +119,7 @@ fn read_count_extend_after_idle_signers() {
     wait_for(idle_timeout.as_secs() + 10, || {
         Ok(last_block_contains_tenure_change_tx(
             TenureChangeCause::ExtendedReadCount,
-            &signer_test.running_nodes.test_observer,
+            signer_test.get_test_observer(),
         ))
     })
     .expect("Timed out waiting for a block with a tenure extend");
@@ -168,7 +168,7 @@ fn tenure_extend_after_idle_signers() {
     wait_for(idle_timeout.as_secs() + 10, || {
         Ok(last_block_contains_tenure_change_tx(
             TenureChangeCause::Extended,
-            &signer_test.running_nodes.test_observer,
+            signer_test.get_test_observer(),
         ))
     })
     .expect("Timed out waiting for a block with a tenure extend");
@@ -270,7 +270,7 @@ fn tenure_extend_with_other_transactions() {
         idle_timeout.as_secs() + 10,
         TenureChangeCause::Extended,
         stacks_tip_height + 2,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for a block with a tenure extend");
     let transactions = block["transactions"].as_array().unwrap();
@@ -329,23 +329,19 @@ fn tenure_extend_after_idle_signers_with_buffer() {
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     // Check the tenure extend timestamps to verify that they have factored in the buffer
-    let blocks = signer_test
-        .running_nodes
-        .test_observer
-        .get_mined_nakamoto_blocks();
+    let blocks = signer_test.get_test_observer().get_mined_nakamoto_blocks();
     let last_block = blocks.last().expect("No blocks mined");
-    let timestamps: HashSet<_> =
-        get_stackerdb_signer_messages(&signer_test.running_nodes.test_observer)
-            .into_iter()
-            .filter_map(|(_chunk, message)| match message {
-                SignerMessage::BlockResponse(BlockResponse::Accepted(accepted))
-                    if accepted.signer_signature_hash == last_block.signer_signature_hash =>
-                {
-                    Some(accepted.response_data.tenure_extend_timestamp)
-                }
-                _ => None,
-            })
-            .collect();
+    let timestamps: HashSet<_> = get_stackerdb_signer_messages(signer_test.get_test_observer())
+        .into_iter()
+        .filter_map(|(_chunk, message)| match message {
+            SignerMessage::BlockResponse(BlockResponse::Accepted(accepted))
+                if accepted.signer_signature_hash == last_block.signer_signature_hash =>
+            {
+                Some(accepted.response_data.tenure_extend_timestamp)
+            }
+            _ => None,
+        })
+        .collect();
     for timestamp in timestamps {
         assert!(
             timestamp >= before_timestamp + buffer.as_secs(),
@@ -361,7 +357,7 @@ fn tenure_extend_after_idle_signers_with_buffer() {
     wait_for((idle_timeout + buffer * 2).as_secs(), || {
         Ok(last_block_contains_tenure_change_tx(
             TenureChangeCause::Extended,
-            &signer_test.running_nodes.test_observer,
+            signer_test.get_test_observer(),
         ))
     })
     .expect("Timed out waiting for a block with a tenure extend");
@@ -431,7 +427,7 @@ fn tenure_extend_after_idle_miner() {
         30,
         TenureChangeCause::BlockFound,
         tip_height_before + 1,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for a block with a tenure change");
 
@@ -443,7 +439,7 @@ fn tenure_extend_after_idle_miner() {
         miner_idle_timeout.as_secs() + 20,
         TenureChangeCause::Extended,
         tip_height_before + 2,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for a block with a tenure extend");
     signer_test.shutdown();
@@ -508,14 +504,14 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
         30,
         stacks_tip_height + 2,
         &miner_pk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for a tenure extend proposal");
     wait_for_block_global_rejection(
         30,
         &proposed_block.header.signer_signature_hash(),
         num_signers,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for a tenure extend proposal to be rejected");
     assert!(proposed_block
@@ -528,7 +524,7 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
     wait_for(idle_timeout.as_secs() + 10, || {
         Ok(last_block_contains_tenure_change_tx(
             TenureChangeCause::Extended,
-            &signer_test.running_nodes.test_observer,
+            signer_test.get_test_observer(),
         ))
     })
     .expect("Test timed out while waiting for an accepted tenure extend");
@@ -594,7 +590,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
     assert_eq!(signer_slot_ids.count(), num_signers);
 
     let get_last_block_hash = || {
-        let blocks = signer_test.running_nodes.test_observer.get_blocks();
+        let blocks = signer_test.get_test_observer().get_blocks();
         let last_block = blocks.last().unwrap();
         let block_hash =
             hex_bytes(&last_block.get("block_hash").unwrap().as_str().unwrap()[2..]).unwrap();
@@ -726,7 +722,7 @@ fn idle_tenure_extend_active_mining() {
 
     info!("---- Getting current idle timeout ----");
 
-    let test_observer = &signer_test.running_nodes.test_observer;
+    let test_observer = signer_test.get_test_observer();
 
     let get_last_block_hash = || {
         let blocks = test_observer.get_blocks();
@@ -1169,7 +1165,7 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
                 short_timeout.as_secs(),
                 &block_signer_signature_hash_tenure_extend,
                 &all_signers,
-                &signer_test.running_nodes.test_observer,
+                signer_test.get_test_observer(),
             )
             .unwrap();
         } else {
@@ -1178,7 +1174,7 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
                 short_timeout.as_secs(),
                 &block_signer_signature_hash_tenure_extend,
                 &all_signers,
-                &signer_test.running_nodes.test_observer,
+                signer_test.get_test_observer(),
             )
             .unwrap();
 
@@ -1332,14 +1328,14 @@ fn tenure_extend_after_stale_commit_different_miner() {
         60,
         tip_a_height + 1,
         &miner_pk_1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .unwrap();
     wait_for_block_global_rejection(
         60,
         &proposed_block.header.signer_signature_hash(),
         num_signers,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .unwrap();
 
@@ -1350,7 +1346,7 @@ fn tenure_extend_after_stale_commit_different_miner() {
         60,
         TenureChangeCause::Extended,
         tip_b_height + 1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .unwrap();
 
@@ -1488,7 +1484,7 @@ fn tenure_extend_after_stale_commit_same_miner() {
         30,
         stacks_height_before + 1,
         &miner_pk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for block proposal in tenure N+1");
 
@@ -1497,7 +1493,7 @@ fn tenure_extend_after_stale_commit_same_miner() {
         30,
         TenureChangeCause::Extended,
         stacks_height_before + 1,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for a TenureExtend block atop tenure N in tenure N+1");
 
@@ -1635,7 +1631,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         30,
         stacks_height_before + 1,
         &miner_pk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for block proposal in tenure N+1");
 
@@ -1644,7 +1640,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         30,
         TenureChangeCause::Extended,
         stacks_height_before + 1,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for a TenureExtend block atop tenure N in tenure N+1");
 
@@ -1669,7 +1665,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         30,
         stacks_height_before + 1,
         &miner_pk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for block proposal in tenure N+1");
 
@@ -1678,7 +1674,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         30,
         TenureChangeCause::Extended,
         stacks_height_before + 1,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for a TenureExtend block atop tenure N in tenure N+2");
 
@@ -1729,7 +1725,7 @@ fn tenure_extend_cost_threshold() {
     wait_for(idle_timeout.as_secs() + 10, || {
         Ok(last_block_contains_tenure_change_tx(
             TenureChangeCause::Extended,
-            &signer_test.running_nodes.test_observer,
+            signer_test.get_test_observer(),
         ))
     })
     .expect_err("Received a tenure extend before cost threshold was reached");
@@ -1766,7 +1762,7 @@ fn tenure_extend_cost_threshold() {
     // Ensure the tenure was not extended in that block
     assert!(!last_block_contains_tenure_change_tx(
         TenureChangeCause::Extended,
-        &signer_test.running_nodes.test_observer
+        signer_test.get_test_observer()
     ));
 
     // Now, lets call the contract a bunch of times to increase the tenure cost
@@ -1789,7 +1785,7 @@ fn tenure_extend_cost_threshold() {
     wait_for(idle_timeout.as_secs() + 10, || {
         Ok(last_block_contains_tenure_change_tx(
             TenureChangeCause::Extended,
-            &signer_test.running_nodes.test_observer,
+            signer_test.get_test_observer(),
         ))
     })
     .expect("Timed out waiting for a block with a tenure extend");
@@ -1869,7 +1865,7 @@ fn tenure_extend_after_failed_miner() {
 
     info!("------------------------- Miner 2 Wins Tenure B, Mines No Blocks -------------------------");
     let stacks_height_before = miners.get_peer_stacks_tip_height();
-    miners.signer_test.running_nodes.test_observer.clear();
+    miners.signer_test.get_test_observer().clear();
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 30)
         .expect("Failed to mine BTC block");
@@ -1888,7 +1884,7 @@ fn tenure_extend_after_failed_miner() {
         info_before.burn_block_height,
         Some((miner_pkh_1.clone(), starting_peer_height)),
         &miners.signer_test.signer_addresses_versions(),
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Failed to update signer state");
     // Re-enable block mining, for both miners.
@@ -1900,7 +1896,7 @@ fn tenure_extend_after_failed_miner() {
         30,
         TenureChangeCause::Extended,
         stacks_height_before + 1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Failed to mine tenure extend tx");
 
@@ -2001,7 +1997,7 @@ fn tenure_extend_after_bad_commit() {
         30,
         TenureChangeCause::BlockFound,
         stacks_height_before + 1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Failed to mine tenure change tx");
 
@@ -2125,7 +2121,7 @@ fn tenure_extend_after_2_bad_commits() {
         30,
         TenureChangeCause::BlockFound,
         stacks_height_before + 1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Failed to mine tenure change tx");
 
@@ -2154,7 +2150,7 @@ fn tenure_extend_after_2_bad_commits() {
         60,
         TenureChangeCause::Extended,
         stacks_height_before + 2,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Failed to mine tenure extend tx");
 
@@ -2183,7 +2179,7 @@ fn tenure_extend_after_2_bad_commits() {
         30,
         TenureChangeCause::Extended,
         stacks_height_before + 1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Failed to mine tenure extend tx");
 
@@ -2291,7 +2287,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_2.clone()]);
 
     info!("------------------------- Miner 2 Mines an Empty Tenure B -------------------------");
-    miners.signer_test.running_nodes.test_observer.clear();
+    miners.signer_test.get_test_observer().clear();
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
         .expect("Timed out waiting for BTC block");
@@ -2311,7 +2307,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
         chain_before.burn_block_height,
         Some((miner_pkh_1, stacks_height_before.saturating_sub(1))),
         &miners.signer_test.signer_addresses_versions(),
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Timed out waiting for Miner 2 be marked Invalid");
 
@@ -2326,7 +2322,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
         stacks_height_before + 1,
         &miner_pk_1,
         || miners.get_peer_info().stacks_tip,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Timed out waiting for block proposal N+1 from miner 1");
 
@@ -2334,7 +2330,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
         30,
         stacks_height_before + 1,
         &miner_pk_2,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Timed out waiting for block proposal N+1' from miner 2");
     info!("------------------------- Verify Miner 2's N+1' was Rejected -------------------------");
@@ -2342,7 +2338,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
         30,
         &miner_2_block_n_1.header.signer_signature_hash(),
         num_signers,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Timed out waiting for global rejection of Miner 2's block N+1'");
 
@@ -2351,7 +2347,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
     );
     verify_last_block_contains_tenure_change_tx(
         TenureChangeCause::Extended,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     );
 
     info!("------------------------- Unpause Miner 2's Block Commits -------------------------");
@@ -2500,7 +2496,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
         30,
         stacks_height_before + 1,
         &miner_pk_1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Timed out waiting for N+1' block proposal from miner 1");
     assert!(miner_1_block_n_1
@@ -2515,7 +2511,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
         30,
         &miner_1_block_n_1.header.signer_signature_hash(),
         num_signers,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Timed out waiting for Block N+1' to be globally rejected");
 
@@ -2539,7 +2535,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
         stacks_height_before + 1,
         &miner_pk_2,
         || miners.get_peer_info().stacks_tip,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Timed out waiting for Block N+1 to be pushed");
 
@@ -2548,7 +2544,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
     );
     verify_last_block_contains_tenure_change_tx(
         TenureChangeCause::BlockFound,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     );
 
     info!("------------------------- Unpause Miner 2's Block Commits -------------------------");
@@ -2568,7 +2564,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
     );
     verify_last_block_contains_tenure_change_tx(
         TenureChangeCause::BlockFound,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     );
 
     info!(
@@ -2689,7 +2685,7 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
         stacks_height_before + 1,
         &miner_pk_2,
         || miners.get_peer_info().stacks_tip,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Timed out waiting for N+1 block to be approved");
     let peer_info = miners.get_peer_info();
@@ -2707,7 +2703,7 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
             30,
             stacks_height_before + 1,
             &miner_pk_1,
-            &miners.signer_test.running_nodes.test_observer
+            miners.get_test_observer()
         )
         .is_err(),
         "Miner 1 should not have proposed a block N+1'"
@@ -2789,7 +2785,7 @@ fn continue_after_tenure_extend() {
         30,
         TenureChangeCause::Extended,
         stacks_height_before + 2,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for tenure change tx");
 
@@ -2812,7 +2808,7 @@ fn continue_after_tenure_extend() {
             30,
             stacks_height_before + 1,
             &miner_pk,
-            &signer_test.running_nodes.test_observer,
+            signer_test.get_test_observer(),
         )
         .expect("Timed out waiting to mine block");
     }
@@ -2909,8 +2905,7 @@ fn burn_block_height_behavior() {
     // Wait for the call tx to be mined in a new Nakamoto block
     wait_for(60, || {
         signer_test
-            .running_nodes
-            .test_observer
+            .get_test_observer()
             .get_mined_nakamoto_blocks()
             .last()
             .and_then(|block| {
@@ -2991,14 +2986,11 @@ fn burn_block_height_behavior() {
         60,
         TenureChangeCause::Extended,
         stacks_height_before + 1,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for tenure extend");
 
-    let blocks = signer_test
-        .running_nodes
-        .test_observer
-        .get_mined_nakamoto_blocks();
+    let blocks = signer_test.get_test_observer().get_mined_nakamoto_blocks();
     let last_block = blocks.last().unwrap();
     let txs = &last_block.tx_events;
     assert_eq!(txs.len(), 2, "Expected 2 txs in the tenure extend block");
@@ -3143,7 +3135,7 @@ fn new_tenure_no_winner_while_proposing_block() {
         30,
         stacks_height_before + 1,
         &miner_pk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for block proposal in tenure N");
 
@@ -3158,7 +3150,7 @@ fn new_tenure_no_winner_while_proposing_block() {
         info_after.burn_block_height,
         None,
         &signer_test.signer_addresses_versions(),
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for the signers to update their state");
 
@@ -3170,7 +3162,7 @@ fn new_tenure_no_winner_while_proposing_block() {
         30,
         &proposed_block.header.signer_signature_hash(),
         &signer_test.signer_test_pks(),
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for block acceptance after unpausing validation");
 
@@ -3183,7 +3175,7 @@ fn new_tenure_no_winner_while_proposing_block() {
         30,
         TenureChangeCause::Extended,
         proposed_block.header.chain_length + 1,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for a TenureExtend block atop tenure N in tenure N+1");
 
@@ -3320,7 +3312,7 @@ fn new_tenure_no_winner_while_proposing_block_then_rejected() {
         30,
         stacks_height_before + 1,
         &miner_pk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for block proposal in tenure N");
     info!(
@@ -3346,7 +3338,7 @@ fn new_tenure_no_winner_while_proposing_block_then_rejected() {
         30,
         &proposed_block.header.signer_signature_hash(),
         num_signers,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for block rejection after unpausing validation");
 
@@ -3365,7 +3357,7 @@ fn new_tenure_no_winner_while_proposing_block_then_rejected() {
         30,
         TenureChangeCause::Extended,
         proposed_block.header.chain_length,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for a TenureExtend block atop tenure N in tenure N+1");
 
@@ -3509,7 +3501,7 @@ fn new_tenure_no_winner_while_proposing_block_then_ignored() {
         30,
         stacks_height_before + 1,
         &miner_pk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for block proposal in tenure N");
     info!(
@@ -3545,7 +3537,7 @@ fn new_tenure_no_winner_while_proposing_block_then_ignored() {
         30,
         TenureChangeCause::Extended,
         proposed_block.header.chain_length,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Timed out waiting for a TenureExtend block atop tenure N in tenure N+1");
 
@@ -3747,7 +3739,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         burn_height_before + 1,
         Some((expected_pkh, stacks_tip_height)),
         &short_timeout_signers,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Short-timeout signers failed to update state machine");
 
@@ -3756,7 +3748,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         // then miner 1 extends successfully
 
         // Clear stale observer data before unstalling so we only see new events
-        miners.signer_test.running_nodes.test_observer.clear();
+        miners.signer_test.get_test_observer().clear();
         // Allow miner 2 to attempt to start their tenure (keep miner 1 stalled).
         TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk_1.clone()]);
 
@@ -3767,7 +3759,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
             30,
             stacks_height_before + 1,
             &miner_pk_2,
-            &miners.signer_test.running_nodes.test_observer,
+            miners.get_test_observer(),
         )
         .expect("Miner 2 did not propose Block N+1'");
 
@@ -3782,7 +3774,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
             30,
             &miner_2_block_n_1.header.signer_signature_hash(),
             num_signers,
-            &miners.signer_test.running_nodes.test_observer,
+            miners.get_test_observer(),
         )
         .expect("Timed out waiting for Block N+1' to be globally rejected");
 
@@ -3793,7 +3785,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         );
 
         // Clear stale observer data before unstalling so we only see new events
-        miners.signer_test.running_nodes.test_observer.clear();
+        miners.signer_test.get_test_observer().clear();
         TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
         let _miner_1_block_n_1 = wait_for_block_pushed_and_tip(
@@ -3801,7 +3793,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
             stacks_height_before + 1,
             &miner_pk_1,
             || miners.get_peer_info().stacks_tip,
-            &miners.signer_test.running_nodes.test_observer,
+            miners.get_test_observer(),
         )
         .expect("Timed out waiting for Miner 1 to mine N+1");
 
@@ -3810,7 +3802,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         );
         verify_last_block_contains_tenure_change_tx(
             TenureChangeCause::Extended,
-            &miners.signer_test.running_nodes.test_observer,
+            miners.get_test_observer(),
         );
     } else {
         // FavourPrevMiner / FavourPrevMinerV1: miner 1 extends first and gets rejected,
@@ -3823,7 +3815,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
             30,
             stacks_height_before + 1,
             &miner_pk_1,
-            &miners.signer_test.running_nodes.test_observer,
+            miners.get_test_observer(),
         )
         .expect("Miner 1 failed to propose block N+1'");
         assert!(miner_1_block_n_1_prime
@@ -3838,7 +3830,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
                 30,
                 &miner_1_block_n_1_prime.header.signer_signature_hash(),
                 &all_signers,
-                &miners.signer_test.running_nodes.test_observer,
+                miners.get_test_observer(),
             )
             .expect("Failed to reach rejection consensus for Miner 1's Block N+1'");
         } else {
@@ -3846,7 +3838,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
                 30,
                 &miner_1_block_n_1_prime.header.signer_signature_hash(),
                 num_signers,
-                &miners.signer_test.running_nodes.test_observer,
+                miners.get_test_observer(),
             )
             .expect("Failed to reach rejection consensus for Miner 1's Block N+1'");
         }
@@ -3866,7 +3858,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
             stacks_height_before + 1,
             &miner_pk_2,
             || miners.get_peer_info().stacks_tip,
-            &miners.signer_test.running_nodes.test_observer,
+            miners.get_test_observer(),
         )
         .expect("Miner 2's block N+1 was not mined");
 
@@ -3878,7 +3870,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
                 30,
                 &miner_2_block_n_1.header.signer_signature_hash(),
                 &all_signers,
-                &miners.signer_test.running_nodes.test_observer,
+                miners.get_test_observer(),
             )
             .expect("Failed to get expected acceptances for Miner 2's block N+1.");
         } else {
@@ -3889,7 +3881,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
                 30,
                 &miner_2_block_n_1.header.signer_signature_hash(),
                 non_block_minority,
-                &miners.signer_test.running_nodes.test_observer,
+                miners.get_test_observer(),
             )
             .expect("Failed to get expected rejections for Miner 2's block N+1.");
         }
@@ -3899,7 +3891,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         );
         verify_last_block_contains_tenure_change_tx(
             TenureChangeCause::BlockFound,
-            &miners.signer_test.running_nodes.test_observer,
+            miners.get_test_observer(),
         );
     }
 
@@ -3920,7 +3912,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         stacks_height_before + 1,
         continuing_miner_pk,
         || miners.get_peer_info().stacks_tip,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Timed out waiting for block N+2");
 
@@ -3933,7 +3925,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
             30,
             &block_n_2.header.signer_signature_hash(),
             non_block_minority,
-            &miners.signer_test.running_nodes.test_observer,
+            miners.get_test_observer(),
         )
         .expect("Failed to get expected rejections for block N+2.");
     }
@@ -3964,7 +3956,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
     );
     verify_last_block_contains_tenure_change_tx(
         TenureChangeCause::BlockFound,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     );
 
     info!(
@@ -4172,7 +4164,7 @@ fn empty_sortition_before_approval() {
     wait_for(60, || {
         Ok(last_block_contains_tenure_change_tx(
             TenureChangeCause::Extended,
-            &signer_test.running_nodes.test_observer,
+            signer_test.get_test_observer(),
         ))
     })
     .expect("Timed out waiting for tenure extend");
@@ -4291,7 +4283,7 @@ fn empty_sortition_before_proposal() {
 
     // Wait for a block with a tenure extend to be mined
     wait_for(60, || {
-        let blocks = signer_test.running_nodes.test_observer.get_blocks();
+        let blocks = signer_test.get_test_observer().get_blocks();
         let last_block = blocks.last().unwrap();
         info!("Last block mined: {:?}", last_block);
         for tx in last_block["transactions"].as_array().unwrap() {
@@ -4480,14 +4472,14 @@ fn continue_after_fast_block_no_sortition() {
         30,
         stacks_height_before + 1,
         &miner_pk_2,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Failed to get Miner 2's Block Proposal");
     wait_for_block_global_rejection(
         30,
         &miner_2_block.header.signer_signature_hash(),
         num_signers,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Failed to get expected block rejections for Miner 2's block proposal");
 
@@ -4540,7 +4532,7 @@ fn continue_after_fast_block_no_sortition() {
         30,
         stacks_height_before + 1,
         &miner_pk_2,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Did not mine Miner 2's Block N+1");
 
@@ -4560,7 +4552,7 @@ fn continue_after_fast_block_no_sortition() {
         stacks_height_before + 2,
         &miner_pk_2,
         || miners.get_peer_info().stacks_tip,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Did not mine Miner 2's Block N+2");
 
@@ -4585,7 +4577,7 @@ fn continue_after_fast_block_no_sortition() {
         stacks_height_before + 3,
         &miner_pk_2,
         || miners.get_peer_info().stacks_tip,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Did not mine Miner 2's Block N+3");
     assert!(block_n_3
@@ -5095,14 +5087,14 @@ fn read_count_extend_after_burn_view_change() {
         60,
         tip_a_height + 1,
         &miner_pk_1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .unwrap();
     wait_for_block_global_rejection(
         60,
         &proposed_block.header.signer_signature_hash(),
         num_signers,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .unwrap();
 
@@ -5113,7 +5105,7 @@ fn read_count_extend_after_burn_view_change() {
         60,
         TenureChangeCause::Extended,
         tip_b_height + 1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .unwrap();
 
@@ -5127,7 +5119,7 @@ fn read_count_extend_after_burn_view_change() {
     wait_for(idle_timeout.as_secs() + 10, || {
         Ok(last_block_contains_tenure_change_tx(
             TenureChangeCause::ExtendedReadCount,
-            &miners.signer_test.running_nodes.test_observer,
+            miners.get_test_observer(),
         ))
     })
     .expect("Timed out waiting for a block with a tenure extend");

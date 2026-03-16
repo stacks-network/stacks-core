@@ -92,7 +92,7 @@ fn signers_reprocess_late_block_proposals_pre_commits() {
         30,
         expected_height,
         &miner_pk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Miner failed to propose tenure start block");
     let sighash = block_proposal.block.header.signer_signature_hash();
@@ -101,7 +101,7 @@ fn signers_reprocess_late_block_proposals_pre_commits() {
         30,
         &sighash,
         &non_ignoring_signers,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Non-ignoring signers failed to pre-commit to block proposal");
     // Only wait a few seconds longer than it takes for the non-ignoring signers to pre-commit to ensure the ignoring signers are not pre-committing
@@ -110,7 +110,7 @@ fn signers_reprocess_late_block_proposals_pre_commits() {
             5,
             &sighash,
             &ignoring_signers,
-            &signer_test.running_nodes.test_observer
+            signer_test.get_test_observer()
         )
         .is_err(),
         "Ignoring signers should not have pre-committed to block proposal"
@@ -126,7 +126,7 @@ fn signers_reprocess_late_block_proposals_pre_commits() {
         30,
         &sighash,
         &all_signers,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("All signers should have accepted the block proposal after it was reproposed");
     info!("------------------------- Wait for block pushed -------------------------");
@@ -135,7 +135,7 @@ fn signers_reprocess_late_block_proposals_pre_commits() {
         expected_height,
         &miner_pk,
         || signer_test.get_peer_info().stacks_tip,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Block should have been pushed to the node after being accepted by all signers");
 }
@@ -202,7 +202,7 @@ fn signers_reprocess_late_block_proposals_signatures() {
         30,
         expected_height,
         &miner_pk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Miner failed to propose tenure start block");
     let sighash = block_proposal.block.header.signer_signature_hash();
@@ -213,14 +213,14 @@ fn signers_reprocess_late_block_proposals_signatures() {
         30,
         &sighash,
         &non_ignoring_signers,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Non-ignoring signers failed to pre-commit to block proposal");
     wait_for_block_acceptance_from_signers(
         30,
         &sighash,
         &non_ignoring_signers,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Non-ignoring signers failed to sign the block proposal");
     // Only wait a few seconds longer than it takes for the non-ignoring signers to pre-commit/sign
@@ -230,7 +230,7 @@ fn signers_reprocess_late_block_proposals_signatures() {
             5,
             &sighash,
             &ignoring_signers,
-            &signer_test.running_nodes.test_observer
+            signer_test.get_test_observer()
         )
         .is_err(),
         "Ignoring signer should not have pre-committed to block proposal"
@@ -240,7 +240,7 @@ fn signers_reprocess_late_block_proposals_signatures() {
             5,
             &sighash,
             &ignoring_signers,
-            &signer_test.running_nodes.test_observer
+            signer_test.get_test_observer()
         )
         .is_err(),
         "Ignoring signer should not have signed the block proposal"
@@ -259,12 +259,12 @@ fn signers_reprocess_late_block_proposals_signatures() {
         30,
         &sighash,
         &ignoring_signers,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Ignoring signer should have accepted the block proposal after it was reproposed");
     info!("------------------------- Wait for block pushed -------------------------");
     wait_for_block_pushed_and_tip(30, expected_height, &miner_pk, || {
         signer_test.get_peer_info().stacks_tip
-    },&signer_test.running_nodes.test_observer)
+    },signer_test.get_test_observer())
     .expect("Block should have been pushed to the node after the threshold was exceeded by the late signer");
 }

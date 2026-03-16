@@ -11515,7 +11515,7 @@ fn test_tenure_extend_from_flashblocks() {
 
     // transactions are all mined, and all reflect the flash block's burn view.
     // we had a tenure-extend as well.
-    let mut blocks = signer_test.running_nodes.test_observer.get_blocks();
+    let mut blocks = signer_test.get_test_observer().get_blocks();
     blocks.sort_by_key(|block| block["block_height"].as_u64().unwrap());
 
     let mut included_txids = HashSet::new();

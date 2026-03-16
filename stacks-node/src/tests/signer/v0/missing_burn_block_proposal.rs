@@ -104,7 +104,7 @@ fn signer_reevaluates_proposal_with_missing_burn_view() {
         30,
         info_before.stacks_tip_height + 1,
         &miner_pubk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Miner 2 did not propose a tenure change block");
     // Pause the proposal again for granular control
@@ -113,7 +113,7 @@ fn signer_reevaluates_proposal_with_missing_burn_view() {
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![]);
 
     info!("------------------------- Re-propose block proposal with bad burn view consensus hash -------------------------");
-    signer_test.running_nodes.test_observer.clear();
+    signer_test.get_test_observer().clear();
     let mut block = block_proposal.block.clone();
     let mut tenure_change_tx = block.txs[0].clone();
     let mut tenure_change_payload = tenure_change_tx.try_as_tenure_change().unwrap().clone();
@@ -140,7 +140,7 @@ fn signer_reevaluates_proposal_with_missing_burn_view() {
         30,
         info_before.stacks_tip_height + 1,
         &miner_pubk,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Miner did not propose a tenure change block");
 
@@ -153,7 +153,7 @@ fn signer_reevaluates_proposal_with_missing_burn_view() {
         30,
         &proposed_sighash,
         &all_signers,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Failed to find block rejections from all signers for the reproposed block");
     rejections.iter().for_each(|rejection| {
@@ -166,13 +166,13 @@ fn signer_reevaluates_proposal_with_missing_burn_view() {
 
     info!("------------------------- Confirm signers reprocess the block after reproposed even though Rejected previously with NotFoundError -------------------------");
     // This used to return "RejectedInPriorRound" but now that we allow the NotFoundError to be reprocessed it should reply with the same error again
-    signer_test.running_nodes.test_observer.clear();
+    signer_test.get_test_observer().clear();
     signer_test.propose_block(block, Duration::from_secs(30));
     let rejections = wait_for_block_rejections_from_signers(
         30,
         &proposed_sighash,
         &all_signers,
-        &signer_test.running_nodes.test_observer,
+        signer_test.get_test_observer(),
     )
     .expect("Failed to find block rejections from all signers for the reproposed block");
     rejections.iter().for_each(|rejection| {

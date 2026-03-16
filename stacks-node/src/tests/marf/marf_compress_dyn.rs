@@ -275,11 +275,10 @@ pub mod utils {
         info!("Sending transfers took {:?}", timer.elapsed());
 
         let proposed_blocks_before = signer_test
-            .running_nodes
-            .test_observer
+            .get_test_observer()
             .get_mined_nakamoto_blocks()
             .len();
-        let blocks_before = signer_test.running_nodes.test_observer.get_blocks().len();
+        let blocks_before = signer_test.get_test_observer().get_blocks().len();
 
         info!("Mining transfers...");
 
@@ -289,18 +288,14 @@ pub mod utils {
         // Wait for the first block to be proposed.
         wait_for(30, || {
             let proposed_blocks = signer_test
-                .running_nodes
-                .test_observer
+                .get_test_observer()
                 .get_mined_nakamoto_blocks()
                 .len();
             Ok(proposed_blocks > proposed_blocks_before)
         })
         .expect("Timed out waiting for first block to be mined");
 
-        let blocks = signer_test
-            .running_nodes
-            .test_observer
-            .get_mined_nakamoto_blocks();
+        let blocks = signer_test.get_test_observer().get_mined_nakamoto_blocks();
         let last_block = blocks.last().unwrap();
         info!(
             "First block contains {} transactions",
@@ -312,7 +307,7 @@ pub mod utils {
 
         // Wait for the first block to be accepted.
         wait_for(60, || {
-            let blocks = signer_test.running_nodes.test_observer.get_blocks().len();
+            let blocks = signer_test.get_test_observer().get_blocks().len();
             Ok(blocks > blocks_before)
         })
         .expect("Timed out waiting for first block to be mined");

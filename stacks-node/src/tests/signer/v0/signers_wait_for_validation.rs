@@ -145,7 +145,7 @@ fn signer_waits_for_validation_before_signing() {
         30,
         info_before.stacks_tip_height + 1,
         &miner_pk_1,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Failed to mine block N+1");
     let signer_signature_hash = block.header.signer_signature_hash();
@@ -154,16 +154,14 @@ fn signer_waits_for_validation_before_signing() {
         30,
         &signer_signature_hash,
         &approving_signers,
-        &miners.signer_test.running_nodes.test_observer,
+        miners.get_test_observer(),
     )
     .expect("Failed to receive pre-commits from approving signers");
     // We only wait a small amount of time for each of these checks since we already received block commits from everyone else.
     let stalled_pk = stalled_signer[0].clone();
     assert!(
         wait_for(15, || {
-            for (chunk, message) in
-                get_stackerdb_signer_messages(&miners.signer_test.running_nodes.test_observer)
-            {
+            for (chunk, message) in get_stackerdb_signer_messages(miners.get_test_observer()) {
                 let pk = chunk.recover_pk().expect("Failed to recover pk");
                 if stalled_pk != pk {
                     continue;
@@ -206,9 +204,7 @@ fn signer_waits_for_validation_before_signing() {
     let mut found_commit = false;
     let mut found_accept = false;
     wait_for(15, || {
-        for (chunk, message) in
-            get_stackerdb_signer_messages(&miners.signer_test.running_nodes.test_observer)
-        {
+        for (chunk, message) in get_stackerdb_signer_messages(miners.get_test_observer()) {
             let pk = chunk.recover_pk().expect("Failed to recover pk");
             if stalled_pk != pk {
                 continue;
