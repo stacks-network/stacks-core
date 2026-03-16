@@ -1,10 +1,11 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
 expression: result
+snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "7c0dcc19543ecca0386f4e3cc052e097cc11f8633787e51bde1e021915f965fa",
+    marf_hash: "675907f235c06197885c8521c39814c432bf96e0d0ce570460a6aff81a019040",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -32,7 +33,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "72bc1062d04aba71e6dd6699d63e92a38894aee94ef51d79d5438b0722d7e5db",
+    marf_hash: "088d777cd6ce9d84adf1fdeec618494023ac0cea37c4e6417dd83fb00c2f3924",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -62,7 +63,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "64ec44e03d744d59d4629ad22d70ff01263a4af5bedfb8192984181362225beb",
+    marf_hash: "ad72a2858e0a02530309b23410d08cad306b6b28ebd992d19101b0786ea23766",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -90,7 +91,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e24698534c6f82a04c15065c88d41a426b96e1661cb33d604dd8383d88a14a6d",
+    marf_hash: "2acb68aae16c3b00155c153aa48affff54078dea8bef43e2e8a3d387c420a56c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -118,7 +119,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5c6fbeb714440539d014260f65fcbf10481f493706fec5ffbff9341f67b19f22",
+    marf_hash: "56e7c942b8c390ddf45b28ca796697daabe0370ca8e10ce14a06d06172fd7967",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -148,7 +149,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "814952523b5aca883aec6b596188c48186ebcc2b3467ca67ab0ca28f93539b6a",
+    marf_hash: "453f604bff2f1aaab3bd1194afa421a2e20d782d5b7468e647338ba9c57e3cfa",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -178,7 +179,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "134f105599e96f2d2dfbbb650111a518698f4030c4e0ee51a55291c7c49eb1ee",
+    marf_hash: "d2010e4df4b0914ba3859878c72fe969594ec1212d6971faa627e71e56e7ca44",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -205,6 +206,62 @@ expression: result
       read_length: 267,
       read_count: 3,
       runtime: 5282,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4a1da769a47b31d1cb935819268f932c97be8346d30156626db90a5afcf42709",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-2-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 296,
+          write_count: 2,
+          read_length: 3,
+          read_count: 2,
+          runtime: 20202,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 296,
+      write_count: 2,
+      read_length: 3,
+      read_count: 2,
+      runtime: 20202,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3c97ff036901103976afc1cf18fc19dca2e6fa88e264b4674f70e9026945ad4e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-2-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 296,
+          write_count: 2,
+          read_length: 3,
+          read_count: 2,
+          runtime: 20202,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 296,
+      write_count: 2,
+      read_length: 3,
+      read_count: 2,
+      runtime: 20202,
     ),
   )),
 ]
