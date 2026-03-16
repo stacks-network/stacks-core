@@ -66,11 +66,10 @@ fn test_simple_buff_to_int_le() {
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "wrong-type".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "wrong-type".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
@@ -83,9 +82,10 @@ fn test_simple_buff_to_int_le() {
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
-            })))
+            }))
+            .to_error_string()
         )
         .into()
     );
@@ -124,11 +124,10 @@ fn test_simple_buff_to_uint_le() {
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "wrong-type".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "wrong-type".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
@@ -141,9 +140,10 @@ fn test_simple_buff_to_uint_le() {
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
-            })))
+            }))
+            .to_error_string()
         )
         .into()
     );
@@ -182,11 +182,10 @@ fn test_simple_buff_to_int_be() {
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "wrong-type".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "wrong-type".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
@@ -199,9 +198,10 @@ fn test_simple_buff_to_int_be() {
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
-            })))
+            }))
+            .to_error_string()
         )
         .into()
     );
@@ -240,11 +240,10 @@ fn test_simple_buff_to_uint_be() {
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "wrong-type".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "wrong-type".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
@@ -257,9 +256,10 @@ fn test_simple_buff_to_uint_be() {
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32).unwrap()
             ))),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
-            })))
+            }))
+            .to_error_string()
         )
         .into()
     );
@@ -324,7 +324,7 @@ fn test_simple_string_to_int() {
                 TypeSignature::STRING_ASCII_MAX,
                 TypeSignature::STRING_UTF8_MAX,
             ],
-            Box::new(Value::Int(1))
+            Value::Int(1).to_error_string()
         )
         .into()
     );
@@ -389,7 +389,7 @@ fn test_simple_string_to_uint() {
                 TypeSignature::STRING_ASCII_MAX,
                 TypeSignature::STRING_UTF8_MAX,
             ],
-            Box::new(Value::Int(1))
+            Value::Int(1).to_error_string()
         )
         .into()
     );
@@ -420,11 +420,10 @@ fn test_simple_int_to_ascii() {
         execute_v2(wrong_type_error_test).unwrap_err(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "1".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "1".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
@@ -455,11 +454,10 @@ fn test_simple_int_to_utf8() {
         execute_v2(wrong_type_error_test).unwrap_err(),
         RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "1".as_bytes().to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "1".as_bytes().to_vec()
+            })))
+            .to_error_string()
         )
         .into()
     );
