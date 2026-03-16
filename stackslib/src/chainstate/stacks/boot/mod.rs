@@ -844,7 +844,8 @@ impl StacksChainState {
         }
 
         let signer_set = match pox_version {
-            PoxVersions::Pox5 => Self::make_signer_set_pox_5(threshold, &addresses),
+            // TODO [Pox5]: Use `Self::make_signer_set_pox_5` once Epoch 3.5 is fully working with pox-5
+            // PoxVersions::Pox5 => Self::make_signer_set_pox_5(threshold, &addresses),
             _ => Self::make_signer_set(threshold, &addresses),
         };
 

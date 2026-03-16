@@ -1760,13 +1760,13 @@ impl<'a> TestChainstate<'a> {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch34,
                 start_height: first_burnchain_height + 4,
-                end_height: first_burnchain_height + 5,
+                end_height: first_burnchain_height + 20,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_3_4,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch35,
-                start_height: first_burnchain_height + 5,
+                start_height: first_burnchain_height + 20,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_3_5,
