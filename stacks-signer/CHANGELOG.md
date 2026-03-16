@@ -5,22 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
-
-### Fixed
-- Fixed signer database migration 19 that could leave the database in corrupted, unrecoverable state.
-
 ## [3.3.0.0.6.0]
 
 ### Added
 
 - Add support for tracking pending block responses for up to 3 unique untracked blocks per signer address. This improves handling of late block proposals by allowing the signer to process previously seen responses for blocks that were not being tracked.
 - Added `approved_time` column to the `blocks` database table
-- Signers now include a `failed_txid` field in block rejection messages, reporting which transaction caused block validation to fail. This allows miners to skip problematic transactions in subsequent proposals rather than repeatedly proposing blocks that will be rejected.
 
 ### Changed
 
-- `BlockResponseData` version bumped from 4 to 5 to include the new `failed_txid` field. Older signers that don't send this field are handled gracefully via backwards-compatible deserialization.
 - Database schema updated to version 19
 - Removed `signed_over` column from the `blocks` database table
 - Improved signer behaviour to ensure block proposal responses are sent more consistently, even for blocks that have already been globally accepted by the network. This increases reliability and reduces missed responses in edge cases.

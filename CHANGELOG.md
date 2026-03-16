@@ -5,12 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
-
-## Added
-
-- Miners now track `failed_txid` from signer block rejections. When a blocking minority (>30%) of signers report the same transaction as failed, the miner excludes it from the next block proposal. A new `ProblematicTransaction` validation reject code distinguishes genuinely broken transactions (permanently blacklisted from the mempool) from context-dependent failures like deadline exceeded (excluded until a successful block only).
-
 ## [3.3.0.0.6]
 
 ### Added
