@@ -41,7 +41,7 @@ main() {
   local next_url="https://hub.docker.com/v2/repositories/bitcoin/bitcoin/tags?page_size=100"
   while [[ -n "$next_url" && "$next_url" != "null" ]]; do
     local response_json
-    response_json="$(curl -fsSL "$next_url")"
+    response_json="$(curl -fsSL --connect-timeout 10 --max-time 30 "$next_url")"
 
     mapfile -t tags < <(jq -r '.results[].name' <<< "$response_json")
 
