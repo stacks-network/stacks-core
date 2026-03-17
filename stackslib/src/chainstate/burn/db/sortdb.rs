@@ -14,14 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::ops::Deref;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::{cmp, fs};
 
+use clarity::util::hash::Hash160;
 use clarity::util::lru_cache::LruCache;
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
+use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+use stacks_common::deps_common::bitcoin::blockdata::script::Script;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
     TrieHash, VRFSeed,
@@ -31,6 +34,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
 
+use crate::burnchains::bitcoin::{WatchedP2WSHOutput, WitnessScriptHash};
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, BurnchainStateTransitionOps,
     BurnchainView, Error as BurnchainError, PoxConstants, Txid,
@@ -485,7 +489,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: u32 = 11;
+pub const SORTITION_DB_VERSION: u32 = 12;
 
 const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
@@ -743,6 +747,26 @@ static SORTITION_DB_SCHEMA_11: &[&str] = &[r#"
 
 const LAST_SORTITION_DB_INDEX: &str =
     "stacks_chain_tips_by_burn_view_by_sortition_id_and_block_height";
+
+static SORTITION_DB_SCHEMA_12: &[&str] = &[
+    r#"CREATE TABLE IF NOT EXISTS watched_p2wsh_outputs (
+        txid TEXT NOT NULL,
+        vout INTEGER NOT NULL,
+        consensus_hash TEXT NOT NULL,
+        block_height INTEGER NOT NULL,
+        witness_script_hash TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        PRIMARY KEY(txid, vout, consensus_hash),
+        FOREIGN KEY(consensus_hash) REFERENCES snapshots(consensus_hash)
+    );"#,
+    "CREATE INDEX IF NOT EXISTS index_sortdb_watched_outputs_consensus_hash
+        ON watched_p2wsh_outputs(consensus_hash);",
+    "CREATE INDEX IF NOT EXISTS index_sortdb_watched_outputs_witness_script_hash
+        ON watched_p2wsh_outputs(witness_script_hash);",
+    "CREATE INDEX IF NOT EXISTS index_sortdb_watched_outputs_txid
+        ON watched_p2wsh_outputs(txid);",
+];
+
 const SORTITION_DB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
@@ -826,6 +850,20 @@ pub type SortitionDBTx<'a> = IndexDBTx<'a, SortitionDBTxContext, SortitionId>;
 ///
 pub type SortitionHandleConn<'a> = IndexDBConn<'a, SortitionHandleContext, SortitionId>;
 pub type SortitionHandleTx<'a> = IndexDBTx<'a, SortitionHandleContext, SortitionId>;
+
+pub struct SortitionHandleOwned {
+    pub marf: MARF<SortitionId>,
+    pub context: SortitionHandleContext,
+}
+
+impl SortitionHandleOwned {
+    pub fn as_ref<'a>(&'a self) -> SortitionHandleConn<'a> {
+        SortitionHandleConn {
+            index: &self.marf,
+            context: self.context.clone(),
+        }
+    }
+}
 
 ///
 /// This trait is used for functions that
@@ -1070,6 +1108,21 @@ pub trait SortitionHandle {
             return Ok(None);
         };
         Ok(Some(StacksBlockId::new(&ch, &bhh)))
+    }
+
+    /// Returns true if the bitcoin block identified by `to_check` at block height `to_check_height`
+    ///  is an ancestor/or equal to the tip identified by SortitionHandle
+    fn consensus_hash_in_fork(
+        &mut self,
+        to_check: &ConsensusHash,
+        to_check_height: u32,
+    ) -> Result<bool, db_error> {
+        let Some(sn_in_fork) = self.get_block_snapshot_by_height(to_check_height.into())? else {
+            // if there's no block in the fork at the height, then `to_check` cannot be
+            // an ancestor
+            return Ok(false);
+        };
+        Ok(sn_in_fork.consensus_hash == *to_check)
     }
 
     /// Check if the descendancy cache has an entry for whether or not the winning block in `key.0`
@@ -1583,6 +1636,127 @@ impl SortitionHandle for SortitionHandleTx<'_> {
             .ok_or(db_error::NotFoundError)?;
         SortitionDB::get_canonical_nakamoto_tip_hash_and_height(self.sqlite(), &sn)
     }
+}
+
+#[derive(Debug)]
+pub struct PoxBtcLockData {
+    pub stacker: StacksAddress,
+    pub unlock_btc_height: u32,
+}
+
+fn validate_pox_p2wsh_btc_lock_script(script: &Script) -> Result<PoxBtcLockData, String> {
+    let Some(script_bytes) = script.as_bytes().first_chunk::<30>() else {
+        return Err("Locking script too short: expect at least 30 bytes".into());
+    };
+    if script_bytes[0] != opcodes::All::OP_PUSHBYTES_22 as u8 {
+        return Err("Expected OP_PUSH_22 at script[0]".into());
+    }
+    if script_bytes[1] != 0x05 {
+        return Err("Stacks addresses must be type 0x05 (standard principals)".into());
+    }
+    let Some(addr_bytes) = Hash160::from_bytes(&script_bytes[3..23]) else {
+        // should be unreachable
+        return Err("Bad bytes length".into());
+    };
+    let Ok(stacker) = StacksAddress::new(script_bytes[2], addr_bytes) else {
+        return Err("Bad stacks address version".into());
+    };
+    if script_bytes[23] != opcodes::All::OP_DROP as u8 {
+        return Err("Expected OP_DROP at script[23]".into());
+    }
+    if script_bytes[24] != opcodes::All::OP_PUSHBYTES_3 as u8 {
+        return Err("Expected OP_PUSH_3 at script[24]".into());
+    };
+    let unlock_height_le_bytes = [script_bytes[25], script_bytes[26], script_bytes[27], 0];
+    let unlock_btc_height = u32::from_le_bytes(unlock_height_le_bytes);
+    if script_bytes[28] != opcodes::OP_CLTV as u8 {
+        return Err("Expected OP_CHECKLOCKTIMEVERIFY at script[28]".into());
+    };
+    if script_bytes[29] != opcodes::All::OP_DROP as u8 {
+        return Err("Expected OP_DROP at script[29]".into());
+    }
+
+    Ok(PoxBtcLockData {
+        stacker,
+        unlock_btc_height,
+    })
+}
+
+///
+/// * `last_cycle_calculation_height`: the burn block height when the last cycle was calculated.
+///    any outputs <= this height will be ignored.
+pub fn validate_pox_p2wsh_outputs<'a, S: SortitionHandle>(
+    sortdb_handle: &mut S,
+    witness_scripts: &'a [Script],
+    last_cycle_calculation_height: u32,
+) -> Result<HashMap<&'a Script, (PoxBtcLockData, Vec<WatchedP2WSHOutputMetadata>)>, db_error> {
+    // should all witness_scripts be unique?
+    // make sure the outputs are each consumed only once
+    //  -- do we need to store in the Clarity state to ensure that future
+    //     invocations cannot consume the same txs?
+    //  -- or we just "timebox" the outputs?
+    let mut used_outputs: HashSet<(Txid, u32)> = HashSet::with_capacity(witness_scripts.len());
+    let mut invalid_scripts = Vec::new();
+    let mut missed_scripts = Vec::new();
+    let mut validated_scripts: HashMap<&Script, (PoxBtcLockData, Vec<WatchedP2WSHOutputMetadata>)> =
+        HashMap::new();
+
+    for witness_script in witness_scripts.iter() {
+        let lock_data = match validate_pox_p2wsh_btc_lock_script(witness_script) {
+            Ok(x) => x,
+            Err(e) => {
+                invalid_scripts.push((witness_script, e));
+                continue;
+            }
+        };
+
+        let script_hash = WitnessScriptHash::from(witness_script);
+        let outputs_to_check =
+            SortitionDB::get_watched_outputs_by_script_hash(sortdb_handle.sqlite(), &script_hash)?;
+        let mut outputs_consumed = Vec::with_capacity(outputs_to_check.len());
+        for to_check in outputs_to_check.into_iter() {
+            // TEST_TODO: make sure to test the boundary condition here. that is, outputs
+            //  should be consumable if they occur at exactly the burn height when the PoX reward
+            //  set is being calculated. they cannot be consumed if they occurred at or before the
+            //  previous calculation of the reward set.
+            if to_check.at_block_ht <= last_cycle_calculation_height {
+                continue;
+            }
+            if used_outputs.contains(&(to_check.output.txid.clone(), to_check.output.vout)) {
+                continue;
+            }
+            let found_in_fork = sortdb_handle
+                .consensus_hash_in_fork(&to_check.at_block_ch, to_check.at_block_ht)?;
+            if !found_in_fork {
+                continue;
+            }
+            used_outputs.insert((to_check.output.txid.clone(), to_check.output.vout));
+            outputs_consumed.push(to_check);
+        }
+
+        if outputs_consumed.is_empty() {
+            missed_scripts.push(witness_script);
+            continue;
+        }
+
+        validated_scripts.insert(witness_script, (lock_data, outputs_consumed));
+    }
+
+    if !invalid_scripts.is_empty() {
+        info!("PoX validation of Bitcoin lock scripts found invalid locking scripts";
+              "invalid_scripts_len" => invalid_scripts.len(),
+              "invalid_scripts" => ?invalid_scripts,
+        );
+    }
+
+    if !missed_scripts.is_empty() {
+        info!("PoX validation of Bitcoin lock scripts found locking scripts without matching BTC L1 outputs";
+              "missed_scripts_len" => missed_scripts.len(),
+              "missed_scripts" => ?missed_scripts,
+        );
+    }
+
+    Ok(validated_scripts)
 }
 
 impl SortitionHandle for SortitionHandleConn<'_> {
@@ -2925,6 +3099,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_10(&db_tx)?;
         SortitionDB::apply_schema_11(&db_tx)?;
+        SortitionDB::apply_schema_12(&db_tx)?;
         db_tx.commit()?;
 
         self.add_indexes()?;
@@ -3435,6 +3610,19 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_12(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_11 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["12"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3503,6 +3691,10 @@ impl SortitionDB {
                     } else if version == 10 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_11(tx.deref())?;
+                        tx.commit()?;
+                    } else if version == 11 {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_12(tx.deref())?;
                         tx.commit()?;
                     } else if version == SORTITION_DB_VERSION {
                         // this transaction is almost never needed
@@ -4245,6 +4437,7 @@ impl SortitionDB {
         mainnet: bool,
         burn_header: &BurnchainBlockHeader,
         ops: Vec<BlockstackOperationType>,
+        p2wsh_outputs: Vec<WatchedP2WSHOutput>,
         burnchain: &Burnchain,
         from_tip: &SortitionId,
         next_pox_info: Option<RewardCycleInfo>,
@@ -4334,6 +4527,7 @@ impl SortitionDB {
         if !dryrun {
             sortition_db_handle
                 .store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
+            sortition_db_handle.store_watched_outputs(&new_snapshot.0, &p2wsh_outputs)?;
         }
 
         announce_to(reward_set_info, &new_snapshot.0.consensus_hash);
@@ -5435,6 +5629,55 @@ impl SortitionDB {
 
         SortitionDB::get_block_snapshot(tx, &sortition_id)
             .map(|x| x.expect("FATAL: no snapshot for MARF'ed sortition ID"))
+    }
+
+    /// Get all watched P2WSH outputs stored for the sortition identified by `consensus_hash`.
+    pub fn get_watched_outputs_at_sortition(
+        conn: &DBConn,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Vec<WatchedP2WSHOutput>, db_error> {
+        let sql = "SELECT txid, vout, witness_script_hash, amount
+                   FROM watched_p2wsh_outputs
+                   WHERE consensus_hash = ?1
+                   ORDER BY txid, vout";
+        query_rows(conn, sql, &[consensus_hash])
+    }
+
+    /// Get all watched P2WSH outputs that share the given witness script hash, across all
+    /// sortitions, ordered by block height.
+    pub fn get_watched_outputs_by_script_hash(
+        conn: &DBConn,
+        witness_script_hash: &WitnessScriptHash,
+    ) -> Result<Vec<WatchedP2WSHOutputMetadata>, db_error> {
+        let sql = "SELECT txid, vout, witness_script_hash,
+                          amount, consensus_hash, block_height
+                   FROM watched_p2wsh_outputs
+                   WHERE witness_script_hash = ?1
+                   ORDER BY block_height, txid, vout";
+        query_rows(conn, sql, &[witness_script_hash])
+    }
+}
+
+/// `WatchedP2WSHOutput` and associated metadata
+pub struct WatchedP2WSHOutputMetadata {
+    /// The watched output
+    output: WatchedP2WSHOutput,
+    /// The consensus hash of the bitcoin block including this output
+    at_block_ch: ConsensusHash,
+    /// The block height of the bitcoin block including this output
+    at_block_ht: u32,
+}
+
+impl FromRow<WatchedP2WSHOutputMetadata> for WatchedP2WSHOutputMetadata {
+    fn from_row(row: &Row) -> Result<Self, db_error> {
+        let output = WatchedP2WSHOutput::from_row(row)?;
+        let at_block_ch = row.get("consensus_hash")?;
+        let at_block_ht = row.get("block_height")?;
+        Ok(WatchedP2WSHOutputMetadata {
+            output,
+            at_block_ch,
+            at_block_ht,
+        })
     }
 }
 
@@ -6614,6 +6857,34 @@ impl SortitionHandleTx<'_> {
 
         Ok((keys, values))
     }
+
+    /// Store P2WSH outputs for a sortition, keyed by the snapshot's consensus hash.
+    pub fn store_watched_outputs(
+        &mut self,
+        snapshot: &BlockSnapshot,
+        outputs: &[WatchedP2WSHOutput],
+    ) -> Result<(), db_error> {
+        if outputs.is_empty() {
+            return Ok(());
+        }
+        let sql = "INSERT INTO watched_p2wsh_outputs
+                   (txid, vout, consensus_hash, block_height, witness_script_hash, amount)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+        for output in outputs {
+            self.execute(
+                sql,
+                params![
+                    &output.txid,
+                    output.vout,
+                    &snapshot.consensus_hash,
+                    u64_to_sql(snapshot.block_height)?,
+                    &output.witness_script_hash,
+                    u64_to_sql(output.amount)?,
+                ],
+            )?;
+        }
+        Ok(())
+    }
 }
 
 impl ChainstateDB for SortitionDB {
@@ -7234,7 +7505,9 @@ pub mod tests {
         sn.block_height += 1;
         sn.num_sortitions += 1;
         sn.sortition_id = SortitionId::stubbed(&sn.burn_header_hash);
-        sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
+        let mut consensus_hash_input = sn_parent.consensus_hash.as_bytes().to_vec();
+        consensus_hash_input.extend_from_slice(sn.burn_header_hash.as_bytes());
+        sn.consensus_hash = ConsensusHash(Hash160::from_data(&consensus_hash_input).0);
 
         if let Some(cmt) = winning_block_commit {
             sn.sortition = true;
@@ -11564,5 +11837,636 @@ pub mod tests {
             let sortition_Cp_tip = get_stacks_tip_at_sortition(&db, &sortition_Cp.sortition_id);
             assert!(sortition_Cp_tip.is_none());
         }
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_btc_lock_script_valid() {
+        use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        // Create a valid script
+        // Expected format:
+        // OP_PUSHBYTES_22 (0x16) | 0x05 | version | hash160 (20 bytes) | OP_DROP | OP_PUSHBYTES_3 | unlock_height (3 bytes LE) | OP_CLTV | OP_DROP
+        let mut script_bytes = vec![
+            opcodes::All::OP_PUSHBYTES_22 as u8, // position 0
+            0x05,                                // position 1: standard principal type
+            0x1a,                                // position 2: mainnet version (P2PKH)
+        ];
+
+        // Add a valid Hash160 (20 bytes)
+        let addr_bytes = [0x11u8; 20];
+        script_bytes.extend_from_slice(&addr_bytes);
+
+        script_bytes.push(opcodes::All::OP_DROP as u8); // position 23
+        script_bytes.push(opcodes::All::OP_PUSHBYTES_3 as u8); // position 24
+
+        // Add unlock height as 3-byte little-endian (e.g., height 100000)
+        let unlock_height: u32 = 100000;
+        script_bytes.push((unlock_height & 0xFF) as u8);
+        script_bytes.push(((unlock_height >> 8) & 0xFF) as u8);
+        script_bytes.push(((unlock_height >> 16) & 0xFF) as u8);
+
+        script_bytes.push(opcodes::OP_CLTV as u8); // position 28
+        script_bytes.push(opcodes::All::OP_DROP as u8); // position 29
+
+        assert_eq!(script_bytes.len(), 30);
+
+        let script = Script::from(script_bytes);
+        let result = validate_pox_p2wsh_btc_lock_script(&script);
+
+        assert!(result.is_ok());
+        let lock_data = result.unwrap();
+        assert_eq!(lock_data.unlock_btc_height, unlock_height);
+        assert_eq!(lock_data.stacker.version(), 0x1a);
+        assert_eq!(lock_data.stacker.bytes(), &Hash160(addr_bytes));
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_btc_lock_script_too_short() {
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        // Create a script that's too short (< 30 bytes)
+        let script_bytes = vec![0u8; 29];
+        let script = Script::from(script_bytes);
+
+        let result = validate_pox_p2wsh_btc_lock_script(&script);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Locking script too short: expect at least 30 bytes"
+        );
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_btc_lock_script_wrong_first_opcode() {
+        use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        let mut script_bytes = vec![
+            opcodes::All::OP_PUSHBYTES_20 as u8, // WRONG: should be OP_PUSHBYTES_22
+            0x05,
+            0x1a,
+        ];
+        script_bytes.extend_from_slice(&[0x11u8; 20]);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+        script_bytes.push(opcodes::All::OP_PUSHBYTES_3 as u8);
+        script_bytes.extend_from_slice(&[0xa0u8, 0x86, 0x01]); // 100000 in LE
+        script_bytes.push(opcodes::OP_CLTV as u8);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+
+        let script = Script::from(script_bytes);
+        let result = validate_pox_p2wsh_btc_lock_script(&script);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Expected OP_PUSH_22 at script[0]");
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_btc_lock_script_wrong_principal_type() {
+        use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        let mut script_bytes = vec![
+            opcodes::All::OP_PUSHBYTES_22 as u8,
+            0x06, // WRONG: should be 0x05 (standard principal)
+            0x1a,
+        ];
+        script_bytes.extend_from_slice(&[0x11u8; 20]);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+        script_bytes.push(opcodes::All::OP_PUSHBYTES_3 as u8);
+        script_bytes.extend_from_slice(&[0xa0u8, 0x86, 0x01]);
+        script_bytes.push(opcodes::OP_CLTV as u8);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+
+        let script = Script::from(script_bytes);
+        let result = validate_pox_p2wsh_btc_lock_script(&script);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Stacks addresses must be type 0x05 (standard principals)"
+        );
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_btc_lock_script_invalid_address_version() {
+        use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        let mut script_bytes = vec![
+            opcodes::All::OP_PUSHBYTES_22 as u8,
+            0x05,
+            0xFF, // WRONG: invalid address version
+        ];
+        script_bytes.extend_from_slice(&[0x11u8; 20]);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+        script_bytes.push(opcodes::All::OP_PUSHBYTES_3 as u8);
+        script_bytes.extend_from_slice(&[0xa0u8, 0x86, 0x01]);
+        script_bytes.push(opcodes::OP_CLTV as u8);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+
+        let script = Script::from(script_bytes);
+        let result = validate_pox_p2wsh_btc_lock_script(&script);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Bad stacks address version");
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_btc_lock_script_wrong_drop_at_23() {
+        use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        let mut script_bytes = vec![opcodes::All::OP_PUSHBYTES_22 as u8, 0x05, 0x1a];
+        script_bytes.extend_from_slice(&[0x11u8; 20]);
+        script_bytes.push(opcodes::All::OP_NOP as u8); // WRONG: should be OP_DROP
+        script_bytes.push(opcodes::All::OP_PUSHBYTES_3 as u8);
+        script_bytes.extend_from_slice(&[0xa0u8, 0x86, 0x01]);
+        script_bytes.push(opcodes::OP_CLTV as u8);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+
+        let script = Script::from(script_bytes);
+        let result = validate_pox_p2wsh_btc_lock_script(&script);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Expected OP_DROP at script[23]");
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_btc_lock_script_wrong_push_at_24() {
+        use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        let mut script_bytes = vec![opcodes::All::OP_PUSHBYTES_22 as u8, 0x05, 0x1a];
+        script_bytes.extend_from_slice(&[0x11u8; 20]);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+        script_bytes.push(opcodes::All::OP_PUSHBYTES_4 as u8); // WRONG: should be OP_PUSHBYTES_3
+        script_bytes.extend_from_slice(&[0xa0u8, 0x86, 0x01]);
+        script_bytes.push(opcodes::OP_CLTV as u8);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+
+        let script = Script::from(script_bytes);
+        let result = validate_pox_p2wsh_btc_lock_script(&script);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Expected OP_PUSH_3 at script[24]");
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_btc_lock_script_wrong_cltv() {
+        use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        let mut script_bytes = vec![opcodes::All::OP_PUSHBYTES_22 as u8, 0x05, 0x1a];
+        script_bytes.extend_from_slice(&[0x11u8; 20]);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+        script_bytes.push(opcodes::All::OP_PUSHBYTES_3 as u8);
+        script_bytes.extend_from_slice(&[0xa0u8, 0x86, 0x01]);
+        script_bytes.push(opcodes::OP_CSV as u8); // WRONG: should be OP_CLTV
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+
+        let script = Script::from(script_bytes);
+        let result = validate_pox_p2wsh_btc_lock_script(&script);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Expected OP_CHECKLOCKTIMEVERIFY at script[28]"
+        );
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_btc_lock_script_wrong_drop_at_29() {
+        use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        let mut script_bytes = vec![opcodes::All::OP_PUSHBYTES_22 as u8, 0x05, 0x1a];
+        script_bytes.extend_from_slice(&[0x11u8; 20]);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+        script_bytes.push(opcodes::All::OP_PUSHBYTES_3 as u8);
+        script_bytes.extend_from_slice(&[0xa0u8, 0x86, 0x01]);
+        script_bytes.push(opcodes::OP_CLTV as u8);
+        script_bytes.push(opcodes::All::OP_NOP as u8); // WRONG: should be OP_DROP
+
+        let script = Script::from(script_bytes);
+        let result = validate_pox_p2wsh_btc_lock_script(&script);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Expected OP_DROP at script[29]");
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_btc_lock_script_different_heights() {
+        use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        // Test with different unlock heights
+        let test_heights = vec![1u32, 255, 65535, 16777215]; // max values for 1, 2, and 3 bytes
+
+        for unlock_height in test_heights {
+            let mut script_bytes = vec![
+                opcodes::All::OP_PUSHBYTES_22 as u8,
+                0x05,
+                0x16, // testnet P2PKH
+            ];
+            script_bytes.extend_from_slice(&[0x22u8; 20]);
+            script_bytes.push(opcodes::All::OP_DROP as u8);
+            script_bytes.push(opcodes::All::OP_PUSHBYTES_3 as u8);
+
+            // Encode unlock_height as 3-byte little-endian
+            script_bytes.push((unlock_height & 0xFF) as u8);
+            script_bytes.push(((unlock_height >> 8) & 0xFF) as u8);
+            script_bytes.push(((unlock_height >> 16) & 0xFF) as u8);
+
+            script_bytes.push(opcodes::OP_CLTV as u8);
+            script_bytes.push(opcodes::All::OP_DROP as u8);
+
+            let script = Script::from(script_bytes);
+            let result = validate_pox_p2wsh_btc_lock_script(&script);
+
+            assert!(result.is_ok(), "Failed for height {}", unlock_height);
+            let lock_data = result.unwrap();
+            assert_eq!(lock_data.unlock_btc_height, unlock_height);
+        }
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_btc_lock_script_different_addresses() {
+        use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        // Test with different valid address versions
+        let test_versions = vec![
+            (0x1a, "mainnet P2PKH"),
+            (0x14, "mainnet P2SH"),
+            (0x1b, "mainnet P2WPKH-P2SH"),
+            (0x15, "mainnet P2WSH-P2SH"),
+            (0x16, "testnet P2PKH"),
+            (0x0f, "testnet P2SH"),
+            (0x17, "testnet P2WPKH-P2SH"),
+            (0x10, "testnet P2WSH-P2SH"),
+        ];
+
+        for (version, desc) in test_versions {
+            let mut script_bytes = vec![opcodes::All::OP_PUSHBYTES_22 as u8, 0x05, version];
+            let addr_bytes = Hash160::from_data(format!("address-of-{version}-{desc}").as_bytes());
+            script_bytes.extend_from_slice(addr_bytes.as_bytes());
+            script_bytes.push(opcodes::All::OP_DROP as u8);
+            script_bytes.push(opcodes::All::OP_PUSHBYTES_3 as u8);
+            script_bytes.extend_from_slice(&[0x10, 0x27, 0x00]); // 10000 in LE
+            script_bytes.push(opcodes::OP_CLTV as u8);
+            script_bytes.push(opcodes::All::OP_DROP as u8);
+
+            let script = Script::from(script_bytes);
+            let result = validate_pox_p2wsh_btc_lock_script(&script);
+
+            assert!(result.is_ok(), "Failed for version {} ({})", version, desc);
+            let lock_data = result.unwrap();
+            assert_eq!(lock_data.stacker.version(), version);
+            assert_eq!(lock_data.stacker.bytes(), &addr_bytes);
+        }
+    }
+
+    fn make_valid_pox_p2wsh_script(
+        stacker_version: u8,
+        stacker_hash: &Hash160,
+        unlock_height: u32,
+    ) -> Script {
+        use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+
+        let mut script_bytes = vec![opcodes::All::OP_PUSHBYTES_22 as u8, 0x05, stacker_version];
+        script_bytes.extend_from_slice(&stacker_hash.0);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+        script_bytes.push(opcodes::All::OP_PUSHBYTES_3 as u8);
+        script_bytes.push((unlock_height & 0xFF) as u8);
+        script_bytes.push(((unlock_height >> 8) & 0xFF) as u8);
+        script_bytes.push(((unlock_height >> 16) & 0xFF) as u8);
+        script_bytes.push(opcodes::OP_CLTV as u8);
+        script_bytes.push(opcodes::All::OP_DROP as u8);
+
+        Script::from(script_bytes)
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_outputs_valid() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
+
+        // Create a valid witness script
+        let stacker_hash = Hash160([0x11u8; 20]);
+        let witness_script = make_valid_pox_p2wsh_script(0x1a, &stacker_hash, 200000);
+        let script_hash = WitnessScriptHash::from(&witness_script);
+
+        // Create block snapshots
+        let block_hash_1 = BurnchainHeaderHash([0x01u8; 32]);
+        let snapshot_1 = test_append_snapshot(&mut db, block_hash_1.clone(), &[]);
+
+        // Store a watched output for this script
+        let output = WatchedP2WSHOutput {
+            witness_script_hash: script_hash.clone(),
+            amount: 500000,
+            txid: Txid([0xaau8; 32]),
+            vout: 0,
+        };
+
+        let mut tx = SortitionHandleTx::begin(&mut db, &snapshot_1.sortition_id).unwrap();
+        tx.store_watched_outputs(&snapshot_1, &[output.clone()])
+            .unwrap();
+        tx.commit().unwrap();
+
+        // Validate with last_cycle_calculation_height at 100 (output is at 101, so should be included)
+        let ic = db.index_conn();
+        let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_1.sortition_id).unwrap();
+        let test_script = [witness_script.clone()];
+        let result = validate_pox_p2wsh_outputs(&mut handle, &test_script, 100);
+
+        assert!(result.is_ok());
+        let validated = result.unwrap();
+        assert_eq!(validated.len(), 1);
+
+        let (lock_data, outputs) = validated.get(&witness_script).unwrap();
+        assert_eq!(lock_data.unlock_btc_height, 200000);
+        assert_eq!(lock_data.stacker.version(), 0x1a);
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].output.txid, Txid([0xaau8; 32]));
+        assert_eq!(outputs[0].output.amount, 500000);
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_outputs_invalid_script() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
+
+        // Create an invalid witness script (too short)
+        let invalid_script = Script::from(vec![0u8; 20]);
+
+        let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        let ic = db.index_conn();
+        let mut handle =
+            SortitionHandleConn::open_reader(&ic, &canonical_tip.sortition_id).unwrap();
+
+        // Validate should succeed but return empty map (invalid script is skipped)
+        let test_script = [invalid_script];
+        let result = validate_pox_p2wsh_outputs(&mut handle, &test_script, 100);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 0);
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_outputs_no_matching_outputs() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
+
+        // Create a valid witness script but don't store any outputs for it
+        let stacker_hash = Hash160([0x22u8; 20]);
+        let witness_script = make_valid_pox_p2wsh_script(0x1a, &stacker_hash, 200000);
+
+        let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        let ic = db.index_conn();
+        let mut handle =
+            SortitionHandleConn::open_reader(&ic, &canonical_tip.sortition_id).unwrap();
+
+        // Validate should succeed but return empty map (no outputs found)
+        let test_script = [witness_script];
+        let result = validate_pox_p2wsh_outputs(&mut handle, &test_script, 100);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 0);
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_outputs_before_calculation_height() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
+
+        let stacker_hash = Hash160([0x33u8; 20]);
+        let witness_script = make_valid_pox_p2wsh_script(0x1a, &stacker_hash, 200000);
+        let script_hash = WitnessScriptHash::from(&witness_script);
+
+        // Create snapshot at height 101
+        let block_hash_1 = BurnchainHeaderHash([0x01u8; 32]);
+        let snapshot_1 = test_append_snapshot(&mut db, block_hash_1.clone(), &[]);
+
+        // Store output at height 101
+        let output = WatchedP2WSHOutput {
+            witness_script_hash: script_hash.clone(),
+            amount: 500000,
+            txid: Txid([0xbbu8; 32]),
+            vout: 0,
+        };
+
+        let mut tx = SortitionHandleTx::begin(&mut db, &snapshot_1.sortition_id).unwrap();
+        tx.store_watched_outputs(&snapshot_1, &[output]).unwrap();
+        tx.commit().unwrap();
+
+        // Validate with last_cycle_calculation_height at 101 (output is at 101, so should be excluded)
+        let ic = db.index_conn();
+        let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_1.sortition_id).unwrap();
+        let test_script = [witness_script];
+        let result = validate_pox_p2wsh_outputs(&mut handle, &test_script, 101);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 0); // Output excluded because it's not after calculation height
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_outputs_duplicate_script_hashes() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
+
+        let stacker_hash = Hash160([0x55u8; 20]);
+        let witness_script = make_valid_pox_p2wsh_script(0x1a, &stacker_hash, 200000);
+        let script_hash = WitnessScriptHash::from(&witness_script);
+
+        let block_hash_1 = BurnchainHeaderHash([0x03u8; 32]);
+        let snapshot_1 = test_append_snapshot(&mut db, block_hash_1.clone(), &[]);
+
+        // Store two different outputs (different vouts) for the same script
+        let output_1 = WatchedP2WSHOutput {
+            witness_script_hash: script_hash.clone(),
+            amount: 500000,
+            txid: Txid([0xddu8; 32]),
+            vout: 0,
+        };
+
+        let output_2 = WatchedP2WSHOutput {
+            witness_script_hash: script_hash.clone(),
+            amount: 600000,
+            txid: Txid([0xddu8; 32]),
+            vout: 1, // Different vout
+        };
+
+        let mut tx = SortitionHandleTx::begin(&mut db, &snapshot_1.sortition_id).unwrap();
+        tx.store_watched_outputs(&snapshot_1, &[output_1, output_2])
+            .unwrap();
+        tx.commit().unwrap();
+
+        // Pass the same script twice - second occurrence should not re-use the outputs
+        let ic = db.index_conn();
+        let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_1.sortition_id).unwrap();
+        let test_in = [witness_script.clone(), witness_script.clone()];
+        let result = validate_pox_p2wsh_outputs(&mut handle, &test_in, 100);
+
+        assert!(result.is_ok());
+        let validated = result.unwrap();
+        // Only one entry because the second script finds the outputs already used
+        assert_eq!(validated.len(), 1);
+
+        // The first script gets both outputs
+        let (_, outputs) = validated.values().next().unwrap();
+        assert_eq!(outputs.len(), 2); // Both outputs consumed by first script
+        assert_eq!(outputs[0].output.amount, 500000);
+        assert_eq!(outputs[1].output.amount, 600000)
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_outputs_multiple_scripts() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
+
+        // Create two different witness scripts
+        let stacker_hash_1 = Hash160([0x66u8; 20]);
+        let witness_script_1 = make_valid_pox_p2wsh_script(0x1a, &stacker_hash_1, 200000);
+        let script_hash_1 = WitnessScriptHash::from(&witness_script_1);
+
+        let stacker_hash_2 = Hash160([0x77u8; 20]);
+        let witness_script_2 = make_valid_pox_p2wsh_script(0x16, &stacker_hash_2, 300000);
+        let script_hash_2 = WitnessScriptHash::from(&witness_script_2);
+
+        let block_hash_1 = BurnchainHeaderHash([0x04u8; 32]);
+        let snapshot_1 = test_append_snapshot(&mut db, block_hash_1.clone(), &[]);
+
+        // Store outputs for both scripts
+        let output_1 = WatchedP2WSHOutput {
+            witness_script_hash: script_hash_1,
+            amount: 500000,
+            txid: Txid([0xeeu8; 32]),
+            vout: 0,
+        };
+
+        let output_2 = WatchedP2WSHOutput {
+            witness_script_hash: script_hash_2,
+            amount: 750000,
+            txid: Txid([0xffu8; 32]),
+            vout: 1,
+        };
+
+        let mut tx = SortitionHandleTx::begin(&mut db, &snapshot_1.sortition_id).unwrap();
+        tx.store_watched_outputs(&snapshot_1, &[output_1, output_2])
+            .unwrap();
+        tx.commit().unwrap();
+
+        // Validate both scripts
+        let ic = db.index_conn();
+        let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_1.sortition_id).unwrap();
+        let test_in = [witness_script_1.clone(), witness_script_2.clone()];
+        let result = validate_pox_p2wsh_outputs(&mut handle, &test_in, 100);
+
+        assert!(result.is_ok());
+        let validated = result.unwrap();
+        assert_eq!(validated.len(), 2);
+
+        // Check first script
+        let (lock_data_1, outputs_1) = validated.get(&witness_script_1).unwrap();
+        assert_eq!(lock_data_1.unlock_btc_height, 200000);
+        assert_eq!(outputs_1.len(), 1);
+        assert_eq!(outputs_1[0].output.amount, 500000);
+
+        // Check second script
+        let (lock_data_2, outputs_2) = validated.get(&witness_script_2).unwrap();
+        assert_eq!(lock_data_2.unlock_btc_height, 300000);
+        assert_eq!(outputs_2.len(), 1);
+        assert_eq!(outputs_2[0].output.amount, 750000);
+    }
+
+    #[test]
+    fn validate_pox_p2wsh_outputs_not_in_fork() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
+
+        let stacker_hash = Hash160([0x88u8; 20]);
+        let witness_script = make_valid_pox_p2wsh_script(0x1a, &stacker_hash, 200000);
+        let script_hash = WitnessScriptHash::from(&witness_script);
+
+        // Create a common parent snapshot
+        let parent_hash = BurnchainHeaderHash([0x04u8; 32]);
+        let parent_snapshot = test_append_snapshot(&mut db, parent_hash.clone(), &[]);
+
+        // Create two competing forks from the same parent
+        let block_hash_1 = BurnchainHeaderHash([0x05u8; 32]);
+        let snapshot_1 = test_append_snapshot_with_winner(
+            &mut db,
+            block_hash_1.clone(),
+            &[],
+            Some(parent_snapshot.clone()),
+            None,
+        );
+
+        let block_hash_2 = BurnchainHeaderHash([0x06u8; 32]);
+        let snapshot_2 = test_append_snapshot_with_winner(
+            &mut db,
+            block_hash_2.clone(),
+            &[],
+            Some(parent_snapshot.clone()),
+            None,
+        );
+
+        // Store output in snapshot_1's fork
+        let output = WatchedP2WSHOutput {
+            witness_script_hash: script_hash.clone(),
+            amount: 500000,
+            txid: Txid([0x11u8; 32]),
+            vout: 0,
+        };
+
+        let mut tx = SortitionHandleTx::begin(&mut db, &snapshot_1.sortition_id).unwrap();
+        tx.store_watched_outputs(&snapshot_1, &[output]).unwrap();
+        tx.commit().unwrap();
+
+        // Validate from snapshot_1's perspective - output should be found in its own fork
+        let ic = db.index_conn();
+        let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_1.sortition_id).unwrap();
+        let test_in = [witness_script.clone()];
+        let result = validate_pox_p2wsh_outputs(&mut handle, &test_in, 100);
+
+        assert!(result.is_ok());
+        let validated = result.unwrap();
+        assert_eq!(validated.len(), 1); // Output found in snapshot_1's fork
+        let (lock_data, outputs) = validated.get(&witness_script).unwrap();
+        assert_eq!(lock_data.unlock_btc_height, 200000);
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].output.amount, 500000);
+
+        // Validate from snapshot_2's perspective (output is in snapshot_1, which is in a different fork)
+        // snapshot_1 and snapshot_2 are in different forks (both branch from parent_snapshot)
+        let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_2.sortition_id).unwrap();
+        let test_in = [witness_script.clone()];
+        let result = validate_pox_p2wsh_outputs(&mut handle, &test_in, 100);
+
+        assert!(result.is_ok());
+        let validated = result.unwrap();
+        // The output should NOT be found because snapshot_1 is not in snapshot_2's fork
+        assert_eq!(validated.len(), 0);
     }
 }

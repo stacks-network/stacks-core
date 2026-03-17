@@ -68,6 +68,12 @@ impl Hash160 {
     }
 }
 
+impl From<[u8; 20]> for Hash160 {
+    fn from(value: [u8; 20]) -> Self {
+        Self(value)
+    }
+}
+
 impl Default for Sha256dEncoder {
     fn default() -> Self {
         Self::new()

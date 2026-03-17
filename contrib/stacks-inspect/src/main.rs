@@ -33,9 +33,6 @@ use stackslib::chainstate::stacks::{
     TransactionVersion,
 };
 use stackslib::config::{Config, ConfigFile};
-use stackslib::core::{
-    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, StacksEpoch, StacksEpochExtension as _,
-};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -43,13 +40,13 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::BufReader;
 use std::io::prelude::*;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
-use std::{fs, io, process, thread};
+use std::{fs, io, process};
 
 use libstackerdb::StackerDBChunkData;
 use rusqlite::{Connection, Error as SqliteError, OpenFlags, params};
@@ -61,13 +58,13 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{Hash160, hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
-use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 use stackslib::burnchains::bitcoin::{BitcoinNetworkType, spv};
-use stackslib::burnchains::db::{BurnchainBlockData, BurnchainDB};
+use stackslib::burnchains::db::BurnchainDB;
 use stackslib::burnchains::{Address, Burnchain, PoxConstants};
 use stackslib::chainstate::burn::db::sortdb::{
     SortitionDB, SortitionHandle, get_block_commit_by_txid,
@@ -79,15 +76,10 @@ use stackslib::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stackslib::chainstate::nakamoto::shadow::{process_shadow_block, shadow_chainstate_repair};
 use stackslib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stackslib::chainstate::stacks::StacksBlockHeader;
-use stackslib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
-use stackslib::chainstate::stacks::db::{
-    ChainStateBootData, StacksBlockHeaderTypes, StacksChainState,
-};
-use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
+use stackslib::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnection};
 use stackslib::clarity::vm::ClarityVersion;
 use stackslib::clarity::vm::costs::ExecutionCost;
-use stackslib::clarity::vm::types::StacksAddressExtensions;
 use stackslib::core::MemPoolDB;
 use stackslib::cost_estimates::UnitEstimator;
 use stackslib::cost_estimates::metrics::UnitMetric;
@@ -95,7 +87,6 @@ use stackslib::net::api::getinfo::RPCPeerInfoData;
 use stackslib::net::db::LocalPeer;
 use stackslib::net::httpcore::{StacksHttpRequest, send_http_request};
 use stackslib::net::p2p::PeerNetwork;
-use stackslib::net::relay::Relayer;
 use stackslib::net::{GetNakamotoInvData, HandshakeData, StacksMessage, StacksMessageType};
 use stackslib::util_lib::db::sqlite_open;
 use stackslib::util_lib::strings::UrlString;
@@ -1083,297 +1074,6 @@ fn main() {
             process::exit(0);
         }
 
-        Command::ReplayChainstate {
-            old_chainstate_path,
-            old_sortition_path,
-            old_burnchain_path,
-            new_chainstate_path,
-            new_burnchain_path,
-        } => {
-            let (old_chainstate, _) =
-                StacksChainState::open(false, 0x80000000, &old_chainstate_path, None).unwrap();
-            let old_sortition_db = SortitionDB::open(
-                &old_sortition_path,
-                true,
-                PoxConstants::mainnet_default(),
-                None,
-            )
-            .unwrap();
-
-            // initial argon balances -- see sample/conf/testnet-follower-conf.toml
-            let initial_balances = vec![
-                (
-                    StacksAddress::from_string("ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2")
-                        .unwrap()
-                        .to_account_principal(),
-                    10000000000000000,
-                ),
-                (
-                    StacksAddress::from_string("ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF")
-                        .unwrap()
-                        .to_account_principal(),
-                    10000000000000000,
-                ),
-                (
-                    StacksAddress::from_string("ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H")
-                        .unwrap()
-                        .to_account_principal(),
-                    10000000000000000,
-                ),
-                (
-                    StacksAddress::from_string("ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B")
-                        .unwrap()
-                        .to_account_principal(),
-                    10000000000000000,
-                ),
-            ];
-
-            let burnchain = Burnchain::regtest(&new_burnchain_path);
-            let first_burnchain_block_height = burnchain.first_block_height;
-            let first_burnchain_block_hash = &burnchain.first_block_hash;
-            let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);
-            let (mut new_sortition_db, _) = burnchain
-                .connect_db(
-                    true,
-                    first_burnchain_block_hash,
-                    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
-                    epochs,
-                )
-                .unwrap();
-
-            let old_burnchaindb =
-                BurnchainDB::connect(&old_burnchain_path, &burnchain, true).unwrap();
-
-            let mut boot_data = ChainStateBootData {
-                initial_balances,
-                post_flight_callback: None,
-                first_burnchain_block_hash: first_burnchain_block_hash.clone(),
-                first_burnchain_block_height: first_burnchain_block_height as u32,
-                first_burnchain_block_timestamp: 0,
-                pox_constants: PoxConstants::regtest_default(),
-                get_bulk_initial_lockups: None,
-                get_bulk_initial_balances: None,
-                get_bulk_initial_namespaces: None,
-                get_bulk_initial_names: None,
-            };
-
-            let (mut new_chainstate, _) = StacksChainState::open_and_exec(
-                false,
-                0x80000000,
-                &new_chainstate_path,
-                Some(&mut boot_data),
-                None,
-            )
-            .unwrap();
-
-            let all_snapshots = old_sortition_db.get_all_snapshots().unwrap();
-            let all_stacks_blocks =
-                StacksChainState::get_all_staging_block_headers(old_chainstate.db()).unwrap();
-
-            // order block hashes by arrival index
-            let mut stacks_blocks_arrival_indexes = vec![];
-            for snapshot in all_snapshots.iter() {
-                if !snapshot.sortition {
-                    continue;
-                }
-                if snapshot.arrival_index == 0 {
-                    continue;
-                }
-                let index_hash = StacksBlockHeader::make_index_block_hash(
-                    &snapshot.consensus_hash,
-                    &snapshot.winning_stacks_block_hash,
-                );
-                stacks_blocks_arrival_indexes.push((index_hash, snapshot.arrival_index));
-            }
-            stacks_blocks_arrival_indexes.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-            let stacks_blocks_arrival_order: Vec<StacksBlockId> = stacks_blocks_arrival_indexes
-                .into_iter()
-                .map(|(h, _)| h)
-                .collect();
-
-            let mut stacks_blocks_available: HashMap<StacksBlockId, StagingBlock> = HashMap::new();
-            let num_staging_blocks = all_stacks_blocks.len();
-            for staging_block in all_stacks_blocks.into_iter() {
-                if !staging_block.orphaned {
-                    let index_hash = StacksBlockHeader::make_index_block_hash(
-                        &staging_block.consensus_hash,
-                        &staging_block.anchored_block_hash,
-                    );
-                    eprintln!(
-                        "Will consider {}/{}",
-                        &staging_block.consensus_hash, &staging_block.anchored_block_hash
-                    );
-                    stacks_blocks_available.insert(index_hash, staging_block);
-                }
-            }
-
-            eprintln!(
-                "\nWill replay {} stacks epochs out of {num_staging_blocks}\n",
-                &stacks_blocks_available.len(),
-            );
-
-            let mut known_stacks_blocks = HashSet::new();
-            let mut next_arrival = 0;
-
-            let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);
-
-            let (p2p_new_sortition_db, _) = burnchain
-                .connect_db(
-                    true,
-                    first_burnchain_block_hash,
-                    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
-                    epochs,
-                )
-                .unwrap();
-            let (mut p2p_chainstate, _) =
-                StacksChainState::open(false, 0x80000000, &new_chainstate_path, None).unwrap();
-
-            let _ = thread::spawn(move || {
-                loop {
-                    // simulate the p2p refreshing itself
-                    // update p2p's read-only view of the unconfirmed state
-                    p2p_chainstate
-                        .refresh_unconfirmed_state(&p2p_new_sortition_db.index_handle_at_tip())
-                        .expect("Failed to open unconfirmed Clarity state");
-
-                    sleep_ms(100);
-                }
-            });
-
-            for old_snapshot in all_snapshots.into_iter() {
-                // replay this burnchain block
-                let BurnchainBlockData {
-                    header: burn_block_header,
-                    ops: blockstack_txs,
-                } = BurnchainDB::get_burnchain_block(
-                    old_burnchaindb.conn(),
-                    &old_snapshot.burn_header_hash,
-                )
-                .unwrap();
-                if old_snapshot.parent_burn_header_hash == BurnchainHeaderHash::sentinel() {
-                    // skip initial snapshot -- it's a placeholder
-                    continue;
-                }
-
-                let (new_snapshot, ..) = {
-                    let sortition_tip =
-                        SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn()).unwrap();
-                    new_sortition_db
-                        .evaluate_sortition(
-                            false,
-                            &burn_block_header,
-                            blockstack_txs,
-                            &burnchain,
-                            &sortition_tip.sortition_id,
-                            None,
-                            |_, _| {},
-                        )
-                        .unwrap()
-                };
-
-                // importantly, the burnchain linkage must all match
-                assert_eq!(old_snapshot.burn_header_hash, new_snapshot.burn_header_hash);
-                assert_eq!(
-                    old_snapshot.parent_burn_header_hash,
-                    new_snapshot.parent_burn_header_hash
-                );
-                assert_eq!(old_snapshot.sortition, new_snapshot.sortition);
-                assert_eq!(
-                    old_snapshot.winning_stacks_block_hash,
-                    new_snapshot.winning_stacks_block_hash
-                );
-                assert_eq!(old_snapshot.consensus_hash, new_snapshot.consensus_hash);
-                assert_eq!(old_snapshot.sortition_hash, new_snapshot.sortition_hash);
-                assert_eq!(old_snapshot.block_height, new_snapshot.block_height);
-                assert_eq!(old_snapshot.total_burn, new_snapshot.total_burn);
-                assert_eq!(old_snapshot.ops_hash, new_snapshot.ops_hash);
-
-                // "discover" the stacks blocks
-                if new_snapshot.sortition {
-                    let mut stacks_block_id = StacksBlockHeader::make_index_block_hash(
-                        &new_snapshot.consensus_hash,
-                        &new_snapshot.winning_stacks_block_hash,
-                    );
-                    known_stacks_blocks.insert(stacks_block_id.clone());
-
-                    if next_arrival >= stacks_blocks_arrival_order.len() {
-                        // all blocks should have been queued up
-                        continue;
-                    }
-
-                    if stacks_block_id == stacks_blocks_arrival_order[next_arrival] {
-                        while next_arrival < stacks_blocks_arrival_order.len()
-                            && known_stacks_blocks.contains(&stacks_block_id)
-                        {
-                            if stacks_blocks_available.contains_key(&stacks_block_id) {
-                                // load up the block
-                                let stacks_block_opt = StacksChainState::load_block(
-                                    &old_chainstate.blocks_path,
-                                    &new_snapshot.consensus_hash,
-                                    &new_snapshot.winning_stacks_block_hash,
-                                )
-                                .unwrap();
-                                if let Some(stacks_block) = stacks_block_opt {
-                                    // insert it into the new chainstate
-                                    let ic = new_sortition_db.index_conn();
-                                    Relayer::process_new_anchored_block(
-                                        &ic,
-                                        &mut new_chainstate,
-                                        &new_snapshot.consensus_hash,
-                                        &stacks_block,
-                                        0,
-                                    )
-                                    .unwrap();
-                                } else {
-                                    warn!(
-                                        "No such stacks block {}/{}",
-                                        &new_snapshot.consensus_hash,
-                                        &new_snapshot.winning_stacks_block_hash
-                                    );
-                                }
-                            } else {
-                                warn!(
-                                    "Missing stacks block {}/{}",
-                                    &new_snapshot.consensus_hash,
-                                    &new_snapshot.winning_stacks_block_hash
-                                );
-                            }
-
-                            next_arrival += 1;
-                            if next_arrival >= stacks_blocks_arrival_order.len() {
-                                break;
-                            }
-                            stacks_block_id = stacks_blocks_arrival_order[next_arrival].clone();
-                        }
-                    }
-
-                    // TODO: also process microblocks
-                    // TODO: process blocks in arrival order
-                }
-
-                // process all new blocks
-                loop {
-                    let sortition_tip =
-                        SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn())
-                            .unwrap()
-                            .sortition_id;
-                    let sortition_tx = new_sortition_db.tx_handle_begin(&sortition_tip).unwrap();
-                    let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
-                    let receipts = new_chainstate
-                        .process_blocks(sortition_tx, 1, null_event_dispatcher)
-                        .unwrap();
-                    if receipts.is_empty() {
-                        break;
-                    }
-                }
-            }
-
-            eprintln!(
-                "Final arrival index is {next_arrival} out of {}",
-                stacks_blocks_arrival_order.len()
-            );
-        }
-
         // Mining Commands
         Command::TryMine(args) => {
             command_try_mine(&args, common_opts.config.as_ref());
@@ -1865,6 +1565,7 @@ fn analyze_sortition_mev(
                 true,
                 &burn_block.header,
                 burn_block.ops.clone(),
+                vec![],
                 &burnchain,
                 &tip_sort_id,
                 rc_info_opt,
