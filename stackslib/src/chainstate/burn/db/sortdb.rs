@@ -11383,6 +11383,9 @@ pub mod tests {
     /// arrives, and then A5 arrives.  The stacks tip table entry for A should be updated, not for
     /// B.  Same goes for A6 and B' -- the arrival of block A[n] only updates the row for A.
     ///
+    /// Each new sortition (B, B', C') does receive its own row in `stacks_chain_tips_by_burn_view`
+    /// at the moment it is appended by `append_chain_tip_snapshot`, recording a snapshot of the
+    /// canonical tip at that instant (which may later become stale
     #[test]
     fn test_stacks_block_accepted_in_burn_view_forks() {
         let first_burn_hash = BurnchainHeaderHash::from_hex(
@@ -11599,7 +11602,7 @@ pub mod tests {
     /// When catching-up, starting from genesis, the node may process many epoch 3.0 Bitcoin sortitions
     /// before any Nakamoto Stacks blocks are downloaded.
     #[test]
-    fn test_canonical_stacks_tip_survives_empty_sortition_chain() {
+    fn test_stacks_block_accepted_in_burn_view_with_long_sortition_chain() {
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "10000000000000000000000000000000000000000000000000000000000000ff",
         )
