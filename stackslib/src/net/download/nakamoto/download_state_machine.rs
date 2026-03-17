@@ -306,15 +306,20 @@ impl NakamotoDownloadStateMachine {
         stacks_tip: &StacksBlockId,
     ) -> Result<(), NetError> {
         for wt in wanted_tenures.iter_mut() {
-            debug!(
+            test_debug!(
                 "update_processed_wanted_tenures: consider {:?} off of {}",
-                &wt, stacks_tip
+                &wt,
+                stacks_tip
             );
             if wt.processed {
                 continue;
             }
             if wt.burn_height < nakamoto_start {
                 // not our problem
+                debug!(
+                    "update_processed_wanted_tenures: WantedTenure {:?} is before Nakamoto start height {}",
+                    &wt, nakamoto_start
+                );
                 wt.processed = true;
                 continue;
             }
@@ -565,6 +570,8 @@ impl NakamotoDownloadStateMachine {
                 debug!("Peer {} has the following inventory data: {:?}", naddr, inv);
                 continue;
             };
+
+            let mut missing_sortitions = vec![];
             for (i, wt) in wanted_tenures.iter().enumerate() {
                 if wt.processed {
                     continue;
@@ -578,9 +585,13 @@ impl NakamotoDownloadStateMachine {
                 let bit = u16::try_from(i).expect("FATAL: more sortitions than u16::MAX");
                 if !rc_inv.get(bit).unwrap_or(false) {
                     // this neighbor does not have this tenure
-                    debug!(
+                    missing_sortitions.push(bit);
+                    test_debug!(
                         "Peer {} does not have sortition #{} in reward cycle {} (wt {:?})",
-                        naddr, bit, reward_cycle, &wt
+                        naddr,
+                        bit,
+                        reward_cycle,
+                        &wt
                     );
                     continue;
                 }
@@ -590,6 +601,12 @@ impl NakamotoDownloadStateMachine {
                 } else {
                     available.insert(ch.clone(), vec![naddr.clone()]);
                 }
+            }
+            if missing_sortitions.len() > 0 {
+                debug!(
+                    "Peer {} does NOT have the following sortitions in reward cycle {}: {:?}",
+                    naddr, reward_cycle, &missing_sortitions
+                );
             }
         }
         available
@@ -1197,7 +1214,7 @@ impl NakamotoDownloadStateMachine {
                     DropSource::NakamotoDownloadStateMachine,
                 );
                 continue;
-            };
+            }
         }
 
         // clear dead, broken, and done
