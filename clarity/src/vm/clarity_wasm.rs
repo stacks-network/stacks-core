@@ -1,10 +1,11 @@
 use std::io::{Cursor, Write as _};
 
+use clarity_types::errors::InterpreterError;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
-use wasmtime::{AsContextMut, Caller, Linker, Memory, Module, Store, Val, ValType};
+use wasmtime::{AsContextMut, Caller, ExternRef, Linker, Memory, Module, Store, Val, ValType};
 
 use super::analysis::CheckErrors;
 use super::callables::{DefineType, DefinedFunction};
@@ -4872,38 +4873,40 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     epoch,
                 )?;
 
-                let result = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .fetch_entry_with_size(&contract, &map_name, &key, &data_types, &epoch);
+                let result = caller.data_mut().global_context.database.fetch_entry(
+                    &contract,
+                    &map_name,
+                    &key,
+                    &data_types,
+                    &epoch,
+                );
 
-                let _result_size = match &result {
-                    Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
-                };
+                match result {
+                    Err(error) => {
+                        handle_vm_execution_errors(&mut caller, error)?;
+                        Ok(())
+                    }
 
-                // runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
+                    Ok(data) => {
+                        let memory = caller
+                            .get_export("memory")
+                            .and_then(|export| export.into_memory())
+                            .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
-                let value = result.map(|data| data.value)?;
+                        let ty = TypeSignature::OptionalType(Box::new(data_types.value_type));
+                        write_to_wasm(
+                            &mut caller,
+                            memory,
+                            &ty,
+                            return_offset,
+                            return_offset + get_type_size(&ty),
+                            &data,
+                            true,
+                        )?;
 
-                let memory = caller
-                    .get_export("memory")
-                    .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
-
-                let ty = TypeSignature::OptionalType(Box::new(data_types.value_type));
-                write_to_wasm(
-                    &mut caller,
-                    memory,
-                    &ty,
-                    return_offset,
-                    return_offset + get_type_size(&ty),
-                    &value,
-                    true,
-                )?;
-
-                Ok(())
+                        Ok(())
+                    }
+                }
             },
         )
         .map(|_| ())
@@ -4995,24 +4998,28 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     &epoch,
                 );
 
-                let result_size = match &result {
-                    Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
-                };
+                match result {
+                    Err(error) => {
+                        handle_vm_execution_errors(&mut caller, error)?;
+                        Ok(1i32)
+                    }
 
-                // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
+                    Ok(data) => {
+                        caller
+                            .data_mut()
+                            .global_context
+                            .add_memory(data.serialized_byte_len)
+                            .map_err(Error::from)?;
 
-                caller
-                    .data_mut()
-                    .global_context
-                    .add_memory(result_size)
-                    .map_err(|e| Error::from(e))?;
-
-                let value = result.map(|data| data.value)?;
-                if let Value::Bool(true) = value {
-                    Ok(1i32)
-                } else {
-                    Ok(0i32)
+                        if let Value::Bool(value) = data.value {
+                            Ok(value as i32)
+                        } else {
+                            Err(Error::Interpreter(InterpreterError::InterpreterError(
+                                "Unexpected case, a boolean is expected".to_owned(),
+                            ))
+                            .into())
+                        }
+                    }
                 }
             },
         )
@@ -5105,24 +5112,27 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     &epoch,
                 );
 
-                let result_size = match &result {
-                    Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
-                };
+                match result {
+                    Err(error) => {
+                        handle_vm_execution_errors(&mut caller, error)?;
+                        Ok(1i32)
+                    }
+                    Ok(data) => {
+                        caller
+                            .data_mut()
+                            .global_context
+                            .add_memory(data.serialized_byte_len)
+                            .map_err(Error::from)?;
 
-                // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
-
-                caller
-                    .data_mut()
-                    .global_context
-                    .add_memory(result_size)
-                    .map_err(|e| Error::from(e))?;
-
-                let value = result.map(|data| data.value)?;
-                if let Value::Bool(true) = value {
-                    Ok(1i32)
-                } else {
-                    Ok(0i32)
+                        if let Value::Bool(value) = data.value {
+                            Ok(value as i32)
+                        } else {
+                            Err(Error::Interpreter(InterpreterError::InterpreterError(
+                                "Unexpected case, a boolean is expected".to_owned(),
+                            ))
+                            .into())
+                        }
+                    }
                 }
             },
         )
@@ -5197,24 +5207,27 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     &epoch,
                 );
 
-                let result_size = match &result {
-                    Ok(data) => data.serialized_byte_len,
-                    Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
-                };
+                match result {
+                    Err(error) => {
+                        handle_vm_execution_errors(&mut caller, error)?;
+                        Ok(true as i32)
+                    }
+                    Ok(data) => {
+                        caller
+                            .data_mut()
+                            .global_context
+                            .add_memory(data.serialized_byte_len)
+                            .map_err(Error::from)?;
 
-                // runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
-
-                caller
-                    .data_mut()
-                    .global_context
-                    .add_memory(result_size)
-                    .map_err(|e| Error::from(e))?;
-
-                let value = result.map(|data| data.value)?;
-                if let Value::Bool(true) = value {
-                    Ok(1i32)
-                } else {
-                    Ok(0i32)
+                        if let Value::Bool(value) = data.value {
+                            Ok(value as i32)
+                        } else {
+                            Err(Error::Interpreter(InterpreterError::InterpreterError(
+                                "Unexpected case, a boolean is expected".to_owned(),
+                            ))
+                            .into())
+                        }
+                    }
                 }
             },
         )
@@ -5225,6 +5238,29 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                 e,
             ))
         })
+}
+
+/// Set the linked error with the error returned
+fn handle_vm_execution_errors(
+    caller: &mut Caller<'_, ClarityWasmContext>,
+    error: Error,
+) -> Result<(), Error> {
+    let linked_error = caller
+        .get_export("linked-error")
+        .ok_or(Error::Wasm(WasmError::GlobalNotFound(
+            "runtime-error-linked".to_owned(),
+        )))?
+        .into_global()
+        .ok_or(Error::Wasm(WasmError::GlobalNotFound(
+            "runtime-error-linked".to_owned(),
+        )))?;
+    match linked_error.set(
+        caller.as_context_mut(),
+        Val::ExternRef(Some(ExternRef::new(error))),
+    ) {
+        Err(error) => Err(Error::Wasm(WasmError::UnableToWriteMemory(error))),
+        Ok(_) => Ok(()),
+    }
 }
 
 fn check_height_valid(
