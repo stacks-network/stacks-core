@@ -137,7 +137,7 @@ jobs:
           fetch-depth: 0
 
       ## Quick diff scan: detect whether the PR introduces any new proptest test
-      ## looking for the attribute #[tag(..., prop, ...)] on added lines,
+      ## looking for the attribute #[tag(..., t_prop, ...)] on added lines,
       ## so we can skip full discovery when there are none.
       - name: Detect new proptest tests (git diff)
         id: detect
