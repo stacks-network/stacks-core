@@ -4699,10 +4699,16 @@ impl SortitionDB {
         conn: &Connection,
         tip: &BlockSnapshot,
     ) -> Result<Option<(ConsensusHash, ConsensusHash, BlockHeaderHash, u64)>, db_error> {
-        // Search stacks_chain_tips_by_burn_view, but give up after a (small) number of rows.
-        // This "give up" condition should only be reached when `stacks_chain_tips_by_burn_height`
-        // is empty -- i.e. on migration to schema 11.
+        // Search stacks_chain_tips_by_burn_view within a bounded window.  Every sortition
+        // processed by append_chain_tip_snapshot writes its own row (keyed by sortition_id),
+        // so the correct entry is usually found at the very first hop.  However, when a Stacks
+        // block is accepted via set_stacks_block_accepted_at_tip, only the *burn-view* sortition's
+        // row is updated; any later sortitions that were appended before that block arrived will
+        // have stale (lower-height) entries.  We therefore collect all entries within the window
+        // and return the one with the highest block_height, which is always the correct canonical
+        // tip.
         let mut cursor = tip.clone();
+        let mut best: Option<(ConsensusHash, ConsensusHash, BlockHeaderHash, u64)> = None;
         for _ in 0..STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH {
             let result_at_tip : Option<(ConsensusHash, ConsensusHash, BlockHeaderHash, u64)> = conn.query_row_and_then(
                 "SELECT consensus_hash,burn_view_consensus_hash, block_hash,block_height FROM stacks_chain_tips_by_burn_view WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
@@ -4716,15 +4722,23 @@ impl SortitionDB {
                 cursor.block_height,
                 &result_at_tip
             );
-            if let Some(stacks_tip) = result_at_tip {
-                return Ok(Some(stacks_tip));
+            if let Some(ref candidate) = result_at_tip {
+                if best
+                    .as_ref()
+                    .map_or(true, |b: &(_, _, _, u64)| candidate.3 > b.3)
+                {
+                    best = result_at_tip;
+                }
             }
             let Some(next_cursor) =
                 SortitionDB::get_block_snapshot(conn, &cursor.parent_sortition_id)?
             else {
-                return Ok(None);
+                break;
             };
             cursor = next_cursor
+        }
+        if best.is_some() {
+            return Ok(best);
         }
 
         // exhaustively search stacks_chain_tips
@@ -5540,11 +5554,24 @@ impl SortitionHandleTx<'_> {
             self.insert_missed_block_commit(missed_commit)?;
         }
 
-        self.update_canonical_stacks_tip(
-            &sn.canonical_stacks_tip_consensus_hash,
-            &burn_view_consensus_hash,
-            &sn.canonical_stacks_tip_hash,
-            sn.canonical_stacks_tip_height,
+        // Write the canonical Stacks tip to THIS sortition's row (keyed by sn.sortition_id),
+        // not the burn-view sortition's row.  This ensures every epoch-3.0 sortition has its
+        // own entry so the bounded backward search always finds the tip without needing to
+        // walk more than one hop, regardless of how many empty sortitions have been processed.
+        // (The max-height read in get_canonical_nakamoto_tip_hash_and_height_and_burn_view
+        // handles any stale entries that may arise in fork scenarios.)
+        let sql = "INSERT OR REPLACE INTO stacks_chain_tips_by_burn_view \
+            (sortition_id,consensus_hash,burn_view_consensus_hash,block_hash,block_height) \
+            VALUES (?1,?2,?3,?4,?5)";
+        self.execute(
+            sql,
+            params![
+                &sn.sortition_id,
+                &sn.canonical_stacks_tip_consensus_hash,
+                &burn_view_consensus_hash,
+                &sn.canonical_stacks_tip_hash,
+                u64_to_sql(sn.canonical_stacks_tip_height)?,
+            ],
         )?;
 
         #[cfg(test)]
@@ -11443,9 +11470,9 @@ pub mod tests {
                 (block_consensus_hash, block_bhh, block_height)
             );
 
-            // there is no tip info off of sortition B
+            // sortition B was appended while A4 was canonical, so it has its own entry
             let sortition_B_tip = get_stacks_tip_at_sortition(&db, &sortition_B.sortition_id);
-            assert!(sortition_B_tip.is_none());
+            assert!(sortition_B_tip.is_some());
         }
 
         // sortition B' arrives
@@ -11491,13 +11518,13 @@ pub mod tests {
             let sortition_A_tip = get_stacks_tip_at_sortition(&db, &sortition_A.sortition_id);
             assert!(sortition_A_tip.is_some());
 
-            // there is no tip info off of sortition B
+            // sortition B was appended while A4 was canonical, so it has its own entry
             let sortition_B_tip = get_stacks_tip_at_sortition(&db, &sortition_B.sortition_id);
-            assert!(sortition_B_tip.is_none());
+            assert!(sortition_B_tip.is_some());
 
-            // there is no tip info off of sortition B'
+            // sortition B' was appended while A5 was canonical, so it has its own entry
             let sortition_Bp_tip = get_stacks_tip_at_sortition(&db, &sortition_Bp.sortition_id);
-            assert!(sortition_Bp_tip.is_none());
+            assert!(sortition_Bp_tip.is_some());
         }
 
         // sortition C' arrives, and it's now canonical
@@ -11550,17 +11577,116 @@ pub mod tests {
             let sortition_A_tip = get_stacks_tip_at_sortition(&db, &sortition_A.sortition_id);
             assert!(sortition_A_tip.is_some());
 
-            // there is no tip info off of sortition B
+            // sortition B was appended while A4 was canonical, so it has its own entry
             let sortition_B_tip = get_stacks_tip_at_sortition(&db, &sortition_B.sortition_id);
-            assert!(sortition_B_tip.is_none());
+            assert!(sortition_B_tip.is_some());
 
-            // there is no tip info off of sortition B'
+            // sortition B' was appended while A5 was canonical, so it has its own entry
             let sortition_Bp_tip = get_stacks_tip_at_sortition(&db, &sortition_Bp.sortition_id);
-            assert!(sortition_Bp_tip.is_none());
+            assert!(sortition_Bp_tip.is_some());
 
-            // there is no tip info off of sortition C'
+            // sortition C' was appended while A6 was canonical, so it has its own entry
             let sortition_Cp_tip = get_stacks_tip_at_sortition(&db, &sortition_Cp.sortition_id);
-            assert!(sortition_Cp_tip.is_none());
+            assert!(sortition_Cp_tip.is_some());
         }
+    }
+
+    /// During a genesis catch-up sync the node processes many epoch 3.0 Bitcoin sortitions
+    /// before any Nakamoto Stacks blocks are downloaded. Once it has processed more than 144
+    /// sortitions the last known Stacks tip (stored at an old `burn_view` sortition) falls
+    /// outside the search window. The fallback loop walks all sortitions back to genesis
+    /// through an empty table, taking 30+ seconds per call and ultimately returning `None`.
+    /// The node then records canonical tip = 0, v2/info returns stacks_tip=0, and sync stalls.
+    ///
+    /// `make_fork_run` calls `append_chain_tip_snapshot` for every step, which is the exact
+    /// same code path as real genesis sync sortition processing.
+    #[test]
+    fn test_genesis_sync_canonical_tip_lost_after_search_depth_sortitions() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "10000000000000000000000000000000000000000000000000000000000000ff",
+        )
+        .unwrap();
+
+        // All epoch 3.0 from the start — simulates the Nakamoto coordinator's view of
+        // the chain once it takes over from the neon run loop.
+        let epochs = StacksEpoch::unit_test_3_0_only(0);
+        let mut db = SortitionDB::connect_test_with_epochs(0, &first_burn_hash, epochs).unwrap();
+
+        let genesis = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
+
+        // Record the "last known Stacks tip" at the genesis sortition — its burn_view is
+        // the genesis sortition itself.  This mirrors the state after a neon run loop
+        // hands off to the Nakamoto coordinator: the last epoch-2.x block's burn_view
+        // points to its own (now distant) sortition.
+        let stacks_ch = genesis.consensus_hash.clone();
+        let stacks_bhh = BlockHeaderHash([0xab; 32]);
+        let stacks_height: u64 = 100;
+        // The depth limit introduced by PR #6881 in 3.3.0.0.6 (STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH).
+        // In that version the backward search is capped at this many sortitions before falling back
+        // to the (empty in fresh genesis sync) stacks_chain_tips table, causing the tip to be lost.
+        let search_depth: u64 = 144;
+        {
+            let mut tx = db.tx_begin_at_tip();
+            tx.set_stacks_block_accepted(&stacks_ch, &stacks_ch, &stacks_bhh, stacks_height)
+                .unwrap();
+            tx.commit().unwrap();
+        }
+
+        // Sanity-check: tip is immediately visible (0 additional sortitions).
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        let result =
+            SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), &burn_tip).unwrap();
+        assert!(
+            result.is_some(),
+            "canonical tip must be visible right after acceptance"
+        );
+        assert_eq!(result.unwrap().2, stacks_height);
+
+        // Also works with search_depth empty sortitions — the boundary at which 3.3.0.0.6 fails.
+        // In the regressed version the entry is reachable for exactly this many hops, so adding
+        // one more sortition pushes it out of the search window.
+        let n_safe = search_depth;
+        make_fork_run(&mut db, &genesis, n_safe, 0);
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        let result =
+            SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), &burn_tip).unwrap();
+        assert!(
+            result.is_some(),
+            "canonical tip must still be visible with {} empty sortitions (just at the limit)",
+            n_safe
+        );
+        assert_eq!(result.unwrap().2, stacks_height);
+
+        // Now add ONE more sortition — this is the 145th, which pushes the genesis entry
+        // exactly one step beyond STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH.
+        // append_chain_tip_snapshot (called inside make_fork_run) overwrites the genesis
+        // stacks_chain_tips_by_burn_view entry with block_height=0 and all-zero hashes.
+        let safe_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        make_fork_run(&mut db, &safe_tip, 1, 0);
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+
+        let result =
+            SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), &burn_tip).unwrap();
+
+        // This assertion FAILS on 3.3.0.0.6 (regression, PR #6881):
+        //   - stacks_chain_tips_by_burn_view entry at genesis is overwritten with height=0
+        //   - stacks_chain_tips (fallback) is empty in fresh genesis sync → returns None
+        assert!(
+            result.is_some(),
+            "canonical Stacks tip must survive {} empty epoch 3.0 sortitions \
+         (search_depth + 1 = {}); \
+         regression in 3.3.0.0.6: tip lost because burn_view sortition falls outside \
+         the {}-step backward search window and stacks_chain_tips is empty",
+            n_safe + 1,
+            search_depth + 1,
+            search_depth
+        );
+        let (ch, bhh, height) = result.unwrap();
+        assert_eq!(
+            height, stacks_height,
+            "tip height should still be {stacks_height}, got {height}"
+        );
+        assert_eq!(ch, stacks_ch);
+        assert_eq!(bhh, stacks_bhh);
     }
 }
