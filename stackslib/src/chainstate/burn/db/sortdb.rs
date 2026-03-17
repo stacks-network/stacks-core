@@ -4723,10 +4723,19 @@ impl SortitionDB {
                 &result_at_tip
             );
             if let Some(ref candidate) = result_at_tip {
-                let (_, _, _, candidate_height) = candidate;
+                let (_, candidate_burn_view, _, candidate_height) = candidate;
                 let best_height = best.as_ref().map_or(0u64, |(_, _, _, h)| *h);
-                if *candidate_height > best_height {
+                // An entry whose burn_view_consensus_hash matches the current cursor's
+                // consensus_hash was written by set_stacks_block_accepted_at_tip targeting
+                // this exact sortition as the burn view — it is guaranteed up-to-date.
+                // No ancestor can have a higher entry, so we can stop here.
+                let is_better = *candidate_height > best_height;
+                let is_block_accepted = candidate_burn_view == &cursor.consensus_hash;
+                if is_better {
                     best = result_at_tip;
+                }
+                if is_block_accepted {
+                    break;
                 }
             }
             let Some(next_cursor) =
@@ -11587,11 +11596,11 @@ pub mod tests {
             assert!(sortition_Cp_tip.is_some());
         }
     }
-    
-    /// Verifies the `stacks tip / burn view` memoization invariants, when 
-    /// a stacks block is accepted and more than [`STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH`] 
+
+    /// Verifies the `stacks tip / burn view` memoization invariants, when
+    /// a stacks block is accepted and more than [`STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH`]
     /// epoch-3.0 sortitions are appended.
-    /// 
+    ///
     /// A scenario like this can manifest during genesis sync.
     /// When catching-up, starting from genesis, the node may process many epoch 3.0 Bitcoin sortitions
     /// before any Nakamoto Stacks blocks are downloaded.
