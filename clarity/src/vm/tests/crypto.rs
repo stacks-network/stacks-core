@@ -12,6 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use pinny::tag;
 use proptest::prelude::*;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::{PrivateKey, StacksEpochId};
@@ -571,6 +572,7 @@ fn test_secp256k1_recover_invalid_signature_returns_err_code() {
 }
 
 proptest! {
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256k1_verify_accepts_valid_signatures(
         seed in any::<[u8; 32]>(),
@@ -601,6 +603,7 @@ proptest! {
         prop_assert_eq!(Value::Bool(true), result);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256k1_recover_matches_public_key(
         seed in any::<[u8; 32]>(),
@@ -631,6 +634,7 @@ proptest! {
         prop_assert_eq!(Value::Bool(true), result);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256r1_verify_accepts_valid_signatures(
         seed in any::<[u8; 32]>(),
@@ -660,6 +664,7 @@ proptest! {
         prop_assert_eq!(Value::Bool(true), result);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256k1_verify_rejects_tampered_msg(
         seed in any::<[u8; 32]>(),
@@ -689,6 +694,7 @@ proptest! {
         prop_assert_eq!(Value::Bool(false), result);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256r1_verify_rejects_tampered_msg(
         seed in any::<[u8; 32]>(),
@@ -723,6 +729,7 @@ proptest! {
         prop_assert_eq!(Value::Bool(false), result);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256k1_recover_fails_to_match_with_tampered_msg(
         seed in any::<[u8; 32]>(),
@@ -758,6 +765,7 @@ proptest! {
         prop_assert_eq!(Value::Bool(false), result);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256r1_verify_rejects_wrong_key(
         seed_a in any::<[u8; 32]>(),
@@ -786,6 +794,7 @@ proptest! {
         prop_assert_eq!(Value::Bool(false), result);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256k1_verify_rejects_wrong_key(
         seed_a in any::<[u8; 32]>(),
@@ -819,6 +828,7 @@ proptest! {
         prop_assert_eq!(Value::Bool(false), result);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_secp256k1_recover_fails_to_match_with_wrong_key(
         seed_a in any::<[u8; 32]>(),
