@@ -314,6 +314,15 @@ pub enum DropReason {
     FaultInjection,
 }
 
+impl DropReason {
+    pub fn is_peer_broken(&self) -> bool {
+        match self {
+            Self::BannedConnection | Self::BrokenConnection(..) | Self::FaultInjection => true,
+            _ => false,
+        }
+    }
+}
+
 impl std::fmt::Display for DropReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -2126,20 +2135,22 @@ impl PeerNetwork {
                 self.relay_handles.remove(&event_id);
                 self.peers.remove(&event_id);
             }
-            // remove inventory state
-            if let Some(inv_state) = self.inv_state.as_mut() {
-                debug!(
-                    "{:?}: Remove inventory state for epoch 2.x {nk:?}",
-                    &self.local_peer
-                );
-                inv_state.del_peer(&nk);
-            }
-            if let Some(inv_state) = self.inv_state_nakamoto.as_mut() {
-                debug!(
-                    "{:?}: Remove inventory state for Nakamoto {nk:?}",
-                    &self.local_peer
-                );
-                inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk.clone(), pubkh));
+            // remove inventory state if the peer misbehaved
+            if reason.is_peer_broken() {
+                if let Some(inv_state) = self.inv_state.as_mut() {
+                    debug!(
+                        "{:?}: Remove inventory state for epoch 2.x {nk:?}",
+                        &self.local_peer
+                    );
+                    inv_state.del_peer(&nk);
+                }
+                if let Some(inv_state) = self.inv_state_nakamoto.as_mut() {
+                    debug!(
+                        "{:?}: Remove inventory state for Nakamoto {nk:?}",
+                        &self.local_peer
+                    );
+                    inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk.clone(), pubkh));
+                }
             }
         }
     }
