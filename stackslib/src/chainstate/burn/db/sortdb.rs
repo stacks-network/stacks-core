@@ -4723,10 +4723,9 @@ impl SortitionDB {
                 &result_at_tip
             );
             if let Some(ref candidate) = result_at_tip {
-                if best
-                    .as_ref()
-                    .map_or(true, |b: &(_, _, _, u64)| candidate.3 > b.3)
-                {
+                let (_, _, _, candidate_height) = candidate;
+                let best_height = best.as_ref().map_or(0u64, |(_, _, _, h)| *h);
+                if *candidate_height > best_height {
                     best = result_at_tip;
                 }
             }
@@ -5554,12 +5553,7 @@ impl SortitionHandleTx<'_> {
             self.insert_missed_block_commit(missed_commit)?;
         }
 
-        // Write the canonical Stacks tip to THIS sortition's row (keyed by sn.sortition_id),
-        // not the burn-view sortition's row.  This ensures every epoch-3.0 sortition has its
-        // own entry so the bounded backward search always finds the tip without needing to
-        // walk more than one hop, regardless of how many empty sortitions have been processed.
-        // (The max-height read in get_canonical_nakamoto_tip_hash_and_height_and_burn_view
-        // handles any stale entries that may arise in fork scenarios.)
+        // Write the canonical Stacks tip to THIS sortition's row (keyed by sn.sortition_id)
         let sql = "INSERT OR REPLACE INTO stacks_chain_tips_by_burn_view \
             (sortition_id,consensus_hash,burn_view_consensus_hash,block_hash,block_height) \
             VALUES (?1,?2,?3,?4,?5)";
