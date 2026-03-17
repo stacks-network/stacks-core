@@ -79,24 +79,17 @@ build_stacks_inspect() {
 
 # If LOCAL_CHAINSTATE is defined, check the disk for reflink
 check_reflink() {
-    if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
-        # Retrieve the disk only if LOCAL_CHAINSTATE is set
-        local disk=$(df --type xfs --output=source $LOCAL_CHAINSTATE 2> /dev/null | tail -1)
-        if [ "${disk}" == "" ]; then
-            # Chainstate is not on an XFS formatted disk
-            return 1
-        fi
-        # xfs_info needs to be run by sudo
-        sudo xfs_info $disk | grep "reflink=1"  > /dev/null 2>&1 || {
-            # Reflink is not enabled on the xfs disk
-            return 1
-        }
-        # Reflink is enabled
-        return 0
-    else
-        # LOCAL_CHAINSTATE is not set
-        return 1
+    local dir="$1"
+    # only if LOCAL_CHAINSTATE is set
+    local disk=$(df --type xfs --output=source $dir 2> /dev/null | tail -1)
+    if [ "${disk}" == "" ]; then
+        return 1 # no reflink available on the disk
     fi
+    # xfs_info needs to be run by sudo
+    sudo xfs_info $disk | grep "reflink=1"  > /dev/null 2>&1 || {
+        return 1 # no reflink on the xfs disk
+    }
+    return 0 # reflink is enabled
 }
 
 # Create the slice dirs from an chainstate archive (symlinking marf.sqlite.blobs), 1 dir per CPU
@@ -149,9 +142,9 @@ configure_validation_slices() {
        }
        # Extract downloaded archive
        echo "Extracting downloaded archive: ${COLYELLOW}${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst${COLRESET}"
-       tar --strip-components=1 --zstd -xvf  "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst" -C "${SLICE_DIR}0" || {
+       tar --strip-components=1 --zstd -xvf "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst" -C "${SLICE_DIR}0" || {
            echo "${COLRED}Error${COLRESET} extracting ${NETWORK} chainstate archive"
-           exit
+           exit 1
        }
     fi
     # If reflink is not enabled for the filesystem, we'll need to copy and link the MARF database to save a little space for the chainstate copy
@@ -159,7 +152,7 @@ configure_validation_slices() {
         echo "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> ${COLYELLOW}${SCRATCH_DIR}/marf.sqlite.blobs${COLRESET}"
         mv "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs "${SCRATCH_DIR}"/ || {
             echo "${COLRED}Error${COLRESET} moving marg database"
-            exit
+            exit 1
         }
         echo "Symlinking marf database: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${COLYELLOW}${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs${COLRESET}"
         ln -s "${SCRATCH_DIR}"/marf.sqlite.blobs "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs || {
@@ -351,7 +344,6 @@ store_results() {
     local block_failure=0;
     local failure_count=0;
     local return_code=0;
-    local failure_count=0
     local count_one=0
     echo "Results: ${COLYELLOW}${results}${COLRESET}"
     cd "${LOG_DIR}" || {
@@ -418,7 +410,7 @@ usage() {
     echo "        ${COLYELLOW}-n|--network${COLRESET}: run block validation against specific network (default: mainnet)"
     echo "        ${COLYELLOW}-s|--scratchdir${COLRESET}: folder to store copied chainstate data (default: ${HOME}/scratch)"
     echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
-    echo "        ${COLYELLOW}-c|--chainstate${COLRESET}: local chainstate copy to use instead of downloading a chainstaet snapshot"
+    echo "        ${COLYELLOW}-c|--chainstate${COLRESET}: local chainstate copy to use instead of downloading a chainstate snapshot"
     echo "        ${COLYELLOW}-l|--logdir${COLRESET}: use existing log directory"
     echo "        ${COLYELLOW}-r|--reserved${COLRESET}: how many cpu cores to reserve for system tasks"
     echo
@@ -529,10 +521,11 @@ while [ ${#} -gt 0 ]; do
             LOG_DIR="${2}"
             shift
             ;;
-        -r|--RESERVED)
-            # Reserve this many cpus for the system (default is 10)
+        -r|--reserved)
+            # Reserve this many cpus for the system 
             if [ "${2}" == "" ]; then
                 echo "Missing required value for ${1}"
+		exit 1
             fi
             if ! [[ "$2" =~ ^[0-9]+$ ]]; then
                 echo "ERROR: arg ($2) is not a number." >&2
