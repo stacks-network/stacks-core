@@ -1,4 +1,5 @@
 use std::io::{Cursor, Write as _};
+
 use clarity_types::errors::InterpreterError;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
