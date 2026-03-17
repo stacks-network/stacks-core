@@ -15,24 +15,28 @@
 
 use std::collections::HashMap;
 
+use clarity::vm::clarity::ClarityError;
+use clarity::vm::database::DataVariableMetadata;
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature};
 use clarity::vm::{SymbolicExpression, Value};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{to_hex, Hash160};
 
 use crate::burnchains::PoxConstants;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{validate_pox_p2wsh_outputs, SortitionDB};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
-    PoxVersions, RawRewardSetEntry, RewardSet, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
-    SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    PoxVersions, RawRewardSetEntry, RewardSet, SIGNERS_LAST_UPDATED_BTC_HEIGHT,
+    SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN, SIGNERS_UPDATE_STATE,
+    SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TransactionPayload};
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
+use crate::clarity_vm::database::SortitionDBRef;
 use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
 
@@ -288,9 +292,11 @@ impl NakamotoSigners {
         Ok(slots)
     }
 
-    /// Compute the reward set for the next reward cycle, store it, and write it to the .signers
-    /// contract.  `reward_cycle` is the _current_ reward cycle.
-    pub fn handle_signer_stackerdb_update(
+    /// For PoX-4, compute the reward set for the next reward cycle,
+    /// store it, and write it to the .signers contract.
+    ///
+    /// * `reward_cycle` is the reward cycle for the calculation (i.e., the next cycle).
+    fn pox_4_compute_and_update_signers(
         clarity: &mut ClarityTransactionConnection,
         pox_constants: &PoxConstants,
         reward_cycle: u64,
@@ -443,6 +449,189 @@ impl NakamotoSigners {
         Ok(SignerCalculation { events, reward_set })
     }
 
+    /// For PoX-5, compute the reward set for the next reward cycle,
+    /// store it, and write it to the .signers contract.
+    ///
+    /// * `reward_cycle` is the reward cycle for the calculation (i.e., the next cycle).
+    /// * `last_computed_btc_height` is the btc height when the last reward cycle was calculated
+    fn pox_5_compute_and_update_signers(
+        clarity: &mut ClarityTransactionConnection,
+        pox_constants: &PoxConstants,
+        reward_cycle: u64,
+        pox_contract: &str,
+        coinbase_height: u64,
+        current_calculation_btc_height: u32,
+        last_computed_btc_height: u32,
+        sortition_dbconn: &dyn SortitionDBRef,
+        current_epoch: &StacksEpochId,
+    ) -> Result<SignerCalculation, ChainstateError> {
+        let is_mainnet = clarity.is_mainnet();
+        let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
+        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
+
+        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
+        let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
+        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
+            pox_constants,
+            &reward_slots[..],
+            liquid_ustx,
+        );
+
+        let pox_version: PoxVersions =
+            PoxVersions::lookup_by_name(pox_contract).ok_or(ChainstateError::DefunctPoxContract)?;
+        let reward_set = StacksChainState::make_reward_set(
+            threshold,
+            reward_slots,
+            StacksEpochId::Epoch30,
+            pox_version,
+        );
+
+        // do the p2wsh validation...
+        let new_sortition_db = sortition_dbconn.reopen_handle();
+        let mut sortition_handle = new_sortition_db.as_ref();
+        let scripts = [];
+        let _result =
+            validate_pox_p2wsh_outputs(&mut sortition_handle, &scripts, last_computed_btc_height)?;
+        // store the last_computed_btc_height
+        clarity.with_clarity_db(|db| {
+            db.set_variable(
+                signers_contract,
+                SIGNERS_LAST_UPDATED_BTC_HEIGHT,
+                Value::UInt(current_calculation_btc_height.into()),
+                &DataVariableMetadata { value_type: TypeSignature::UIntType },
+                &current_epoch
+            ).map_err(|_| ClarityError::BadTransaction("FATAL: failed to set variable during reward set calculation".into()))
+        }).map_err(|_| {
+            error!("FATAL: failed to set SIGNERS_LAST_UPDATED_BTC_HEIGHT during reward set calculation");
+            ChainstateError::PoxNoRewardCycle
+        })?;
+        // todo: apply the validation check changes to the reward set.
+
+        test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
+        let stackerdb_list = if participation == 0 {
+            vec![]
+        } else {
+            reward_set
+                .signers
+                .as_ref()
+                .ok_or(ChainstateError::PoxNoRewardCycle)?
+                .iter()
+                .map(|signer| {
+                    let signer_hash = Hash160::from_data(&signer.signing_key);
+                    let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
+                    let tuple_data = TupleData::from_data(vec![
+                        (
+                            "signer".into(),
+                            Value::Principal(PrincipalData::from(signing_address)),
+                        ),
+                        ("num-slots".into(), Value::UInt(1)),
+                    ])
+                    .map_err(|e| {
+                        ChainstateError::Expects(format!(
+                            "Failed to create tuple for stackerdb entry: {e}"
+                        ))
+                    })?;
+                    Ok::<Value, ChainstateError>(Value::Tuple(tuple_data))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+
+        let signers_list = if participation == 0 {
+            vec![]
+        } else {
+            reward_set
+                .signers
+                .as_ref()
+                .ok_or(ChainstateError::PoxNoRewardCycle)?
+                .iter()
+                .map(|signer| {
+                    let signer_hash = Hash160::from_data(&signer.signing_key);
+                    let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
+                    let tuple = TupleData::from_data(vec![
+                        (
+                            "signer".into(),
+                            Value::Principal(PrincipalData::from(signing_address)),
+                        ),
+                        ("weight".into(), Value::UInt(signer.weight.into())),
+                    ])
+                    .map_err(|e| {
+                        ChainstateError::Expects(format!(
+                            "Failed to create tuple for signers entry: {e}"
+                        ))
+                    })?;
+                    Ok::<Value, ChainstateError>(Value::Tuple(tuple))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+
+        if signers_list.len() > SIGNERS_MAX_LIST_SIZE {
+            return Err(ChainstateError::Expects(format!(
+                "signers list returned by reward set calculations longer than maximum ({} > {SIGNERS_MAX_LIST_SIZE})",
+                signers_list.len()
+            )));
+        }
+
+        let set_stackerdb_args = [
+            SymbolicExpression::atom_value(Value::cons_list_unsanitized(stackerdb_list).map_err(
+                |e| {
+                    ChainstateError::Expects(format!(
+                        "Failed to create cons list for stackerdb arg: {e}"
+                    ))
+                },
+            )?),
+            SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
+            SymbolicExpression::atom_value(Value::UInt(coinbase_height.into())),
+        ];
+
+        let set_signers_args = [
+            SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
+            SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).map_err(
+                |e| {
+                    ChainstateError::Expects(format!(
+                        "Failed to create cons list for signers arg: {e}"
+                    ))
+                },
+            )?),
+        ];
+
+        let (value, _, events, _) = clarity.with_abort_callback(
+            |vm_env| {
+                vm_env.execute_in_env(sender_addr.clone(), None, None, |exec_state, invoke_ctx| {
+                    exec_state.execute_contract_allow_private(
+                        invoke_ctx,
+                        signers_contract,
+                        "stackerdb-set-signer-slots",
+                        &set_stackerdb_args,
+                        false,
+                    )?;
+                    exec_state.execute_contract_allow_private(
+                        invoke_ctx,
+                        signers_contract,
+                        "set-signers",
+                        &set_signers_args,
+                        false,
+                    )
+                })
+            },
+            |_, _| None,
+        )?;
+
+        if let Value::Response(ref data) = value {
+            if !data.committed {
+                error!(
+                    "Error while updating .signers contract";
+                    "reward_cycle" => reward_cycle,
+                    "cc_response" => %value,
+                );
+                return Err(ChainstateError::Expects(
+                    "Failed to update .signers contract".into(),
+                ));
+            }
+        }
+
+        Ok(SignerCalculation { events, reward_set })
+    }
+
     /// If this block is mined in the prepare phase, based on its tenure's `burn_tip_height`.  If
     /// so, and if we haven't done so yet, then compute the PoX reward set, store it, and update
     /// the .signers contract.  The stored PoX reward set is the reward set for the next reward
@@ -450,9 +639,10 @@ impl NakamotoSigners {
     /// and block signatures.
     pub fn check_and_handle_prepare_phase_start(
         clarity_tx: &mut ClarityTx,
+        sortition_dbconn: &dyn SortitionDBRef,
         first_block_height: u64,
         pox_constants: &PoxConstants,
-        burn_tip_height: u64,
+        burn_tip_height: u32,
         coinbase_height: u64,
     ) -> Result<Option<SignerCalculation>, ChainstateError> {
         let current_epoch = clarity_tx.get_epoch();
@@ -462,30 +652,28 @@ impl NakamotoSigners {
         }
         // now, determine if we are in a prepare phase, and we are the first
         //  block in this prepare phase in our fork
-        if !pox_constants.is_in_prepare_phase(first_block_height, burn_tip_height) {
+        if !pox_constants.is_in_prepare_phase(first_block_height, burn_tip_height.into()) {
             // if we're not in a prepare phase, don't need to do anything
             return Ok(None);
         }
 
         let Some(cycle_of_prepare_phase) =
-            pox_constants.reward_cycle_of_prepare_phase(first_block_height, burn_tip_height)
+            pox_constants.reward_cycle_of_prepare_phase(first_block_height, burn_tip_height.into())
         else {
             // if we're not in a prepare phase, don't need to do anything
             return Ok(None);
         };
 
-        let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height);
+        let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height.into());
 
-        if let Some(current_pox_version) = PoxVersions::lookup_by_name(active_pox_contract) {
-            if current_pox_version < PoxVersions::Pox4 {
-                debug!(
-                "Active PoX contract is lower than PoX-4, skipping .signers updates until PoX-4 is active"
-            );
-                return Ok(None);
-            }
-        } else {
+        let Some(current_pox_version) = PoxVersions::lookup_by_name(active_pox_contract) else {
+            debug!("Active PoX contract is not a recognized version, skipping .signers updates");
+            return Ok(None);
+        };
+
+        if current_pox_version < PoxVersions::Pox4 {
             debug!(
-                "Active PoX contract is not PoX-4, skipping .signers updates until PoX-4 is active"
+                "Active PoX contract is lower than PoX-4, skipping .signers updates until PoX-4 is active"
             );
             return Ok(None);
         }
@@ -493,12 +681,12 @@ impl NakamotoSigners {
         let signers_contract = &boot_code_id(SIGNERS_NAME, clarity_tx.config.mainnet);
 
         // are we the first block in the prepare phase in our fork?
-        let needs_update: Result<_, ChainstateError> = clarity_tx
+        let needs_update_result: Result<_, ChainstateError> = clarity_tx
             .connection()
             .with_clarity_db_readonly(|clarity_db| {
                 if !clarity_db.has_contract(signers_contract) {
                     // if there's no signers contract, no need to update anything.
-                    return Ok(false);
+                    return Ok((false, 0));
                 }
                 let value = clarity_db.lookup_variable_unknown_descriptor(
                     signers_contract,
@@ -510,12 +698,38 @@ impl NakamotoSigners {
                         "Expected u128 for .signers {SIGNERS_UPDATE_STATE} variable"
                     ))
                 })?;
+                let needs_update = cycle_number < u128::from(cycle_of_prepare_phase);
+
+                let last_update_btc_height: u32 = if needs_update && current_pox_version.performs_btc_lookback() {
+                    let value = clarity_db.lookup_variable(
+                        signers_contract,
+                        SIGNERS_LAST_UPDATED_BTC_HEIGHT,
+                        &DataVariableMetadata {
+                            value_type: TypeSignature::UIntType,
+                        },
+                        &current_epoch,
+                    )?;
+                    value
+                        .expect_u128()
+                        // if its not a u128, then it means the value has not been stored yet, so default to 0
+                        .unwrap_or(0)
+                        .try_into()
+                        .map_err(|_|
+                            ChainstateError::Expects(format!(
+                                "Expected u32 for .signers {SIGNERS_LAST_UPDATED_BTC_HEIGHT} variable"
+                            ))
+                        )?
+                } else {
+                    0
+                };
                 // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
                 //  the .signers state.
-                Ok(cycle_number < u128::from(cycle_of_prepare_phase))
+                Ok((needs_update, last_update_btc_height))
             });
 
-        if !needs_update? {
+        let (needs_update, last_update_btc_height) = needs_update_result?;
+
+        if !needs_update {
             debug!("Current cycle has already been setup in .signers or .signers is not initialized yet");
             return Ok(None);
         }
@@ -526,18 +740,35 @@ impl NakamotoSigners {
             "for_cycle" => cycle_of_prepare_phase,
             "coinbase_height" => coinbase_height,
             "signers_contract" => %signers_contract,
+            "last_update_btc_height" => last_update_btc_height
         );
 
         clarity_tx
             .connection()
-            .as_free_transaction(|clarity| {
-                Self::handle_signer_stackerdb_update(
+            .as_free_transaction(|clarity| match current_pox_version {
+                PoxVersions::Pox1 | PoxVersions::Pox2 | PoxVersions::Pox3 => {
+                    Err(ChainstateError::Expects(
+                        "Unexpected Pre-Nakamoto PoX version when computing signer set".into(),
+                    ))
+                }
+                PoxVersions::Pox4 => Self::pox_4_compute_and_update_signers(
                     clarity,
                     pox_constants,
                     cycle_of_prepare_phase,
                     active_pox_contract,
                     coinbase_height,
-                )
+                ),
+                PoxVersions::Pox5 => Self::pox_5_compute_and_update_signers(
+                    clarity,
+                    pox_constants,
+                    cycle_of_prepare_phase,
+                    active_pox_contract,
+                    coinbase_height,
+                    burn_tip_height,
+                    last_update_btc_height,
+                    sortition_dbconn,
+                    &current_epoch,
+                ),
             })
             .map(Some)
     }

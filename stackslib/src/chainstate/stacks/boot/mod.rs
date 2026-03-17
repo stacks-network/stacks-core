@@ -73,6 +73,9 @@ pub const SIP_031_NAME: &str = "sip-031";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &str = "last-set-cycle";
+/// This is the name of an internal variable in the `.signers` contract which tracks the BTC height
+/// when the most recent reward cycle was updated
+pub const SIGNERS_LAST_UPDATED_BTC_HEIGHT: &str = "last-set-cycle-btc-height";
 pub const SIGNERS_MAX_LIST_SIZE: usize = 4000;
 pub const SIGNERS_PK_LEN: usize = 33;
 
@@ -295,6 +298,19 @@ impl PoxStartCycleInfo {
 
     pub fn is_empty(&self) -> bool {
         self.missed_reward_slots.is_empty()
+    }
+}
+
+impl PoxVersions {
+    /// Does this PoX version need to perform BTC lookbacks to check the validity
+    /// of its lockups?
+    ///
+    /// This determines whether or not the lookback window needs to be set and read.
+    pub fn performs_btc_lookback(&self) -> bool {
+        match *self {
+            Self::Pox1 | Self::Pox2 | Self::Pox3 | Self::Pox4 => false,
+            Self::Pox5 => true,
+        }
     }
 }
 
