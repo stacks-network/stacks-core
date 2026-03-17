@@ -240,7 +240,7 @@ impl NakamotoTenureDownloaderSet {
     /// (potentially different, unblocked) machine for the next RPC call to this peer.
     ///
     /// Returns true if the peer gets scheduled.
-    /// Returns false if not.
+    /// Returns false if not
     pub fn try_resume_peer(&mut self, naddr: NeighborAddress) -> bool {
         debug!("Try resume {}", &naddr);
         if let Some(idx) = self.peers.get(&naddr) {
@@ -370,10 +370,33 @@ impl NakamotoTenureDownloaderSet {
 
         self.clear_finished_downloaders();
         self.clear_available_peers();
-        while self.num_scheduled_downloaders() < count {
+
+        // find set of unique peers
+        let mut all_neighbors: HashSet<NeighborAddress> = HashSet::new();
+        for (_, naddrs) in available.iter() {
+            for naddr in naddrs.iter() {
+                all_neighbors.insert(naddr.clone());
+            }
+        }
+
+        // try to resume existing downloaders on these peers before scheduling new ones
+        let mut scheduled: HashSet<NeighborAddress> = HashSet::new();
+        for naddr in all_neighbors.iter() {
+            if self.try_resume_peer((*naddr).clone()) {
+                scheduled.insert((*naddr).clone());
+            }
+        }
+
+        // schedule new downloaders
+        while self.num_scheduled_downloaders() < count && scheduled.len() < all_neighbors.len() {
             let Some(ch) = schedule.front() else {
                 break;
             };
+            if self.has_downloader_for_tenure(ch) {
+                // already downloading this tenure
+                schedule.pop_front();
+                continue;
+            }
             let Some(neighbors) = available.get_mut(ch) else {
                 // not found on any neighbors, so stop trying this tenure
                 debug!("No neighbors have tenure {ch}");
@@ -391,19 +414,15 @@ impl NakamotoTenureDownloaderSet {
                 schedule.pop_front();
                 continue;
             };
-            if get_epoch_time_secs() < *self.deprioritized_peers.get(&naddr).unwrap_or(&0) {
-                debug!(
-                    "Peer {} is deprioritized until {naddr}",
-                    self.deprioritized_peers.get(&naddr).unwrap_or(&0)
-                );
+            if scheduled.contains(&naddr) {
+                // already rescheduled
                 continue;
             }
-
-            if self.try_resume_peer(naddr.clone()) {
-                continue;
-            };
-            if self.has_downloader_for_tenure(ch) {
-                schedule.pop_front();
+            if get_epoch_time_secs() < *self.deprioritized_peers.get(&naddr).unwrap_or(&0) {
+                debug!(
+                    "Peer {naddr} is deprioritized until {}",
+                    self.deprioritized_peers.get(&naddr).unwrap_or(&0)
+                );
                 continue;
             }
 
@@ -492,7 +511,8 @@ impl NakamotoTenureDownloaderSet {
             );
 
             debug!("Request tenure {ch} from neighbor {naddr}");
-            self.add_downloader(naddr, tenure_download);
+            self.add_downloader(naddr.clone(), tenure_download);
+            scheduled.insert(naddr);
             schedule.pop_front();
         }
     }
