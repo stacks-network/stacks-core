@@ -4,18 +4,23 @@
 ##  
 ## #[tag(t_prop)]
 ## fn my_prop_test() { ... }
+##  ```
 ##
 ## Triggered by PR review events (submitted/dismissed) and manual dispatch.
 ## Manual dispatch always runs; PR-review runs proceed only for approved
-## reviews targeting the develop base branch.
+## reviews targeting the `develop` base branch.
 ##
 ## It uses two gates: approval threshold first, then quick diff detection of
 ## new proptest tests (tag based), to avoid expensive runs when not needed.
 ##
-## Discovery strategy:
+## Once the gates are passed, the test discovery strategy is:
 ##   - HEAD: list tests from nextest archive (cache restore when available)
 ##   - BASE: compile/list tests in a temporary git worktree
 ##   - New tests: tagged tests present in HEAD but not in BASE
+##
+## On tests execution failure, a comment is added to the PR listing the failed
+## tests, with a link to the workflow run and the proptest-regression files
+## downloadable as a workflow artifact.
 
 name: Tests::Proptest Extra
 
@@ -26,17 +31,21 @@ on:
     inputs:
       base_ref:
         description: "BASE branch to diff against (default: develop)"
-        required: false
+        required: true
         default: "develop"
+        type: string
+      pr_number:
+        description: "PR number for stateful run (artifact naming, PR comments)"
+        required: true
         type: string
 
 defaults:
   run:
     shell: bash
 
-## Allow the job to be canceled when in progress due to new approval
+## Cancel any in-progress run for the same PR when a new trigger arrives
 concurrency:
-  group: proptest-extra-${{ github.event.pull_request.number || github.run_id }}
+  group: proptest-extra-${{ github.event.pull_request.number || inputs.pr_number }}
   cancel-in-progress: true
 
 env:
@@ -128,7 +137,7 @@ jobs:
           fetch-depth: 0
 
       ## Quick diff scan: detect whether the PR introduces any new proptest test
-      ## looking for the attribute #[tag(..., prop, ...)] on added lines,
+      ## looking for the attribute #[tag(..., t_prop, ...)] on added lines,
       ## so we can skip full discovery when there are none.
       - name: Detect new proptest tests (git diff)
         id: detect
@@ -169,6 +178,8 @@ jobs:
       needs.check-approvals.outputs.ready == 'true' &&
       needs.check-changes.outputs.found == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       ## Setup test environment: try restoring `testenv` for HEAD.
       ## Allows the job to proceed even if the cache restore fails.
@@ -279,17 +290,117 @@ jobs:
             echo "No new proptest tests discovered in this PR."
           fi
 
-      ## Run each new proptest test with an elevated `PROPTEST_CASES` value.
-      ## The step fails if any individual test fails.
+      ## Restore proptest regression files (if any) persisted from a previous run.
+      ## Proptest reads these automatically to replay failing seeds.
+      ## Uses gh api to search by name across all runs (actions/download-artifact
+      ## only looks at the current run unless run-id is given explicitly).
+      - name: Restore proptest regression (if any)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: proptest-extra-pr-${{ github.event.pull_request.number || inputs.pr_number }}
+        run: |
+          artifact_url=$(gh api \
+            "repos/${{ github.repository }}/actions/artifacts?name=${ARTIFACT_NAME}&per_page=1" \
+            --jq '.artifacts[0] | select(.expired == false) | .archive_download_url // empty')
+
+          if [[ -z "$artifact_url" ]]; then
+            echo "No regression artifact found — first run or expired"
+            exit 0
+          fi
+
+          echo "Restoring regression artifact: $ARTIFACT_NAME"
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "$artifact_url" \
+            -o /tmp/regression.zip
+          unzip -o /tmp/regression.zip -d .
+
+      ## Run all new proptest tests in parallel with an elevated `PROPTEST_CASES` value.
+      ## nextest runs tests concurrently by default (one thread per CPU core).
+      ## A JUnit XML report is written alongside the normal terminal output and
+      ## parsed by xmllint to extract failed test names for the PR comment step.
+      ## The step fails if any test fails (--fail-fast matches the old loop behaviour).
       - name: Run new tests (PROPTEST_CASES=${{ env.PROPTEST_CASES }})
+        id: run_tests
         if: steps.discover.outputs.count != '0'
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         run: |
-          while IFS= read -r test_name || [[ -n "$test_name" ]]; do
-            [[ -z "$test_name" ]] && continue
-            echo "::group::$test_name"
-            cargo nextest run \
-              --archive-file ~/test_archive.tar.zst \
-              -E "test(=$test_name)"
-            echo "::endgroup::"
-          done < /tmp/new-prop-tests.txt
+          ## Build a single OR filter expression covering all new tests
+          filter=$(awk '{printf "%s%s", (NR==1?"":" | "), "test(=" $0 ")"}' /tmp/new-prop-tests.txt)
+
+          ## Write a temporary nextest config that enables JUnit output and sets the
+          ## filter expression for selecting tests to run
+          cat > /tmp/nextest-ci.toml << EOF
+          [profile.default]
+          junit = { path = "/tmp/nextest-junit.xml" }
+          default-filter = '$filter'
+          EOF
+
+          set +e
+          cargo nextest run \
+            --archive-file ~/test_archive.tar.zst \
+            --fail-fast \
+            --config-file /tmp/nextest-ci.toml
+          exit_code=$?
+          set -e
+
+          ## On failure, extract the failing test names from the JUnit report
+          if [ $exit_code -ne 0 ] && [ -f /tmp/nextest-junit.xml ]; then
+            sudo apt-get install -y libxml2-utils
+            xmllint --xpath '//testcase[failure or error]/@name' /tmp/nextest-junit.xml \
+              | grep -oP 'name="\K[^"]+' \
+              > /tmp/failed-prop-tests.txt
+          fi
+
+          exit $exit_code
+
+      ## Persist proptest regression files (if any) for a potential next run.
+      ## file format: <package>/proptest-regressions/<test-path>/<test-module>.txt
+      - name: Save proptest regression (if any)
+        if: failure() && steps.run_tests.outcome == 'failure'
+        env:
+          ARTIFACT_NAME: proptest-extra-pr-${{ github.event.pull_request.number || inputs.pr_number }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: "**/proptest-regressions/"
+          if-no-files-found: ignore
+          overwrite: true
+
+      ## On failure, post (or update by delete/create) a PR comment listing the failed tests,
+      ## linking to the run and the artifact that holds the regression seeds.
+      ## Skipped if the failure originated from a step other than test execution.
+      - name: Report proptest failure on PR
+        if: failure() && steps.run_tests.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          MSG_TAG: "<!-- proptest-extra-report -->"
+        run: |
+          run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          failed_tests=$(cat /tmp/failed-prop-tests.txt 2>/dev/null || echo "(unknown)")
+
+          body="$MSG_TAG
+          **Proptest failures detected**
+
+          The following tests failed:
+
+          \`\`\`
+          $failed_tests
+          \`\`\`
+
+          Proptest regression seeds were saved as artifact and will be replayed on the next run.
+          [View run and artifact]($run_url)"
+
+          existing=$(gh api \
+            "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
+            --jq "[.[] | select(.body | startswith(\"$MSG_TAG\"))][0].id // empty")
+
+          if [[ -n "$existing" ]]; then
+            gh api "repos/${{ github.repository }}/issues/comments/$existing" -X DELETE
+            echo "Deleted previous comment $existing"
+          fi
+
+          gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" \
+            -X POST --field body="$body"
+          echo "Posted new comment"
