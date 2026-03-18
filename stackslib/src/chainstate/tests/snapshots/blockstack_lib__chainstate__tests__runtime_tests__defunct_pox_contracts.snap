@@ -5,8 +5,8 @@ snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "298ca9f342910a3c2d2e83ef3c9536effa5c0a460bc12b8bd177202ee46fcae5",
-    evaluated_epoch: Epoch35,
+    marf_hash: "7a8a65137fa2c90157b29856cd9345518f93a48cb432fdc2bd18c35c26156d87",
+    evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
@@ -35,8 +35,8 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "121fc0d9c436270f0713dcb5baafd3c13d9b43bda6007873d6dfc808db67763a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "5bc5ce8b9c7ccbaf30245a6044210646441ccf458ee620471bfa0d543f82fc50",
+    evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-2, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
@@ -65,8 +65,8 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3277d164684b809c94aa502c8ab0b5d8200d1e76df146c46de999d3aac3a295a",
-    evaluated_epoch: Epoch35,
+    marf_hash: "deb1c75f58feb5878a05bd14ae1af1e1bfae4b9536057cef5547ae7829657e0a",
+    evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-3, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1)]])",
@@ -95,8 +95,8 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b31751de9bd5102f911210f3b78a068a9fabf0e913ccf45488ed91398994e849",
-    evaluated_epoch: Epoch35,
+    marf_hash: "3cd2fbef7796a954b8721f533bcdf475cafe989e956c45f6a040c64965734257",
+    evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-4, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1), Optional(OptionalData { data: Some(Sequence(Buffer(0c275bdb023a1f8de3d1c99e821268f36e16cbf82d8747f19abee8bd454459ca34aca028eff0ad9ddb6b742ef5b065f2db0b40d93f63b82cde2024cb00ac67cb01))) }), Sequence(Buffer(02b37b7f1553fa17fe0ad71c57538f4a93bfada632947c04e1ca6fcdad65e8106d)), UInt(340282366920938463463374607431768211455), UInt(1)]])",
