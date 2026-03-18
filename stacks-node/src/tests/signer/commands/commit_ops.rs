@@ -38,7 +38,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainMinerCommitOp {
         let current_state = self
             .ctx
             .get_counters_for_miner(self.miner_index)
-            .naka_skip_commit_op
+            .skip_commit_op
             .get();
 
         let should_apply = current_state != self.skip;
@@ -58,7 +58,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainMinerCommitOp {
         );
         self.ctx
             .get_counters_for_miner(self.miner_index)
-            .naka_skip_commit_op
+            .skip_commit_op
             .set(self.skip);
     }
 
