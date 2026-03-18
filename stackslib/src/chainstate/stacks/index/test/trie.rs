@@ -1191,10 +1191,10 @@ fn trie_cursor_splice_leaf_4(marf_opts: &MARFOpenOpts) {
             let mut c =
                 TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-            test_debug!("Start splice-insert at {:?}", &c);
+            test_debug!("Start splice-insert at {c:?}");
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-            test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
+            test_debug!("Splice leaf pattern={} at {c:?}", 192 + k);
             f.open_block(&block_header).unwrap();
 
             test_debug!("Splicing Node @ {}", nodeptr.ptr());
@@ -1280,10 +1280,10 @@ fn trie_cursor_splice_leaf_2(marf_opts: &MARFOpenOpts) {
             let mut c =
                 TrieCursor::new(&TrieHash::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-            test_debug!("Start splice-insert at {:?}", &c);
+            test_debug!("Start splice-insert at {c:?}");
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-            test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
+            test_debug!("Splice leaf pattern={} at {c:?}", 192 + k);
             f.open_block(&block_header).unwrap();
             let new_ptr = Trie::test_splice_leaf(
                 &mut f,
@@ -1337,7 +1337,7 @@ where
     .unwrap();
 
     for i in 0..count {
-        test_debug!("{}", i);
+        test_debug!("{i}");
         let path = path_gen(i);
         let triepath = TrieHash::from_bytes(&path).unwrap();
         let value = TrieLeaf::new(
