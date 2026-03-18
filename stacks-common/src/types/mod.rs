@@ -636,6 +636,26 @@ impl StacksEpochId {
         self < &StacksEpochId::Epoch34
     }
 
+    /// Whether or not this epoch pre-sanitizes contract variables at deploy
+    /// and load time, allowing variable lookups to borrow directly.
+    pub fn uses_pre_sanitized_variables(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => false,
+            StacksEpochId::Epoch34 => true,
+        }
+    }
+
     /// What is the sortition mining commitment window for this epoch?
     pub fn mining_commitment_window(&self) -> u8 {
         MINING_COMMITMENT_WINDOW
