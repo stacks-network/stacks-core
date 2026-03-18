@@ -37,7 +37,9 @@ use crate::consts::{
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
 };
-use crate::types::chainstate::{StacksAddress, StacksPublicKey};
+use crate::types::chainstate::{
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPublicKey,
+};
 use crate::util::hash::Hash160;
 use crate::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 
@@ -1290,22 +1292,64 @@ impl<L: Clone> DerefMut for EpochList<L> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Copy)]
+pub enum MiningReason {
+    BlockFound = 0,
+    Extended = 1,
+    ReadCountExtend = 2,
+}
+
+impl TryFrom<u8> for MiningReason {
+    type Error = CodecError;
+
+    fn try_from(value: u8) -> Result<Self, CodecError> {
+        match value {
+            x if x == MiningReason::BlockFound as u8 => Ok(MiningReason::BlockFound),
+            x if x == MiningReason::Extended as u8 => Ok(MiningReason::Extended),
+            x if x == MiningReason::ReadCountExtend as u8 => Ok(MiningReason::ReadCountExtend),
+            _ => Err(CodecError::DeserializeError(format!(
+                "unknown mining reason {value}"
+            ))),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MinerDiagnosticData {
     pub burnchain_tip_height: u64,
+    pub burnchain_tip_consensus_hash: chainstate::ConsensusHash,
+    pub burnchain_tip_header_hash: chainstate::BurnchainHeaderHash,
+    pub tenure_extend_time_stamp: u64,
+    pub read_count_extend_timestamp: u64,
+    pub mining_reason: MiningReason,
 }
 
 impl StacksMessageCodec for MinerDiagnosticData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.burnchain_tip_height)?;
+        write_next(fd, &self.burnchain_tip_consensus_hash)?;
+        write_next(fd, &self.burnchain_tip_header_hash)?;
+        write_next(fd, &self.tenure_extend_time_stamp)?;
+        write_next(fd, &self.read_count_extend_timestamp)?;
+        write_next(fd, &(self.mining_reason as u8))?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let burnchain_tip_height = read_next(fd)?;
+        let burnchain_tip_consensus_hash = read_next(fd)?;
+        let burnchain_tip_header_hash = read_next(fd)?;
+        let tenure_extend_time_stamp = read_next(fd)?;
+        let read_count_extend_timestamp = read_next(fd)?;
+        let mining_reason = read_next::<u8, _>(fd)?.try_into()?;
 
         Ok(MinerDiagnosticData {
             burnchain_tip_height,
+            burnchain_tip_consensus_hash,
+            burnchain_tip_header_hash,
+            tenure_extend_time_stamp,
+            read_count_extend_timestamp,
+            mining_reason,
         })
     }
 }
@@ -1316,6 +1360,11 @@ impl MinerDiagnosticData {
     pub fn dummy() -> MinerDiagnosticData {
         MinerDiagnosticData {
             burnchain_tip_height: 42,
+            burnchain_tip_consensus_hash: ConsensusHash::from_bytes(&[42u8; 20]).unwrap(),
+            burnchain_tip_header_hash: BurnchainHeaderHash::from_bytes(&[42u8; 32]).unwrap(),
+            read_count_extend_timestamp: 1773830677,
+            tenure_extend_time_stamp: 1773830677,
+            mining_reason: MiningReason::ReadCountExtend,
         }
     }
 }

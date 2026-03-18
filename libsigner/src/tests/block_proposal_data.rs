@@ -19,7 +19,8 @@ use std::io::{Read, Write};
 use clarity::codec::{
     read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
 };
-use clarity::types::MinerDiagnosticData;
+use clarity::types::chainstate::{BurnchainHeaderHash, ConsensusHash};
+use clarity::types::{MinerDiagnosticData, MiningReason};
 use serde::{Deserialize, Serialize};
 
 use crate::v0::messages::BLOCK_RESPONSE_DATA_MAX_SIZE;
@@ -91,6 +92,11 @@ fn block_proposal_data_serialization_roundtrip_v2() {
         "myversion".into(),
         MinerDiagnosticData {
             burnchain_tip_height: 67,
+            burnchain_tip_consensus_hash: ConsensusHash::from_bytes(&[0xabu8; 20]).unwrap(),
+            burnchain_tip_header_hash: BurnchainHeaderHash::from_bytes(&[99u8; 32]).unwrap(),
+            read_count_extend_timestamp: 1764576000,
+            tenure_extend_time_stamp: 1804989566,
+            mining_reason: MiningReason::Extended,
         },
     );
 
