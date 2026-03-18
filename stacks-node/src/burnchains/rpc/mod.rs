@@ -1,4 +1,4 @@
-// Copyright (C) 2025-2026 Stacks Open Internet Foundation
+// Copyright (C) 2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,5 +15,3 @@
 
 pub mod bitcoin_rpc_client;
 pub mod rpc_transport;
-
-pub use self::rpc_transport::{JsonRpcError, RpcAuth, RpcError, RpcResult, RpcTransport};

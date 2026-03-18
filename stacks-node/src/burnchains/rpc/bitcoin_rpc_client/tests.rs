@@ -1,4 +1,4 @@
-// Copyright (C) 2025-2026 Stacks Open Internet Foundation
+// Copyright (C) 2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -16,14 +16,14 @@
 //! Unit Tests for [`BitcoinRpcClient`]
 
 use serde_json::json;
+use stacks::burnchains::bitcoin::address::BitcoinAddress;
+use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::Txid;
+use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks::types::Address;
 use stacks_common::deps_common::bitcoin::network::serialize::{deserialize_hex, serialize_hex};
-use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use super::*;
-use crate::burnchains::bitcoin::address::BitcoinAddress;
-use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::Txid;
-use crate::types::Address;
 
 mod utils {
 
