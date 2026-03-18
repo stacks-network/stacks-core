@@ -1345,31 +1345,83 @@ fn trie_cursor_splice_leaf_2() {
     }
 }
 
-fn insert_n_test<F>(filename: &str, merkle_check: bool, count: u32, mut path_gen: F)
+fn insert_n_test<F>(marf_opts: &MARFOpenOpts, merkle_check: bool, count: u32, mut path_gen: F)
 where
     F: FnMut(u32) -> [u8; 32],
 {
-    for marf_opts in MARFOpenOpts::all().into_iter() {
-        let f = TrieFileStorage::new_memory(marf_opts).unwrap();
+    let f = TrieFileStorage::new_memory(marf_opts.clone()).unwrap();
 
-        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        let mut marf = MARF::from_storage(f);
-        marf.begin(&BlockHeaderHash::sentinel(), &block_header)
-            .unwrap();
-        MARF::get_block_height(
-            &mut marf.borrow_storage_backend(),
-            &block_header,
-            &block_header,
-        )
-        .unwrap()
+    let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+    let mut marf = MARF::from_storage(f);
+    marf.begin(&BlockHeaderHash::sentinel(), &block_header)
         .unwrap();
+    MARF::get_block_height(
+        &mut marf.borrow_storage_backend(),
+        &block_header,
+        &block_header,
+    )
+    .unwrap()
+    .unwrap();
 
-        for i in 0..count {
-            eprintln!("{}", i);
-            let path = path_gen(i);
-            let triepath = TrieHash::from_bytes(&path).unwrap();
-            let value = TrieLeaf::new(
-                &[],
+    for i in 0..count {
+        eprintln!("{}", i);
+        let path = path_gen(i);
+        let triepath = TrieHash::from_bytes(&path).unwrap();
+        let value = TrieLeaf::new(
+            &[],
+            &[
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                (i / 256) as u8,
+                (i % 256) as u8,
+            ],
+        );
+        marf.insert_raw(triepath, value).unwrap();
+
+        // without a MARF commit, merkle tests will fail in deferred mode
+        if merkle_check
+            && marf.borrow_storage_backend().hash_calculation_mode
+                != TrieHashCalculationMode::Deferred
+        {
+            merkle_test(
+                &mut marf.borrow_storage_backend(),
+                &path,
                 &[
                     0,
                     0,
@@ -1413,72 +1465,70 @@ where
                     (i % 256) as u8,
                 ],
             );
-            marf.insert_raw(triepath, value).unwrap();
-
-            // without a MARF commit, merkle tests will fail in deferred mode
-            if merkle_check
-                && marf.borrow_storage_backend().hash_calculation_mode
-                    != TrieHashCalculationMode::Deferred
-            {
-                merkle_test(
-                    &mut marf.borrow_storage_backend(),
-                    &path,
-                    &[
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        (i / 256) as u8,
-                        (i % 256) as u8,
-                    ],
-                );
-            }
         }
+    }
 
-        for i in 0..count {
-            let path = path_gen(i);
-            let triepath = TrieHash::from_bytes(&path).unwrap();
-            let value =
-                MARF::get_path(&mut marf.borrow_storage_backend(), &block_header, &triepath)
-                    .unwrap()
-                    .unwrap();
-            assert_eq!(
-                value.data.to_vec(),
-                [
+    for i in 0..count {
+        let path = path_gen(i);
+        let triepath = TrieHash::from_bytes(&path).unwrap();
+        let value = MARF::get_path(&mut marf.borrow_storage_backend(), &block_header, &triepath)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            value.data.to_vec(),
+            [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                (i / 256) as u8,
+                (i % 256) as u8
+            ]
+            .to_vec()
+        );
+        // without a MARF commit, merkle tests will fail in deferred mode
+        if merkle_check
+            && marf.borrow_storage_backend().hash_calculation_mode
+                != TrieHashCalculationMode::Deferred
+        {
+            merkle_test(
+                &mut marf.borrow_storage_backend(),
+                &path,
+                &[
                     0,
                     0,
                     0,
@@ -1518,69 +1568,16 @@ where
                     0,
                     0,
                     (i / 256) as u8,
-                    (i % 256) as u8
-                ]
-                .to_vec()
+                    (i % 256) as u8,
+                ],
             );
-            // without a MARF commit, merkle tests will fail in deferred mode
-            if merkle_check
-                && marf.borrow_storage_backend().hash_calculation_mode
-                    != TrieHashCalculationMode::Deferred
-            {
-                merkle_test(
-                    &mut marf.borrow_storage_backend(),
-                    &path,
-                    &[
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        (i / 256) as u8,
-                        (i % 256) as u8,
-                    ],
-                );
-            }
         }
     }
 }
 
-#[test]
-fn insert_1024_seq_low() {
-    insert_n_test("/tmp/rust_marf_insert_1024_seq_low", true, 1024, |i| {
+#[apply(opts::tpl_all_opts_noop)]
+fn insert_1024_seq_low(marf_opts: &MARFOpenOpts) {
+    insert_n_test(marf_opts, true, 1024, |i| {
         [
             0,
             1,
@@ -1618,9 +1615,9 @@ fn insert_1024_seq_low() {
     })
 }
 
-#[test]
-fn insert_1024_seq_high() {
-    insert_n_test("/tmp/rust_marf_insert_1024_seq_high", true, 1024, |i| {
+#[apply(opts::tpl_all_opts_noop)]
+fn insert_1024_seq_high(marf_opts: &MARFOpenOpts) {
+    insert_n_test(marf_opts, true, 1024, |i| {
         [
             (i / 256) as u8,
             (i % 256) as u8,
@@ -1658,9 +1655,9 @@ fn insert_1024_seq_high() {
     })
 }
 
-#[test]
-fn insert_1024_seq_mid() {
-    insert_n_test("/tmp/rust_marf_insert_1024_seq_mid", true, 1024, |i| {
+#[apply(opts::tpl_all_opts_noop)]
+fn insert_1024_seq_mid(marf_opts: &MARFOpenOpts) {
+    insert_n_test(marf_opts, true, 1024, |i| {
         let i0 = i / 256;
         let i1 = (i % 256) / 32;
         let i2 = (i % 256) % 32;
@@ -1672,45 +1669,35 @@ fn insert_1024_seq_mid() {
     })
 }
 
-#[test]
+#[apply(opts::tpl_all_opts_noop)]
 #[ignore]
-fn insert_65536_random_deterministic() {
+fn insert_65536_random_deterministic(marf_opts: &MARFOpenOpts) {
     // deterministic random insert of 65536 keys
     let mut seed = TrieHash::EMPTY.as_bytes().to_vec();
 
-    insert_n_test(
-        "/tmp/rust_marf_insert_65536_random_deterministic",
-        false,
-        65536,
-        |i| {
-            let mut path = [0; 32];
-            path.copy_from_slice(
-                &TrieHash::from_data(if i == 0 { &[] } else { seed.as_slice() }).as_bytes()[0..32],
-            );
-            seed = path.to_vec();
-            eprintln!("{}", to_hex(&path));
-            path
-        },
-    )
+    insert_n_test(marf_opts, false, 65536, |i| {
+        let mut path = [0; 32];
+        path.copy_from_slice(
+            &TrieHash::from_data(if i == 0 { &[] } else { seed.as_slice() }).as_bytes()[0..32],
+        );
+        seed = path.to_vec();
+        eprintln!("{}", to_hex(&path));
+        path
+    })
 }
 
-#[test]
-fn insert_1024_random_deterministic_merkle_proof() {
+#[apply(opts::tpl_all_opts_noop)]
+fn insert_1024_random_deterministic_merkle_proof(marf_opts: &MARFOpenOpts) {
     // deterministic random insert of 1024 keys
     let mut seed = TrieHash::EMPTY.as_bytes().to_vec();
 
-    insert_n_test(
-        "/tmp/rust_marf_insert_1024_random_deterministic_merkle_proof",
-        true,
-        1024,
-        |i| {
-            let mut path = [0; 32];
-            path.copy_from_slice(
-                &TrieHash::from_data(if i == 0 { &[] } else { seed.as_slice() }).as_bytes()[0..32],
-            );
-            seed = path.to_vec();
-            eprintln!("{}", to_hex(&path));
-            path
-        },
-    )
+    insert_n_test(marf_opts, true, 1024, |i| {
+        let mut path = [0; 32];
+        path.copy_from_slice(
+            &TrieHash::from_data(if i == 0 { &[] } else { seed.as_slice() }).as_bytes()[0..32],
+        );
+        seed = path.to_vec();
+        eprintln!("{}", to_hex(&path));
+        path
+    })
 }
