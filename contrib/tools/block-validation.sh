@@ -4,7 +4,7 @@ set -o pipefail
 #
 # ** Recommendations
 #   - Run this script in screen or tmux
-#   - Use an existing chainstate on an XFS formatted disk (with reflink enabled, which is the default in recent OS versions)
+#   - Use an existing chainstate on a disk formatted using XFS, Btrfs, ZFS or APFS (for XFS, reflink support must be enabled at fs-creation time; this is the default in recent OS versions)
 #   - If on a disk formatted other than xfs (e.g. ext4), ensure there are multiple TB of free space - there **will** need to be multiple copies of the chainstate
 #   - Depending on how many cpu cores you have available, a full run will take several hours. More cpus == faster execution time.
 #     - On a system where 12 CPUS are allocated with an existing chainstate on an XFS parittion, full validation was ~14 hours. 
