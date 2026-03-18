@@ -52,6 +52,7 @@ use crate::net::download::nakamoto::NakamotoDownloadStateMachine;
 use crate::net::download::BlockDownloader;
 use crate::net::inv::inv2x::*;
 use crate::net::inv::nakamoto::{InvGenerator, NakamotoInvStateMachine};
+use crate::net::inv::MAX_INVENTORY_AGE;
 use crate::net::mempool::MempoolSync;
 use crate::net::neighbors::*;
 use crate::net::poll::{NetworkPollState, NetworkState};
@@ -315,9 +316,14 @@ pub enum DropReason {
 }
 
 impl DropReason {
-    pub fn is_peer_broken(&self) -> bool {
+    pub fn should_clear_inventories(&self) -> bool {
         match self {
-            Self::BannedConnection | Self::BrokenConnection(..) | Self::FaultInjection => true,
+            Self::BannedConnection
+            | Self::BrokenConnection(..)
+            | Self::FaultInjection
+            | Self::OrgTooManyMembers
+            | Self::OrgDominatesPeerTable
+            | Self::TooManyConnections => true,
             _ => false,
         }
     }
@@ -2136,7 +2142,7 @@ impl PeerNetwork {
                 self.peers.remove(&event_id);
             }
             // remove inventory state if the peer misbehaved
-            if reason.is_peer_broken() {
+            if reason.should_clear_inventories() {
                 if let Some(inv_state) = self.inv_state.as_mut() {
                     debug!(
                         "{:?}: Remove inventory state for epoch 2.x {nk:?}",
@@ -4684,20 +4690,22 @@ impl PeerNetwork {
         let prev_rc = cur_rc.saturating_sub(1);
         let prev_prev_rc = prev_rc.saturating_sub(1);
 
-        for rc in [cur_rc, prev_rc, prev_prev_rc] {
-            debug!("Refresh reward cycle info for cycle {}", rc);
-            if self.current_reward_sets.contains_key(&rc)
-                && !self.check_reload_cached_reward_set(
-                    sortdb,
-                    chainstate,
-                    rc,
-                    tip_sn,
-                    tip_block_id,
-                    tip_height,
-                )?
-            {
+        for rc in [prev_rc, prev_prev_rc] {
+            let have_cached = self.current_reward_sets.contains_key(&rc);
+            let is_reorg = self.check_reload_cached_reward_set(
+                sortdb,
+                chainstate,
+                rc,
+                tip_sn,
+                tip_block_id,
+                tip_height,
+            )?;
+
+            debug!("Refresh reward cycle info for cycle {rc} (reorg? {is_reorg})");
+            if have_cached && !is_reorg {
                 continue;
             }
+
             debug!("Refresh reward cycle info for cycle {rc}");
             let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
                 rc,
@@ -4992,6 +5000,27 @@ impl PeerNetwork {
         Ok(ret)
     }
 
+    /// Garbage collect stale state:
+    /// * remove stale cached inventory data from peers that disconnected from us
+    fn garbage_collect(&mut self) {
+        // clear out inventory state if it's been a while since we successfully resync'ed
+        // with this peer
+        if let Some(inv_state) = self.inv_state.as_mut() {
+            // allow some slack in case there's neighbor flapping
+            inv_state.garbage_collect(
+                get_epoch_time_secs().saturating_sub(MAX_INVENTORY_AGE),
+                usize::try_from(self.connection_opts.num_neighbors * 2).unwrap_or(usize::MAX),
+            );
+        }
+        if let Some(inv_state) = self.inv_state_nakamoto.as_mut() {
+            // allow some slack in case there's neighbor flapping
+            inv_state.garbage_collect(
+                get_epoch_time_secs().saturating_sub(MAX_INVENTORY_AGE),
+                usize::try_from(self.connection_opts.num_neighbors * 2).unwrap_or(usize::MAX),
+            );
+        }
+    }
+
     /// Update p2p networking state.
     /// -- accept new connections
     /// -- send data on ready sockets
@@ -5162,6 +5191,8 @@ impl PeerNetwork {
         let inbound_neighbors = self.peers.len() - outbound_neighbors as usize;
         update_outbound_neighbors(outbound_neighbors as i64);
         update_inbound_neighbors(inbound_neighbors as i64);
+
+        self.garbage_collect();
 
         // fault injection -- periodically disconnect from everyone
         if cfg!(test) {
