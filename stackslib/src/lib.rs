@@ -93,3 +93,30 @@ pub fn version_string(pkg_name: &str, pkg_version: Option<&str>) -> String {
         "{pkg_name} {pkg_version} ({git_commit}{git_tree_clean}, {BUILD_TYPE} build, {OS} [{ARCH}])"
     )
 }
+
+#[cfg(test)]
+mod lib_tests {
+    use stacks_common::versions::STACKS_NODE_VERSION;
+
+    use super::*;
+
+    fn expected_version(pkg_name: &str, pkg_version: &str) -> String {
+        let git_commit = GIT_COMMIT_ENV.unwrap_or_else(|| GIT_COMMIT.unwrap_or(""));
+        let git_tree_clean = GIT_TREE_CLEAN_ENV.unwrap_or_else(|| GIT_TREE_CLEAN.unwrap_or(""));
+        format!(
+            "{pkg_name} {pkg_version} ({git_commit}{git_tree_clean}, {BUILD_TYPE} build, {OS} [{ARCH}])"
+        )
+    }
+
+    #[test]
+    fn test_version_string_explicit_version() {
+        let version = version_string("mypackage", Some("1.2.3"));
+        assert_eq!(expected_version("mypackage", "1.2.3"), version);
+    }
+
+    #[test]
+    fn test_version_string_default_version() {
+        let version = version_string("mypackage", None);
+        assert_eq!(expected_version("mypackage", STACKS_NODE_VERSION), version);
+    }
+}
