@@ -37,9 +37,7 @@ use crate::consts::{
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
 };
-use crate::types::chainstate::{
-    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPublicKey,
-};
+use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
 use crate::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 
@@ -1351,20 +1349,5 @@ impl StacksMessageCodec for MinerDiagnosticData {
             read_count_extend_timestamp,
             mining_reason,
         })
-    }
-}
-
-impl MinerDiagnosticData {
-    //FIXME
-    //#[cfg(test)]
-    pub fn dummy() -> MinerDiagnosticData {
-        MinerDiagnosticData {
-            burnchain_tip_height: 42,
-            burnchain_tip_consensus_hash: ConsensusHash::from_bytes(&[42u8; 20]).unwrap(),
-            burnchain_tip_header_hash: BurnchainHeaderHash::from_bytes(&[42u8; 32]).unwrap(),
-            read_count_extend_timestamp: 1773830677,
-            tenure_extend_time_stamp: 1773830677,
-            mining_reason: MiningReason::ReadCountExtend,
-        }
     }
 }

@@ -697,6 +697,7 @@ pub fn get_signers_db_signer_set_message_id(name: &str) -> Option<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
+    use clarity::types::MiningReason;
 
     use super::*;
 
@@ -762,9 +763,7 @@ mod tests {
             block: block.clone(),
             burn_height: 1,
             reward_cycle: 2,
-            block_proposal_data: BlockProposalData::from_current_version(
-                MinerDiagnosticData::dummy(),
-            ),
+            block_proposal_data: BlockProposalData::from_current_version(dummy_diagnostic_data()),
         };
         let mut bytes = vec![];
         new_block_proposal.consensus_serialize(&mut bytes).unwrap();
@@ -812,5 +811,16 @@ mod tests {
             new_block_proposal.block_proposal_data.server_version,
             String::new()
         );
+    }
+
+    fn dummy_diagnostic_data() -> MinerDiagnosticData {
+        MinerDiagnosticData {
+            burnchain_tip_height: 42,
+            burnchain_tip_consensus_hash: ConsensusHash::from_bytes(&[42u8; 20]).unwrap(),
+            burnchain_tip_header_hash: BurnchainHeaderHash::from_bytes(&[42u8; 32]).unwrap(),
+            read_count_extend_timestamp: 1773830677,
+            tenure_extend_time_stamp: 1773830677,
+            mining_reason: MiningReason::ReadCountExtend,
+        }
     }
 }
