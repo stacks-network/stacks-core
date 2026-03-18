@@ -1875,7 +1875,7 @@ impl<'a> TestChainstate<'a> {
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch35,
-                start_height: first_burnchain_height + 34,
+                start_height: first_burnchain_height + 33,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_3_5,
@@ -1993,7 +1993,7 @@ fn advance_through_nakamoto_bootstrapped() {
             .unwrap()
             .unwrap()
             .epoch_id;
-    assert_eq!(current_epoch, StacksEpochId::Epoch33);
+    assert_eq!(current_epoch, StacksEpochId::Epoch34);
     let next_epoch =
         SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height + 1)
             .unwrap()
