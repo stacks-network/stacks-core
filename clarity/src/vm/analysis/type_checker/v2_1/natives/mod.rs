@@ -39,7 +39,7 @@ mod assets;
 mod conversions;
 mod maps;
 mod options;
-pub(crate) mod post_conditions;
+pub mod post_conditions;
 mod sequences;
 
 #[allow(clippy::large_enum_variant)]

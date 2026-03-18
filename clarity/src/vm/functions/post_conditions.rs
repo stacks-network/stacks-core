@@ -30,21 +30,21 @@ use crate::vm::types::Value;
 use crate::vm::{eval, Environment, LocalContext};
 
 pub struct StxAllowance {
-    amount: u128,
+    pub amount: u128,
 }
 
 pub struct FtAllowance {
-    asset: AssetIdentifier,
-    amount: u128,
+    pub asset: AssetIdentifier,
+    pub amount: u128,
 }
 
 pub struct NftAllowance {
-    asset: AssetIdentifier,
-    asset_ids: Vec<Value>,
+    pub asset: AssetIdentifier,
+    pub asset_ids: Vec<Value>,
 }
 
 pub struct StackingAllowance {
-    amount: u128,
+    pub amount: u128,
 }
 
 pub enum Allowance {
@@ -379,7 +379,7 @@ pub fn special_as_contract(
 /// corresponding allowance return a `Some` with an index of the violated
 /// allowance, or 128 if an asset with no allowance caused the violation. If all
 /// allowances are satisfied, return `Ok(None)`.
-fn check_allowances(
+pub fn check_allowances(
     owner: &PrincipalData,
     allowances: Vec<Allowance>,
     assets: &AssetMap,
