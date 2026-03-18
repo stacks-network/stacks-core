@@ -27,10 +27,10 @@ use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
 use crate::net::NeighborAddress;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct CompletedTenure {
-    tenure_id: ConsensusHash,
-    start_block: StacksBlockId,
-    end_block: StacksBlockId,
+pub struct CompletedTenure {
+    pub tenure_id: ConsensusHash,
+    pub start_block: StacksBlockId,
+    pub end_block: StacksBlockId,
 }
 
 impl From<&TenureStartEnd> for CompletedTenure {
@@ -71,7 +71,7 @@ pub struct NakamotoTenureDownloaderSet {
     pub(crate) peers: HashMap<NeighborAddress, usize>,
     /// The set of tenures that have been successfully downloaded (but possibly not yet stored or
     /// processed)
-    pub(crate) completed_tenures: HashSet<CompletedTenure>,
+    pub(crate) completed_tenures: HashMap<ConsensusHash, CompletedTenure>,
     /// Number of times a tenure download was attempted
     pub(crate) attempted_tenures: HashMap<ConsensusHash, u64>,
     /// Number of times a tenure download failed
@@ -86,7 +86,7 @@ impl NakamotoTenureDownloaderSet {
         Self {
             downloaders: vec![],
             peers: HashMap::new(),
-            completed_tenures: HashSet::new(),
+            completed_tenures: HashMap::new(),
             attempted_tenures: HashMap::new(),
             attempt_failed_tenures: HashMap::new(),
             deprioritized_peers: HashMap::new(),
@@ -233,6 +233,16 @@ impl NakamotoTenureDownloaderSet {
             return false;
         }
         true
+    }
+
+    /// Get the set of completely-downloaded tenures
+    pub fn get_completed_tenures(&self) -> &HashMap<ConsensusHash, CompletedTenure> {
+        &self.completed_tenures
+    }
+
+    /// Get the counts of attempted tenures
+    pub fn get_attempted_tenures(&self) -> &HashMap<ConsensusHash, u64> {
+        &self.attempted_tenures
     }
 
     /// Try to resume processing a download state machine with a given peer.  Since a peer is
@@ -437,16 +447,9 @@ impl NakamotoTenureDownloaderSet {
                 debug!("Neighbor {naddr} does not serve tenure {ch}");
                 continue;
             };
-            if tenure_info.processed {
-                // we already have this tenure
-                debug!("Already have processed tenure {ch}");
-                self.completed_tenures
-                    .remove(&CompletedTenure::from(tenure_info));
-                continue;
-            }
             if self
                 .completed_tenures
-                .contains(&CompletedTenure::from(tenure_info))
+                .contains_key(&tenure_info.tenure_id_consensus_hash)
             {
                 debug!(
                     "Already successfully downloaded tenure {ch} ({}-{})",
@@ -612,7 +615,8 @@ impl NakamotoTenureDownloaderSet {
             self.clear_downloader(&done_naddr);
         }
         for done_tenure in finished_tenures.drain(..) {
-            self.completed_tenures.insert(done_tenure);
+            self.completed_tenures
+                .insert(done_tenure.tenure_id.clone(), done_tenure);
         }
 
         // handle responses
@@ -690,7 +694,8 @@ impl NakamotoTenureDownloaderSet {
             self.clear_downloader(&done_naddr);
         }
         for done_tenure in finished_tenures.into_iter() {
-            self.completed_tenures.insert(done_tenure);
+            self.completed_tenures
+                .insert(done_tenure.tenure_id.clone(), done_tenure);
         }
 
         new_blocks
