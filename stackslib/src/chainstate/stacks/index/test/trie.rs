@@ -1200,8 +1200,8 @@ fn trie_cursor_splice_leaf_4(marf_opts: &MARFOpenOpts) {
             test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
             f.open_block(&block_header).unwrap();
 
-            eprintln!("Splicing Node @ {}", nodeptr.ptr());
-            eprintln!("Splicing Node @ {:x}", c.chr().unwrap());
+            test_debug!("Splicing Node @ {}", nodeptr.ptr());
+            test_debug!("Splicing Node @ {:x}", c.chr().unwrap());
 
             let new_ptr = Trie::test_splice_leaf(
                 &mut f,
@@ -1340,7 +1340,7 @@ where
     .unwrap();
 
     for i in 0..count {
-        eprintln!("{}", i);
+        test_debug!("{}", i);
         let path = path_gen(i);
         let triepath = TrieHash::from_bytes(&path).unwrap();
         let value = TrieLeaf::new(
@@ -1657,7 +1657,7 @@ fn insert_65536_random_deterministic(marf_opts: &MARFOpenOpts) {
             &TrieHash::from_data(if i == 0 { &[] } else { seed.as_slice() }).as_bytes()[0..32],
         );
         seed = path.to_vec();
-        eprintln!("{}", to_hex(&path));
+        test_debug!("{}", to_hex(&path));
         path
     })
 }
@@ -1673,7 +1673,7 @@ fn insert_1024_random_deterministic_merkle_proof(marf_opts: &MARFOpenOpts) {
             &TrieHash::from_data(if i == 0 { &[] } else { seed.as_slice() }).as_bytes()[0..32],
         );
         seed = path.to_vec();
-        eprintln!("{}", to_hex(&path));
+        test_debug!("{}", to_hex(&path));
         path
     })
 }
