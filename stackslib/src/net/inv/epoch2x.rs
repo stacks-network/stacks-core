@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use p2p::DropSource;
 use rand;
@@ -69,7 +69,7 @@ impl PeerBlocksInv {
             pox_inv: vec![],
             num_sortitions: 0,
             num_reward_cycles: 0,
-            last_updated_at: 0,
+            last_updated_at: get_epoch_time_secs(),
             first_block_height,
         }
     }
@@ -1151,6 +1151,38 @@ impl InvState {
 
     pub fn get_stats_mut(&mut self, nk: &NeighborKey) -> Option<&mut NeighborBlockStats> {
         self.block_stats.get_mut(nk)
+    }
+
+    /// Remove all inventories that were last updated earlier than `min_age`,
+    /// and retain at most `max_invs` inventories.
+    pub fn garbage_collect(&mut self, min_age: u64, max_invs: usize) {
+        self.block_stats.retain(|nk, stats| {
+            if stats.inv.last_updated_at < min_age {
+                debug!(
+                    "Remove stale inventory for peer {nk:?} aged {}",
+                    stats.inv.last_updated_at
+                );
+                false
+            } else {
+                true
+            }
+        });
+
+        // priority queue of block stats by last_updated_at.
+        // break ties by NeighborKey
+        let mut pq: BTreeMap<_, _> = self
+            .block_stats
+            .iter()
+            .map(|(nk, stats)| (stats.inv.last_updated_at, nk.clone()))
+            .collect();
+
+        while pq.len() > max_invs {
+            let Some((_, nk)) = pq.pop_first() else {
+                break;
+            };
+            debug!("Remove excessive inventory for peer {nk:?}");
+            self.del_peer(&nk);
+        }
     }
 
     #[cfg(test)]
