@@ -821,8 +821,8 @@ fn http_rpc(peer_http: u16, request: StacksHttpRequest) -> Result<StacksHttpResp
     .unwrap();
     match response {
         StacksHttpMessage::Response(x) => Ok(x),
-        _ => {
-            panic!("Did not receive a Response");
+        x => {
+            panic!("Did not receive the right response: {:?}", x);
         }
     }
 }
@@ -982,16 +982,14 @@ fn http_post_block(http_port: u16, consensus_hash: &ConsensusHash, block: &Stack
         block.block_hash(),
         http_port
     );
-    let mut request = HttpRequestPreamble::new_for_peer(
+    let mut request = StacksHttpRequest::new_post_block(
         PeerHost::from_host_port("127.0.0.1".to_string(), http_port),
-        "POST".to_string(),
-        "/v2/blocks".to_string(),
+        consensus_hash.clone(),
+        block.clone(),
     );
-    request.keep_alive = false;
-    let post_block =
-        StacksHttpRequest::new(request, HttpRequestContents::new().payload_stacks(block));
+    request.preamble_mut().keep_alive = false;
 
-    let response = http_rpc(http_port, post_block).unwrap();
+    let response = http_rpc(http_port, request).unwrap();
     let accepted = response.decode_stacks_block_accepted().unwrap();
     accepted.accepted
 }
@@ -1009,21 +1007,15 @@ fn http_post_microblock(
         mblock.block_hash(),
         http_port
     );
-    let mut request = HttpRequestPreamble::new_for_peer(
-        PeerHost::from_host_port("127.0.0.1".to_string(), http_port),
-        "POST".to_string(),
-        "/v2/microblocks".to_string(),
-    );
-    request.keep_alive = false;
     let tip = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
-    let post_microblock = StacksHttpRequest::new(
-        request,
-        HttpRequestContents::new()
-            .payload_stacks(mblock)
-            .for_specific_tip(tip),
+    let mut request = StacksHttpRequest::new_post_microblock(
+        PeerHost::from_host_port("127.0.0.1".to_string(), http_port),
+        mblock.clone(),
+        TipRequest::SpecificTip(tip),
     );
+    request.preamble_mut().keep_alive = false;
 
-    let response = http_rpc(http_port, post_microblock).unwrap();
+    let response = http_rpc(http_port, request).unwrap();
     let payload = response.get_http_payload_ok().unwrap();
     let bhh: BlockHeaderHash = serde_json::from_value(payload.try_into().unwrap()).unwrap();
     return true;
@@ -2044,6 +2036,7 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                 for peer in peers.iter_mut() {
                     // force peers to keep trying to process buffered data
                     peer.network.burnchain_tip.burn_header_hash = BurnchainHeaderHash([0u8; 32]);
+                    peer.network.stacks_tip.consensus_hash = ConsensusHash([0x00; 20]);
                 }
 
                 let done_flag = *done.borrow();

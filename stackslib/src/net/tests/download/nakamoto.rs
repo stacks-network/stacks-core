@@ -1487,6 +1487,8 @@ fn test_make_tenure_downloaders() {
             &mut wanted_tenures,
             chainstate,
             &nakamoto_tip,
+            &HashMap::new(),
+            &HashMap::new(),
         )
         .unwrap();
 
