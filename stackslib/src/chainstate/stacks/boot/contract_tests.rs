@@ -1,3 +1,17 @@
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::ops::Deref;
 
 use clarity::util::get_epoch_time_secs;
@@ -891,20 +905,26 @@ fn pox_2_lock_extend_units() {
             None,
         )
         .unwrap();
-        env.execute_in_env(boot_code_addr(false).into(), None, None, |env| {
-            env.execute_contract(
-                POX_2_CONTRACT_TESTNET.deref(),
-                "set-burnchain-parameters",
-                &symbols_from_values(vec![
-                    Value::UInt(0),
-                    Value::UInt(1),
-                    Value::UInt(reward_cycle_len),
-                    Value::UInt(25),
-                    Value::UInt(0),
-                ]),
-                false,
-            )
-        })
+        env.execute_in_env(
+            boot_code_addr(false).into(),
+            None,
+            None,
+            |exec_state, invoke_ctx| {
+                exec_state.execute_contract(
+                    invoke_ctx,
+                    POX_2_CONTRACT_TESTNET.deref(),
+                    "set-burnchain-parameters",
+                    &symbols_from_values(vec![
+                        Value::UInt(0),
+                        Value::UInt(1),
+                        Value::UInt(reward_cycle_len),
+                        Value::UInt(25),
+                        Value::UInt(0),
+                    ]),
+                    false,
+                )
+            },
+        )
         .unwrap();
     });
 

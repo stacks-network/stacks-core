@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2021 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -197,7 +197,7 @@ pub mod pox4 {
                     sender.clone(),
                     None,
                     LimitedCostTracker::new_free(),
-                    |env| {
+                    |exec_state, invoke_ctx| {
                         let program = format!(
                             "(get-signer-key-message-hash {} u{} \"{}\" u{} u{} u{})",
                             Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()), //p
@@ -207,7 +207,7 @@ pub mod pox4 {
                             max_amount,
                             auth_id,
                         );
-                        env.eval_read_only(&pox_contract_id, &program)
+                        exec_state.eval_read_only(invoke_ctx, &pox_contract_id, &program)
                     },
                 );
                 result
