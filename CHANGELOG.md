@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [3.3.0.0.6]
 
 ### Added
 
@@ -15,11 +15,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Prepare for epoch 3.4's improved transaction inclusion, allowing transactions with certain errors to be included in blocks which would cause them to be rejected in earlier epochs.
 - Added `marf_compress` as a node configuration parameter to enable MARF compression feature ([#6811](https://github.com/stacks-network/stacks-core/pull/6811))
 - Effective in epoch 3.4 `contract-call?`s can accept a constant as the contract to be called
-- Added post-condition enhancements for epoch 3.4 (SIP-040): `Originator` post-condition mode (`0x03`) and NFT `MAY SEND` condition code (`0x12`), including serialization support and epoch-gated validation/enforcement.
-- New RPC endpoint `GET /v3/stx_btc_ratio/{cycle_num}` returns the per-cycle STX/BTC mining ratio: total STX earned by miners (coinbase + transaction fees) versus total BTC spent on block-commit transactions (PoX burn outputs + estimated Bitcoin tx fees) for the requested reward cycle, plus a 5-cycle weighted geometric mean smoothed ratio.
-- Sortition DB schema 12: adds `burn_fee` and `expected_btc_tx_fee` columns to the `missed_commits` table, preserving fee data for block-commit transactions that arrived too late and missed their intended sortition slot.
-- New `stacks-inspect get-stx-btc-ratio` command for querying the STX/BTC mining ratio for a given reward cycle directly from a local chainstate.
-- Chainstate schema 14: adds `stx_btc_cycle_cache` table for incremental caching of per-cycle STX/BTC ratio totals. Completed cycles are cached permanently; in-progress cycles are updated incrementally by walking only new tenures since the last computation, with fork detection to discard stale data.
 
 ### Fixed
 
@@ -27,10 +22,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Resolved several cases where a mock-miner would stop mining
 - /v2/pox endpoint now returns the `pox_ustx_threshold` stored in the reward set instead of a live computed value, which incorrectly accounts for STX locked during the prepare phase, after the reward set has been set.
 - Signer protocol version negotiation now properly handles downgrades based on majority consensus, not just upgrades
+- The sortition DB now tracks canonical Stacks tip by its burn view, allowing it to recover from a chain freeze if the Bitcoin block upon which the ongoing tenure is based is orphened before the last tenure block is processed.
 
 ### Changed
 
-- `/v3/blocks/simulate/{block_id}` and `/v3/block/replay ` no longer emit transaction events for post condition aborted transactions.
 - `EventDispatcher` no longer emits transaction events for post condition aborted transactions.
 
 ## [3.3.0.0.5]

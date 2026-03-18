@@ -245,7 +245,7 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Runti
         }
         TypeSignature::CallableType(_)
         | TypeSignature::ListUnionType(_)
-        | TypeSignature::TraitReferenceType(_) => Err(RuntimeCheckErrorKind::Unreachable(
+        | TypeSignature::TraitReferenceType(_) => Err(RuntimeCheckErrorKind::TraitReferenceUnknown(
             "Trait reference unknown".into(),
         )),
     }

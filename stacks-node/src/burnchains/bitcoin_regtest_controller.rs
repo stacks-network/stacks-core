@@ -26,10 +26,6 @@ use stacks::burnchains::bitcoin::address::{
 use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
-use stacks::burnchains::bitcoin::rpc::bitcoin_rpc_client::{
-    BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
-    Timestamp,
-};
 use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
 use stacks::burnchains::db::BurnchainDB;
@@ -72,6 +68,10 @@ use stacks_common::util::sleep_ms;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use crate::burnchains::rpc::bitcoin_rpc_client::{
+    BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
+    Timestamp,
+};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
