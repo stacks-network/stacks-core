@@ -5,9 +5,10 @@ set -o pipefail
 # ** Recommendations
 #   - Run this script in screen or tmux
 #   - Use an existing chainstate on a disk formatted using XFS, Btrfs, ZFS or APFS (for XFS, reflink support must be enabled at fs-creation time; this is the default in recent OS versions)
-#   - If on a disk formatted other than xfs (e.g. ext4), ensure there are multiple TB of free space - there **will** need to be multiple copies of the chainstate
-#   - Depending on how many cpu cores you have available, a full run will take several hours. More cpus == faster execution time.
-#     - On a system where 12 CPUS are allocated with an existing chainstate on an XFS parittion, full validation was ~14 hours. 
+#   - If using a filesystem which doesn't support reflink (e.g. ext4), ensure that the SCRATCH_DIR volume has multiple TBs of free space - each allocated CPU will require its own chainstate copy.
+#   - If using LOCAL_CHAINSTATE on a reflink-enabled filesystem, note that the local chainstate must be located on the same logical volume as the SCRATCH_DIR.
+#   - Depending on how many CPU cores you have available, a full run will take several hours. More CPUs = faster execution time.
+#     - On a system with 12 CPUs allocated and using existing chainstate on a XFS paritition, full validation took ~14 hours. 
 
 NETWORK="mainnet"                                 # network to validate
 REPO_DIR="$HOME/stacks-core"                      # where to build the source
