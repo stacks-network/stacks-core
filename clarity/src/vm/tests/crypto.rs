@@ -193,8 +193,8 @@ fn secp256r1_verify_valid_signatures_nist() {
             Value::Bool(true),
             execute_with_parameters(
                 program.as_str(),
-                ClarityVersion::Clarity5,
-                StacksEpochId::Epoch34,
+                ClarityVersion::latest(),
+                StacksEpochId::latest(),
                 false
             )
             .expect("execution should succeed")
@@ -203,6 +203,8 @@ fn secp256r1_verify_valid_signatures_nist() {
     }
 }
 
+/// Returns (message_hash, signature, pubkey) for secp256r1 using double-hash signing
+/// (Clarity 4 and earlier behavior: `sign()` hashes the message again internally).
 fn secp256r1_vectors() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let privk = Secp256r1PrivateKey::from_seed(&[7u8; 32]);
     let pubk = Secp256r1PublicKey::from_private(&privk);
@@ -210,6 +212,23 @@ fn secp256r1_vectors() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
     let signature = privk
         .sign(message_hash.as_bytes())
         .expect("secp256r1 signing should succeed");
+
+    (
+        message_hash.as_bytes().to_vec(),
+        signature.0.to_vec(),
+        pubk.to_bytes_compressed(),
+    )
+}
+
+/// Returns (message_hash, signature, pubkey) for secp256r1 using digest signing
+/// (Clarity 5+ behavior: `sign_digest()` uses the message hash directly without re-hashing).
+fn secp256r1_vectors_digest() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+    let privk = Secp256r1PrivateKey::from_seed(&[7u8; 32]);
+    let pubk = Secp256r1PublicKey::from_private(&privk);
+    let message_hash = Sha256Sum::from_data(b"clarity-secp256r1-tests");
+    let signature = privk
+        .sign_digest(message_hash.as_bytes())
+        .expect("secp256r1 digest signing should succeed");
 
     (
         message_hash.as_bytes().to_vec(),
@@ -245,6 +264,7 @@ fn zeroed_buff_literal(len: usize) -> String {
 
 #[test]
 fn test_secp256r1_verify_valid_signature_returns_true() {
+    // Clarity 4 (double-hash): sign() hashes internally, secp256r1-verify hashes again
     let (message, signature, pubkey) = secp256r1_vectors();
     let program = format!(
         "(secp256r1-verify {} {} {})",
@@ -257,6 +277,19 @@ fn test_secp256r1_verify_valid_signature_returns_true() {
         Value::Bool(true),
         execute_with_parameters(
             program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+
+    // Same double-hash signature must NOT verify under Clarity 5+ (direct digest)
+    assert_eq!(
+        Value::Bool(false),
+        execute_with_parameters(
+            program.as_str(),
             ClarityVersion::latest(),
             StacksEpochId::latest(),
             false
@@ -264,15 +297,15 @@ fn test_secp256r1_verify_valid_signature_returns_true() {
         .expect("execution should succeed")
         .expect("should return a value")
     );
-}
 
-#[test]
-fn test_secp256r1_verify_valid_high_s_signature_returns_true() {
-    let message = "0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8";
-    let signature = "0xf2b8c0645caa7250e3b96d633cf40a88456e4ffbddffb69200c4e019039dfd31f153a6d5c3dc192a5574f3a261b1b70570971b92d8ebf86c17b7670d13591c4e";
-    let pubkey = "0x031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e";
-
-    let program = format!("(secp256r1-verify {message} {signature} {pubkey})");
+    // Clarity 5+ (direct digest): sign_digest() signs the hash directly
+    let (message, signature, pubkey) = secp256r1_vectors_digest();
+    let program = format!(
+        "(secp256r1-verify {} {} {})",
+        buff_literal(&message),
+        buff_literal(&signature),
+        buff_literal(&pubkey)
+    );
 
     assert_eq!(
         Value::Bool(true),
@@ -285,20 +318,108 @@ fn test_secp256r1_verify_valid_high_s_signature_returns_true() {
         .expect("execution should succeed")
         .expect("should return a value")
     );
+
+    // Same digest signature must NOT verify under Clarity 4 (double-hash)
+    assert_eq!(
+        Value::Bool(false),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+}
+
+#[test]
+fn test_secp256r1_verify_valid_high_s_signature_returns_true() {
+    use stacks_common::util::secp256r1::MessageSignature;
+
+    // secp256r1-verify accepts high-S signatures (unlike secp256k1-verify).
+
+    // Clarity 4 (double-hash path)
+    let (message, signature, pubkey) = secp256r1_vectors();
+    let high_s_sig = MessageSignature(signature.as_slice().try_into().unwrap())
+        .to_high_s()
+        .expect("should create high-S signature");
+    let program = format!(
+        "(secp256r1-verify {} {} {})",
+        buff_literal(&message),
+        buff_literal(&high_s_sig.0),
+        buff_literal(&pubkey)
+    );
+    assert_eq!(
+        Value::Bool(true),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value"),
+        "High-S signature should verify in Clarity 4"
+    );
+
+    // Clarity 5+ (direct digest path)
+    let (message, signature, pubkey) = secp256r1_vectors_digest();
+    let high_s_sig = MessageSignature(signature.as_slice().try_into().unwrap())
+        .to_high_s()
+        .expect("should create high-S signature");
+    let program = format!(
+        "(secp256r1-verify {} {} {})",
+        buff_literal(&message),
+        buff_literal(&high_s_sig.0),
+        buff_literal(&pubkey)
+    );
+    assert_eq!(
+        Value::Bool(true),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value"),
+        "High-S signature should verify in Clarity 5+"
+    );
 }
 
 #[test]
 fn test_secp256r1_verify_invalid_signature_returns_false() {
+    // Clarity 4 (double-hash)
     let (message, mut signature, pubkey) = secp256r1_vectors();
     signature[0] ^= 0x01;
-
     let program = format!(
         "(secp256r1-verify {} {} {})",
         buff_literal(&message),
         buff_literal(&signature),
         buff_literal(&pubkey)
     );
+    assert_eq!(
+        Value::Bool(false),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
 
+    // Clarity 5+ (direct digest)
+    let (message, mut signature, pubkey) = secp256r1_vectors_digest();
+    signature[0] ^= 0x01;
+    let program = format!(
+        "(secp256r1-verify {} {} {})",
+        buff_literal(&message),
+        buff_literal(&signature),
+        buff_literal(&pubkey)
+    );
     assert_eq!(
         Value::Bool(false),
         execute_with_parameters(
@@ -314,16 +435,36 @@ fn test_secp256r1_verify_invalid_signature_returns_false() {
 
 #[test]
 fn test_secp256r1_verify_signature_too_short_returns_false() {
+    // Clarity 4 (double-hash)
     let (message, mut signature, pubkey) = secp256r1_vectors();
     signature.truncate(63);
-
     let program = format!(
         "(secp256r1-verify {} {} {})",
         buff_literal(&message),
         buff_literal(&signature),
         buff_literal(&pubkey)
     );
+    assert_eq!(
+        Value::Bool(false),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
 
+    // Clarity 5+ (direct digest)
+    let (message, mut signature, pubkey) = secp256r1_vectors_digest();
+    signature.truncate(63);
+    let program = format!(
+        "(secp256r1-verify {} {} {})",
+        buff_literal(&message),
+        buff_literal(&signature),
+        buff_literal(&pubkey)
+    );
     assert_eq!(
         Value::Bool(false),
         execute_with_parameters(
@@ -339,16 +480,40 @@ fn test_secp256r1_verify_signature_too_short_returns_false() {
 
 #[test]
 fn test_secp256r1_verify_signature_too_long_errors() {
+    // Clarity 4 (double-hash)
     let (message, mut signature, pubkey) = secp256r1_vectors();
     signature.push(0x00);
-
     let program = format!(
         "(secp256r1-verify {} {} {})",
         buff_literal(&message),
         buff_literal(&signature),
         buff_literal(&pubkey)
     );
+    let err = execute_with_parameters(
+        program.as_str(),
+        ClarityVersion::Clarity4,
+        StacksEpochId::Epoch33,
+        false,
+    )
+    .unwrap_err();
+    match err {
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::TypeValueError(expected, _),
+        )) => {
+            assert_eq!(*expected, TypeSignature::BUFFER_64);
+        }
+        _ => panic!("expected BUFFER_64 type error, found {err:?}"),
+    }
 
+    // Clarity 5+ (direct digest)
+    let (message, mut signature, pubkey) = secp256r1_vectors_digest();
+    signature.push(0x00);
+    let program = format!(
+        "(secp256r1-verify {} {} {})",
+        buff_literal(&message),
+        buff_literal(&signature),
+        buff_literal(&pubkey)
+    );
     let err = execute_with_parameters(
         program.as_str(),
         ClarityVersion::latest(),
@@ -362,7 +527,7 @@ fn test_secp256r1_verify_signature_too_long_errors() {
         )) => {
             assert_eq!(*expected, TypeSignature::BUFFER_64);
         }
-        _ => panic!("expected BUFFER_65 type error, found {err:?}"),
+        _ => panic!("expected BUFFER_64 type error, found {err:?}"),
     }
 }
 
@@ -640,6 +805,8 @@ proptest! {
         let pubk = Secp256r1PublicKey::from_private(&privk);
         let pubkey_bytes = pubk.to_bytes_compressed();
         let message = message.to_vec();
+
+        // Clarity 4: sign() does double-hash
         let signature = privk.sign(&message).expect("secp256r1 signing should succeed");
         let program = format!(
             "(secp256r1-verify {} {} {})",
@@ -647,7 +814,24 @@ proptest! {
             buff_literal(&signature.0),
             buff_literal(&pubkey_bytes)
         );
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+        prop_assert_eq!(Value::Bool(true), result.clone(), "Clarity 4 double-hash verify failed");
 
+        // Clarity 5+: sign_digest() uses hash directly
+        let signature = privk.sign_digest(&message).expect("secp256r1 digest signing should succeed");
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
         let result = execute_with_parameters(
             program.as_str(),
             ClarityVersion::latest(),
@@ -656,8 +840,7 @@ proptest! {
         )
         .expect("execution should succeed")
         .expect("should return a value");
-
-        prop_assert_eq!(Value::Bool(true), result);
+        prop_assert_eq!(Value::Bool(true), result, "Clarity 5+ digest verify failed");
     }
 
     #[test]
@@ -698,29 +881,35 @@ proptest! {
         let privk = Secp256r1PrivateKey::from_seed(&seed);
         let pubk = Secp256r1PublicKey::from_private(&privk);
         let pubkey_bytes = pubk.to_bytes_compressed();
-        let mut message = message.to_vec();
+        let message = message.to_vec();
+
+        // Clarity 4: sign() does double-hash
         let signature = privk.sign(&message).expect("secp256r1 signing should succeed");
-
-        // flip one bit
-        message[bit] ^= 0x01;
-
+        let mut tampered = message.clone();
+        tampered[bit] ^= 0x01;
         let program = format!(
             "(secp256r1-verify {} {} {})",
-            buff_literal(&message),
+            buff_literal(&tampered),
             buff_literal(&signature.0),
             buff_literal(&pubkey_bytes)
         );
-
         let result = execute_with_parameters(
-            program.as_str(),
-            ClarityVersion::latest(),
-            StacksEpochId::latest(),
-            false,
-        )
-        .expect("execution should succeed")
-        .expect("should return a value");
+            &program, ClarityVersion::Clarity4, StacksEpochId::Epoch33, false
+        ).unwrap().unwrap();
+        prop_assert_eq!(Value::Bool(false), result.clone(), "Clarity 4 tampered msg should fail");
 
-        prop_assert_eq!(Value::Bool(false), result);
+        // Clarity 5+: sign_digest() uses hash directly
+        let signature = privk.sign_digest(&message).expect("secp256r1 digest signing should succeed");
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&tampered),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
+        let result = execute_with_parameters(
+            &program, ClarityVersion::latest(), StacksEpochId::latest(), false
+        ).unwrap().unwrap();
+        prop_assert_eq!(Value::Bool(false), result, "Clarity 5+ tampered msg should fail");
     }
 
     #[test]
@@ -769,10 +958,23 @@ proptest! {
         let priv_a = Secp256r1PrivateKey::from_seed(&seed_a);
         let pub_b  = Secp256r1PublicKey::from_private(&Secp256r1PrivateKey::from_seed(&seed_b));
         let pub_b_bytes = pub_b.to_bytes_compressed();
-
         let msg = message.to_vec();
-        let signature = priv_a.sign(&msg).unwrap();
 
+        // Clarity 4: sign() does double-hash
+        let signature = priv_a.sign(&msg).unwrap();
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&msg),
+            buff_literal(&signature.0),
+            buff_literal(&pub_b_bytes)
+        );
+        let result = execute_with_parameters(
+            &program, ClarityVersion::Clarity4, StacksEpochId::Epoch33, false
+        ).unwrap().unwrap();
+        prop_assert_eq!(Value::Bool(false), result.clone(), "Clarity 4 wrong key should fail");
+
+        // Clarity 5+: sign_digest() uses hash directly
+        let signature = priv_a.sign_digest(&msg).unwrap();
         let program = format!(
             "(secp256r1-verify {} {} {})",
             buff_literal(&msg),
@@ -782,8 +984,7 @@ proptest! {
         let result = execute_with_parameters(
             &program, ClarityVersion::latest(), StacksEpochId::latest(), false
         ).unwrap().unwrap();
-
-        prop_assert_eq!(Value::Bool(false), result);
+        prop_assert_eq!(Value::Bool(false), result, "Clarity 5+ wrong key should fail");
     }
 
     #[test]
