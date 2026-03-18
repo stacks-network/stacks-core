@@ -379,7 +379,7 @@ pub fn special_as_contract(
 /// corresponding allowance return a `Some` with an index of the violated
 /// allowance, or 128 if an asset with no allowance caused the violation. If all
 /// allowances are satisfied, return `Ok(None)`.
-fn check_allowances(
+pub fn check_allowances(
     owner: &PrincipalData,
     allowances: Vec<Allowance>,
     assets: &AssetMap,
