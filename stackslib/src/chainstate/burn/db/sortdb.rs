@@ -69,7 +69,7 @@ const BLOCK_HEIGHT_MAX: u64 = (1 << 63) - 1;
 pub const REWARD_WINDOW_START: u64 = 144 * 15;
 pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
 
-pub const STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH: usize = 144;
+pub const STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH: usize = 2100;
 
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
 
