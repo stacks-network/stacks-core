@@ -28,7 +28,7 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::chat::ConversationP2P;
 use crate::net::connection::ConnectionOptions;
 use crate::net::download::nakamoto::{
-    AvailableTenures, NakamotoTenureDownloader, NakamotoTenureDownloaderSet,
+    AvailableTenures, CompletedTenure, NakamotoTenureDownloader, NakamotoTenureDownloaderSet,
     NakamotoUnconfirmedTenureDownloader, TenureStartEnd, WantedTenure,
 };
 use crate::net::inv::nakamoto::NakamotoTenureInv;
@@ -304,6 +304,8 @@ impl NakamotoDownloadStateMachine {
         wanted_tenures: &mut [WantedTenure],
         chainstate: &StacksChainState,
         stacks_tip: &StacksBlockId,
+        completed_tenures: &HashMap<ConsensusHash, CompletedTenure>,
+        attempted_tenures: &HashMap<ConsensusHash, u64>,
     ) -> Result<(), NetError> {
         for wt in wanted_tenures.iter_mut() {
             test_debug!(
@@ -321,6 +323,18 @@ impl NakamotoDownloadStateMachine {
                     &wt, nakamoto_start
                 );
                 wt.processed = true;
+                continue;
+            }
+            if completed_tenures.contains_key(&wt.tenure_id_consensus_hash) {
+                debug!(
+                    "Tenure {} is already downloaded",
+                    &wt.tenure_id_consensus_hash
+                );
+                wt.processed = true;
+                continue;
+            }
+            if !attempted_tenures.contains_key(&wt.tenure_id_consensus_hash) {
+                test_debug!("Tenure {} not yet attempted", &wt.tenure_id_consensus_hash);
                 continue;
             }
             if NakamotoChainState::has_processed_nakamoto_tenure(
@@ -352,6 +366,8 @@ impl NakamotoDownloadStateMachine {
                 prev_wanted_tenures,
                 chainstate,
                 &self.nakamoto_tip,
+                self.tenure_downloads.get_completed_tenures(),
+                self.tenure_downloads.get_attempted_tenures(),
             )?;
         }
         debug!("update_processed_wanted_tenures: update wanted_tenures");
@@ -360,6 +376,8 @@ impl NakamotoDownloadStateMachine {
             &mut self.wanted_tenures,
             chainstate,
             &self.nakamoto_tip,
+            self.tenure_downloads.get_completed_tenures(),
+            self.tenure_downloads.get_attempted_tenures(),
         )
     }
 
