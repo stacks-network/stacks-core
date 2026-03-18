@@ -94,6 +94,14 @@ pub fn version_string(pkg_name: &str, pkg_version: Option<&str>) -> String {
     )
 }
 
+pub fn version_only_string(pkg_version: Option<&str>) -> String {
+    let pkg_version = pkg_version.unwrap_or(STACKS_NODE_VERSION);
+    let git_commit = GIT_COMMIT_ENV.unwrap_or_else(|| GIT_COMMIT.unwrap_or(""));
+    let git_tree_clean = GIT_TREE_CLEAN_ENV.unwrap_or_else(|| GIT_TREE_CLEAN.unwrap_or(""));
+
+    format!("{pkg_version} ({git_commit}{git_tree_clean}, {BUILD_TYPE} build, {OS} [{ARCH}])")
+}
+
 #[cfg(test)]
 mod lib_tests {
     use stacks_common::versions::STACKS_NODE_VERSION;

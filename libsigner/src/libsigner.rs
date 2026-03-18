@@ -49,7 +49,7 @@ use std::cmp::Eq;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use blockstack_lib::version_string;
+use blockstack_lib::{version_only_string, version_string};
 use clarity::codec::StacksMessageCodec;
 use clarity::vm::types::QualifiedContractIdentifier;
 use lazy_static::lazy_static;
@@ -79,14 +79,25 @@ pub trait SignerMessage<T: MessageSlotID>: StacksMessageCodec {
 }
 
 lazy_static! {
-    /// The version string for the signer
+    /// The version string for the signer with package name
     pub static ref VERSION_STRING: String = {
         let pkg_version = option_env!("STACKS_NODE_VERSION").or(Some(STACKS_SIGNER_VERSION));
         version_string("stacks-signer", pkg_version)
     };
+
+    /// The version string for the signer without package name
+    pub static ref VERSION_ONLY_STRING: String = {
+        let pkg_version = option_env!("STACKS_NODE_VERSION").or(Some(STACKS_SIGNER_VERSION));
+        version_only_string(pkg_version)
+    };
 }
 
 #[test]
-fn test_version_string() {
-    assert!(VERSION_STRING.contains(format!("stacks-signer {STACKS_SIGNER_VERSION}").as_str()));
+fn test_version_named_string() {
+    assert!(VERSION_STRING.starts_with(&format!("stacks-signer {STACKS_SIGNER_VERSION}")));
+}
+
+#[test]
+fn test_version_only_string() {
+    assert!(VERSION_ONLY_STRING.starts_with(&format!("{STACKS_SIGNER_VERSION}")));
 }
