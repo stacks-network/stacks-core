@@ -87,7 +87,7 @@ lazy_static! {
 
     /// The version string for the signer without package name
     pub static ref VERSION_ONLY_STRING: String = {
-        let pkg_version = option_env!("STACKS_NODE_VERSION").or(Some(STACKS_SIGNER_VERSION));
+        let pkg_version = option_env!("STACKS_NODE_VERSION").unwrap_or(STACKS_SIGNER_VERSION);
         version_only_string(pkg_version)
     };
 }
