@@ -81,7 +81,6 @@ build_stacks_inspect() {
 # If LOCAL_CHAINSTATE is defined, check the disk for reflink
 check_reflink() {
     local dir="$1"
-    # only if LOCAL_CHAINSTATE is set
     local disk=$(df --type xfs --output=source $dir 2> /dev/null | tail -1)
     if [ "${disk}" == "" ]; then
         return 1 # no reflink available on the disk
@@ -526,7 +525,7 @@ while [ ${#} -gt 0 ]; do
             # Reserve this many cpus for the system 
             if [ "${2}" == "" ]; then
                 echo "Missing required value for ${1}"
-		exit 1
+                exit 1
             fi
             if ! [[ "$2" =~ ^[0-9]+$ ]]; then
                 echo "ERROR: arg ($2) is not a number." >&2
