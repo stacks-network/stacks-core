@@ -683,8 +683,7 @@ mod tests {
     #[derive(Debug, Deserialize, Serialize)]
     struct RealBlockFixtureMeta {
         block_height: u64,
-        #[serde(default)]
-        median_fee_rate_sat_per_vb: Option<u64>,
+        mean_fee_rate_sat_per_vb: u64,
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
@@ -1417,13 +1416,31 @@ mod tests {
         let block = make_block(block_hex.trim()).expect("failed to decode real-block fixture");
 
         // Use current mainnet magic bytes ("X2") for real Bitcoin fixture validation.
-        let fee_rate_sat_per_vb = meta
-            .median_fee_rate_sat_per_vb
-            .expect("failed to get median fee rate from fixture");
         let mut parser =
-            BitcoinBlockParser::new(BitcoinNetworkType::Mainnet, MagicBytes([0x58, 0x32]))
-                .with_fixed_fee_rate_sat_per_vbyte(fee_rate_sat_per_vb);
-        let parsed_block = parser.parse_block(&block, meta.block_height, StacksEpochId::Epoch34);
+            BitcoinBlockParser::new(BitcoinNetworkType::Mainnet, MagicBytes([0x58, 0x32]));
+
+        // Derive the expected fee rate the same way the production code does, so we can
+        // cross-check the per-commit estimates below.
+        let fee_rate_sat_per_vb = parser
+            .block_mean_fee_rate_sat_per_vbyte(&block, meta.block_height)
+            .expect("should compute a mean fee rate for real block");
+        assert_eq!(
+            fee_rate_sat_per_vb, meta.mean_fee_rate_sat_per_vb,
+            "computed mean fee rate does not match fixture"
+        );
+
+        let parsed_block = parser.parse_block(&block, meta.block_height, StacksEpochId::latest());
+
+        let parsed_commits: Vec<_> = parsed_block
+            .txs
+            .iter()
+            .filter(|tx| tx.opcode == Opcodes::LeaderBlockCommit as u8)
+            .collect();
+
+        assert!(
+            !parsed_commits.is_empty(),
+            "expected at least one commit in fixture"
+        );
 
         let tx_vbytes_by_txid: HashMap<_, _> = block
             .txdata
@@ -1437,17 +1454,6 @@ mod tests {
                 (txid, tx_vbytes)
             })
             .collect();
-
-        let parsed_commits: Vec<_> = parsed_block
-            .txs
-            .iter()
-            .filter(|tx| tx.opcode == Opcodes::LeaderBlockCommit as u8)
-            .collect();
-
-        assert!(
-            !parsed_commits.is_empty(),
-            "expected at least one commit in fixture"
-        );
 
         for commit_tx in parsed_commits {
             let txid = commit_tx.txid.to_hex();
