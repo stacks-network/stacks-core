@@ -2219,7 +2219,7 @@ fn test_make_miners_stackerdb_config() {
             )
             .unwrap();
         tx.test_update_canonical_stacks_tip(
-            &snapshot.sortition_id,
+            &snapshot.canonical_stacks_tip_consensus_hash,
             &snapshot.canonical_stacks_tip_consensus_hash,
             &snapshot.canonical_stacks_tip_hash,
             snapshot.canonical_stacks_tip_height,

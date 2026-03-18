@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 
+use pinny::tag;
 use proptest::prelude::{prop, proptest, TestCaseError};
 use proptest::{prop_assert_eq, prop_assume};
 use stacks_common::types::chainstate::StacksAddress;
@@ -208,6 +209,7 @@ fn units_make_reward_set() {
 }
 
 proptest! {
+    #[tag(t_prop)]
     /// Property testing for the make_reward_set:
     ///
     /// * Each reward set participants' allotted slots should equal

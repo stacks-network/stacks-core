@@ -24,6 +24,7 @@ use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
 use clarity_types::{ClarityName, Value};
+use pinny::tag;
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestCaseResult};
 use stacks_common::types::StacksEpochId;
@@ -1902,6 +1903,7 @@ const TOKEN_DEFINITIONS: &str = r#"
 "#;
 
 proptest! {
+    #[tag(t_prop)]
     #[test]
     fn prop_restrict_assets_returns_body_value_when_pure(
         body_value in clarity_values_no_response(),
@@ -1919,6 +1921,7 @@ proptest! {
         prop_assert_eq!(expected, evaluation);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_restrict_assets_returns_value_with_allowances(
         allowances in allowance_list_snippets(),
@@ -1937,6 +1940,7 @@ proptest! {
         prop_assert_eq!(expected, evaluation);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_restrict_assets_errors_when_no_allowances_and_body_moves_stx(
         sender in standard_principal_strategy(),
@@ -1963,6 +1967,7 @@ proptest! {
         .unwrap();
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_restrict_assets_errors_when_no_ft_allowance(
         sender in standard_principal_strategy(),
@@ -2006,6 +2011,7 @@ proptest! {
         .unwrap();
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_restrict_assets_errors_when_no_nft_allowance(
         sender in standard_principal_strategy(),
@@ -2050,6 +2056,7 @@ proptest! {
         .unwrap();
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_as_contract_returns_body_value_when_pure(
         body_value in clarity_values_no_response(),
@@ -2067,6 +2074,7 @@ proptest! {
         prop_assert_eq!(expected, evaluation);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_as_contract_returns_value_with_allowances(
         allowances in allowance_list_snippets(),
@@ -2085,6 +2093,7 @@ proptest! {
         prop_assert_eq!(expected, evaluation);
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_as_contract_errors_when_no_allowances_and_body_moves_stx(
         sender in standard_principal_strategy(),
@@ -2113,6 +2122,7 @@ proptest! {
         .unwrap();
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_as_contract_with_all_assets_unsafe_matches_clarity3(
         sender in standard_principal_strategy(),
@@ -2133,6 +2143,7 @@ proptest! {
         .unwrap();
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_as_contract_with_transfers_and_allowances_matches_clarity3(
         sender in standard_principal_strategy(),
@@ -2158,6 +2169,7 @@ proptest! {
         .unwrap();
     }
 
+    #[tag(t_prop)]
     #[test]
     fn prop_restrict_assets_with_transfers_and_allowances_ok(
         sender in standard_principal_strategy(),
