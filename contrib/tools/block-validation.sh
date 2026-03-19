@@ -8,7 +8,7 @@ set -o pipefail
 #   - If using a filesystem which doesn't support reflink (e.g. ext4), ensure that the SCRATCH_DIR volume has multiple TBs of free space - each allocated CPU will require its own chainstate copy.
 #   - If using LOCAL_CHAINSTATE on a reflink-enabled filesystem, note that the local chainstate must be located on the same logical volume as the SCRATCH_DIR.
 #   - Depending on how many CPU cores you have available, a full run will take several hours. More CPUs = faster execution time.
-#     - On a system with 12 CPUs allocated and using existing chainstate on a XFS paritition, full validation took ~14 hours. 
+#     - On a system with 12 CPUs allocated and using an existing chainstate on a reflink enabled paritition, full validation took ~14 hours.
 
 NETWORK="mainnet"                                 # network to validate
 REPO_DIR="$HOME/stacks-core"                      # where to build the source
@@ -24,7 +24,7 @@ BRANCH="develop"                                  # default branch to build stac
 CORES=$(grep -c processor /proc/cpuinfo)          # retrieve total number of CORES on the system
 RESERVED=8                                        # reserve this many CORES for other processes as default
 LOCAL_CHAINSTATE=""                               # path to local chainstate to use instead of snapshot download
-REFLINK=0                                         # is reflink enabled? (only relevant for XFS formatted disks)
+REFLINK=0                                         # assume reflink is not enabled by default
 
 # ANSI color codes for terminal output
 COLRED=$'\033[31m'    # Red
@@ -56,7 +56,7 @@ build_stacks_inspect() {
         cd "${REPO_DIR}" && git fetch
         echo "Checking out ${BRANCH} and resetting to HEAD"
         # Git stash any local changes to prevent checking out $BRANCH
-	git stash
+        git stash
         (git checkout "${BRANCH}" && git reset --hard HEAD) || {
             echo "${COLRED}Error${COLRESET} checking out ${BRANCH}"
             exit 1
@@ -78,39 +78,14 @@ build_stacks_inspect() {
     echo "Done building. continuing"
 }
 
-# If LOCAL_CHAINSTATE is defined, check the disk for reflink
-check_reflink() {
-    local dir="$1"
-    local disk=$(df --type xfs --output=source $dir 2> /dev/null | tail -1)
-    if [ "${disk}" == "" ]; then
-        return 1 # no reflink available on the disk
-    fi
-    # xfs_info needs to be run by sudo
-    sudo xfs_info $disk | grep "reflink=1"  > /dev/null 2>&1 || {
-        return 1 # no reflink on the xfs disk
-    }
-    return 0 # reflink is enabled
-}
-
 # Create the slice dirs from an chainstate archive (symlinking marf.sqlite.blobs), 1 dir per CPU
 configure_validation_slices() {
     # LOCAL_CHAINSTATE is defined, check if the disk for the chainstate folder has reflink enabled
     if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
-        if check_reflink "${LOCAL_CHAINSTATE}"; then
-            local REFLINK=1
-            local LOCAL_CHAINSTATE_ROOT=$(dirname $LOCAL_CHAINSTATE)
-            echo "${COLYELLOW}Reflink enabled disk found. Overriding scratch dir to: ${LOCAL_CHAINSTATE_ROOT}/scratch${COLRESET}"
-            local SCRATCH_DIR="${LOCAL_CHAINSTATE_ROOT}/scratch"
-            local SLICE_DIR="${SCRATCH_DIR}/slice"
-            local cp_arg="--reflink=always"
-    fi
-    else
-	# if LOCAL_CHAINSTATE is not defined, we may still use reflink if the scratch dir is mounted on a compatible disk
-        if check_reflink "$(dirname $SCRATCH_DIR)"; then
-	    echo "${COLYELLOW}Reflink enabled disk found for scratch dir  ${SCRATCH_DIR}${COLRESET}"
-            local REFLINK=1
-            local cp_arg="--reflink=always"
-        fi
+        local LOCAL_CHAINSTATE_ROOT=$(dirname $LOCAL_CHAINSTATE)
+        echo "${COLYELLOW}Using local chainstate. Overriding scratch dir to: ${LOCAL_CHAINSTATE_ROOT}/scratch${COLRESET}"
+        local SCRATCH_DIR="${LOCAL_CHAINSTATE_ROOT}/scratch"
+        local SLICE_DIR="${SCRATCH_DIR}/slice"
     fi
 
     if [ -d "${SCRATCH_DIR}" ]; then
@@ -127,21 +102,25 @@ configure_validation_slices() {
     }
     if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
         if [ ! -d "$LOCAL_CHAINSTATE" ]; then
-            echo "Chainstate not found at ${LOCAL_CHAINSTATE}"
+            echo "${COLRED}Error${COLRESET} Chainstate not found at ${LOCAL_CHAINSTATE}"
             exit 1
         fi
-       echo "Copying local chainstate ${LOCAL_CHAINSTATE} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
-       cp -r ${cp_arg} "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0"
+        echo "Copying local chainstate ${LOCAL_CHAINSTATE} ->  ${COLYELLOW}${SLICE_DIR}0${COLRESET}"
+        cp -r --reflink=always "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0" 2>/dev/null && REFLINK=1 || cp -r "${LOCAL_CHAINSTATE}"/* "${SLICE_DIR}0"
     else
        echo "Downloading latest ${NETWORK} chainstate archive ${COLYELLOW}https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst${COLRESET}"
        ## curl had some random issues retrying the download when network issues arose. wget has resumed more consistently, so we'll use that for now, and leave the curl option commented
        # curl -L --proto '=https' --tlsv1.2 https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst -o ${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst || {
        wget -O  "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst" "https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst"  || {
-           echo "${COLRED}Error${COLRESET} downlaoding latest ${NETWORK} chainstate archive"
+           echo "${COLRED}Error${COLRESET} downloading latest ${NETWORK} chainstate archive"
            exit 1
        }
        # Extract downloaded archive
        echo "Extracting downloaded archive: ${COLYELLOW}${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst${COLRESET}"
+       if [ ! -f "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst" ]; then
+           echo "${COLRED}Error${COLRESET} ${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst not found"
+           exit 1
+       fi
        tar --strip-components=1 --zstd -xvf "${SCRATCH_DIR}/${NETWORK}-stacks-blockchain-latest.tar.zst" -C "${SLICE_DIR}0" || {
            echo "${COLRED}Error${COLRESET} extracting ${NETWORK} chainstate archive"
            exit 1
@@ -165,6 +144,9 @@ configure_validation_slices() {
     #   - Decrement by 1 since we already have ${SLICE_DIR}0
     for ((i=1;i<=$(( CORES - RESERVED - 1));i++)); do
         echo "Copying ${SLICE_DIR}0 -> ${COLYELLOW}${SLICE_DIR}${i}${COLRESET}"
+        if [[ ${REFLINK} -eq "1" ]]; then
+            local cp_arg="--reflink=always"
+        fi
         cp -r ${cp_arg} "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
             echo "${COLRED}Error${COLRESET} copying ${SLICE_DIR}0 -> ${SLICE_DIR}${i}"
             exit 1
@@ -423,7 +405,7 @@ usage() {
 # Install missing dependencies
 HAS_APT=1
 HAS_SUDO=1
-for cmd in apt-get sudo curl tmux git wget tar gzip grep cargo pgrep tput find xfsprogs; do
+for cmd in apt-get sudo curl tmux git wget tar gzip grep cargo pgrep tput find; do
     # In Alpine, `find` might be linked to `busybox` and won't work
     if [ "${cmd}" == "find" ] && [ -L "${cmd}" ]; then
         rp=
@@ -522,7 +504,7 @@ while [ ${#} -gt 0 ]; do
             shift
             ;;
         -r|--reserved)
-            # Reserve this many cpus for the system 
+            # Reserve this many cpus for the system
             if [ "${2}" == "" ]; then
                 echo "Missing required value for ${1}"
                 exit 1
