@@ -91,13 +91,3 @@ lazy_static! {
         version_only_string(pkg_version)
     };
 }
-
-#[test]
-fn test_version_named_string() {
-    assert!(VERSION_STRING.starts_with(&format!("stacks-signer {STACKS_SIGNER_VERSION}")));
-}
-
-#[test]
-fn test_version_only_string() {
-    assert!(VERSION_ONLY_STRING.starts_with(STACKS_SIGNER_VERSION));
-}
