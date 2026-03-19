@@ -2145,6 +2145,7 @@ impl NakamotoChainState {
         let mut sort_tx = sort_db.tx_handle_begin(canonical_sortition_tip)?;
         sort_tx.set_stacks_block_accepted(
             &next_ready_block.header.consensus_hash,
+            &burnchain_view,
             &next_ready_block.header.block_hash(),
             next_ready_block.header.chain_length,
         )?;
