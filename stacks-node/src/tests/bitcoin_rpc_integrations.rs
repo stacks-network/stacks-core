@@ -27,7 +27,7 @@ use crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType;
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
 };
-use crate::burnchains::rpc::RpcError;
+use crate::burnchains::rpc::rpc_transport::RpcError;
 
 mod utils {
     use std::net::TcpListener;
@@ -35,7 +35,7 @@ mod utils {
     use stacks::config::Config;
 
     use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
-    use crate::burnchains::rpc::RpcAuth;
+    use crate::burnchains::rpc::rpc_transport::RpcAuth;
     use crate::util::get_epoch_time_ms;
 
     pub fn create_stx_config() -> Config {
