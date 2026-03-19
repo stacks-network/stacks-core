@@ -33,11 +33,12 @@
 use std::{error, fmt};
 
 use clarity_types::diagnostic::{DiagnosableError, Diagnostic};
-use clarity_types::errors::{ClarityTypeError, CostErrors};
-use clarity_types::execution_cost::ExecutionCost;
+use clarity_types::errors::ClarityTypeError;
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::{TraitIdentifier, TupleTypeSignature, TypeSignature};
 use stacks_common::types::StacksEpochId;
+
+use crate::vm::costs::{CostErrors, ExecutionCost};
 
 /// What kind of syntax binding was found to be in error?
 #[derive(Debug, PartialEq, Clone, Copy)]

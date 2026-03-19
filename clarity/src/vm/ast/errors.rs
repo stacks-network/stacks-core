@@ -17,11 +17,12 @@
 use std::{error, fmt};
 
 use clarity_types::diagnostic::{DiagnosableError, Diagnostic, Level};
-use clarity_types::errors::{CostErrors, LexerError};
-use clarity_types::execution_cost::ExecutionCost;
+use clarity_types::errors::LexerError;
 use clarity_types::representations::{PreSymbolicExpression, Span};
 use clarity_types::token::Token;
 use stacks_common::types::StacksEpochId;
+
+use crate::vm::costs::{CostErrors, ExecutionCost};
 
 pub type ParseResult<T> = Result<T, ParseError>;
 /// Errors encountered during the lexical and syntactic analysis of Clarity source code
