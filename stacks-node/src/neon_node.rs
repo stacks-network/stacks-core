@@ -2647,6 +2647,11 @@ impl BlockMinerThread {
         );
 
         // let's commit
+        #[cfg(test)]
+        if self.globals.counters.skip_commit_op.get() {
+            debug!("Relayer: fault injection: skip block commit");
+            return None;
+        }
         let op = self.make_block_commit(
             &mut burn_db,
             &mut chain_state,

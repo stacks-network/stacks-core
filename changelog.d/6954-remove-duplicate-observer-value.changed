@@ -1,0 +1,2 @@
+- **Breaking**: Removed duplicate `value` field from NFT and SmartContract observer event payloads. Use `raw_value` (hex-encoded Clarity value) instead.
+- **Breaking**: Removed `result` field from block replay/simulate transaction responses. Use `result_hex` (hex-encoded Clarity value) instead.
