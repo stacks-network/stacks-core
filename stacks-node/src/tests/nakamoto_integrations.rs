@@ -10681,7 +10681,6 @@ fn test_shadow_recovery() {
             {
                 return Ok(true);
             }
-            sleep_ms(5000);
             Ok(false)
         })
         .unwrap();
@@ -10692,7 +10691,7 @@ fn test_shadow_recovery() {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let ops =
             SortitionDB::get_block_commits_by_block(sortdb.conn(), &tip.sortition_id).unwrap();
-        assert!(ops.len() > 0);
+        assert!(!ops.is_empty());
     }
 }
 

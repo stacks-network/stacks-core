@@ -1234,11 +1234,8 @@ pub trait SortitionHandle {
         if block_height >= BLOCK_HEIGHT_MAX {
             return Err(db_error::BlockHeightOutOfRange);
         }
-        let ancestor_id = match self.get_ancestor_sort_id(block_height, tip)? {
-            Some(id) => id,
-            None => {
-                return Ok(None);
-            }
+        let Some(ancestor_id) = self.get_ancestor_sort_id(block_height, tip)? else {
+            return Ok(None);
         };
 
         SortitionDB::get_block_commit_of_sortition(
