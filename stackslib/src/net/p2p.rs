@@ -4795,11 +4795,7 @@ impl PeerNetwork {
             }
         };
 
-        let need_stackerdb_refresh = canonical_sn.canonical_stacks_tip_consensus_hash
-            != self.burnchain_tip.canonical_stacks_tip_consensus_hash
-            || burnchain_tip_changed
-            || stacks_tip_changed;
-
+        let need_stackerdb_refresh = burnchain_tip_changed || stacks_tip_changed;
         if burnchain_tip_changed || stacks_tip_changed {
             self.refresh_reward_cycles(
                 sortdb,

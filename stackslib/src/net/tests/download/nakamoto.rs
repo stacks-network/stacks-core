@@ -1482,6 +1482,7 @@ fn test_make_tenure_downloaders() {
 
         let nakamoto_tip = peer.network.stacks_tip.block_id();
         let chainstate = peer.chainstate();
+        let dummy_available: HashMap<NeighborAddress, AvailableTenures> = HashMap::new();
         NakamotoDownloadStateMachine::inner_update_processed_wanted_tenures(
             nakamoto_start,
             &mut wanted_tenures,
@@ -1489,6 +1490,7 @@ fn test_make_tenure_downloaders() {
             &nakamoto_tip,
             &HashMap::new(),
             &HashMap::new(),
+            &dummy_available,
         )
         .unwrap();
 

@@ -447,6 +447,10 @@ impl NakamotoTenureDownloaderSet {
                 debug!("Neighbor {naddr} does not serve tenure {ch}");
                 continue;
             };
+            if tenure_info.processed {
+                debug!("Already processed tenure {ch}");
+                continue;
+            }
             if self
                 .completed_tenures
                 .contains_key(&tenure_info.tenure_id_consensus_hash)
