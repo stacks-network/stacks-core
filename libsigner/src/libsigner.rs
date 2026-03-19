@@ -48,12 +48,11 @@ pub mod v0;
 use std::cmp::Eq;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::LazyLock;
 
 use blockstack_lib::{version_only_string, version_string};
 use clarity::codec::StacksMessageCodec;
 use clarity::vm::types::QualifiedContractIdentifier;
-use std::sync::LazyLock;
-
 use stacks_common::versions::STACKS_SIGNER_VERSION;
 
 pub use crate::error::{EventError, RPCError};
