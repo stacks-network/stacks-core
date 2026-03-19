@@ -13,8 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::diagnostic::{DiagnosableError, Level};
 use clarity_types::representations::Span;
+
+use crate::vm::diagnostic::{DiagnosableError, Level};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum LexerError {
