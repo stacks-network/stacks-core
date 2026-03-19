@@ -13,13 +13,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub mod ast;
 pub mod cost;
 pub mod lexer;
 
 use std::{error, fmt};
 
-pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
 use stacks_common::types::StacksEpochId;

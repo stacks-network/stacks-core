@@ -19,7 +19,6 @@ use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
-use clarity_types::errors::{ParseError, ParseErrorKind};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
@@ -28,6 +27,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 
 use super::EvalHook;
 use crate::vm::ast::ContractAST;
+use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
