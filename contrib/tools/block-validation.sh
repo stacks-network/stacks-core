@@ -126,6 +126,12 @@ configure_validation_slices() {
            exit 1
        }
     fi
+    # Check if reflink is enabled for the filesystem by copying a test file
+    touch ${SCRATCH_DIR}/reflink_test
+    cp --reflink=always ${SCRATCH_DIR}/reflink_test ${SCRATCH_DIR}/reflink_test_copy 2>/dev/null && REFLINK=1 || echo "${COLYELLOW}Warning${COLRESET}: reflink is not enabled for this filesystem, chainstate copy will be slower"
+    # Remove the test files, silently failing if the file(s) don't exist
+    rm ${SCRATCH_DIR}/reflink_test ${SCRATCH_DIR}/reflink_test_copy  2>/dev/null
+
     # If reflink is not enabled for the filesystem, we'll need to copy and link the MARF database to save a little space for the chainstate copy
     if [[ ${REFLINK} -ne "1" ]]; then
         echo "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> ${COLYELLOW}${SCRATCH_DIR}/marf.sqlite.blobs${COLRESET}"
@@ -138,6 +144,12 @@ configure_validation_slices() {
             echo "${COLRED}Error${COLRESET} creating symlink: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs"
             exit 1
         }
+    fi
+
+    # Sanity check that the chainstate db exists in slice0 before copying
+    if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
+        echo "${COLRED}Error${COLRESET}: chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
+        exit 1
     fi
 
     # Create a copy of the linked db with <number of CORES><number of RESERVED CORES>
@@ -171,10 +183,6 @@ setup_logs() {
 
 # Delete any existing tmux session and recreate
 setup_tmux() {
-    if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
-        echo "${COLRED}Error${COLRESET}: chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
-        exit 1
-    fi
     # If tmux session "$TMUX_SESSION" exists, kill it and start anew
     if eval "tmux list-windows -t ${TMUX_SESSION} &> /dev/null"; then
         echo "Killing existing tmux session: ${TMUX_SESSION}"
