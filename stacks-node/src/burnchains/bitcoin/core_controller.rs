@@ -22,8 +22,7 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 
-use stacks::burnchains::bitcoin::rpc::bitcoin_rpc_client::BitcoinRpcClient;
-
+use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
 use crate::Config;
 
 // Value usable as `BurnchainConfig::peer_port` to avoid bitcoind peer port binding
