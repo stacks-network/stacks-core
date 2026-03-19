@@ -3400,7 +3400,7 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
                         &format!("test-{contract_count}"),
                         smart_contract,
                         &private_key,
-                        ClarityVersion::latest(),
+                        ClarityVersion::Clarity4,
                         account.nonce,
                         u64::try_from(smart_contract.len() * 2).unwrap(),
                     );
