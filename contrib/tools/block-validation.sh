@@ -21,7 +21,7 @@ TMUX_SESSION="validation"                         # tmux session name to run the
 TERM_OUT=false                                    # terminal friendly output
 TESTING=false                                     # only run a validation on a few thousand blocks
 BRANCH="develop"                                  # default branch to build stacks-inspect from
-CORES=$(grep -c processor /proc/cpuinfo)          # retrieve total number of CORES on the system
+CORES=$(nproc)                                    # retrieve total number of CORES on the system
 RESERVED=8                                        # reserve this many CORES for other processes as default
 LOCAL_CHAINSTATE=""                               # path to local chainstate to use instead of snapshot download
 REFLINK=0                                         # assume reflink is not enabled by default
@@ -84,8 +84,9 @@ configure_validation_slices() {
     if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
         local LOCAL_CHAINSTATE_ROOT=$(dirname $LOCAL_CHAINSTATE)
         echo "${COLYELLOW}Using local chainstate. Overriding scratch dir to: ${LOCAL_CHAINSTATE_ROOT}/scratch${COLRESET}"
-        local SCRATCH_DIR="${LOCAL_CHAINSTATE_ROOT}/scratch"
-        local SLICE_DIR="${SCRATCH_DIR}/slice"
+        # reset SCRATCH_DIR and SLICE_DIR global variables
+        SCRATCH_DIR="${LOCAL_CHAINSTATE_ROOT}/scratch"
+        SLICE_DIR="${SCRATCH_DIR}/slice"
     fi
 
     if [ -d "${SCRATCH_DIR}" ]; then
@@ -540,8 +541,8 @@ build_stacks_inspect        # comment if using an existing chainstate/slice dir 
 configure_validation_slices # comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
 setup_logs                  # configure logdir
 setup_tmux                  # configure tmux sessions
-start_validation            # validate pre-nakamoto blocks (2.x)
-start_validation nakamoto   # validate nakamoto blocks
+start_validation            # validate Epoch 2 blocks 
+start_validation nakamoto   # validate Epoch 3 blocks
 store_results               # store aggregated results of validation
 echo "Validation finished: $(date)"
 exit 0
