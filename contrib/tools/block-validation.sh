@@ -91,7 +91,7 @@ configure_validation_slices() {
 
     if [ -d "${SCRATCH_DIR}" ]; then
         echo "Deleting existing scratch dir contents: ${COLYELLOW}${SCRATCH_DIR}${COLRESET}"
-        rm -rf "${SCRATCH_DIR}"/* || {
+        find "${SCRATCH_DIR}" -mindepth 1 -depth -print0 | xargs -0 -P $(( CORES - RESERVED )) -n 500 rm -rf || {
             echo "${COLRED}Error${COLRESET} deleting dir contents: ${SCRATCH_DIR}"
             exit 1
         }
