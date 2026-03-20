@@ -1945,16 +1945,16 @@ fn stx_delegate_btc_integration_test() {
 
                 // Ensure that the function name is as expected
                 // This verifies that there were print events for delegate-stack-stx and delegate-stx
-                let name_field =
-                    &contract_event["value"]["Response"]["data"]["Tuple"]["data_map"]["name"];
-                let name_data = name_field["Sequence"]["String"]["ASCII"]["data"]
-                    .as_array()
+                let raw_hex = contract_event["raw_value"].as_str().unwrap();
+                let clarity_bytes = hex_bytes(&raw_hex[2..]).unwrap();
+                let clarity_value =
+                    Value::deserialize_read(&mut &clarity_bytes[..], None, false).unwrap();
+                let pair = clarity_value
+                    .expect_result_ok()
+                    .unwrap()
+                    .expect_tuple()
                     .unwrap();
-                let ascii_vec = name_data
-                    .iter()
-                    .map(|num| num.as_u64().unwrap() as u8)
-                    .collect();
-                let name = String::from_utf8(ascii_vec).unwrap();
+                let name = pair.get_owned("name").unwrap().expect_ascii().unwrap();
                 if name == "delegate-stack-stx" {
                     delegate_stack_stx_found = true;
                 } else if name == "delegate-stx" {

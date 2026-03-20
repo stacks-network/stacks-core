@@ -1,0 +1,1 @@
+Disabled `at-block` starting from Epoch 3.4 (see SIP-042). New contracts referencing `at-block` are rejected during static analysis. Existing contracts that invoke it will fail at runtime with an `AtBlockUnavailable` error.
