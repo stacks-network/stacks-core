@@ -64,9 +64,6 @@ properties:
         hex:
           type: string
           description: hexadecimal representation of the transaction body
-        result:
-          type: object
-          description: Clarity value representing the transaction result
         result_hex:
           type: string
           description: The transaction's result, encoded as a Clarity hex string

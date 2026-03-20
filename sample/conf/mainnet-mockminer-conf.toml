@@ -1,17 +1,39 @@
+# ============================================================
+# STACKS MOCK MINER - MAINNET CONFIGURATION
+# ============================================================
+#
+# A mock miner follows the chain and assembles blocks locally without
+# spending BTC or proposing to signers. Useful for testing block
+# assembly logic, verifying transaction processing, and monitoring
+# what a miner would produce.
+#
+# See mainnet-miner-conf.toml for a real miner configuration.
+
 [node]
-# working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
+# IMPORTANT: For production, set this to a persistent path.
+# The default (/tmp/stacks-node-<timestamp>) is lost on reboot.
+# working_dir = "/stacks-data/mock-miner"
+
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 prometheus_bind = "0.0.0.0:9153"
 
-# Both miner and mock_mining must be true
+# Both miner and mock_mining must be true.
 miner = true
 mock_mining = true
 
 [miner]
-# Required: Generate with: openssl rand -hex 32
+# Required when [miner] section is present.
+# Generate with: openssl rand -hex 32
 mining_key = "0000000000000000000000000000000000000000000000000000000000000001"
 
 [burnchain]
 mode = "mainnet"
 peer_host = "127.0.0.1"
+# rpc_port = 8332  # Bitcoin mainnet RPC (default)
+# peer_port = 8333 # Bitcoin mainnet P2P (default)
+
+# Bitcoin RPC credentials. The mock miner still needs to follow the
+# burnchain for sortition data, even though it never sends transactions.
+# username = "your-bitcoin-rpc-user"
+# password = "your-bitcoin-rpc-password"

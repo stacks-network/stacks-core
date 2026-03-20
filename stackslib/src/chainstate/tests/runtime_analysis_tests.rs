@@ -124,6 +124,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             runtime_check_error_kind_name_already_used_ccall
         ]),
         UndefinedFunction(_) => Tested(vec![runtime_check_error_kind_undefined_function_ccall]),
+        AtBlockUnavailable => Tested(vec![runtime_check_error_kind_at_block_unavailable_ccall]),
         IncorrectArgumentCount(_, _) => {
             Tested(vec![runtime_check_error_kind_incorrect_argument_count_ccall])
         }
@@ -495,6 +496,8 @@ fn runtime_check_error_kind_type_signature_too_deep_ccall() {
 /// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
 /// runtime `TypeError(UIntType, OptionalType(NoType))`.
 /// Outcome: block accepted.
+/// Note: This test only works until Epoch 3.3. Epoch 3.4 will return a
+/// [`RuntimeCheckErrorKind::AtBlockUnavailable`].
 #[test]
 fn runtime_check_error_kind_type_error_cdeploy() {
     let contract_1 = SetupContract::new(
@@ -541,6 +544,7 @@ fn runtime_check_error_kind_type_error_cdeploy() {
         (ok shares)))
 
     (define-constant result (get-shares u999 .pool))",
+        deploy_epochs: &[StacksEpochId::Epoch33],
         setup_contracts: &[contract_1, contract_2],
     );
 }
@@ -551,6 +555,8 @@ fn runtime_check_error_kind_type_error_cdeploy() {
 /// that `OptionalType(NoType)` value into `is-eq` against `u0`, triggering the
 /// runtime `TypeError(UIntType, OptionalType(NoType))`.
 /// Outcome: block accepted.
+/// Note: This test only works until Epoch 3.3. Epoch 3.4 will return a
+/// [`RuntimeCheckErrorKind::AtBlockUnavailable`].
 #[test]
 fn runtime_check_error_kind_type_error_ccall() {
     let contract_1 = SetupContract::new(
@@ -577,6 +583,9 @@ fn runtime_check_error_kind_type_error_ccall() {
     )
     .with_clarity_version(ClarityVersion::Clarity1); // Only works with clarity 1 or 2
 
+    let mut deploy_epochs = StacksEpochId::since(StacksEpochId::Epoch20).to_vec();
+    deploy_epochs.retain(|epoch| *epoch <= StacksEpochId::Epoch33);
+
     contract_call_consensus_test!(
         contract_name: "value-too-large",
         contract_code: "
@@ -599,6 +608,8 @@ fn runtime_check_error_kind_type_error_ccall() {
         (get-shares u999 .pool))",
         function_name: "trigger-error",
         function_args: &[],
+        deploy_epochs: &deploy_epochs,
+        call_epochs: &[StacksEpochId::Epoch33],
         setup_contracts: &[contract_1, contract_2],
     );
 }
@@ -922,6 +933,24 @@ fn runtime_check_error_kind_undefined_function_ccall() {
             (ok true))",
         function_name: "missing-func",
         function_args: &[],
+    );
+}
+
+/// RuntimeCheckErrorKind: [`RuntimeCheckErrorKind::AtBlockUnavailable`]
+/// Caused by: invoking `at-block` after crossing into Epoch 3.4, where the built-in is disabled.
+/// Outcome: block accepted.
+#[test]
+fn runtime_check_error_kind_at_block_unavailable_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "at-block-unavail",
+        contract_code: "
+        (define-public (trigger-error)
+            (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
+                    u1)))",
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: &[StacksEpochId::Epoch33],
+        call_epochs: &[StacksEpochId::Epoch34],
     );
 }
 
