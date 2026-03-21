@@ -17,6 +17,7 @@
 use clarity_types::errors::ClarityTypeError;
 use clarity_types::types::serialization::SerializationError;
 
+use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
@@ -29,7 +30,7 @@ use crate::vm::types::{
     ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, TypeSignatureExt as _,
     UTF8Data, Value,
 };
-use crate::vm::{Environment, LocalContext, eval};
+use crate::vm::{LocalContext, eval};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EndianDirection {
@@ -64,7 +65,7 @@ pub fn buff_to_int_generic(
                         BufferLength::try_from(16_u32)
                             .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?,
                     ))),
-                    Box::new(value),
+                    value.to_error_string(),
                 )
                 .into())
             } else {
@@ -90,7 +91,7 @@ pub fn buff_to_int_generic(
                 BufferLength::try_from(16_u32)
                     .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?,
             ))),
-            Box::new(value),
+            value.to_error_string(),
         )
         .into()),
     }
@@ -156,7 +157,7 @@ pub fn native_string_to_int_generic(
                 TypeSignature::STRING_ASCII_MAX,
                 TypeSignature::STRING_UTF8_MAX,
             ],
-            Box::new(value),
+            value.to_error_string(),
         )
         .into()),
     }
@@ -209,7 +210,7 @@ pub fn native_int_to_string_generic(
         }
         _ => Err(RuntimeCheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Box::new(value),
+            value.to_error_string(),
         )
         .into()),
     }
@@ -244,19 +245,24 @@ fn convert_utf8_to_ascii(s: String) -> Result<Value, VmExecutionError> {
 
 pub fn special_to_ascii(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
 
-    let value = eval(&args[0], env, context)?;
+    let value = eval(&args[0], exec_state, invoke_ctx, context)?;
 
-    runtime_cost(ClarityCostFunction::ToAscii, env, value.size()?)?;
+    runtime_cost(
+        ClarityCostFunction::ToAscii,
+        exec_state,
+        value.as_ref().size()?,
+    )?;
 
-    match value {
+    match value.as_ref() {
         Value::Int(num) => convert_string_to_ascii_ok(num.to_string()),
         Value::UInt(num) => convert_string_to_ascii_ok(format!("u{num}")),
-        Value::Bool(b) => convert_string_to_ascii_ok(if b {
+        Value::Bool(b) => convert_string_to_ascii_ok(if *b {
             "true".to_string()
         } else {
             "false".to_string()
@@ -266,8 +272,7 @@ pub fn special_to_ascii(
             convert_string_to_ascii_ok(format!("0x{buffer_data}"))
         }
         Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data }))) => {
-            // Convert UTF8 to string first, then to ASCII
-            let flattened_bytes: Vec<u8> = data.into_iter().flatten().collect();
+            let flattened_bytes: Vec<u8> = data.iter().flatten().copied().collect();
             match String::from_utf8(flattened_bytes) {
                 Ok(utf8_string) => Ok(convert_utf8_to_ascii(utf8_string)?),
                 Err(_) => Ok(Value::err_uint(1)), // Invalid UTF8
@@ -282,7 +287,7 @@ pub fn special_to_ascii(
                 TypeSignature::TO_ASCII_BUFFER_MAX,
                 TypeSignature::STRING_UTF8_MAX,
             ],
-            Box::new(value),
+            value.as_ref().to_error_string(),
         )
         .into()),
     }
@@ -313,26 +318,27 @@ pub fn to_consensus_buff(value: Value) -> Result<Value, VmExecutionError> {
 /// to an unexpected type, returns `none`. Otherwise, it will be `(some value)`
 pub fn from_consensus_buff(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    let type_arg = TypeSignature::parse_type_repr(*env.epoch(), &args[0], env)?;
-    let value = eval(&args[1], env, context)?;
+    let type_arg = TypeSignature::parse_type_repr(*exec_state.epoch(), &args[0], exec_state)?;
+    let value = eval(&args[1], exec_state, invoke_ctx, context)?;
 
     // get the buffer bytes from the supplied value. if not passed a buffer,
     // this is a type error
-    let input_bytes = if let Value::Sequence(SequenceData::Buffer(buff_data)) = value {
-        Ok(buff_data.data)
+    let input_bytes = if let Value::Sequence(SequenceData::Buffer(buff_data)) = value.as_ref() {
+        Ok(&buff_data.data)
     } else {
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_MAX),
-            Box::new(value),
+            value.as_ref().to_error_string(),
         ))
     }?;
 
-    let input = if env
+    let input = if invoke_ctx
         .contract_context
         .get_clarity_version()
         .protects_logn_cost_fn()
@@ -341,19 +347,19 @@ pub fn from_consensus_buff(
     } else {
         input_bytes.len()
     };
-    runtime_cost(ClarityCostFunction::FromConsensusBuff, env, input)?;
+    runtime_cost(ClarityCostFunction::FromConsensusBuff, exec_state, input)?;
 
     // Perform the deserialization and check that it deserialized to the expected
     // type. A type mismatch at this point is an error that should be surfaced in
     // Clarity (as a none return).
     let result = match Value::try_deserialize_bytes_exact(
-        &input_bytes,
+        input_bytes,
         &type_arg,
-        env.epoch().value_sanitizing(),
+        exec_state.epoch().value_sanitizing(),
     ) {
         Ok(value) => value,
         Err(SerializationError::UnexpectedSerialization) => {
-            if env.epoch().treats_unexpected_serialization_as_none() {
+            if exec_state.epoch().treats_unexpected_serialization_as_none() {
                 return Ok(Value::none());
             }
             return Err(
@@ -362,7 +368,7 @@ pub fn from_consensus_buff(
         }
         Err(_) => return Ok(Value::none()),
     };
-    if !type_arg.admits(env.epoch(), &result)? {
+    if !type_arg.admits(exec_state.epoch(), &result)? {
         return Ok(Value::none());
     }
 

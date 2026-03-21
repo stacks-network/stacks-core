@@ -396,8 +396,8 @@ impl Trie {
             &[
                 cur_leaf_hash,
                 new_leaf_hash,
-                TrieHash::from_data(&[]),
-                TrieHash::from_data(&[]),
+                TrieHash::EMPTY,
+                TrieHash::EMPTY,
             ],
             storage,
         );
@@ -652,8 +652,8 @@ impl Trie {
             &[
                 leaf_hash,
                 new_cur_node_hash,
-                TrieHash::from_data(&[]),
-                TrieHash::from_data(&[]),
+                TrieHash::EMPTY,
+                TrieHash::EMPTY,
             ],
             storage,
         );

@@ -1271,7 +1271,7 @@ impl ConversationP2P {
              "supports_mempool_query" => Self::supports_mempool_query(handshake_data.services),
         );
 
-        if updated {
+        if updated && self.stats.outbound {
             // save the new key
             let tx = network.peerdb_tx_begin().map_err(net_error::DBError)?;
             let (mut neighbor, _) = Neighbor::load_and_update(
@@ -3117,6 +3117,7 @@ mod test {
             burnchain.pox_constants.clone(),
             None,
             true,
+            None,
         )
         .unwrap();
 
@@ -3318,6 +3319,7 @@ mod test {
             first_block_hash: first_burn_hash.clone(),
             first_block_timestamp: 0,
             pox_constants: PoxConstants::test_default(),
+            marf_opts: None,
         }
     }
 

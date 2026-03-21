@@ -18,7 +18,7 @@ pub mod signatures;
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
-use std::{char, fmt, str};
+use std::{char, fmt, mem, str};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -57,6 +57,8 @@ pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
 pub const MAX_TYPE_DEPTH: u8 = 32;
 /// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
+/// Maximum byte length for Value string representations in error messages.
+const MAX_ERROR_VALUE_DISPLAY_LEN: usize = 512;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
@@ -725,14 +727,20 @@ pub trait SequencedValue<T> {
 
     fn items(&self) -> &Vec<T>;
 
-    fn drained_items(&mut self) -> Vec<T>;
+    fn take_items(&mut self) -> Vec<T>;
 
     fn to_value(v: &T) -> Result<Value, ClarityTypeError>;
 
+    /// Consuming version of `to_value`. Takes ownership of the element,
+    /// avoiding a clone when `T` is expensive to clone or copy (e.g. `ListData`).
+    fn into_value(v: T) -> Result<Value, ClarityTypeError> {
+        Self::to_value(&v)
+    }
+
     fn atom_values(&mut self) -> Result<Vec<SymbolicExpression>, ClarityTypeError> {
-        self.drained_items()
-            .iter()
-            .map(|item| Ok(SymbolicExpression::atom_value(Self::to_value(item)?)))
+        self.take_items()
+            .into_iter()
+            .map(|item| Ok(SymbolicExpression::atom_value(Self::into_value(item)?)))
             .collect()
     }
 }
@@ -742,8 +750,8 @@ impl SequencedValue<Value> for ListData {
         &self.data
     }
 
-    fn drained_items(&mut self) -> Vec<Value> {
-        self.data.drain(..).collect()
+    fn take_items(&mut self) -> Vec<Value> {
+        mem::take(&mut self.data)
     }
 
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
@@ -755,6 +763,10 @@ impl SequencedValue<Value> for ListData {
     fn to_value(v: &Value) -> Result<Value, ClarityTypeError> {
         Ok(v.clone())
     }
+
+    fn into_value(v: Value) -> Result<Value, ClarityTypeError> {
+        Ok(v)
+    }
 }
 
 impl SequencedValue<u8> for BuffData {
@@ -762,8 +774,8 @@ impl SequencedValue<u8> for BuffData {
         &self.data
     }
 
-    fn drained_items(&mut self) -> Vec<u8> {
-        self.data.drain(..).collect()
+    fn take_items(&mut self) -> Vec<u8> {
+        mem::take(&mut self.data)
     }
 
     fn type_signature(&self) -> Result<TypeSignature, ClarityTypeError> {
@@ -787,8 +799,8 @@ impl SequencedValue<u8> for ASCIIData {
         &self.data
     }
 
-    fn drained_items(&mut self) -> Vec<u8> {
-        self.data.drain(..).collect()
+    fn take_items(&mut self) -> Vec<u8> {
+        mem::take(&mut self.data)
     }
 
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
@@ -812,8 +824,8 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
         &self.data
     }
 
-    fn drained_items(&mut self) -> Vec<Vec<u8>> {
-        self.data.drain(..).collect()
+    fn take_items(&mut self) -> Vec<Vec<u8>> {
+        mem::take(&mut self.data)
     }
 
     fn type_signature(&self) -> std::result::Result<TypeSignature, ClarityTypeError> {
@@ -829,6 +841,10 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
 
     fn to_value(v: &Vec<u8>) -> Result<Value, ClarityTypeError> {
         Value::string_utf8_from_bytes(v.clone())
+    }
+
+    fn into_value(v: Vec<u8>) -> Result<Value, ClarityTypeError> {
+        Value::string_utf8_from_bytes(v)
     }
 }
 
@@ -1329,6 +1345,21 @@ impl Value {
                 Box::new(TypeSignature::STRING_ASCII_MIN),
                 Box::new(self),
             ))
+        }
+    }
+
+    /// Format as a truncated string for use in error messages.
+    /// Avoids cloning potentially large Values in error paths.
+    pub fn to_error_string(&self) -> String {
+        let full = format!("{self:?}");
+        if full.len() <= MAX_ERROR_VALUE_DISPLAY_LEN {
+            full
+        } else {
+            let end = (0..=MAX_ERROR_VALUE_DISPLAY_LEN)
+                .rev()
+                .find(|&i| full.is_char_boundary(i))
+                .unwrap_or(0);
+            format!("{}...", &full[..end])
         }
     }
 }

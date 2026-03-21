@@ -7,7 +7,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [Unreleased]
 
-### Added 
+### Fixed
+- Fixed signer database migration 19 that could leave the database in corrupted, unrecoverable state.
+
+## [3.3.0.0.6.0]
+
+### Added
 
 - Add support for tracking pending block responses for up to 3 unique untracked blocks per signer address. This improves handling of late block proposals by allowing the signer to process previously seen responses for blocks that were not being tracked.
 - Added `approved_time` column to the `blocks` database table
@@ -35,6 +40,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 
 - Avoid sending duplicate block acceptance messages when additional pre-commits arrive
+- Upgraded `SUPPORTED_SIGNER_PROTOCOL_VERSION` to 2.
+- Set `GLOBAL_SIGNER_STATE_ACTIVATION_VERSION` to 2, activating global signer state agreement block processing.
 
 ## [3.3.0.0.2.0]
 

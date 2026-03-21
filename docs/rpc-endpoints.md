@@ -79,7 +79,9 @@ Reason types without additional information will not have a
 
 ### GET /v2/pox
 
-Get current PoX-relevant information. See OpenAPI [spec](./rpc/openapi.yaml) for details.
+Get current PoX-relevant information. See the [OpenAPI spec](./rpc/openapi.yaml) for details.
+
+This endpoint accepts a query string parameter `?tip=` to control which chain tip state is queried.
 
 ### GET /v2/headers/[Count]
 
@@ -130,7 +132,7 @@ non-canonical headers will be returned instead.
 
 Get the account data for the provided principal.
 The principal string is either a Stacks address or a Contract identifier (e.g.,
-`SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info`
+`SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0.get-info`)
 
 Returns JSON data in the form:
 
@@ -150,13 +152,19 @@ provided as hex strings.
 For non-existent accounts, this _does not_ 404, rather it returns an
 object with balance and nonce of 0.
 
-This endpoint also accepts a querystring parameter `?proof=` which when supplied `0`, will return the
+This endpoint also accepts a query string parameter `?proof=` which when supplied `0`, will return the
 JSON object _without_ the `balance_proof` or `nonce_proof` fields.
+
+This endpoint accepts a query string parameter `?tip=` to control which chain tip state is queried.
+See the [OpenAPI spec](./rpc/openapi.yaml) `tip` parameter for details.
 
 ### GET /v2/data_var/[Stacks Address]/[Contract Name]/[Var Name]
 
-Attempt to vetch a data var from a contract. The contract is identified with [Stacks Address] and
+Attempt to fetch a data var from a contract. The contract is identified with [Stacks Address] and
  [Contract Name] in the URL path. The variable is identified with [Var Name].
+
+This endpoint accepts a query string parameter `?tip=` to control which chain tip state is queried.
+See the [OpenAPI spec](./rpc/openapi.yaml) `tip` parameter for details.
 
 Returns JSON data in the form:
 
@@ -169,11 +177,15 @@ Returns JSON data in the form:
 
 Where data is the hex serialization of the variable value.
 
-This endpoint also accepts a querystring parameter `?proof=` which when supplied `0`, will return the
+This endpoint also accepts a query string parameter `?proof=` which when supplied `0`, will return the
 JSON object _without_ the `proof` field.
 
 ### GET /v2/clarity/marf/[Clarity MARF Key]
 Attempt to fetch the value of a MARF key. The key is identified with [Clarity MARF Key].
+
+This endpoint accepts query string parameters `?tip=` and `?proof=` to control which chain tip
+state is queried and whether a MARF proof is included.
+See the [OpenAPI spec](./rpc/openapi.yaml) for details.
 
 Returns JSON data in the form:
 
@@ -191,6 +203,9 @@ Attempt to fetch the metadata of a contract.
  The contract is identified with [Stacks Address] and [Contract Name] in the URL path.
  The metadata key is identified with [Clarity Metadata Key].
 
+This endpoint accepts a query string parameter `?tip=` to control which chain tip state is queried.
+See the [OpenAPI spec](./rpc/openapi.yaml) `tip` parameter for details.
+
 Returns JSON data in the form:
 
 ```json
@@ -204,6 +219,9 @@ Where data is the metadata formatted as a JSON string.
 ### GET /v2/constant_val/[Stacks Address]/[Contract Name]/[Constant Name]
 Attempt to fetch a constant from a contract. The contract is identified with [Stacks Address] and
  [Contract Name] in the URL path. The constant is identified with [Constant Name].
+
+This endpoint accepts a query string parameter `?tip=` to control which chain tip state is queried.
+See the [OpenAPI spec](./rpc/openapi.yaml) `tip` parameter for details.
 
 Returns JSON data in the form:
 
@@ -223,6 +241,9 @@ Attempt to fetch data from a contract data map. The contract is identified with 
 The _key_ to lookup in the map is supplied via the POST body. This should be supplied as the hex string
 serialization of the key (which should be a Clarity value). Note, this is a _JSON_ string atom.
 
+This endpoint accepts a query string parameter `?tip=` to control which chain tip state is queried.
+See the [OpenAPI spec](./rpc/openapi.yaml) `tip` parameter for details.
+
 Returns JSON data in the form:
 
 ```json
@@ -236,7 +257,7 @@ Where data is the hex serialization of the map response. Note that map responses
 for non-existent values, this is a serialized `none`, and for all other responses, it is a serialized `(some ...)`
 object.
 
-This endpoint also accepts a querystring parameter `?proof=` which when supplied `0`, will return the
+This endpoint also accepts a query string parameter `?proof=` which when supplied `0`, will return the
 JSON object _without_ the `proof` field.
 
 ### GET /v2/fees/transfer
@@ -246,6 +267,9 @@ Get an estimated fee rate for STX transfer transactions. This is a fee rate / by
 ### GET /v2/contracts/interface/[Stacks Address]/[Contract Name]
 
 Fetch the contract interface for a given contract, identified by [Stacks Address] and [Contract Name].
+
+This endpoint accepts a query string parameter `?tip=` to control which chain tip state is queried.
+See the [OpenAPI spec](./rpc/openapi.yaml) `tip` parameter for details.
 
 This returns a JSON object of the form:
 
@@ -399,6 +423,9 @@ This returns a JSON object of the form:
 Fetch the source for a smart contract, along with the block height it was
 published in, and the MARF proof for the data.
 
+This endpoint accepts a query string parameter `?tip=` to control which chain tip state is queried.
+See the [OpenAPI spec](./rpc/openapi.yaml) `tip` parameter for details.
+
 ```json
 {
  "source": "(define-private ...",
@@ -407,7 +434,7 @@ published in, and the MARF proof for the data.
 }
 ```
 
-This endpoint also accepts a querystring parameter `?proof=` which
+This endpoint also accepts a query string parameter `?proof=` which
 when supplied `0`, will return the JSON object _without_ the `proof`
 field.
 
@@ -416,7 +443,10 @@ field.
 Call a read-only public function on a given smart contract.
 
 The smart contract and function are specified using the URL path. The arguments and
-the simulated `tx-sender` are supplied via the POST body in the following JSON format:
+the simulated `tx-sender` are supplied via the POST body in the following JSON format.
+
+This endpoint accepts a query string parameter `?tip=` to control which chain tip state is queried.
+See the [OpenAPI spec](./rpc/openapi.yaml) `tip` parameter for details.
 
 ```json
 {
@@ -454,7 +484,8 @@ object of the following form:
 
 Determine whether a given trait is implemented within the specified contract (either explicitly or implicitly).
 
-See OpenAPI [spec](./rpc/openapi.yaml) for details.
+This endpoint accepts a query string parameter `?tip=` to control which chain tip state is queried.
+See the [OpenAPI spec](./rpc/openapi.yaml) `tip` parameter for details.
 
 ### POST /v3/block_proposal
 
@@ -539,7 +570,7 @@ data.
 
 This will return 404 if the block does not exist.
 
-This endpoint also accepts a querystring parameter `?tip=` which when supplied
+This endpoint also accepts a query string parameter `?tip=` which when supplied
 will return the block relative to the specified tip allowing the querying of
 sibling blocks (same height, different tip) too.
 
@@ -575,7 +606,7 @@ tenure, `tip_block_id` identifies the highest-known block in this tenure, and
 
 ### GET /v3/signer/[Signer Pubkey]/[Reward Cycle]
 
-Get number of blocks signed by signer during a given reward cycle
+Get number of blocks signed by signer during a given reward cycle.
 
 Returns a non-negative integer
 

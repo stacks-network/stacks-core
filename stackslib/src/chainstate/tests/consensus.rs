@@ -287,7 +287,7 @@ impl ConsensusChain<'_> {
         }
         // Set up chainstate to support Naka.
         let mut boot_plan = NakamotoBootPlan::new(test_name)
-            .with_pox_constants(7, 1)
+            .with_pox_constants(7, 3)
             .with_initial_balances(initial_balances)
             .with_private_key(FAUCET_PRIV_KEY.clone());
         let (epochs, first_burnchain_height) =
@@ -769,7 +769,7 @@ impl ConsensusChain<'_> {
                 consensus_hash: chain_tip.consensus_hash.clone(),
                 parent_block_id: chain_tip.index_block_hash(),
                 tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
-                state_index_root: TrieHash::from_empty_data(),
+                state_index_root: TrieHash::EMPTY,
                 timestamp: 1,
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
