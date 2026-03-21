@@ -3524,6 +3524,52 @@ pub mod nakamoto_block_signatures {
     }
 
     #[test]
+    /// Test that out-of-order signatures are detected even after the first signature.
+    /// This is a regression test for a bug where `last_index` was only set on the
+    /// first iteration (inside an `else` branch), so subsequent out-of-order
+    /// signatures were compared against the first signer's index instead of the
+    /// previous signer's index. For example, with signers at indices [0, 2, 1],
+    /// the bug would accept the sequence because index 1 > index 0 (the stale
+    /// last_index), even though index 1 < index 2 (the actual previous signer).
+    fn test_out_of_order_signer_signatures_after_first() {
+        // We need 4 signers so we can construct a sequence where the first
+        // pair is in order but a later pair is not: [0, 2, 1, 3] or similar.
+        // We'll use [0, 2, 1] (skip signer 3) — indices go 0 -> 2 -> 1,
+        // which is out of order at the third signature.
+        let signers = [
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+        ];
+        let reward_set = make_reward_set(&signers);
+
+        let mut header = NakamotoBlockHeader::empty();
+        let message = header.signer_signature_hash().0;
+
+        // Sign in order [signer_0, signer_2, signer_1] — out of order at position 3
+        let signer_signature = [0, 2, 1]
+            .iter()
+            .map(|&i| {
+                signers[i]
+                    .0
+                    .sign(&message)
+                    .expect("Failed to sign block sighash")
+            })
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        match header.verify_signer_signatures(&reward_set) {
+            Ok(_) => panic!("Expected out of order signatures to fail"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("out of order"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
     pub fn test_compute_voting_weight_threshold() {
         assert_eq!(
             NakamotoBlockHeader::compute_voting_weight_threshold(100_u32).unwrap(),

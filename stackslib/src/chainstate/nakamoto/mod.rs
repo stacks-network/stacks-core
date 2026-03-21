@@ -904,9 +904,8 @@ impl NakamotoBlockHeader {
                         "Signatures are out of order".to_string(),
                     ));
                 }
-            } else {
-                last_index = Some(signer_index);
             }
+            last_index = Some(signer_index);
 
             total_weight_signed = total_weight_signed
                 .checked_add(signer.weight)
