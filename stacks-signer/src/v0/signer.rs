@@ -530,7 +530,7 @@ impl Signer {
                             "signer_address" => %signer_address,
                             "message" => ?message,
                         );
-                        return;
+                        continue;
                     }
                     match message {
                         SignerMessage::BlockResponse(block_response) => {
