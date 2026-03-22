@@ -287,8 +287,8 @@ pub mod test_observer {
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
     use stacks::util::hash::hex_bytes;
     use stacks_common::types::chainstate::StacksBlockId;
-    use warp::Filter;
-    use {tokio, warp};
+    use tokio;
+    use warp::{self, Filter};
 
     use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
     use crate::Config;
