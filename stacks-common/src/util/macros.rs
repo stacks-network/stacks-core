@@ -233,6 +233,11 @@ macro_rules! guarded_string {
             pub fn is_empty(&self) -> bool {
                 self.len() == 0
             }
+
+            /// Returns the heap capacity of the backing `String` buffer.
+            pub fn heap_capacity(&self) -> usize {
+                self.0.capacity()
+            }
         }
 
         impl Deref for $Name {

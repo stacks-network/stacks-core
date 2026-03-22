@@ -28,6 +28,7 @@ pub mod diagnostic;
 pub mod errors;
 pub mod execution_cost;
 pub mod representations;
+pub mod resident_bytes;
 pub mod token;
 pub mod types;
 

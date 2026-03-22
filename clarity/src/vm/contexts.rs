@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use clarity_types::errors::{ParseError, ParseErrorKind};
 use clarity_types::representations::ClarityName;
+use clarity_types::resident_bytes::ResidentBytes;
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::types::StacksEpochId;
@@ -322,6 +323,22 @@ pub struct ContractContext {
     pub data_size: u64,
     /// The clarity version of this contract
     clarity_version: ClarityVersion,
+}
+
+impl ResidentBytes for ContractContext {
+    fn heap_bytes(&self) -> usize {
+        self.contract_identifier.heap_bytes()
+            + self.variables.heap_bytes()
+            + self.functions.heap_bytes()
+            + self.defined_traits.heap_bytes()
+            + self.implemented_traits.heap_bytes()
+            + self.persisted_names.heap_bytes()
+            + self.meta_data_map.heap_bytes()
+            + self.meta_data_var.heap_bytes()
+            + self.meta_nft.heap_bytes()
+            + self.meta_ft.heap_bytes()
+        // data_size: u64, clarity_version: enum — inline, covered by size_of::<Self>()
+    }
 }
 
 pub struct LocalContext<'a> {

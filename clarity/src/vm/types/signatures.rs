@@ -19,6 +19,7 @@ use std::fmt;
 
 use clarity_types::ClarityTypeError;
 use clarity_types::errors::analysis::{CommonCheckErrorKind, StaticCheckErrorKind};
+use clarity_types::resident_bytes::ResidentBytes;
 pub use clarity_types::types::Value;
 pub use clarity_types::types::signatures::{
     AssetIdentifier, BufferLength, CallableSubtype, ListTypeData, SequenceSubtype, StringSubtype,
@@ -38,6 +39,12 @@ use crate::vm::representations::{
 pub struct FunctionSignature {
     pub args: Vec<TypeSignature>,
     pub returns: TypeSignature,
+}
+
+impl ResidentBytes for FunctionSignature {
+    fn heap_bytes(&self) -> usize {
+        self.args.heap_bytes() + self.returns.heap_bytes()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
