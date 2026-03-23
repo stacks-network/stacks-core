@@ -2069,7 +2069,7 @@ fn test_make_tenure_downloaders() {
 }
 
 #[test]
-fn test_nakamoto_download_run_2_peers() {
+fn test_nakamoto_download_run_2_peers_plain() {
     let observer = TestEventObserver::new();
     let bitvecs = vec![
         // a reward cycle with one prepare phase sortition at the start
