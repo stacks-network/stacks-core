@@ -1340,3 +1340,278 @@ fn test_simple_naming_system(
         );
     }
 }
+
+/// Verify that NFT transfers using callable constant identifiers (Epoch 3.4+)
+/// log the canonical `Value::Principal` form in the asset map, not the
+/// `Value::CallableContract` runtime form. This ensures postcondition checks
+/// can match correctly.
+#[test]
+fn test_nft_transfer_callable_constant_normalizes_in_asset_map() {
+    let mut env_factory = env_factory();
+    let mut owned_env = env_factory.get_env(StacksEpochId::Epoch34);
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+
+    let Value::Principal(PrincipalData::Standard(p1_std)) = p1.clone() else {
+        panic!("Expected standard principal data");
+    };
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
+    };
+
+    let helper_contract_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".into());
+    let nft_contract_id = QualifiedContractIdentifier::new(p1_std.clone(), "nft-contract".into());
+
+    // A trivial contract so we have a valid contract principal to reference.
+    owned_env
+        .initialize_versioned_contract(
+            helper_contract_id.clone(),
+            ClarityVersion::Clarity5,
+            "(define-public (ping) (ok true))",
+            None,
+        )
+        .unwrap();
+
+    // NFT contract with a contract-principal constant. In Epoch 3.4 + Clarity 5
+    // the constant is rewritten to Value::CallableContract at runtime.
+    let nft_contract = "
+        (define-non-fungible-token nft principal)
+        (define-constant CALLABLE-ID .helper)
+        (define-public (mint)
+            (nft-mint? nft CALLABLE-ID tx-sender))
+        (define-public (xfer (to principal))
+            (nft-transfer? nft CALLABLE-ID tx-sender to))
+    ";
+    owned_env
+        .initialize_versioned_contract(
+            nft_contract_id.clone(),
+            ClarityVersion::Clarity5,
+            nft_contract,
+            None,
+        )
+        .unwrap();
+
+    // Mint the NFT using the callable constant as token id.
+    let (result, _asset_map, _events) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &nft_contract_id,
+        "mint",
+        &[],
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+
+    // Transfer the NFT – this is where the callable constant flows through
+    // log_asset_transfer into the asset map.
+    let (result, asset_map, events) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &nft_contract_id,
+        "xfer",
+        &symbols_from_values(vec![p2]),
+    )
+    .unwrap();
+    assert!(is_committed(&result));
+
+    let table = asset_map.to_table();
+    let p1_assets = table
+        .get(&p1_principal)
+        .expect("p1 should have asset entries");
+    let nft_identifier = AssetIdentifier {
+        contract_identifier: nft_contract_id,
+        asset_name: "nft".into(),
+    };
+    let entry = p1_assets
+        .get(&nft_identifier)
+        .expect("should have an NFT entry");
+
+    match entry {
+        AssetMapEntry::Asset(values) => {
+            assert_eq!(values.len(), 1);
+            // The asset map value (CallableContract form from runtime) must
+            // compare equal to the canonical Principal form via our custom
+            // PartialEq on Value.
+            let expected = Value::Principal(PrincipalData::Contract(helper_contract_id));
+            assert_eq!(
+                values[0], expected,
+                "asset map value must equal the contract principal"
+            );
+        }
+        other => panic!("expected AssetMapEntry::Asset, got: {:?}", other),
+    }
+
+    // NFT events must also contain the normalized Principal form,
+    // not the internal CallableContract representation.
+    let nft_transfer_event = events.iter().find(|e| {
+        matches!(
+            e,
+            StacksTransactionEvent::NFTEvent(crate::vm::events::NFTEventType::NFTTransferEvent(_))
+        )
+    });
+    if let Some(StacksTransactionEvent::NFTEvent(
+        crate::vm::events::NFTEventType::NFTTransferEvent(data),
+    )) = nft_transfer_event
+    {
+        assert!(
+            matches!(&data.value, Value::Principal(PrincipalData::Contract(_))),
+            "NFT transfer event must contain Value::Principal, got: {:?}",
+            data.value
+        );
+    } else {
+        panic!("expected an NFT transfer event");
+    }
+}
+
+/// Verify that Clarity's `is-eq` returns true when comparing a callable
+/// constant (rewritten in Epoch 3.4) against the same contract principal
+/// passed as a literal argument.
+#[test]
+fn test_callable_constant_is_eq_principal() {
+    let mut env_factory = env_factory();
+    let mut owned_env = env_factory.get_env(StacksEpochId::Epoch34);
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let Value::Principal(PrincipalData::Standard(p1_std)) = p1.clone() else {
+        panic!("Expected standard principal data");
+    };
+    let Value::Principal(p1_principal) = p1.clone() else {
+        panic!("Expected principal data");
+    };
+
+    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".into());
+    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-contract".into());
+
+    owned_env
+        .initialize_versioned_contract(
+            helper_id,
+            ClarityVersion::Clarity5,
+            "(define-public (ping) (ok true))",
+            None,
+        )
+        .unwrap();
+
+    // The constant CALLABLE-ID will be rewritten to Value::CallableContract
+    // at runtime. The `check-eq` function compares it against the same
+    // contract principal passed as a plain argument. The `check-eq-literal`
+    // function compares it against a principal literal directly in Clarity.
+    let test_contract = "
+        (define-constant CALLABLE-ID .helper)
+        (define-read-only (check-eq (p principal))
+            (is-eq CALLABLE-ID p))
+        (define-read-only (check-eq-literal)
+            (is-eq CALLABLE-ID 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper))
+    ";
+    owned_env
+        .initialize_versioned_contract(
+            test_id.clone(),
+            ClarityVersion::Clarity5,
+            test_contract,
+            None,
+        )
+        .unwrap();
+
+    let helper_principal = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper");
+    let (result, _asset_map, _events) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "check-eq",
+        &symbols_from_values(vec![helper_principal]),
+    )
+    .unwrap();
+
+    assert_eq!(result, Value::Bool(true));
+
+    let (result_literal, _asset_map, _events) = execute_transaction(
+        &mut owned_env,
+        p1_principal,
+        &test_id,
+        "check-eq-literal",
+        &[],
+    )
+    .unwrap();
+
+    assert_eq!(result_literal, Value::Bool(true));
+}
+
+/// Verify that `index-of?` and list equality work correctly when a callable
+/// constant is compared against principal values in a list.
+#[test]
+fn test_callable_constant_index_of_and_list_ops() {
+    let mut env_factory = env_factory();
+    let mut owned_env = env_factory.get_env(StacksEpochId::Epoch34);
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let Value::Principal(PrincipalData::Standard(p1_std)) = p1.clone() else {
+        panic!("Expected standard principal data");
+    };
+    let Value::Principal(p1_principal) = p1 else {
+        panic!("Expected principal data");
+    };
+
+    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".into());
+    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-contract".into());
+
+    owned_env
+        .initialize_versioned_contract(
+            helper_id,
+            ClarityVersion::Clarity5,
+            "(define-public (ping) (ok true))",
+            None,
+        )
+        .unwrap();
+
+    let test_contract = "
+        (define-constant CALLABLE-ID .helper)
+
+        ;; Search for callable constant in a list of principal literals
+        (define-read-only (index-of-callable-in-principal-list)
+            (index-of? (list 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper) CALLABLE-ID))
+
+        ;; Search for principal literal in a list built with the callable constant
+        (define-read-only (index-of-principal-in-callable-list)
+            (index-of? (list CALLABLE-ID) 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper))
+
+        ;; Compare a list containing the callable constant against
+        ;; a list containing the equivalent principal literal
+        (define-read-only (list-eq)
+            (is-eq (list CALLABLE-ID) (list 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper)))
+    ";
+    owned_env
+        .initialize_versioned_contract(
+            test_id.clone(),
+            ClarityVersion::Clarity5,
+            test_contract,
+            None,
+        )
+        .unwrap();
+
+    // index-of? should find the callable constant in a principal list
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "index-of-callable-in-principal-list",
+        &[],
+    )
+    .unwrap();
+    assert_eq!(result, Value::some(Value::UInt(0)).unwrap());
+
+    // index-of? should find a principal in a callable-constant list
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "index-of-principal-in-callable-list",
+        &[],
+    )
+    .unwrap();
+    assert_eq!(result, Value::some(Value::UInt(0)).unwrap());
+
+    // Lists containing equivalent callable/principal values should be equal
+    let (result, _, _) =
+        execute_transaction(&mut owned_env, p1_principal, &test_id, "list-eq", &[]).unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
