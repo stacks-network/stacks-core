@@ -52,8 +52,8 @@ pub struct BenchEnvOverrides {
     pub sqlite_wal_autocheckpoint: Option<usize>,
     pub sqlite_wal_checkpoint_mode: Option<String>,
     pub read_proofs: Option<bool>,
-    pub keys_per_block: Option<u32>,
-    pub depths: Option<String>,
+    pub kpb: Option<String>,
+    pub gap: Option<String>,
     pub compression: Option<String>,
     pub key_search_max_tries: Option<usize>,
     pub node_types: Option<String>,
@@ -922,11 +922,11 @@ fn apply_bench_env_overrides(cmd: &mut Command, env: &BenchEnvOverrides) {
     if let Some(read_proofs) = env.read_proofs {
         cmd.env("READ_PROOFS", if read_proofs { "1" } else { "0" });
     }
-    if let Some(keys_per_block) = env.keys_per_block {
-        cmd.env("KEYS_PER_BLOCK", keys_per_block.to_string());
+    if let Some(kpb) = &env.kpb {
+        cmd.env("KPB", kpb);
     }
-    if let Some(depths) = &env.depths {
-        cmd.env("DEPTHS", depths);
+    if let Some(gap) = &env.gap {
+        cmd.env("GAP", gap);
     }
     if let Some(compression) = &env.compression {
         cmd.env("COMPRESSION", compression);

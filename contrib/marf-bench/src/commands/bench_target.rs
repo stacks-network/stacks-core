@@ -51,8 +51,8 @@ impl BenchTarget {
                     rounds: args.rounds,
                     chain_len: args.chain_len,
                     read_proofs: Some(args.proofs),
-                    keys_per_block: args.keys_per_block,
-                    depths: args.depths,
+                    kpb: args.kpb,
+                    gap: args.gap,
                     compression: args.compression,
                     sqlite_wal_autocheckpoint: args.sqlite_wal_autocheckpoint,
                     sqlite_wal_checkpoint_mode: args.sqlite_wal_checkpoint_mode,
@@ -119,13 +119,13 @@ pub struct ReadArgs {
     #[arg(long)]
     proofs: bool,
 
-    /// Set KEYS_PER_BLOCK additional noise/bulk keys per block for read.
+    /// Set KPB (keys-per-block) levels for density phase (blob-size axis, e.g. 1,16,100).
     #[arg(long)]
-    keys_per_block: Option<u32>,
+    kpb: Option<String>,
 
-    /// Set DEPTHS as comma-separated values (for example: 32,128,256).
+    /// Set GAP lengths for gap phase (backpointer-density axis, e.g. 0,256,1024).
     #[arg(long)]
-    depths: Option<String>,
+    gap: Option<String>,
 
     /// Set COMPRESSION modes as comma-separated values (for example: true,false).
     #[arg(long)]
