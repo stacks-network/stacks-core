@@ -495,6 +495,8 @@ pub struct PeerNetwork {
     /// The reward sets of the past three reward cycles.
     /// Needed to validate blocks, which are signed by a threshold of stackers
     pub current_reward_sets: BTreeMap<u64, CurrentRewardSet>,
+    /// The last Stacks tip at which a reward set load was attempted
+    pub reward_set_loaded_at: HashMap<u64, StacksBlockId>,
 
     // information about the state of the network's anchor blocks
     pub last_anchor_block_hash: BlockHeaderHash,
@@ -712,6 +714,7 @@ impl PeerNetwork {
             parent_stacks_tip: StacksTipInfo::empty(),
             tenure_start_block_id: StacksBlockId([0x00; 32]),
             current_reward_sets: BTreeMap::new(),
+            reward_set_loaded_at: HashMap::new(),
 
             peerdb,
             atlasdb,
@@ -4597,6 +4600,9 @@ impl PeerNetwork {
                 true
             });
         }
+        self.reward_set_loaded_at.retain(|tried_rc, _| {
+            *tried_rc >= rc || self.current_reward_sets.contains_key(tried_rc)
+        });
     }
 
     /// Determine if we need to invalidate a given cached reward set.
@@ -4661,7 +4667,13 @@ impl PeerNetwork {
                         test_debug!("Cached reward cycle {rc} is still valid");
                         return Ok(false);
                     }
+                } else {
+                    test_debug!(
+                        "No anchor hash known for reward cycle start height {rc_start_height}"
+                    );
                 }
+            } else {
+                test_debug!("No reward cycle info for cycle {rc} is cached");
             }
         }
 
@@ -4690,8 +4702,17 @@ impl PeerNetwork {
         let prev_rc = cur_rc.saturating_sub(1);
         let prev_prev_rc = prev_rc.saturating_sub(1);
 
-        for rc in [prev_rc, prev_prev_rc] {
+        let rcs = if self.burnchain.is_in_prepare_phase(tip_sn.block_height) {
+            // try to load the reward cycle computed at the end of this reward cycle, since we'll
+            // need it to validate the tenure that straddles the reward cycle boundary.
+            vec![cur_rc, prev_rc, prev_prev_rc]
+        } else {
+            vec![prev_rc, prev_prev_rc]
+        };
+
+        for rc in rcs.into_iter() {
             let have_cached = self.current_reward_sets.contains_key(&rc);
+            let tried_stacks_tip_opt = self.reward_set_loaded_at.get(&rc);
             let is_reorg = self.check_reload_cached_reward_set(
                 sortdb,
                 chainstate,
@@ -4702,11 +4723,20 @@ impl PeerNetwork {
             )?;
 
             debug!("Refresh reward cycle info for cycle {rc} (reorg? {is_reorg})");
-            if have_cached && !is_reorg {
-                continue;
+            if !is_reorg {
+                if have_cached {
+                    continue;
+                }
+                if let Some(stacks_tip_id) = tried_stacks_tip_opt {
+                    if stacks_tip_id == tip_block_id {
+                        continue;
+                    }
+                }
             }
 
-            debug!("Refresh reward cycle info for cycle {rc}");
+            debug!("Refresh reward cycle info for cycle {rc} as of Stacks tip {tip_block_id} height {tip_height}");
+            self.reward_set_loaded_at.insert(rc, tip_block_id.clone());
+
             let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
                 rc,
                 &tip_sn.sortition_id,
