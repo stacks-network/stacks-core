@@ -37,27 +37,36 @@ env:
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
   TEST_TIMEOUT: 60
-  ## Number of generated cases to run per proptest (default for scheduled runs).
-  PROPTEST_CASES: 2500
+  ## Default number of generated cases per proptest (used on scheduled runs).
+  NIGHTLY_PROPTEST_CASES: 2500
   ## Test tag to filter for proptest tests
   TEST_TAG: t_prop
   ## Branch to check out on scheduled (nightly) runs.
   NIGHTLY_BRANCH: develop
-  ## Branch-aware artifact name for proptest regression files.
-  ## NOTE: 'develop' must match NIGHTLY_BRANCH (github now allow self reference within same `env` block)
-  ARTIFACT_NAME: proptest-nightly-${{ github.event_name == 'schedule' && 'develop' || github.ref_name }} 
 
 jobs:
   proptests-nightly:
     name: Run All Proptest Tests
     runs-on: ubuntu-latest
     steps:
-      ## On schedule: check out develop (schedule always runs on master, the default branch).
-      ## On workflow_dispatch: check out whatever branch the user triggered from.
+      ## Compute env variables depending on the workflow trigger (schedule vs dispatch)
+      - name: Prepare env
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            branch="${NIGHTLY_BRANCH}"
+            cases="${NIGHTLY_PROPTEST_CASES}"
+          else
+            branch="${{ github.ref_name }}"
+            cases="${{ inputs.proptest_cases }}"
+          fi
+          echo "CHECKOUT_REF=${branch}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=proptest-nightly-${branch//\//-}" >> "$GITHUB_ENV"
+          echo "PROPTEST_CASES=${cases}" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event_name == 'schedule' && env.NIGHTLY_BRANCH || github.ref }}
+          ref: ${{ env.CHECKOUT_REF }}
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@cargo-nextest
@@ -105,16 +114,12 @@ jobs:
             -o /tmp/regression.zip
           unzip -o /tmp/regression.zip -d .
 
-      ## Run all proptest tests with elevated PROPTEST_CASES.
-      ## Uses the input value if provided via manual dispatch, otherwise
-      ## falls back to the env default.
+      ## Run all proptest tests with elevated PROPTEST_CASES (resolved in Prepare env).
       ## --no-fail-fast ensures ALL tests run to completion for a full report.
-      - name: Run proptests (PROPTEST_CASES=${{ inputs.proptest_cases || env.PROPTEST_CASES }})
+      - name: Run proptests (PROPTEST_CASES=${{ env.PROPTEST_CASES }})
         id: run_tests
         if: steps.discover.outputs.count != '0'
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        env:
-          PROPTEST_CASES: ${{ inputs.proptest_cases || env.PROPTEST_CASES }}
         run: |
           ## Config file for JUnit output and test filtering
           cat > /tmp/nextest-ci.toml << EOF
@@ -156,7 +161,6 @@ jobs:
       - name: Report failures to Job Summary
         if: failure() && steps.run_tests.outcome == 'failure'
         run: |
-          run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           failed_tests=$(cat /tmp/failed-prop-tests.txt 2>/dev/null || echo "(unknown)")
 
           cat >> "$GITHUB_STEP_SUMMARY" << EOF
