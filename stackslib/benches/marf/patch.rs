@@ -40,7 +40,7 @@ use crate::common::record_case_with_rounds;
 use crate::utils::{
     has_help_flag, parse_csv_lowercase_tokens_env, parse_csv_usize_env, parse_usize_env,
 };
-use crate::{OutputMode, Summary};
+use crate::common::{OutputMode, Summary};
 
 /// Default number of loop iterations per benchmark case.
 const DEFAULT_ITERS: usize = 40_000;

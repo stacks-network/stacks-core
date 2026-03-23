@@ -34,7 +34,7 @@ use crate::utils::{
     block_id, has_help_flag, parse_csv_string_env, parse_csv_u32_env, parse_u32_env,
     parse_usize_env,
 };
-use crate::{OutputMode, Summary};
+use crate::common::{OutputMode, Summary};
 
 /// Default read operations per measured case.
 const DEFAULT_READ_ITERS: usize = 200_000;
@@ -45,7 +45,7 @@ const DEFAULT_KEYS_PER_BLOCK: u32 = 16;
 /// Default read depths sampled from the tip.
 const DEFAULT_DEPTHS: [u32; 4] = [32, 128, 768, 2047];
 /// Default MARF cache strategies exercised by the benchmark.
-const DEFAULT_CACHE_STRATEGIES: [&str; 2] = ["noop", "node256"];
+const DEFAULT_CACHE_STRATEGIES: [&str; 1] = ["noop"];
 /// Extra fixture blocks added above max depth when CHAIN_LEN is not set.
 const DEFAULT_CHAIN_LEN_DEPTH_SLACK: u32 = 16;
 

@@ -31,7 +31,7 @@ use crate::common::{
     parse_optional_wal_checkpoint_mode, BenchMeasurement,
 };
 use crate::utils::{block_id, has_help_flag, parse_csv_usize_env, parse_usize_env};
-use crate::{OutputMode, Summary};
+use crate::common::{OutputMode, Summary};
 
 /// Default independent repetitions per write case.
 const DEFAULT_WRITE_ROUNDS: usize = 2;
@@ -44,7 +44,7 @@ const DEFAULT_KEY_SEARCH_MAX_TRIES: usize = 200_000;
 /// Minimum inserted-key count needed to force node promotions through node256.
 const REQUIRED_BRANCHES: usize = 49;
 /// Cache strategies exercised by the write benchmark.
-const WRITE_CACHE_STRATEGIES: [&str; 2] = ["noop", "node256"];
+const WRITE_CACHE_STRATEGIES: [&str; 1] = ["noop"];
 
 /// Aggregated timing and allocation totals for one workflow step.
 #[derive(Clone, Copy, Default)]

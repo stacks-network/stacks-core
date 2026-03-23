@@ -42,7 +42,7 @@ enum OutputFormat {
 }
 
 /// Supported marf benchmark targets.
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ValueEnum)]
 enum BenchKind {
     Primitives,
     Read,
@@ -65,6 +65,28 @@ impl BenchKind {
             Self::Read => Some("read"),
             Self::Write => Some("write"),
             Self::Patch => Some("patch"),
+        }
+    }
+
+    /// Return the benchmark-specific source file(s) needed for this kind.
+    /// Shared infrastructure files (`main.rs`, `common.rs`, `utils.rs`,
+    /// `allocator.rs`) are always overlaid and not listed here.
+    fn bench_source_files(self) -> &'static [&'static str] {
+        match self {
+            Self::Primitives => &["primitives.rs"],
+            Self::Read => &["read.rs"],
+            Self::Write => &["write.rs"],
+            Self::Patch => &["patch.rs"],
+        }
+    }
+
+    /// Return the module name used in `mod` declarations for this benchmark.
+    fn module_name(self) -> &'static str {
+        match self {
+            Self::Primitives => "primitives",
+            Self::Read => "read",
+            Self::Write => "write",
+            Self::Patch => "patch",
         }
     }
 }

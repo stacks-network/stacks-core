@@ -15,12 +15,6 @@
 
 use std::str::FromStr;
 
-use blockstack_lib::chainstate::stacks::index::node::{CursorError, TrieCursor};
-use blockstack_lib::chainstate::stacks::index::storage::TrieStorageConnection;
-use blockstack_lib::chainstate::stacks::index::trie::Trie;
-use blockstack_lib::chainstate::stacks::index::{
-    Error as IndexError, MARFValue, MarfTrieId, TrieLeaf,
-};
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 
 /// Return true if CLI args include `-h` or `--help`.
@@ -85,45 +79,6 @@ pub fn path_from_seed(seed: u8) -> TrieHash {
 pub fn missing_path_hash() -> TrieHash {
     let bytes: [u8; 32] = std::array::from_fn(|i| 255u8.wrapping_sub(i as u8));
     TrieHash::from_bytes(&bytes).expect("failed to build missing trie path")
-}
-
-/// Walk a trie to the insertion point for a path.
-pub fn walk_to_insertion_point<T: MarfTrieId>(
-    storage: &mut TrieStorageConnection<T>,
-    path: &TrieHash,
-) -> Result<TrieCursor<T>, IndexError> {
-    let mut cursor = TrieCursor::new(path, storage.root_trieptr());
-    let mut node = Trie::read_root_nohash(storage)?;
-
-    for _ in 0..=32 {
-        match Trie::walk_from_nohash(storage, &node, &mut cursor) {
-            Ok(Some((_next_ptr, next_node))) => {
-                node = next_node;
-            }
-            Ok(None) => return Ok(cursor),
-            Err(IndexError::CursorError(CursorError::PathDiverged | CursorError::ChrNotFound)) => {
-                return Ok(cursor);
-            }
-            Err(e) => return Err(e),
-        }
-    }
-
-    Err(IndexError::CorruptionError(
-        "Exceeded maximum trie walk depth while finding insertion point".to_string(),
-    ))
-}
-
-/// Insert value at path and update root hash in-place.
-pub fn trie_insert<T: MarfTrieId>(
-    storage: &mut TrieStorageConnection<T>,
-    path: &TrieHash,
-    value: MARFValue,
-) -> Result<(), IndexError> {
-    let mut cursor = walk_to_insertion_point(storage, path)?;
-    let mut leaf = TrieLeaf::from_value(&[], value);
-    Trie::add_value(storage, &mut cursor, &mut leaf)?;
-    Trie::update_root_hash(storage, &cursor)?;
-    Ok(())
 }
 
 /// Parse scalar env value with fallback default.

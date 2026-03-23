@@ -27,18 +27,16 @@ use blockstack_lib::chainstate::stacks::index::node::{
 use blockstack_lib::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode,
 };
+use blockstack_lib::chainstate::stacks::index::storage::TrieStorageConnection;
 use blockstack_lib::chainstate::stacks::index::trie::Trie;
 use blockstack_lib::chainstate::stacks::index::{
-    bits, ClarityMarfTrieId as _, Error as IndexError, MARFValue, TrieLeaf,
+    bits, ClarityMarfTrieId as _, Error as IndexError, MARFValue, MarfTrieId, TrieLeaf,
 };
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
 
 use crate::common::record_case_with_rounds;
-use crate::utils::{
-    block_id, has_help_flag, missing_path_hash, parse_usize_env, path_from_seed, trie_insert,
-    walk_to_insertion_point,
-};
-use crate::{OutputMode, Summary};
+use crate::common::{OutputMode, Summary};
+use crate::utils::{block_id, has_help_flag, missing_path_hash, parse_usize_env, path_from_seed};
 
 /// Default iterations per primitive case.
 const DEFAULT_ITERS: usize = 200_000;
@@ -842,4 +840,43 @@ pub fn run(args: &[String], output_mode: OutputMode) -> Option<Summary> {
     );
 
     Some(summary)
+}
+
+/// Walk a trie to the insertion point for a path.
+fn walk_to_insertion_point<T: MarfTrieId>(
+    storage: &mut TrieStorageConnection<T>,
+    path: &TrieHash,
+) -> Result<TrieCursor<T>, IndexError> {
+    let mut cursor = TrieCursor::new(path, storage.root_trieptr());
+    let mut node = Trie::read_root_nohash(storage)?;
+
+    for _ in 0..=32 {
+        match Trie::walk_from_nohash(storage, &node, &mut cursor) {
+            Ok(Some((_next_ptr, next_node))) => {
+                node = next_node;
+            }
+            Ok(None) => return Ok(cursor),
+            Err(IndexError::CursorError(CursorError::PathDiverged | CursorError::ChrNotFound)) => {
+                return Ok(cursor);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
+    Err(IndexError::CorruptionError(
+        "Exceeded maximum trie walk depth while finding insertion point".to_string(),
+    ))
+}
+
+/// Insert value at path and update root hash in-place.
+fn trie_insert<T: MarfTrieId>(
+    storage: &mut TrieStorageConnection<T>,
+    path: &TrieHash,
+    value: MARFValue,
+) -> Result<(), IndexError> {
+    let mut cursor = walk_to_insertion_point(storage, path)?;
+    let mut leaf = TrieLeaf::from_value(&[], value);
+    Trie::add_value(storage, &mut cursor, &mut leaf)?;
+    Trie::update_root_hash(storage, &cursor)?;
+    Ok(())
 }

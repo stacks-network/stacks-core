@@ -30,16 +30,11 @@ use crate::util::{
 };
 use crate::{BenchKind, OutputFormat, TempBuilder};
 
-const MARF_BENCH_FILES: [&str; 8] = [
-    "allocator.rs",
-    "primitives.rs",
-    "patch.rs",
-    "common.rs",
-    "main.rs",
-    "read.rs",
-    "utils.rs",
-    "write.rs",
-];
+/// Shared infrastructure files that are always overlaid.
+const MARF_BENCH_SHARED_FILES: [&str; 3] = ["allocator.rs", "common.rs", "utils.rs"];
+
+/// All possible per-benchmark source files (used for source-dir validation).
+const MARF_BENCH_BENCH_FILES: [&str; 4] = ["primitives.rs", "read.rs", "write.rs", "patch.rs"];
 const SRC_BENCH_DIR: &str = "stackslib/benches/marf";
 const STACKSLIB_CARGO_TOML: &str = "stackslib/Cargo.toml";
 const PATCH_SUPPORT_INTRO_COMMIT: &str = "0317850e7f042de98e7bc6a1f26f6183e7d20f98";
@@ -133,11 +128,21 @@ impl Runner {
             );
         }
 
-        for name in MARF_BENCH_FILES {
+        for name in MARF_BENCH_SHARED_FILES
+            .iter()
+            .chain(MARF_BENCH_BENCH_FILES.iter())
+        {
             let path = source_bench_dir.join(name);
             if !path.is_file() {
                 bail!("missing source bench file: {}", path.display());
             }
+        }
+        // main.rs is generated during overlay, but verify the source exists
+        if !source_bench_dir.join("main.rs").is_file() {
+            bail!(
+                "missing source bench file: {}",
+                source_bench_dir.join("main.rs").display()
+            );
         }
 
         Ok(Self {
@@ -312,7 +317,9 @@ impl Runner {
         ));
 
         let cmd = build_stackslib_bench_profile_cmd(root, bench_name);
-        run_checked(cmd, "failed to build marf bench profile")
+        run_checked(cmd, "failed to build marf bench profile")?;
+        log(format!("[{label}] Build complete for {bench_name}"));
+        Ok(())
     }
 
     /// Execute one benchmark case and parse summary rows from output.
@@ -411,6 +418,7 @@ pub fn prepare_worktree(
             ));
             let cmd = build_stackslib_bench_profile_cmd(&path, bench_name);
             run_checked(cmd, "failed to build marf bench profile")?;
+            log(format!("[{label}] Build complete for {bench_name}"));
         }
         built_benches.insert(bench_name.to_string());
     }
@@ -496,6 +504,10 @@ fn create_worktree_at(
 }
 
 /// Overlay benchmark source files from the current tree into a worktree root.
+///
+/// Only the shared infrastructure files and the benchmark-specific files required by `requests` are
+/// copied. A `main.rs` is generated that only declares `mod` items for the requested benchmarks, so
+/// non-overlaid benchmark modules don't need to compile against the target revision's MARF API.
 fn overlay_bench_files(
     source_bench_dir: &Path,
     root: &Path,
@@ -503,22 +515,100 @@ fn overlay_bench_files(
 ) -> Result<bool> {
     let mut changed = false;
 
-    if requests
+    let marf_requests: Vec<_> = requests
         .iter()
-        .any(|request| request.kind.bench_name() == "marf")
-    {
-        let dest = root.join(SRC_BENCH_DIR);
-        fs::create_dir_all(&dest)
-            .with_context(|| format!("failed to create {}", dest.display()))?;
+        .filter(|r| r.kind.bench_name() == "marf")
+        .collect();
 
-        for name in MARF_BENCH_FILES {
+    if marf_requests.is_empty() {
+        return Ok(false);
+    }
+
+    let dest = root.join(SRC_BENCH_DIR);
+    fs::create_dir_all(&dest).with_context(|| format!("failed to create {}", dest.display()))?;
+
+    // Always overlay shared infrastructure files.
+    for name in MARF_BENCH_SHARED_FILES {
+        let src = source_bench_dir.join(name);
+        let dst = dest.join(name);
+        changed |= copy_if_different(&src, &dst)?;
+    }
+
+    // Collect the unique set of requested benchmark kinds.
+    let mut requested_kinds = HashSet::new();
+    for req in &marf_requests {
+        requested_kinds.insert(req.kind);
+    }
+
+    // Overlay only the benchmark-specific files that are requested.
+    for kind in &requested_kinds {
+        for name in kind.bench_source_files() {
             let src = source_bench_dir.join(name);
             let dst = dest.join(name);
             changed |= copy_if_different(&src, &dst)?;
         }
     }
 
+    // Generate main.rs with only the requested mod declarations.
+    changed |= write_bench_main_rs(&dest, &requested_kinds)?;
+
     Ok(changed)
+}
+
+/// Generate a `main.rs` that only compiles the requested benchmark modules.
+///
+/// Shared types and functions live in `common.rs`, so the generated file is just `mod` declarations
+/// and a thin `fn main()` that runs each benchmark directly (the subcommand arg is still consumed
+/// so `cargo bench -- read` works.
+fn write_bench_main_rs(dest: &Path, kinds: &HashSet<BenchKind>) -> Result<bool> {
+    let mut mods = String::from("mod allocator;\nmod common;\nmod utils;\n");
+    let mut runs = String::new();
+
+    for kind in [
+        BenchKind::Primitives,
+        BenchKind::Read,
+        BenchKind::Write,
+        BenchKind::Patch,
+    ] {
+        if kinds.contains(&kind) {
+            let name = kind.module_name();
+            mods.push_str(&format!("mod {name};\n"));
+            runs.push_str(&format!(
+                "    if let Some(s) = {name}::run(&args[2..], output_mode) {{ common::print_summary(&s); }}\n"
+            ));
+        }
+    }
+
+    let main_rs = format!(
+        r#"
+// Auto-generated by marf-bench overlay — do not edit.
+
+{mods}
+fn main() {{
+    unsafe {{ std::env::set_var("STACKS_LOG_CRITONLY", "1"); }}
+    let args: Vec<String> = std::env::args().collect();
+    let output_mode = common::parse_output_mode();
+{runs}}}
+"#
+    );
+
+    let dst = dest.join("main.rs");
+    write_if_different(&dst, main_rs.as_bytes())
+}
+
+/// Write bytes to a file only when the content differs.
+///
+/// Returns true if written.
+fn write_if_different(dst: &Path, content: &[u8]) -> Result<bool> {
+    if dst.is_file() {
+        let existing =
+            fs::read(dst).with_context(|| format!("failed to read {}", dst.display()))?;
+        if existing == content {
+            return Ok(false);
+        }
+    }
+    fs::write(dst, content).with_context(|| format!("failed to write {}", dst.display()))?;
+    Ok(true)
 }
 
 /// Ensure required benchmark target/dependencies exist in a Cargo.toml.

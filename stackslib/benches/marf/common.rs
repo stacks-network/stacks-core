@@ -19,7 +19,83 @@ use std::time::Instant;
 use rusqlite::Connection;
 
 use crate::allocator::{reset_stats, snapshot, Snapshot};
-use crate::{OutputMode, Summary};
+
+/// Output mode selected by `OUTPUT_FORMAT`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OutputMode {
+    /// Emit only normalized summary rows.
+    Summary,
+    /// Emit detailed benchmark lines in addition to summaries.
+    Raw,
+}
+
+impl OutputMode {
+    /// Return true when detailed/raw output is enabled.
+    pub fn is_raw(self) -> bool {
+        matches!(self, Self::Raw)
+    }
+}
+
+/// A single summary row emitted by a subcommand benchmark run.
+#[derive(Clone, Debug)]
+pub struct SummaryLine {
+    pub name: String,
+    pub total_ms: f64,
+    pub alloc_count: u64,
+    pub alloc_bytes: u64,
+}
+
+/// Grouped summary output for one benchmark subcommand.
+#[derive(Clone, Debug)]
+pub struct Summary {
+    pub title: &'static str,
+    pub lines: Vec<SummaryLine>,
+}
+
+impl Summary {
+    /// Create an empty summary with a preallocated number of rows.
+    pub fn new(title: &'static str, capacity: usize) -> Self {
+        Self {
+            title,
+            lines: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// Append one measured case to the summary table.
+    pub fn push_line(
+        &mut self,
+        name: impl Into<String>,
+        total_ms: f64,
+        alloc_count: u64,
+        alloc_bytes: u64,
+    ) {
+        self.lines.push(SummaryLine {
+            name: name.into(),
+            total_ms,
+            alloc_count,
+            alloc_bytes,
+        });
+    }
+}
+
+/// Parse output mode from `OUTPUT_FORMAT`.
+pub fn parse_output_mode() -> OutputMode {
+    match std::env::var("OUTPUT_FORMAT").ok().as_deref() {
+        Some("raw") => OutputMode::Raw,
+        _ => OutputMode::Summary,
+    }
+}
+
+/// Print unified summary lines in tab-separated format.
+pub fn print_summary(summary: &Summary) {
+    println!("summary\tbenchmark\tname\ttotal_ms\talloc_count\talloc_bytes");
+    for line in &summary.lines {
+        println!(
+            "summary\t{}\t{}\t{:.3}\t{}\t{}",
+            summary.title, line.name, line.total_ms, line.alloc_count, line.alloc_bytes
+        );
+    }
+}
 
 /// SQLite WAL checkpoint mode accepted by benchmark configuration.
 #[derive(Clone, Copy, Debug)]
