@@ -1,0 +1,170 @@
+## Run the full suite of property tests with elevated case counts.
+##
+## Targets tests tagged with `#[tag(t_prop)]` (see docs/property-testing.md).
+##
+## Triggers:
+##   schedule  — nightly at 05:00 UTC on the `develop` branch
+##   dispatch  — manual, on any branch, with configurable PROPTEST_CASES
+##
+## On test failure the workflow:
+##   1. Saves proptest regression seeds as a workflow artifact
+##   2. Posts a failure summary to the Job Summary page
+##   3. Replays saved seeds automatically on the next run
+
+name: Tests::Proptest Nightly
+
+on:
+  schedule:
+    ## Run every day at 05:00 UTC
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      proptest_cases:
+        description: "Number of cases per proptest (default: 2500)"
+        required: false
+        default: "2500"
+        type: string
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: proptest-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_BACKTRACE: full
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
+  TEST_TIMEOUT: 60
+  ## Number of generated cases to run per proptest (default for scheduled runs).
+  PROPTEST_CASES: 2500
+  ## Test tag to filter for proptest tests
+  TEST_TAG: t_prop
+  ## Branch-aware artifact name for proptest regression files.
+  ARTIFACT_NAME: proptest-nightly-${{ github.event_name == 'schedule' && 'develop' || github.ref_name }}
+
+jobs:
+  proptests-nightly:
+    name: Run All Proptest Tests
+    runs-on: ubuntu-latest
+    steps:
+      ## On schedule: check out develop (schedule always runs on master, the default branch).
+      ## On workflow_dispatch: check out whatever branch the user triggered from.
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@cargo-nextest
+
+      ## Compile and list all tests matching the TEST_TAG tag.
+      ## Build artifacts are cached by cargo for the subsequent run step.
+      ## Fails the job if no matching tests are found.
+      - name: Discover proptest tests
+        id: discover
+        run: |
+          cargo nextest list -E "test(/:t::(?:.*::)?${TEST_TAG}:/)" --message-format oneline \
+            > /tmp/prop-tests.txt 2>/dev/null
+          count=$(wc -l < /tmp/prop-tests.txt)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+          if [ "$count" -gt 0 ]; then
+            echo "Proptest tests found: $count"
+            cat /tmp/prop-tests.txt
+          else
+            echo "::error::No tests matching the ${TEST_TAG} tag were found"
+            exit 1
+          fi
+
+      ## Restore proptest regression files from the most recent run on this branch.
+      ## These files contain failing seeds that proptest replays automatically.
+      - name: Restore proptest regressions (if any)
+        if: steps.discover.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: ${{ env.ARTIFACT_NAME }}
+        run: |
+          artifact_url=$(gh api \
+            "repos/${{ github.repository }}/actions/artifacts?name=${ARTIFACT_NAME}&per_page=1" \
+            --jq '.artifacts[0] | select(.expired == false) | .archive_download_url // empty')
+
+          if [[ -z "$artifact_url" ]]; then
+            echo "No regression artifact found — first run or expired"
+            exit 0
+          fi
+
+          echo "Restoring regression artifact: $ARTIFACT_NAME"
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "$artifact_url" \
+            -o /tmp/regression.zip
+          unzip -o /tmp/regression.zip -d .
+
+      ## Run all proptest tests with elevated PROPTEST_CASES.
+      ## Uses the input value if provided via manual dispatch, otherwise
+      ## falls back to the env default.
+      ## --no-fail-fast ensures ALL tests run to completion for a full report.
+      - name: Run proptests (PROPTEST_CASES=${{ inputs.proptest_cases || env.PROPTEST_CASES }})
+        id: run_tests
+        if: steps.discover.outputs.count != '0'
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        env:
+          PROPTEST_CASES: ${{ inputs.proptest_cases || env.PROPTEST_CASES }}
+        run: |
+          ## Config file for JUnit output and test filtering
+          cat > /tmp/nextest-ci.toml << EOF
+          [profile.default]
+          junit = { path = "/tmp/nextest-junit.xml" }
+          default-filter = 'test(/:t::(?:.*::)?${TEST_TAG}:/)'
+          EOF
+
+          set +e
+          cargo nextest run \
+            --no-fail-fast \
+            --config-file /tmp/nextest-ci.toml
+          exit_code=$?
+          set -e
+
+          ## On failure, extract failing test names from the JUnit report
+          if [ $exit_code -ne 0 ] && [ -f /tmp/nextest-junit.xml ]; then
+            sudo apt-get install -y libxml2-utils
+            xmllint --xpath '//testcase[failure or error]/@name' /tmp/nextest-junit.xml \
+              | grep -oP 'name="\K[^"]+' \
+              > /tmp/failed-prop-tests.txt
+          fi
+
+          exit $exit_code
+
+      ## Persist proptest regression files for the next run on this branch.
+      - name: Save proptest regressions (if any)
+        if: failure() && steps.run_tests.outcome == 'failure'
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: "**/proptest-regressions/"
+          if-no-files-found: ignore
+          overwrite: true
+
+      ## Report failures in the GitHub Actions Job Summary.
+      - name: Report failures to Job Summary
+        if: failure() && steps.run_tests.outcome == 'failure'
+        run: |
+          run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          failed_tests=$(cat /tmp/failed-prop-tests.txt 2>/dev/null || echo "(unknown)")
+
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          ## Proptest Nightly Failures
+
+          The following proptest tests failed:
+
+          \`\`\`
+          ${failed_tests}
+          \`\`\`
+
+          Proptest regression seeds have been saved as a workflow artifact
+          and will be replayed automatically on the next run.
+
+          [Download regression artifact]($run_url)
+          EOF
