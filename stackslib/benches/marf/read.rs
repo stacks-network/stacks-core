@@ -28,13 +28,12 @@ use tempfile::TempDir;
 use crate::common::{
     apply_optional_wal_autocheckpoint, maybe_run_post_setup_wal_checkpoint, measure_with_allocs,
     parse_optional_wal_autocheckpoint_pages, parse_optional_wal_checkpoint_mode, BenchMeasurement,
-    WalCheckpointMode,
+    OutputMode, Summary, WalCheckpointMode,
 };
 use crate::utils::{
     block_id, has_help_flag, parse_csv_string_env, parse_csv_u32_env, parse_u32_env,
     parse_usize_env,
 };
-use crate::common::{OutputMode, Summary};
 
 /// Default read operations per measured case.
 const DEFAULT_READ_ITERS: usize = 200_000;

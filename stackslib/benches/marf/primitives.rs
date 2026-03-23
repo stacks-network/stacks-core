@@ -25,17 +25,15 @@ use blockstack_lib::chainstate::stacks::index::node::{
     TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
 };
 use blockstack_lib::chainstate::stacks::index::storage::{
-    TrieFileStorage, TrieHashCalculationMode,
+    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
 };
-use blockstack_lib::chainstate::stacks::index::storage::TrieStorageConnection;
 use blockstack_lib::chainstate::stacks::index::trie::Trie;
 use blockstack_lib::chainstate::stacks::index::{
     bits, ClarityMarfTrieId as _, Error as IndexError, MARFValue, MarfTrieId, TrieLeaf,
 };
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
 
-use crate::common::record_case_with_rounds;
-use crate::common::{OutputMode, Summary};
+use crate::common::{record_case_with_rounds, OutputMode, Summary};
 use crate::utils::{block_id, has_help_flag, missing_path_hash, parse_usize_env, path_from_seed};
 
 /// Default iterations per primitive case.

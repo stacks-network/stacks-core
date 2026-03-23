@@ -28,10 +28,9 @@ use tempfile::TempDir;
 use crate::common::{
     apply_optional_wal_autocheckpoint, maybe_run_post_setup_wal_checkpoint,
     measure_result_with_allocs, parse_optional_wal_autocheckpoint_pages,
-    parse_optional_wal_checkpoint_mode, BenchMeasurement,
+    parse_optional_wal_checkpoint_mode, BenchMeasurement, OutputMode, Summary,
 };
 use crate::utils::{block_id, has_help_flag, parse_csv_usize_env, parse_usize_env};
-use crate::common::{OutputMode, Summary};
 
 /// Default independent repetitions per write case.
 const DEFAULT_WRITE_ROUNDS: usize = 2;
