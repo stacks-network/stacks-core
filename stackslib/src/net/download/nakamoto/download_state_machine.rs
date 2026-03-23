@@ -1024,6 +1024,10 @@ impl NakamotoDownloadStateMachine {
         // see if we need any tenures still
         for wt in wanted_tenures.iter().chain(prev_wanted_tenures.iter()) {
             debug!("Check unconfirmed tenures: check {:?}", &wt);
+            if wt.winning_block_id == StacksBlockId([0x00; 32]) {
+                // no winning sortition
+                continue;
+            }
             let is_available_and_processed = tenure_block_ids.iter().any(|(_, available)| {
                 if let Some(tenure_start_end) = available.get(&wt.tenure_id_consensus_hash) {
                     tenure_start_end.processed
@@ -1044,7 +1048,7 @@ impl NakamotoDownloadStateMachine {
 
                 if is_unconfirmed {
                     debug!(
-                        "Tenure {} is only available via the unconfirmed tenure downloader",
+                        "Non-empty tenure {} is only available via the unconfirmed tenure downloader",
                         &wt.tenure_id_consensus_hash
                     );
                     continue;
