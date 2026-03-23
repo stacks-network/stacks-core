@@ -253,6 +253,13 @@ pub struct BitcoinBlock {
     pub timestamp: u64,
 }
 
+impl From<Sha256> for WitnessScriptHash {
+    fn from(value: Sha256) -> Self {
+        let hash: [u8; 32] = value.finalize().into();
+        Self(hash)
+    }
+}
+
 impl From<&Script> for WitnessScriptHash {
     fn from(value: &Script) -> Self {
         let hash: [u8; 32] = Sha256::digest(value.as_bytes()).into();

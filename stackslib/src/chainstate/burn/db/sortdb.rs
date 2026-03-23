@@ -53,6 +53,7 @@ use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo, SortitionDBMigrator,
 };
 use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::nakamoto::signer_set::{RawPox5Entry, StakeEntryIteratorPox5};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
@@ -1685,32 +1686,32 @@ fn validate_pox_p2wsh_btc_lock_script(script: &Script) -> Result<PoxBtcLockData,
 ///
 /// * `last_cycle_calculation_height`: the burn block height when the last cycle was calculated.
 ///    any outputs <= this height will be ignored.
-pub fn validate_pox_p2wsh_outputs<'a, S: SortitionHandle>(
+pub fn validate_pox_p2wsh_outputs<S: SortitionHandle>(
     sortdb_handle: &mut S,
-    witness_scripts: &'a [Script],
+    entries: &mut StakeEntryIteratorPox5,
     last_cycle_calculation_height: u32,
-) -> Result<HashMap<&'a Script, (PoxBtcLockData, Vec<WatchedP2WSHOutputMetadata>)>, db_error> {
+) -> Result<HashMap<RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>>, db_error> {
     // should all witness_scripts be unique?
     // make sure the outputs are each consumed only once
     //  -- do we need to store in the Clarity state to ensure that future
     //     invocations cannot consume the same txs?
     //  -- or we just "timebox" the outputs?
-    let mut used_outputs: HashSet<(Txid, u32)> = HashSet::with_capacity(witness_scripts.len());
+    let mut used_outputs: HashSet<(Txid, u32)> = HashSet::new();
     let mut invalid_scripts = Vec::new();
     let mut missed_scripts = Vec::new();
-    let mut validated_scripts: HashMap<&Script, (PoxBtcLockData, Vec<WatchedP2WSHOutputMetadata>)> =
+    let mut validated_scripts: HashMap<RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>> =
         HashMap::new();
 
-    for witness_script in witness_scripts.iter() {
-        let lock_data = match validate_pox_p2wsh_btc_lock_script(witness_script) {
+    for staking_entry_res in entries {
+        let staking_entry = match staking_entry_res {
             Ok(x) => x,
             Err(e) => {
-                invalid_scripts.push((witness_script, e));
+                invalid_scripts.push(e);
                 continue;
-            }
+            },
         };
 
-        let script_hash = WitnessScriptHash::from(witness_script);
+        let script_hash = staking_entry.script_hash();
         let outputs_to_check =
             SortitionDB::get_watched_outputs_by_script_hash(sortdb_handle.sqlite(), &script_hash)?;
         let mut outputs_consumed = Vec::with_capacity(outputs_to_check.len());
@@ -1735,11 +1736,11 @@ pub fn validate_pox_p2wsh_outputs<'a, S: SortitionHandle>(
         }
 
         if outputs_consumed.is_empty() {
-            missed_scripts.push(witness_script);
+            missed_scripts.push(staking_entry);
             continue;
         }
 
-        validated_scripts.insert(witness_script, (lock_data, outputs_consumed));
+        validated_scripts.insert(staking_entry, outputs_consumed);
     }
 
     if !invalid_scripts.is_empty() {
