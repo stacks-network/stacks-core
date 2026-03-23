@@ -808,18 +808,12 @@ pub fn value_to_clarity_literal(value: &Value) -> String {
 pub fn utf8_string_literal(data: &UTF8Data) -> String {
     let mut literal = String::from("u\"");
     for char_buf in &data.data {
-        let len = char_buf.byte_len().expect("valid UTF-8 leading byte");
-        if len == 1 {
-            for escaped in std::ascii::escape_default(char_buf.leading_byte()) {
+        if char_buf.is_ascii() {
+            for escaped in std::ascii::escape_default(*char_buf as u8) {
                 literal.push(escaped as char);
             }
         } else {
-            let ch = std::str::from_utf8(char_buf.as_bytes().expect("valid UTF-8 bytes"))
-                .expect("UTF-8 data should decode to a scalar value")
-                .chars()
-                .next()
-                .expect("UTF-8 data should contain at least one scalar");
-            literal.push_str(&format!("\\u{{{:X}}}", ch as u32));
+            literal.push_str(&format!("\\u{{{:X}}}", *char_buf as u32));
         }
     }
     literal.push('"');

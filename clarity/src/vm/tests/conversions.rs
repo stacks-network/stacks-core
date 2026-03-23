@@ -28,8 +28,7 @@ use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
-    ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Utf8Char,
-    Value,
+    ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
 use crate::vm::{ClarityVersion, execute_v2, execute_with_parameters};
 
@@ -433,13 +432,13 @@ fn test_simple_int_to_ascii() {
 fn test_simple_int_to_utf8() {
     let good1_test = r#"(int-to-utf8 1)"#;
     let good1_expected = Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
-        data: vec![Utf8Char::from_char('1')],
+        data: vec!['1'],
     })));
     assert_eq!(good1_expected, execute_v2(good1_test).unwrap().unwrap());
 
     let good2_test = r#"(int-to-utf8 u1)"#;
     let good2_expected = Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
-        data: vec![Utf8Char::from_char('1')],
+        data: vec!['1'],
     })));
     assert_eq!(good2_expected, execute_v2(good2_test).unwrap().unwrap());
 
@@ -735,19 +734,15 @@ proptest! {
             .unwrap_or_else(|e| panic!("Execution failed for literal `{utf8_string}`: {e:?}"))
             .unwrap_or_else(|| panic!("Execution returned no value for literal `{utf8_string}`"));
 
-        let utf8_chars = match &literal_value {
+        let chars = match &literal_value {
             Value::Sequence(SequenceData::String(CharType::UTF8(data))) => data.data.clone(),
             _ => panic!("Expected UTF-8 string literal, got `{literal_value:?}`"),
         };
-        let is_ascii = utf8_chars
-            .iter()
-            .all(|char_bytes| char_bytes.byte_len().unwrap() == 1 && char_bytes.leading_byte().is_ascii());
+        let string: String = chars.iter().collect();
+        let is_ascii = string.is_ascii();
 
         if is_ascii {
-            let ascii_bytes: Vec<u8> = utf8_chars
-                .iter()
-                .map(|char_bytes| char_bytes.leading_byte())
-                .collect();
+            let ascii_bytes: Vec<u8> = string.as_bytes().into();
             match Value::string_ascii_from_bytes(ascii_bytes) {
                 Ok(expected_inner) => {
                     let expected = Value::okay(expected_inner)

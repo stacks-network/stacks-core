@@ -18,7 +18,7 @@ use clarity::vm::types::{
     ListData, ListTypeData, SequenceSubtype, SequencedValue, TypeSignature, Value,
 };
 use clarity_types::representations::SymbolicExpression;
-use clarity_types::types::{ASCIIData, BuffData, CharType, SequenceData, UTF8Data, Utf8Char};
+use clarity_types::types::{ASCIIData, BuffData, CharType, SequenceData, UTF8Data};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 // ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ fn make_ascii_string(n: usize) -> SequenceData {
 fn make_utf8_string(n: usize) -> SequenceData {
     // Each UTF8 "character" is stored as a Utf8Char (one codepoint, zero-padded [u8; 4]).
     // Use a 3-byte codepoint (e.g. U+2603 SNOWMAN).
-    let codepoint = Utf8Char::from_char('\u{2603}');
+    let codepoint = '\u{2603}';
     SequenceData::String(CharType::UTF8(UTF8Data {
         data: vec![codepoint; n],
     }))

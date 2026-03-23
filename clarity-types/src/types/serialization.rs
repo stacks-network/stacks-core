@@ -1075,22 +1075,14 @@ impl Value {
                 w.write_all(&value.data)?
             }
             Sequence(SequenceData::String(UTF8(value))) => {
-                let total_len: u32 = value.data.iter().try_fold(
-                    0u32,
-                    |len, c| -> Result<u32, SerializationError> {
-                        let char_len = u32::try_from(c.byte_len()?)
-                            .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?;
-                        len.checked_add(char_len).ok_or_else(|| {
-                            SerializationError::SerializationFailure(
-                                "UTF8 string byte length overflow".to_string(),
-                            )
-                        })
-                    },
-                )?;
-                w.write_all(&(total_len.to_be_bytes()))?;
-                for c in value.data.iter() {
-                    w.write_all(c.as_bytes()?)?
-                }
+                let bytes = value.to_utf8_bytes()?;
+                let byte_len: u32 = bytes.len().try_into().map_err(|_| {
+                    SerializationError::SerializationFailure(
+                        "UTF8 string byte length overflow".to_string(),
+                    )
+                })?;
+                w.write_all(&(byte_len.to_be_bytes()))?;
+                w.write_all(&bytes)?;
             }
             Sequence(SequenceData::String(ASCII(value))) => {
                 let len_bytes = u32::from(value.len()?).to_be_bytes();

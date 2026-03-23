@@ -14,19 +14,18 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::hint::black_box;
 
-use clarity_types::types::Utf8Char;
 use criterion::{Criterion, criterion_group, criterion_main};
 
 // --- Helpers to build comparable data structures ---
 
 /// New representation: Vec<Utf8Char>
-fn make_new_ascii(n: usize) -> Vec<Utf8Char> {
-    (0..n).map(|_| Utf8Char::from_char('A')).collect()
+fn make_new_ascii(n: usize) -> Vec<char> {
+    (0..n).map(|_| 'A').collect()
 }
 
-fn make_new_multibyte(n: usize) -> Vec<Utf8Char> {
+fn make_new_multibyte(n: usize) -> Vec<char> {
     // U+2603 snowman = 0xE2 0x98 0x83 (3 bytes)
-    (0..n).map(|_| Utf8Char::from_char('\u{2603}')).collect()
+    (0..n).map(|_| '\u{2603}').collect()
 }
 
 /// Old representation: Vec<Vec<u8>>
@@ -64,11 +63,7 @@ fn bench_utf8(c: &mut Criterion) {
         // --- Construction: raw data structure comparison ---
         group.bench_function(format!("new_construct_ascii_{size}"), |b| {
             b.iter(|| {
-                black_box(
-                    (0..size)
-                        .map(|_| Utf8Char::from_char('A'))
-                        .collect::<Vec<_>>(),
-                );
+                black_box((0..size).map(|_| 'A').collect::<Vec<_>>());
             });
         });
         group.bench_function(format!("old_construct_ascii_{size}"), |b| {
@@ -79,11 +74,7 @@ fn bench_utf8(c: &mut Criterion) {
 
         group.bench_function(format!("new_construct_multibyte_{size}"), |b| {
             b.iter(|| {
-                black_box(
-                    (0..size)
-                        .map(|_| Utf8Char::from_char('\u{2603}'))
-                        .collect::<Vec<_>>(),
-                );
+                black_box((0..size).map(|_| '\u{2603}').collect::<Vec<_>>());
             });
         });
         group.bench_function(format!("old_construct_multibyte_{size}"), |b| {
@@ -106,7 +97,7 @@ fn bench_utf8(c: &mut Criterion) {
         group.bench_function(format!("new_value_construct_ascii_{size}"), |b| {
             b.iter(|| {
                 let s = std::str::from_utf8(&ascii_bytes).unwrap();
-                black_box(s.chars().map(Utf8Char::from_char).collect::<Vec<_>>());
+                black_box(s.chars().collect::<Vec<_>>());
             });
         });
         group.bench_function(format!("old_value_construct_ascii_{size}"), |b| {
@@ -127,7 +118,7 @@ fn bench_utf8(c: &mut Criterion) {
         group.bench_function(format!("new_value_construct_multibyte_{size}"), |b| {
             b.iter(|| {
                 let s = std::str::from_utf8(&multi_bytes).unwrap();
-                black_box(s.chars().map(Utf8Char::from_char).collect::<Vec<_>>());
+                black_box(s.chars().collect::<Vec<_>>());
             });
         });
         group.bench_function(format!("old_value_construct_multibyte_{size}"), |b| {
