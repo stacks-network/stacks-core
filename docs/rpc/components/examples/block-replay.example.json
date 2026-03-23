@@ -92,14 +92,6 @@
                     "write_length": 0
                 },
                 "hex": "808000000004002965a4e6e4226868fa3ae88b2b9bb9e937d77fba000000000000006300000000000000010001e29229b386e1f69ffd91e339c878246235ec1cd4771b42a7f45e1ed108643bc9417d43dd96a02c93314ef4cf5bcbcc5642df2e1f5a177333ff983c8719d8066101020000000000051abd41c893bcc09d98e0d34dff87beaf9958338cde000000000000000100000000000000000000000000000000000000000000000000000000000000000000",
-                "result": {
-                    "Response": {
-                        "committed": true,
-                        "data": {
-                            "Bool": true
-                        }
-                    }
-                },
                 "result_hex": "0x0703",
                 "post_condition_aborted": false,
                 "stx_burned": 0,
