@@ -3,7 +3,7 @@
 ## Targets tests tagged with `#[tag(t_prop)]` (see docs/property-testing.md).
 ##
 ## Triggers:
-##   schedule  — nightly at 05:00 UTC on the `develop` branch
+##   schedule  — nightly at 05:00 UTC on NIGHTLY_BRANCH (`develop`)
 ##   dispatch  — manual, on any branch, with configurable PROPTEST_CASES
 ##
 ## On test failure the workflow:
@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       proptest_cases:
-        description: "Number of cases per proptest (default: 2500)"
+        description: "Number of cases per proptest"
         required: false
         default: "2500"
         type: string
@@ -41,8 +41,11 @@ env:
   PROPTEST_CASES: 2500
   ## Test tag to filter for proptest tests
   TEST_TAG: t_prop
+  ## Branch to check out on scheduled (nightly) runs.
+  NIGHTLY_BRANCH: develop
   ## Branch-aware artifact name for proptest regression files.
-  ARTIFACT_NAME: proptest-nightly-${{ github.event_name == 'schedule' && 'develop' || github.ref_name }}
+  ## NOTE: 'develop' must match NIGHTLY_BRANCH (github now allow self reference within same `env` block)
+  ARTIFACT_NAME: proptest-nightly-${{ github.event_name == 'schedule' && 'develop' || github.ref_name }} 
 
 jobs:
   proptests-nightly:
@@ -54,7 +57,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref }}
+          ref: ${{ github.event_name == 'schedule' && env.NIGHTLY_BRANCH || github.ref }}
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@cargo-nextest
@@ -143,7 +146,9 @@ jobs:
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: "**/proptest-regressions/"
+          path: |
+            **/proptest-regressions/
+            **/*.proptest-regressions
           if-no-files-found: ignore
           overwrite: true
 
@@ -163,8 +168,6 @@ jobs:
           ${failed_tests}
           \`\`\`
 
-          Proptest regression seeds have been saved as a workflow artifact
+          Proptest regression seeds have been saved as a workflow artifact (see `Artifacts` section)
           and will be replayed automatically on the next run.
-
-          [Download regression artifact]($run_url)
           EOF
