@@ -116,3 +116,16 @@ plan:
             path: contracts/sip-031-indirect.clar
             clarity-version: 3
       epoch: "3.1"
+    - id: 2
+      transactions:
+        - emulated-contract-publish:
+            contract-name: pox-5
+            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+            path: "./contracts/pox-5.clar"
+            clarity-version: 4
+        - emulated-contract-publish:
+            contract-name: test-pox-5-pool
+            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+            path: "./contracts/test-pox-5-pool.clar"
+            clarity-version: 4
+      epoch: "3.3"

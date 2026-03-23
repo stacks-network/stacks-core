@@ -1984,12 +1984,13 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let boot_code_auth = boot_code_tx_auth(boot_code_address);
 
             // POX-5 contract setup
+            let pox_5_code = &*POX_5_CODE;
             let pox_5_contract_id = boot_code_id(POX_5_NAME, mainnet);
             let payload = TransactionPayload::SmartContract(
                 TransactionSmartContract {
                     name: ContractName::try_from(POX_5_NAME)
                         .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(&*POX_5_CODE)
+                    code_body: StacksString::from_str(pox_5_code)
                         .expect("FATAL: invalid boot code body"),
                 },
                 Some(ClarityVersion::Clarity5),
