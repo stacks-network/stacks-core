@@ -152,7 +152,7 @@ pub fn run_command(args: BenchArgs) -> Result<()> {
 
         for repeat_ix in 0..repeats {
             if repeats > 1 {
-                log(&format!("Repeat {}/{}", repeat_ix + 1, repeats));
+                log(format!("Repeat {}/{}", repeat_ix + 1, repeats));
             }
             // Worktrees are already prepared — run_revision_via_worktree will
             // find the cached worktree and skip creation/build.

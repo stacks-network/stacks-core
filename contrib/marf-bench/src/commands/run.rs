@@ -76,7 +76,7 @@ pub fn run_target(
     let mut repeated_rows = Vec::with_capacity(repeats);
     for repeat_ix in 0..repeats {
         if repeats > 1 {
-            log(&format!("Repeat {}/{}", repeat_ix + 1, repeats));
+            log(format!("Repeat {}/{}", repeat_ix + 1, repeats));
         }
         let label = format!("current-working-tree#{}", repeat_ix + 1);
         let rows = runner.run_benches(&label, &repo_root, &requests, output_format)?;

@@ -119,7 +119,7 @@ impl Runner {
             cleanup_stale_marf_bench_worktrees(&repo_root)?;
         } else {
             let cache_root = keep_worktrees_root(&repo_root);
-            log(&format!(
+            log(format!(
                 "Keep-worktrees cache root: {}",
                 cache_root.display()
             ));
@@ -271,7 +271,7 @@ impl Runner {
     ) -> Result<Vec<SummaryRow>> {
         self.ensure_requests_supported(root, requests)?;
 
-        log(&format!("Running marf benches for {label}"));
+        log(format!("Running marf benches for {label}"));
 
         let mut rows = Vec::new();
         for request in requests {
@@ -289,7 +289,7 @@ impl Runner {
                     self.keep_worktrees && self.is_cached_worktree_path(root) && !overlay_changed;
 
                 if can_reuse_cached_build {
-                    log(&format!(
+                    log(format!(
                         "[{label}] Reusing existing {bench_name} build artifacts (worktree unchanged)"
                     ));
                 } else {
@@ -307,7 +307,7 @@ impl Runner {
 
     /// Build stackslib marf benchmark with bench profile.
     fn build_bench_profile(&self, label: &str, root: &Path, bench_name: &str) -> Result<()> {
-        log(&format!(
+        log(format!(
             "[{label}] Building {bench_name} bench with 'bench' profile"
         ));
 
@@ -327,7 +327,7 @@ impl Runner {
         let bench_name = bench.bench_name();
         let subcommand = bench.harness_subcommand();
         let target_label = subcommand.unwrap_or(bench_name);
-        log(&format!("[{label}] Running {target_label}"));
+        log(format!("[{label}] Running {target_label}"));
 
         let marf_output_mode = if output_format == OutputFormat::Raw {
             "raw"
@@ -402,11 +402,11 @@ pub fn prepare_worktree(
 
         let can_reuse = keep_worktrees && is_cached_path && !overlay_changed;
         if can_reuse {
-            log(&format!(
+            log(format!(
                 "[{label}] Reusing existing {bench_name} build artifacts (worktree unchanged)"
             ));
         } else {
-            log(&format!(
+            log(format!(
                 "[{label}] Building {bench_name} bench with 'bench' profile"
             ));
             let cmd = build_stackslib_bench_profile_cmd(&path, bench_name);
@@ -448,14 +448,14 @@ fn create_worktree_at(
                     .any(|c| c == requested)
             };
             if is_registered {
-                log(&format!(
+                log(format!(
                     "Reusing worktree for {revision} at {}",
                     path.display()
                 ));
                 return Ok((path, None));
             }
 
-            log(&format!(
+            log(format!(
                 "Removing unregistered cached worktree dir: {}",
                 path.display()
             ));
@@ -467,7 +467,7 @@ fn create_worktree_at(
             })?;
         }
 
-        log(&format!(
+        log(format!(
             "Creating worktree for {revision} at {}",
             path.display()
         ));
@@ -487,7 +487,7 @@ fn create_worktree_at(
         .path()
         .join(format!("{WORKTREE_PREFIX}{short_tag}"));
 
-    log(&format!(
+    log(format!(
         "Creating worktree for {revision} at {}",
         path.display()
     ));
@@ -627,7 +627,7 @@ impl Drop for Runner {
                     continue;
                 }
 
-                log(&format!("Removing worktree: {}", path.display()));
+                log(format!("Removing worktree: {}", path.display()));
                 let _ = remove_worktree_force(&self.repo_root, &path);
             }
         }
@@ -641,7 +641,7 @@ pub fn cleanup_stale_marf_bench_worktrees(repo_root: &Path) -> Result<()> {
     let stale_paths = list_stale_marf_bench_worktrees(repo_root)?;
 
     for stale in stale_paths {
-        log(&format!(
+        log(format!(
             "Removing stale marf-bench worktree: {}",
             stale.display()
         ));
@@ -712,7 +712,7 @@ pub fn cleanup_cached_keep_worktrees(repo_root: &Path) -> Result<bool> {
         return Ok(false);
     };
 
-    log(&format!(
+    log(format!(
         "Removing cached keep-worktrees root: {}",
         root.display()
     ));
@@ -731,7 +731,7 @@ pub fn cleanup_orphan_temp_worktree_dirs() -> Result<usize> {
 
     let mut removed = 0usize;
     for path in orphan_paths {
-        log(&format!(
+        log(format!(
             "Removing orphan temp marf-bench dir: {}",
             path.display()
         ));

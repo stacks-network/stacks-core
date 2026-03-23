@@ -57,8 +57,8 @@ pub fn sanitize_revision(rev: &str) -> String {
 }
 
 /// Print a marf-bench namespaced log line to stderr.
-pub fn log(message: &str) {
-    eprintln!("[marf-bench] {message}");
+pub fn log(message: impl AsRef<str>) {
+    eprintln!("[marf-bench] {}", message.as_ref());
 }
 
 /// Build a stable key map from summary rows.

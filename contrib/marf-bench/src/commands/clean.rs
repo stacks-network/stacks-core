@@ -42,25 +42,25 @@ pub fn run_command(args: CleanArgs) -> Result<()> {
         let orphan_temp_dirs = list_orphan_temp_worktree_dirs()?;
 
         for path in &stale_worktrees {
-            log(&format!(
+            log(format!(
                 "[dry-run] would remove stale worktree: {}",
                 path.display()
             ));
         }
         if let Some(path) = &cached_root {
-            log(&format!(
+            log(format!(
                 "[dry-run] would remove cached keep-worktrees root: {}",
                 path.display()
             ));
         }
         for path in &orphan_temp_dirs {
-            log(&format!(
+            log(format!(
                 "[dry-run] would remove orphan temp marf-bench dir: {}",
                 path.display()
             ));
         }
 
-        log(&format!(
+        log(format!(
             "Dry-run complete (stale_worktrees={}, cached_keep_root_present={}, orphan_temp_dirs={})",
             stale_worktrees.len(),
             cached_root.is_some(),
@@ -73,7 +73,7 @@ pub fn run_command(args: CleanArgs) -> Result<()> {
     let removed_cache_root = cleanup_cached_keep_worktrees(&repo_root)?;
     let removed_orphan_temp_dirs = cleanup_orphan_temp_worktree_dirs()?;
 
-    log(&format!(
+    log(format!(
         "Clean complete (removed_cache_root={removed_cache_root}, removed_orphan_temp_dirs={removed_orphan_temp_dirs})"
     ));
 
