@@ -20,7 +20,7 @@ use crate::OutputFormat;
 use crate::commands::bench_target::BenchTarget;
 use crate::git::{current_repo_root, resolve_base_revision, verify_revision};
 use crate::report::{print_comparison, print_repeated_comparison_stats, print_single_run};
-use crate::runner::Runner;
+use crate::runner::{Runner, prepare_worktree};
 use crate::util::log;
 
 /// Arguments for the `bench` command.
@@ -101,10 +101,61 @@ pub fn run_command(args: BenchArgs) -> Result<()> {
         let mut repeated_rows = Vec::with_capacity(repeats);
         let mut runner = Runner::new(repo_root.clone(), args.keep_worktrees)?;
 
+        // Prepare worktrees (create + overlay + build) in parallel before
+        // running any benchmarks. This overlaps the two cargo builds, which
+        // are the slowest part of the setup.
+        {
+            let source_bench_dir = runner.source_bench_dir();
+            let keep = args.keep_worktrees;
+
+            let target_revision = args.target_revision.as_deref();
+            let (base_result, target_result) = std::thread::scope(|s| {
+                let base_handle = s.spawn(|| {
+                    prepare_worktree(
+                        &repo_root,
+                        source_bench_dir,
+                        keep,
+                        &base_label,
+                        &base_revision,
+                        &requests,
+                    )
+                });
+
+                let target_handle = target_revision.map(|target_rev| {
+                    s.spawn(|| {
+                        prepare_worktree(
+                            &repo_root,
+                            source_bench_dir,
+                            keep,
+                            &target_label,
+                            target_rev,
+                            &requests,
+                        )
+                    })
+                });
+
+                let base = base_handle
+                    .join()
+                    .expect("base preparation thread panicked");
+                let target =
+                    target_handle.map(|h| h.join().expect("target preparation thread panicked"));
+                (base, target)
+            });
+
+            runner.register_prepared_worktree(&base_revision, base_result?);
+            if let (Some(target_rev), Some(target_prepared)) =
+                (&args.target_revision, target_result)
+            {
+                runner.register_prepared_worktree(target_rev, target_prepared?);
+            }
+        }
+
         for repeat_ix in 0..repeats {
             if repeats > 1 {
                 log(&format!("Repeat {}/{}", repeat_ix + 1, repeats));
             }
+            // Worktrees are already prepared — run_revision_via_worktree will
+            // find the cached worktree and skip creation/build.
             let base_rows = runner.run_revision_via_worktree(
                 &base_label,
                 &base_revision,

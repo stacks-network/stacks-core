@@ -86,6 +86,21 @@ struct ManagedWorktree {
     _temp_root: Option<TempDir>,
 }
 
+/// A worktree that has been prepared (created, overlaid, built) but not yet
+/// registered with a [`Runner`]. Produced by [`prepare_worktree`] and consumed
+/// by [`Runner::register_prepared_worktree`].
+pub struct PreparedWorktree {
+    /// Path to the worktree root.
+    pub path: PathBuf,
+    /// Temporary directory handle for non-cached worktrees.
+    /// Dropping this removes the temporary directory.
+    pub temp_root: Option<TempDir>,
+    /// Whether the bench file overlay changed any files.
+    pub overlay_changed: bool,
+    /// Set of bench target names that have been built.
+    pub built_benches: HashSet<String>,
+}
+
 /// Orchestrates worktree setup, build, execution, and cleanup.
 pub struct Runner {
     repo_root: PathBuf,
@@ -134,6 +149,30 @@ impl Runner {
             built_targets: HashSet::new(),
             overlay_changed_roots: HashMap::new(),
         })
+    }
+
+    /// Return the source bench directory path.
+    pub fn source_bench_dir(&self) -> &Path {
+        &self.source_bench_dir
+    }
+
+    /// Register a [`PreparedWorktree`] into this runner for lifecycle management
+    /// and build-cache tracking.
+    pub fn register_prepared_worktree(&mut self, revision: &str, prepared: PreparedWorktree) {
+        self.worktrees_by_revision
+            .insert(revision.to_string(), prepared.path.clone());
+        self.overlay_changed_roots
+            .insert(prepared.path.clone(), prepared.overlay_changed);
+        for bench_name in &prepared.built_benches {
+            self.built_targets
+                .insert((prepared.path.clone(), bench_name.clone()));
+        }
+        if prepared.temp_root.is_some() {
+            self.worktrees.push(ManagedWorktree {
+                path: prepared.path,
+                _temp_root: prepared.temp_root,
+            });
+        }
     }
 
     /// Run requested benchmarks in the current checkout.
@@ -202,123 +241,24 @@ impl Runner {
 
     /// Create or reuse a git worktree for a revision.
     fn create_worktree(&mut self, revision: &str) -> Result<PathBuf> {
-        let revision_tag: String = sanitize_revision(revision).chars().take(40).collect();
-
-        if self.keep_worktrees {
-            let cache_root = keep_worktrees_root(&self.repo_root);
-            fs::create_dir_all(&cache_root)
-                .with_context(|| format!("failed to create {}", cache_root.display()))?;
-            let path = cache_root.join(format!("{WORKTREE_PREFIX}{revision_tag}"));
-
-            if path.is_dir() {
-                if self.is_registered_worktree(&path)? {
-                    log(&format!(
-                        "Reusing worktree for {revision} at {}",
-                        path.display()
-                    ));
-                    return Ok(path);
-                }
-
-                log(&format!(
-                    "Removing unregistered cached worktree dir: {}",
-                    path.display()
-                ));
-                fs::remove_dir_all(&path).with_context(|| {
-                    format!(
-                        "failed to remove stale cached worktree dir {}",
-                        path.display()
-                    )
-                })?;
-            }
-
-            log(&format!(
-                "Creating worktree for {revision} at {}",
-                path.display()
-            ));
-
-            add_detached_worktree(&self.repo_root, &path, revision)?;
-
-            return Ok(path);
+        let (path, temp_root) = create_worktree_at(&self.repo_root, self.keep_worktrees, revision)?;
+        if let Some(temp_root) = temp_root {
+            self.worktrees.push(ManagedWorktree {
+                path: path.clone(),
+                _temp_root: Some(temp_root),
+            });
         }
-
-        let temp_root = TempBuilder::new()
-            .prefix(&format!(
-                "{WORKTREE_PREFIX}{}-",
-                sanitize_revision(revision)
-            ))
-            .tempdir()
-            .context("failed to create temporary directory for worktree")?;
-        let revision_tag: String = revision_tag.chars().take(12).collect();
-        let path = temp_root
-            .path()
-            .join(format!("{WORKTREE_PREFIX}{revision_tag}"));
-
-        log(&format!(
-            "Creating worktree for {revision} at {}",
-            path.display()
-        ));
-
-        add_detached_worktree(&self.repo_root, &path, revision)?;
-
-        self.worktrees.push(ManagedWorktree {
-            path: path.clone(),
-            _temp_root: Some(temp_root),
-        });
         Ok(path)
     }
 
     /// Overlay benchmark source files into a target root.
     fn overlay_benches(&self, root: &Path, requests: &[BenchRunRequest]) -> Result<bool> {
-        let mut changed = false;
-
-        if requests
-            .iter()
-            .any(|request| request.kind.bench_name() == "marf")
-        {
-            let dest = root.join(SRC_BENCH_DIR);
-            fs::create_dir_all(&dest)
-                .with_context(|| format!("failed to create {}", dest.display()))?;
-
-            for name in MARF_BENCH_FILES {
-                let src = self.source_bench_dir.join(name);
-                let dst = dest.join(name);
-                changed |= copy_if_different(&src, &dst)?;
-            }
-        }
-
-        Ok(changed)
+        overlay_bench_files(&self.source_bench_dir, root, requests)
     }
 
     /// Ensure required benchmark target/dependencies exist in Cargo.toml.
     fn ensure_bench_target(&self, cargo_toml: &Path, requests: &[BenchRunRequest]) -> Result<()> {
-        let mut text = fs::read_to_string(cargo_toml)
-            .with_context(|| format!("failed to read {}", cargo_toml.display()))?;
-
-        let mut updated = false;
-
-        let wants_marf = requests
-            .iter()
-            .any(|request| request.kind.bench_name() == "marf");
-        if wants_marf && !text.contains("name = \"marf\"") {
-            text.push_str(
-                "\n[[bench]]\nname = \"marf\"\nharness = false\npath = \"benches/marf/main.rs\"\n",
-            );
-            updated = true;
-        }
-
-        if !text.contains("tikv-jemallocator") {
-            text.push_str(
-                "\n# Included for profiling/benchmark entrypoints\n[target.'cfg(not(any(target_os = \"macos\", target_os=\"windows\", target_arch = \"arm\")))'.dev-dependencies]\ntikv-jemallocator = { workspace = true }\n",
-            );
-            updated = true;
-        }
-
-        if updated {
-            fs::write(cargo_toml, text)
-                .with_context(|| format!("failed to update {}", cargo_toml.display()))?;
-        }
-
-        Ok(())
+        ensure_bench_target_at(cargo_toml, requests)
     }
 
     /// Build once if needed and run all requested benchmark cases.
@@ -421,15 +361,6 @@ impl Runner {
         Ok(extract_summary_lines(&combined))
     }
 
-    /// Check whether a path is currently registered as a git worktree.
-    fn is_registered_worktree(&self, path: &Path) -> Result<bool> {
-        let requested = normalize_worktree_path_for_compare(path);
-        Ok(list_worktree_paths(&self.repo_root)?
-            .into_iter()
-            .map(|candidate| normalize_worktree_path_for_compare(&candidate))
-            .any(|candidate| candidate == requested))
-    }
-
     /// Return true if the path is under the keep-worktrees cache root.
     fn is_cached_worktree_path(&self, path: &Path) -> bool {
         path.starts_with(keep_worktrees_root(&self.repo_root))
@@ -437,19 +368,205 @@ impl Runner {
 
     /// Ensure requested benchmark kinds are supported by the source tree at `root`.
     fn ensure_requests_supported(&self, root: &Path, requests: &[BenchRunRequest]) -> Result<()> {
-        if requests
-            .iter()
-            .any(|request| matches!(request.kind, BenchKind::Patch))
-            && !supports_patch_nodes(root)?
-        {
-            bail!(
-                "patch benchmark requested but revision does not support TrieNodePatch/TrieNodeID::Patch: {}",
-                root.display()
-            );
+        ensure_requests_supported_at(root, requests)
+    }
+}
+
+/// Prepare a revision worktree for benchmarking: create (or reuse), overlay bench
+/// files, patch Cargo.toml, and build. This function is [`Send`]-safe and can be
+/// called from multiple threads concurrently for different revisions.
+///
+/// The returned [`PreparedWorktree`] should be registered with
+/// [`Runner::register_prepared_worktree`] before running benchmarks.
+pub fn prepare_worktree(
+    repo_root: &Path,
+    source_bench_dir: &Path,
+    keep_worktrees: bool,
+    label: &str,
+    revision: &str,
+    requests: &[BenchRunRequest],
+) -> Result<PreparedWorktree> {
+    let (path, temp_root) = create_worktree_at(repo_root, keep_worktrees, revision)?;
+
+    ensure_requests_supported_at(&path, requests)?;
+    let overlay_changed = overlay_bench_files(source_bench_dir, &path, requests)?;
+    ensure_bench_target_at(&path.join(STACKSLIB_CARGO_TOML), requests)?;
+
+    let is_cached_path = path.starts_with(keep_worktrees_root(repo_root));
+    let mut built_benches = HashSet::new();
+    for request in requests {
+        let bench_name = request.kind.bench_name();
+        if built_benches.contains(bench_name) {
+            continue;
         }
 
-        Ok(())
+        let can_reuse = keep_worktrees && is_cached_path && !overlay_changed;
+        if can_reuse {
+            log(&format!(
+                "[{label}] Reusing existing {bench_name} build artifacts (worktree unchanged)"
+            ));
+        } else {
+            log(&format!(
+                "[{label}] Building {bench_name} bench with 'bench' profile"
+            ));
+            let cmd = build_stackslib_bench_profile_cmd(&path, bench_name);
+            run_checked(cmd, "failed to build marf bench profile")?;
+        }
+        built_benches.insert(bench_name.to_string());
     }
+
+    Ok(PreparedWorktree {
+        path,
+        temp_root,
+        overlay_changed,
+        built_benches,
+    })
+}
+
+/// Create or reuse a git worktree for a revision.
+/// Returns `(worktree_path, temp_dir_handle)`. The temp dir handle is `Some` only
+/// for non-cached worktrees and must be kept alive for the worktree's lifetime.
+fn create_worktree_at(
+    repo_root: &Path,
+    keep_worktrees: bool,
+    revision: &str,
+) -> Result<(PathBuf, Option<TempDir>)> {
+    let revision_tag: String = sanitize_revision(revision).chars().take(40).collect();
+
+    if keep_worktrees {
+        let cache_root = keep_worktrees_root(repo_root);
+        fs::create_dir_all(&cache_root)
+            .with_context(|| format!("failed to create {}", cache_root.display()))?;
+        let path = cache_root.join(format!("{WORKTREE_PREFIX}{revision_tag}"));
+
+        if path.is_dir() {
+            let is_registered = {
+                let requested = normalize_worktree_path_for_compare(&path);
+                list_worktree_paths(repo_root)?
+                    .into_iter()
+                    .map(|c| normalize_worktree_path_for_compare(&c))
+                    .any(|c| c == requested)
+            };
+            if is_registered {
+                log(&format!(
+                    "Reusing worktree for {revision} at {}",
+                    path.display()
+                ));
+                return Ok((path, None));
+            }
+
+            log(&format!(
+                "Removing unregistered cached worktree dir: {}",
+                path.display()
+            ));
+            fs::remove_dir_all(&path).with_context(|| {
+                format!(
+                    "failed to remove stale cached worktree dir {}",
+                    path.display()
+                )
+            })?;
+        }
+
+        log(&format!(
+            "Creating worktree for {revision} at {}",
+            path.display()
+        ));
+        add_detached_worktree(repo_root, &path, revision)?;
+        return Ok((path, None));
+    }
+
+    let temp_root = TempBuilder::new()
+        .prefix(&format!(
+            "{WORKTREE_PREFIX}{}-",
+            sanitize_revision(revision)
+        ))
+        .tempdir()
+        .context("failed to create temporary directory for worktree")?;
+    let short_tag: String = revision_tag.chars().take(12).collect();
+    let path = temp_root
+        .path()
+        .join(format!("{WORKTREE_PREFIX}{short_tag}"));
+
+    log(&format!(
+        "Creating worktree for {revision} at {}",
+        path.display()
+    ));
+    add_detached_worktree(repo_root, &path, revision)?;
+    Ok((path, Some(temp_root)))
+}
+
+/// Overlay benchmark source files from the current tree into a worktree root.
+fn overlay_bench_files(
+    source_bench_dir: &Path,
+    root: &Path,
+    requests: &[BenchRunRequest],
+) -> Result<bool> {
+    let mut changed = false;
+
+    if requests
+        .iter()
+        .any(|request| request.kind.bench_name() == "marf")
+    {
+        let dest = root.join(SRC_BENCH_DIR);
+        fs::create_dir_all(&dest)
+            .with_context(|| format!("failed to create {}", dest.display()))?;
+
+        for name in MARF_BENCH_FILES {
+            let src = source_bench_dir.join(name);
+            let dst = dest.join(name);
+            changed |= copy_if_different(&src, &dst)?;
+        }
+    }
+
+    Ok(changed)
+}
+
+/// Ensure required benchmark target/dependencies exist in a Cargo.toml.
+fn ensure_bench_target_at(cargo_toml: &Path, requests: &[BenchRunRequest]) -> Result<()> {
+    let mut text = fs::read_to_string(cargo_toml)
+        .with_context(|| format!("failed to read {}", cargo_toml.display()))?;
+
+    let mut updated = false;
+
+    let wants_marf = requests
+        .iter()
+        .any(|request| request.kind.bench_name() == "marf");
+    if wants_marf && !text.contains("name = \"marf\"") {
+        text.push_str(
+            "\n[[bench]]\nname = \"marf\"\nharness = false\npath = \"benches/marf/main.rs\"\n",
+        );
+        updated = true;
+    }
+
+    if !text.contains("tikv-jemallocator") {
+        text.push_str(
+            "\n# Included for profiling/benchmark entrypoints\n[target.'cfg(not(any(target_os = \"macos\", target_os=\"windows\", target_arch = \"arm\")))'.dev-dependencies]\ntikv-jemallocator = { workspace = true }\n",
+        );
+        updated = true;
+    }
+
+    if updated {
+        fs::write(cargo_toml, text)
+            .with_context(|| format!("failed to update {}", cargo_toml.display()))?;
+    }
+
+    Ok(())
+}
+
+/// Ensure requested benchmark kinds are supported by the source tree at `root`.
+fn ensure_requests_supported_at(root: &Path, requests: &[BenchRunRequest]) -> Result<()> {
+    if requests
+        .iter()
+        .any(|request| matches!(request.kind, BenchKind::Patch))
+        && !supports_patch_nodes(root)?
+    {
+        bail!(
+            "patch benchmark requested but revision does not support TrieNodePatch/TrieNodeID::Patch: {}",
+            root.display()
+        );
+    }
+
+    Ok(())
 }
 
 /// Normalize worktree path shape for stable equality checks across symlinked temp roots.
