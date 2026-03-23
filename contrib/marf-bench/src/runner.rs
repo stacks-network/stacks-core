@@ -54,7 +54,7 @@ pub struct BenchEnvOverrides {
     pub read_proofs: Option<bool>,
     pub keys_per_block: Option<u32>,
     pub depths: Option<String>,
-    pub cache_strategies: Option<String>,
+    pub compression: Option<String>,
     pub key_search_max_tries: Option<usize>,
     pub node_types: Option<String>,
     pub ptr_states: Option<String>,
@@ -928,8 +928,8 @@ fn apply_bench_env_overrides(cmd: &mut Command, env: &BenchEnvOverrides) {
     if let Some(depths) = &env.depths {
         cmd.env("DEPTHS", depths);
     }
-    if let Some(cache_strategies) = &env.cache_strategies {
-        cmd.env("CACHE_STRATEGIES", cache_strategies);
+    if let Some(compression) = &env.compression {
+        cmd.env("COMPRESSION", compression);
     }
     if let Some(key_search_max_tries) = env.key_search_max_tries {
         cmd.env("KEY_SEARCH_MAX_TRIES", key_search_max_tries.to_string());

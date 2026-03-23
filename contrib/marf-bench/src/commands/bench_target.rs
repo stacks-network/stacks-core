@@ -53,7 +53,7 @@ impl BenchTarget {
                     read_proofs: Some(args.proofs),
                     keys_per_block: args.keys_per_block,
                     depths: args.depths,
-                    cache_strategies: args.cache_strategies,
+                    compression: args.compression,
                     sqlite_wal_autocheckpoint: args.sqlite_wal_autocheckpoint,
                     sqlite_wal_checkpoint_mode: args.sqlite_wal_checkpoint_mode,
                     ..Default::default()
@@ -69,6 +69,7 @@ impl BenchTarget {
                     sqlite_wal_autocheckpoint: args.sqlite_wal_autocheckpoint,
                     sqlite_wal_checkpoint_mode: args.sqlite_wal_checkpoint_mode,
                     key_search_max_tries: args.key_search_max_tries,
+                    compression: args.compression,
                     ..Default::default()
                 },
             )],
@@ -126,9 +127,9 @@ pub struct ReadArgs {
     #[arg(long)]
     depths: Option<String>,
 
-    /// Set CACHE_STRATEGIES as comma-separated values (for example: noop,node256).
+    /// Set COMPRESSION modes as comma-separated values (for example: true,false).
     #[arg(long)]
-    cache_strategies: Option<String>,
+    compression: Option<String>,
 
     /// Set SQLITE_WAL_AUTOCHECKPOINT page threshold for read benchmark SQLite connection.
     #[arg(long)]
@@ -169,6 +170,10 @@ pub struct WriteArgs {
     /// Set KEY_SEARCH_MAX_TRIES for write promotion-key search budget.
     #[arg(long)]
     key_search_max_tries: Option<usize>,
+
+    /// Set COMPRESSION modes as comma-separated values (for example: true,false).
+    #[arg(long)]
+    compression: Option<String>,
 }
 
 /// Arguments for the `patch` benchmark target.

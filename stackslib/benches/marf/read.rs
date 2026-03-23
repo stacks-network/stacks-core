@@ -30,10 +30,7 @@ use crate::common::{
     parse_optional_wal_autocheckpoint_pages, parse_optional_wal_checkpoint_mode, BenchMeasurement,
     OutputMode, Summary, WalCheckpointMode,
 };
-use crate::utils::{
-    block_id, has_help_flag, parse_csv_string_env, parse_csv_u32_env, parse_u32_env,
-    parse_usize_env,
-};
+use crate::utils::{block_id, has_help_flag, parse_csv_u32_env, parse_u32_env, parse_usize_env};
 
 /// Default read operations per measured case.
 const DEFAULT_READ_ITERS: usize = 200_000;
@@ -43,8 +40,8 @@ const DEFAULT_READ_ROUNDS: usize = 2;
 const DEFAULT_KEYS_PER_BLOCK: u32 = 16;
 /// Default read depths sampled from the tip.
 const DEFAULT_DEPTHS: [u32; 4] = [32, 128, 768, 2047];
-/// Default MARF cache strategies exercised by the benchmark.
-const DEFAULT_CACHE_STRATEGIES: [&str; 1] = ["noop"];
+/// Default compression modes exercised by the benchmark.
+const DEFAULT_COMPRESSION: [bool; 2] = [false, true];
 /// Extra fixture blocks added above max depth when CHAIN_LEN is not set.
 const DEFAULT_CHAIN_LEN_DEPTH_SLACK: u32 = 16;
 
@@ -95,7 +92,11 @@ fn print_usage() {
         .max()
         .expect("DEFAULT_DEPTHS must not be empty");
     let default_chain_len = default_max_depth + DEFAULT_CHAIN_LEN_DEPTH_SLACK;
-    let default_cache_strategies = DEFAULT_CACHE_STRATEGIES.join(",");
+    let default_compression = DEFAULT_COMPRESSION
+        .iter()
+        .map(|b| b.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     let default_keys_per_block = DEFAULT_KEYS_PER_BLOCK;
     let default_total_fixture_keys = default_keys_per_block + 1;
 
@@ -122,9 +123,9 @@ fn print_usage() {
     println!("              Read measurements always target the single measured depth key");
     println!("  READ_PROOFS");
     println!("              Set to true/false to steer proofed reads [default: false]");
-    println!("  CACHE_STRATEGIES");
-    println!("              Comma-separated MARF cache strategies [default: {default_cache_strategies}]");
-    println!("              Example: CACHE_STRATEGIES=noop,node256,everything");
+    println!("  COMPRESSION");
+    println!("              Comma-separated compression modes: true,false [default: {default_compression}]");
+    println!("              Controls MARFOpenOpts::with_compression for fixture creation");
     println!("  SQLITE_WAL_AUTOCHECKPOINT");
     println!("              Optional SQLite WAL auto-checkpoint page threshold");
     println!("              Example: SQLITE_WAL_AUTOCHECKPOINT=0 (disable auto-checkpoint)");
@@ -156,14 +157,19 @@ fn key_for_depth_from_tip(tip_height: u32, depth: u32) -> String {
 
 /// Create and populate a read fixture MARF chain.
 fn make_fixture(
-    cache_strategy: &str,
+    compress: bool,
     chain_len: u32,
     keys_per_block: u32,
     wal_autocheckpoint_pages: Option<i64>,
     wal_checkpoint_mode: Option<WalCheckpointMode>,
 ) -> MarfReadFixture {
+    let compress_tag = if compress {
+        "compressed"
+    } else {
+        "uncompressed"
+    };
     let db_dir = tempfile::Builder::new()
-        .prefix(&format!("marf-read-profile-{cache_strategy}-"))
+        .prefix(&format!("marf-read-profile-{compress_tag}-"))
         .tempdir()
         .expect("failed to create MARF read benchmark dir");
     let db_path = db_dir.path().join("marf-read.sqlite");
@@ -171,7 +177,8 @@ fn make_fixture(
         .to_str()
         .expect("failed to convert MARF read benchmark path to UTF-8")
         .to_string();
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, cache_strategy, true);
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true)
+        .with_compression(compress);
     let mut marf = MARF::from_path(&db_path_str, open_opts.clone())
         .expect("failed to open MARF for read profile");
 
@@ -240,6 +247,22 @@ fn parse_chain_len(depths: &[u32]) -> u32 {
     parse_u32_env("CHAIN_LEN", default_chain_len)
 }
 
+/// Parse compression modes from COMPRESSION env var or return defaults.
+fn parse_compression_modes() -> Vec<bool> {
+    let Some(raw) = std::env::var("COMPRESSION").ok() else {
+        return DEFAULT_COMPRESSION.to_vec();
+    };
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| match s {
+            "true" | "1" | "on" => true,
+            "false" | "0" | "off" => false,
+            _ => panic!("COMPRESSION values must be true/false, got '{s}'"),
+        })
+        .collect()
+}
+
 /// Resolve proofed-read setting from CLI flags and env.
 fn parse_proofs_setting(args: &[String]) -> bool {
     let cli_proofs = args.iter().any(|arg| arg == "--proofs");
@@ -306,7 +329,7 @@ fn run_with_variants(
     let chain_len = parse_chain_len(&depths);
     let wal_autocheckpoint_pages = parse_optional_wal_autocheckpoint_pages();
     let wal_checkpoint_mode = parse_optional_wal_checkpoint_mode();
-    let cache_strategies = parse_csv_string_env("CACHE_STRATEGIES", &DEFAULT_CACHE_STRATEGIES);
+    let compression_modes = parse_compression_modes();
 
     assert!(iters > 0, "ITERS must be > 0");
     assert!(rounds > 0, "ROUNDS must be > 0");
@@ -325,7 +348,7 @@ fn run_with_variants(
 
     if output_mode.is_raw() {
         println!(
-            "config\tchain_len={chain_len}\titers={iters}\trounds={rounds}\tkeys_per_block={keys_per_block}\ttotal_fixture_keys_per_block={total_fixture_keys}\tdepths={depths:?}\tstrategies={cache_strategies:?}\tsqlite_wal_autocheckpoint={wal_autocheckpoint_pages:?}\tsqlite_wal_checkpoint_mode={wal_checkpoint_mode:?}\tsqlite_post_setup_checkpoint_ran={}"
+            "config\tchain_len={chain_len}\titers={iters}\trounds={rounds}\tkeys_per_block={keys_per_block}\ttotal_fixture_keys_per_block={total_fixture_keys}\tdepths={depths:?}\tcompression={compression_modes:?}\tsqlite_wal_autocheckpoint={wal_autocheckpoint_pages:?}\tsqlite_wal_checkpoint_mode={wal_checkpoint_mode:?}\tsqlite_post_setup_checkpoint_ran={}"
             ,
             wal_autocheckpoint_pages == Some(0)
         );
@@ -334,9 +357,14 @@ fn run_with_variants(
     let mut results: HashMap<(String, u32, &'static str), CaseAggregate> = HashMap::new();
 
     for round in 1..=rounds {
-        for strategy in &cache_strategies {
+        for &compress in &compression_modes {
+            let compress_label = if compress {
+                "compressed"
+            } else {
+                "uncompressed"
+            };
             let mut fixture = make_fixture(
-                strategy,
+                compress,
                 chain_len,
                 keys_per_block,
                 wal_autocheckpoint_pages,
@@ -356,7 +384,7 @@ fn run_with_variants(
 
                     if output_mode.is_raw() {
                         println!(
-                            "result\tround={round}\tstrategy={strategy}\tdepth={depth}\tvariant={}\telapsed_ms={elapsed_ms:.3}\talloc_calls={}\talloc_bytes={}\trealloc_calls={}\tdealloc_calls={}\tdealloc_bytes={}\tus_per_op={us_per_op:.6}\talloc_calls_per_op={alloc_calls_per_op:.6}\talloc_bytes_per_op={alloc_bytes_per_op:.6}",
+                            "result\tround={round}\tcompression={compress_label}\tdepth={depth}\tvariant={}\telapsed_ms={elapsed_ms:.3}\talloc_calls={}\talloc_bytes={}\trealloc_calls={}\tdealloc_calls={}\tdealloc_bytes={}\tus_per_op={us_per_op:.6}\talloc_calls_per_op={alloc_calls_per_op:.6}\talloc_bytes_per_op={alloc_bytes_per_op:.6}",
                             variant.name(),
                             measurement.snapshot.alloc_calls,
                             measurement.snapshot.alloc_bytes,
@@ -367,7 +395,7 @@ fn run_with_variants(
                     }
 
                     let agg = results
-                        .entry((strategy.to_string(), depth, variant.name()))
+                        .entry((compress_label.to_string(), depth, variant.name()))
                         .or_default();
                     agg.total_ms += elapsed_ms;
                     agg.alloc_calls += measurement.snapshot.alloc_calls;
@@ -379,17 +407,22 @@ fn run_with_variants(
 
     let mut summary = Summary::new(
         benchmark_name,
-        cache_strategies.len() * depths.len() * variants.len(),
+        compression_modes.len() * depths.len() * variants.len(),
     );
-    for strategy in &cache_strategies {
+    for &compress in &compression_modes {
+        let compress_label = if compress {
+            "compressed"
+        } else {
+            "uncompressed"
+        };
         for &depth in &depths {
             for &variant in variants {
-                let key = (strategy.to_string(), depth, variant.name());
+                let key = (compress_label.to_string(), depth, variant.name());
                 let case = results
                     .get(&key)
                     .expect("missing case samples while summarizing read profile");
                 summary.push_line(
-                    format!("{strategy}/depth={depth}/variant={}", variant.name()),
+                    format!("{compress_label}/depth={depth}/variant={}", variant.name()),
                     case.total_ms,
                     case.alloc_calls,
                     case.alloc_bytes,

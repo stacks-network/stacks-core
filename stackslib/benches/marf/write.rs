@@ -42,8 +42,8 @@ const DEFAULT_KEY_UPDATES_PERCENT: usize = 0;
 const DEFAULT_KEY_SEARCH_MAX_TRIES: usize = 200_000;
 /// Minimum inserted-key count needed to force node promotions through node256.
 const REQUIRED_BRANCHES: usize = 49;
-/// Cache strategies exercised by the write benchmark.
-const WRITE_CACHE_STRATEGIES: [&str; 1] = ["noop"];
+/// Default compression modes exercised by the write benchmark.
+const DEFAULT_WRITE_COMPRESSION: [bool; 2] = [false, true];
 
 /// Aggregated timing and allocation totals for one workflow step.
 #[derive(Clone, Copy, Default)]
@@ -138,7 +138,10 @@ fn print_usage() {
     println!("              WAL checkpoint mode for explicit post-setup checkpoint when auto-checkpoint is disabled");
     println!("              Post-setup checkpoint runs only when SQLITE_WAL_AUTOCHECKPOINT=0");
     println!("              Allowed: PASSIVE, FULL, RESTART, TRUNCATE [default: PASSIVE]");
-    println!("  ROUNDS      Independent rounds per strategy [default {DEFAULT_WRITE_ROUNDS}]");
+    println!("  COMPRESSION");
+    println!("              Comma-separated compression modes: true,false [default: false,true]");
+    println!("              Controls MARFOpenOpts::with_compression for fixture creation");
+    println!("  ROUNDS      Independent rounds per compression mode [default {DEFAULT_WRITE_ROUNDS}]");
     println!("  KEY_SEARCH_MAX_TRIES");
     println!("              Max key candidates when searching for promotion-driving keys [default {DEFAULT_KEY_SEARCH_MAX_TRIES}]");
     println!("  OUTPUT_FORMAT");
@@ -172,10 +175,15 @@ fn make_values(start: u32, count: usize) -> Vec<MARFValue> {
     values
 }
 
-/// Create a benchmark MARF instance for a cache strategy.
-fn make_marf(cache_strategy: &str) -> (TempDir, MARF<StacksBlockId>) {
+/// Create a benchmark MARF instance with the given compression setting.
+fn make_marf(compress: bool) -> (TempDir, MARF<StacksBlockId>) {
+    let compress_tag = if compress {
+        "compressed"
+    } else {
+        "uncompressed"
+    };
     let db_dir = tempfile::Builder::new()
-        .prefix(&format!("marf-write-profile-{cache_strategy}-"))
+        .prefix(&format!("marf-write-profile-{compress_tag}-"))
         .tempdir()
         .expect("failed to create MARF write benchmark dir");
     let db_path = db_dir.path().join("marf-write.sqlite");
@@ -183,7 +191,8 @@ fn make_marf(cache_strategy: &str) -> (TempDir, MARF<StacksBlockId>) {
         .to_str()
         .expect("failed to convert MARF write benchmark path to UTF-8");
 
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, cache_strategy, true);
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true)
+        .with_compression(compress);
     let marf = MARF::from_path(db_path_str, open_opts).expect("failed to open MARF write profile");
     (db_dir, marf)
 }
@@ -302,6 +311,22 @@ fn build_step_order(insert_steps: &[InsertStep]) -> Vec<&'static str> {
     step_order
 }
 
+/// Parse compression modes from COMPRESSION env var or return defaults.
+fn parse_write_compression_modes() -> Vec<bool> {
+    let Some(raw) = std::env::var("COMPRESSION").ok() else {
+        return DEFAULT_WRITE_COMPRESSION.to_vec();
+    };
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| match s {
+            "true" | "1" | "on" => true,
+            "false" | "0" | "off" => false,
+            _ => panic!("COMPRESSION values must be true/false, got '{s}'"),
+        })
+        .collect()
+}
+
 /// Parse write depths from env.
 fn parse_write_depths() -> Vec<usize> {
     parse_csv_usize_env("WRITE_DEPTHS", &DEFAULT_WRITE_DEPTHS)
@@ -338,9 +363,11 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
     let insert_steps = build_insert_steps(iters);
     let step_order = build_step_order(&insert_steps);
 
+    let compression_modes = parse_write_compression_modes();
+
     if output_mode.is_raw() {
         println!(
-            "config\titers={iters}\twrite_depths={write_depths:?}\tkey_updates={key_updates_pct}\trounds={rounds}\tkey_search_max_tries={max_tries}\tsqlite_wal_autocheckpoint={wal_autocheckpoint_pages:?}\tsqlite_wal_checkpoint_mode={wal_checkpoint_mode:?}\tsqlite_post_setup_checkpoint_ran={}\trequired_branches={REQUIRED_BRANCHES}\tstrategies={WRITE_CACHE_STRATEGIES:?}"
+            "config\titers={iters}\twrite_depths={write_depths:?}\tkey_updates={key_updates_pct}\trounds={rounds}\tkey_search_max_tries={max_tries}\tsqlite_wal_autocheckpoint={wal_autocheckpoint_pages:?}\tsqlite_wal_checkpoint_mode={wal_checkpoint_mode:?}\tsqlite_post_setup_checkpoint_ran={}\trequired_branches={REQUIRED_BRANCHES}\tcompression={compression_modes:?}"
             ,
             wal_autocheckpoint_pages == Some(0)
         );
@@ -350,8 +377,13 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
 
     for round in 1..=rounds {
         for &write_depth in &write_depths {
-            for (strategy_idx, strategy) in WRITE_CACHE_STRATEGIES.into_iter().enumerate() {
-                let (_db_dir, mut marf) = make_marf(strategy);
+            for (compress_idx, &compress) in compression_modes.iter().enumerate() {
+                let compress_label = if compress {
+                    "compressed"
+                } else {
+                    "uncompressed"
+                };
+                let (_db_dir, mut marf) = make_marf(compress);
 
                 apply_optional_wal_autocheckpoint(marf.sqlite_conn(), wal_autocheckpoint_pages)
                     .map_err(IndexError::from)?;
@@ -359,7 +391,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                 let base_seed = 1_000_000u32
                     .wrapping_add((round as u32).wrapping_mul(100_000))
                     .wrapping_add((write_depth as u32).wrapping_mul(100))
-                    .wrapping_add((strategy_idx as u32).wrapping_mul(2));
+                    .wrapping_add((compress_idx as u32).wrapping_mul(2));
                 let parent_chain = initialize_parent_chain(&mut marf, base_seed, write_depth)?;
                 maybe_run_post_setup_wal_checkpoint(
                     marf.sqlite_conn(),
@@ -379,7 +411,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                 let promotion_key_count = insert_key_count.min(REQUIRED_BRANCHES);
 
                 let promotion_keys = find_promotion_keys(
-                    &format!("write-profile:{strategy}:{round}:chain:{write_depth}:promote"),
+                    &format!("write-profile:{compress_label}:{round}:chain:{write_depth}:promote"),
                     max_tries,
                     promotion_key_count,
                 );
@@ -389,7 +421,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                 if insert_key_count > promotion_key_count {
                     for extra_ix in promotion_key_count..insert_key_count {
                         all_keys.push(format!(
-                            "write-profile:{strategy}:{round}:chain:{write_depth}:bulk:{extra_ix:08x}"
+                            "write-profile:{compress_label}:{round}:chain:{write_depth}:bulk:{extra_ix:08x}"
                         ));
                     }
                 }
@@ -402,7 +434,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
 
                 if output_mode.is_raw() {
                     println!(
-                        "keys\tround={round}\tdepth={write_depth}\tstrategy={strategy}\tshared_first_byte={}\tsearch_tries={}\tinsert_count={}\tupdate_count={}\tkey_count={}",
+                        "keys\tround={round}\tdepth={write_depth}\tcompression={compress_label}\tshared_first_byte={}\tsearch_tries={}\tinsert_count={}\tupdate_count={}\tkey_count={}",
                         promotion_keys.shared_first_byte,
                         promotion_keys.search_tries,
                         insert_key_count,
@@ -419,7 +451,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                     &mut results,
                     round,
                     write_depth,
-                    strategy,
+                    compress_label,
                     "begin_block",
                     1,
                     begin_measurement,
@@ -437,7 +469,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                         &mut results,
                         round,
                         write_depth,
-                        strategy,
+                        compress_label,
                         step.name,
                         keys.len(),
                         measurement,
@@ -450,7 +482,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                     &mut results,
                     round,
                     write_depth,
-                    strategy,
+                    compress_label,
                     "seal",
                     1,
                     seal_measurement,
@@ -462,7 +494,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                     &mut results,
                     round,
                     write_depth,
-                    strategy,
+                    compress_label,
                     "commit_flush",
                     1,
                     commit_measurement,
@@ -474,17 +506,22 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
 
     let mut summary = Summary::new(
         "write",
-        WRITE_CACHE_STRATEGIES.len() * step_order.len() * write_depths.len(),
+        compression_modes.len() * step_order.len() * write_depths.len(),
     );
     for &write_depth in &write_depths {
-        for strategy in WRITE_CACHE_STRATEGIES {
+        for &compress in &compression_modes {
+            let compress_label = if compress {
+                "compressed"
+            } else {
+                "uncompressed"
+            };
             for step in &step_order {
-                let key = (strategy.to_string(), write_depth, step.to_string());
+                let key = (compress_label.to_string(), write_depth, step.to_string());
                 let agg = results
                     .get(&key)
                     .expect("missing step samples while summarizing write profile");
                 summary.push_line(
-                    format!("{strategy}/depth={write_depth}/{step}"),
+                    format!("{compress_label}/depth={write_depth}/{step}"),
                     agg.total_ms,
                     agg.alloc_calls,
                     agg.alloc_bytes,
