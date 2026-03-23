@@ -21,7 +21,7 @@ on:
     inputs:
       proptest_cases:
         description: "Number of cases per proptest"
-        required: false
+        required: true
         default: "2500"
         type: string
 
@@ -37,12 +37,13 @@ env:
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
   TEST_TIMEOUT: 60
+  ## Branch to check out on scheduled (nightly) runs.
+  NIGHTLY_BRANCH: develop
   ## Default number of generated cases per proptest (used on scheduled runs).
   NIGHTLY_PROPTEST_CASES: 2500
   ## Test tag to filter for proptest tests
   TEST_TAG: t_prop
-  ## Branch to check out on scheduled (nightly) runs.
-  NIGHTLY_BRANCH: develop
+
 
 jobs:
   proptests-nightly:
@@ -59,9 +60,17 @@ jobs:
             branch="${{ github.ref_name }}"
             cases="${{ inputs.proptest_cases }}"
           fi
+          artifact="proptest-nightly-${branch//\//-}"
+
+          # Set computed env variables
           echo "CHECKOUT_REF=${branch}" >> "$GITHUB_ENV"
-          echo "ARTIFACT_NAME=proptest-nightly-${branch//\//-}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=${artifact}" >> "$GITHUB_ENV"
           echo "PROPTEST_CASES=${cases}" >> "$GITHUB_ENV"
+
+          # Print computed env variables
+          echo "CHECKOUT_REF=${branch}"
+          echo "ARTIFACT_NAME=${artifact}"
+          echo "PROPTEST_CASES=${cases}"
 
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
