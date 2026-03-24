@@ -52,8 +52,8 @@ use crate::chainstate::burn::{
 use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo, SortitionDBMigrator,
 };
+use crate::chainstate::nakamoto::signer_set::{PoxEntryParsingError, RawPox5Entry};
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::nakamoto::signer_set::{RawPox5Entry, StakeEntryIteratorPox5};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
@@ -1683,14 +1683,18 @@ fn validate_pox_p2wsh_btc_lock_script(script: &Script) -> Result<PoxBtcLockData,
     })
 }
 
-///
+/// Returns the validated entries with their consumed L1 lockups
 /// * `last_cycle_calculation_height`: the burn block height when the last cycle was calculated.
 ///    any outputs <= this height will be ignored.
-pub fn validate_pox_p2wsh_outputs<S: SortitionHandle>(
+pub fn validate_pox_p2wsh_outputs<S, I>(
     sortdb_handle: &mut S,
-    entries: &mut StakeEntryIteratorPox5,
+    entries: &mut I,
     last_cycle_calculation_height: u32,
-) -> Result<HashMap<RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>>, db_error> {
+) -> Result<HashMap<RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>>, db_error>
+where
+    S: SortitionHandle,
+    I: Iterator<Item = Result<RawPox5Entry, PoxEntryParsingError>>,
+{
     // should all witness_scripts be unique?
     // make sure the outputs are each consumed only once
     //  -- do we need to store in the Clarity state to ensure that future
@@ -1705,10 +1709,14 @@ pub fn validate_pox_p2wsh_outputs<S: SortitionHandle>(
     for staking_entry_res in entries {
         let staking_entry = match staking_entry_res {
             Ok(x) => x,
-            Err(e) => {
+            Err(PoxEntryParsingError::Skip(e)) => {
                 invalid_scripts.push(e);
                 continue;
-            },
+            }
+            Err(PoxEntryParsingError::Abort(e)) => {
+                error!("Abort error while validating PoX set: {e}");
+                return Err(db_error::Corruption);
+            }
         };
 
         let script_hash = staking_entry.script_hash();
@@ -3612,7 +3620,7 @@ impl SortitionDB {
     }
 
     fn apply_schema_12(tx: &DBTx) -> Result<(), db_error> {
-        for sql_exec in SORTITION_DB_SCHEMA_11 {
+        for sql_exec in SORTITION_DB_SCHEMA_12 {
             tx.execute_batch(sql_exec)?;
         }
 
@@ -12149,6 +12157,22 @@ pub mod tests {
         Script::from(script_bytes)
     }
 
+    /// Helper function to create a RawPox5Entry for testing
+    fn make_test_pox5_entry(
+        stacker_version: u8,
+        stacker_hash: &Hash160,
+        unlock_height: u32,
+        amount_ustx: u128,
+    ) -> RawPox5Entry {
+        RawPox5Entry::new_for_test(
+            stacker_version,
+            stacker_hash.0,
+            unlock_height,
+            amount_ustx,
+            vec![],
+        )
+    }
+
     #[test]
     fn validate_pox_p2wsh_outputs_valid() {
         let first_burn_hash = BurnchainHeaderHash::from_hex(
@@ -12182,16 +12206,21 @@ pub mod tests {
         // Validate with last_cycle_calculation_height at 100 (output is at 101, so should be included)
         let ic = db.index_conn();
         let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_1.sortition_id).unwrap();
-        let test_script = [witness_script.clone()];
-        let result = validate_pox_p2wsh_outputs(&mut handle, &test_script, 100);
+
+        // Create an iterator of RawPox5Entry items
+        let entry = make_test_pox5_entry(0x1a, &stacker_hash, 200000, 500000);
+        assert_eq!(entry.script_hash(), script_hash);
+
+        let entries: Vec<Result<RawPox5Entry, PoxEntryParsingError>> = vec![Ok(entry.clone())];
+        let mut entries_iter = entries.into_iter();
+
+        let result = validate_pox_p2wsh_outputs(&mut handle, &mut entries_iter, 100);
 
         assert!(result.is_ok());
         let validated = result.unwrap();
         assert_eq!(validated.len(), 1);
 
-        let (lock_data, outputs) = validated.get(&witness_script).unwrap();
-        assert_eq!(lock_data.unlock_btc_height, 200000);
-        assert_eq!(lock_data.stacker.version(), 0x1a);
+        let outputs = validated.get(&entry).unwrap();
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0].output.txid, Txid([0xaau8; 32]));
         assert_eq!(outputs[0].output.amount, 500000);
@@ -12199,53 +12228,64 @@ pub mod tests {
 
     #[test]
     fn validate_pox_p2wsh_outputs_invalid_script() {
+        use crate::chainstate::nakamoto::signer_set::PoxEntryParsingError;
+
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
         .unwrap();
         let db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
 
-        // Create an invalid witness script (too short)
-        let invalid_script = Script::from(vec![0u8; 20]);
-
         let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         let ic = db.index_conn();
         let mut handle =
             SortitionHandleConn::open_reader(&ic, &canonical_tip.sortition_id).unwrap();
 
+        // Create an iterator with an invalid entry (will be skipped)
+        let entries: Vec<Result<RawPox5Entry, PoxEntryParsingError>> = vec![Err(
+            PoxEntryParsingError::Skip("Invalid script".to_string()),
+        )];
+        let mut entries_iter = entries.into_iter();
+
         // Validate should succeed but return empty map (invalid script is skipped)
-        let test_script = [invalid_script];
-        let result = validate_pox_p2wsh_outputs(&mut handle, &test_script, 100);
+        let result = validate_pox_p2wsh_outputs(&mut handle, &mut entries_iter, 100);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 0);
     }
 
     #[test]
     fn validate_pox_p2wsh_outputs_no_matching_outputs() {
+        use crate::chainstate::nakamoto::signer_set::PoxEntryParsingError;
+
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
         .unwrap();
         let db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
 
-        // Create a valid witness script but don't store any outputs for it
+        // Create a valid entry but don't store any outputs for it
         let stacker_hash = Hash160([0x22u8; 20]);
-        let witness_script = make_valid_pox_p2wsh_script(0x1a, &stacker_hash, 200000);
+        let entry = make_test_pox5_entry(0x1a, &stacker_hash, 200000, 500000);
 
         let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         let ic = db.index_conn();
         let mut handle =
             SortitionHandleConn::open_reader(&ic, &canonical_tip.sortition_id).unwrap();
 
+        // Create an iterator with the entry
+        let entries: Vec<Result<RawPox5Entry, PoxEntryParsingError>> = vec![Ok(entry)];
+        let mut entries_iter = entries.into_iter();
+
         // Validate should succeed but return empty map (no outputs found)
-        let test_script = [witness_script];
-        let result = validate_pox_p2wsh_outputs(&mut handle, &test_script, 100);
+        let result = validate_pox_p2wsh_outputs(&mut handle, &mut entries_iter, 100);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 0);
     }
 
     #[test]
     fn validate_pox_p2wsh_outputs_before_calculation_height() {
+        use crate::chainstate::nakamoto::signer_set::PoxEntryParsingError;
+
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
@@ -12253,6 +12293,7 @@ pub mod tests {
         let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
 
         let stacker_hash = Hash160([0x33u8; 20]);
+        let entry = make_test_pox5_entry(0x1a, &stacker_hash, 200000, 500000);
         let witness_script = make_valid_pox_p2wsh_script(0x1a, &stacker_hash, 200000);
         let script_hash = WitnessScriptHash::from(&witness_script);
 
@@ -12275,8 +12316,12 @@ pub mod tests {
         // Validate with last_cycle_calculation_height at 101 (output is at 101, so should be excluded)
         let ic = db.index_conn();
         let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_1.sortition_id).unwrap();
-        let test_script = [witness_script];
-        let result = validate_pox_p2wsh_outputs(&mut handle, &test_script, 101);
+
+        // Create an iterator with the entry
+        let entries: Vec<Result<RawPox5Entry, PoxEntryParsingError>> = vec![Ok(entry)];
+        let mut entries_iter = entries.into_iter();
+
+        let result = validate_pox_p2wsh_outputs(&mut handle, &mut entries_iter, 101);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 0); // Output excluded because it's not after calculation height
@@ -12284,6 +12329,8 @@ pub mod tests {
 
     #[test]
     fn validate_pox_p2wsh_outputs_duplicate_script_hashes() {
+        use crate::chainstate::nakamoto::signer_set::PoxEntryParsingError;
+
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
@@ -12291,6 +12338,7 @@ pub mod tests {
         let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
 
         let stacker_hash = Hash160([0x55u8; 20]);
+        let entry = make_test_pox5_entry(0x1a, &stacker_hash, 200000, 500000);
         let witness_script = make_valid_pox_p2wsh_script(0x1a, &stacker_hash, 200000);
         let script_hash = WitnessScriptHash::from(&witness_script);
 
@@ -12317,38 +12365,47 @@ pub mod tests {
             .unwrap();
         tx.commit().unwrap();
 
-        // Pass the same script twice - second occurrence should not re-use the outputs
+        // Pass the same entry twice - second occurrence should not re-use the outputs
         let ic = db.index_conn();
         let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_1.sortition_id).unwrap();
-        let test_in = [witness_script.clone(), witness_script.clone()];
-        let result = validate_pox_p2wsh_outputs(&mut handle, &test_in, 100);
+
+        // Create an iterator with the same entry twice
+        let entries: Vec<Result<RawPox5Entry, PoxEntryParsingError>> =
+            vec![Ok(entry.clone()), Ok(entry.clone())];
+        let mut entries_iter = entries.into_iter();
+
+        let result = validate_pox_p2wsh_outputs(&mut handle, &mut entries_iter, 100);
 
         assert!(result.is_ok());
         let validated = result.unwrap();
-        // Only one entry because the second script finds the outputs already used
+        // Only one entry because the second entry finds the outputs already used
         assert_eq!(validated.len(), 1);
 
-        // The first script gets both outputs
-        let (_, outputs) = validated.values().next().unwrap();
-        assert_eq!(outputs.len(), 2); // Both outputs consumed by first script
+        // The first entry gets both outputs
+        let outputs = validated.values().next().unwrap();
+        assert_eq!(outputs.len(), 2); // Both outputs consumed by first entry
         assert_eq!(outputs[0].output.amount, 500000);
         assert_eq!(outputs[1].output.amount, 600000)
     }
 
     #[test]
     fn validate_pox_p2wsh_outputs_multiple_scripts() {
+        use crate::chainstate::nakamoto::signer_set::PoxEntryParsingError;
+
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
         .unwrap();
         let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
 
-        // Create two different witness scripts
+        // Create two different entries
         let stacker_hash_1 = Hash160([0x66u8; 20]);
+        let entry_1 = make_test_pox5_entry(0x1a, &stacker_hash_1, 200000, 500000);
         let witness_script_1 = make_valid_pox_p2wsh_script(0x1a, &stacker_hash_1, 200000);
         let script_hash_1 = WitnessScriptHash::from(&witness_script_1);
 
         let stacker_hash_2 = Hash160([0x77u8; 20]);
+        let entry_2 = make_test_pox5_entry(0x16, &stacker_hash_2, 300000, 750000);
         let witness_script_2 = make_valid_pox_p2wsh_script(0x16, &stacker_hash_2, 300000);
         let script_hash_2 = WitnessScriptHash::from(&witness_script_2);
 
@@ -12375,31 +12432,36 @@ pub mod tests {
             .unwrap();
         tx.commit().unwrap();
 
-        // Validate both scripts
+        // Validate both entries
         let ic = db.index_conn();
         let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_1.sortition_id).unwrap();
-        let test_in = [witness_script_1.clone(), witness_script_2.clone()];
-        let result = validate_pox_p2wsh_outputs(&mut handle, &test_in, 100);
+
+        // Create an iterator with both entries
+        let entries: Vec<Result<RawPox5Entry, PoxEntryParsingError>> =
+            vec![Ok(entry_1.clone()), Ok(entry_2.clone())];
+        let mut entries_iter = entries.into_iter();
+
+        let result = validate_pox_p2wsh_outputs(&mut handle, &mut entries_iter, 100);
 
         assert!(result.is_ok());
         let validated = result.unwrap();
         assert_eq!(validated.len(), 2);
 
-        // Check first script
-        let (lock_data_1, outputs_1) = validated.get(&witness_script_1).unwrap();
-        assert_eq!(lock_data_1.unlock_btc_height, 200000);
+        // Check first entry
+        let outputs_1 = validated.get(&entry_1).unwrap();
         assert_eq!(outputs_1.len(), 1);
         assert_eq!(outputs_1[0].output.amount, 500000);
 
-        // Check second script
-        let (lock_data_2, outputs_2) = validated.get(&witness_script_2).unwrap();
-        assert_eq!(lock_data_2.unlock_btc_height, 300000);
+        // Check second entry
+        let outputs_2 = validated.get(&entry_2).unwrap();
         assert_eq!(outputs_2.len(), 1);
         assert_eq!(outputs_2[0].output.amount, 750000);
     }
 
     #[test]
     fn validate_pox_p2wsh_outputs_not_in_fork() {
+        use crate::chainstate::nakamoto::signer_set::PoxEntryParsingError;
+
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
@@ -12407,6 +12469,7 @@ pub mod tests {
         let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
 
         let stacker_hash = Hash160([0x88u8; 20]);
+        let entry = make_test_pox5_entry(0x1a, &stacker_hash, 200000, 500000);
         let witness_script = make_valid_pox_p2wsh_script(0x1a, &stacker_hash, 200000);
         let script_hash = WitnessScriptHash::from(&witness_script);
 
@@ -12448,22 +12511,29 @@ pub mod tests {
         // Validate from snapshot_1's perspective - output should be found in its own fork
         let ic = db.index_conn();
         let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_1.sortition_id).unwrap();
-        let test_in = [witness_script.clone()];
-        let result = validate_pox_p2wsh_outputs(&mut handle, &test_in, 100);
+
+        // Create an iterator with the entry
+        let entries: Vec<Result<RawPox5Entry, PoxEntryParsingError>> = vec![Ok(entry.clone())];
+        let mut entries_iter = entries.into_iter();
+
+        let result = validate_pox_p2wsh_outputs(&mut handle, &mut entries_iter, 100);
 
         assert!(result.is_ok());
         let validated = result.unwrap();
         assert_eq!(validated.len(), 1); // Output found in snapshot_1's fork
-        let (lock_data, outputs) = validated.get(&witness_script).unwrap();
-        assert_eq!(lock_data.unlock_btc_height, 200000);
+        let outputs = validated.get(&entry).unwrap();
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0].output.amount, 500000);
 
         // Validate from snapshot_2's perspective (output is in snapshot_1, which is in a different fork)
         // snapshot_1 and snapshot_2 are in different forks (both branch from parent_snapshot)
         let mut handle = SortitionHandleConn::open_reader(&ic, &snapshot_2.sortition_id).unwrap();
-        let test_in = [witness_script.clone()];
-        let result = validate_pox_p2wsh_outputs(&mut handle, &test_in, 100);
+
+        // Create an iterator with the entry again
+        let entries: Vec<Result<RawPox5Entry, PoxEntryParsingError>> = vec![Ok(entry)];
+        let mut entries_iter = entries.into_iter();
+
+        let result = validate_pox_p2wsh_outputs(&mut handle, &mut entries_iter, 100);
 
         assert!(result.is_ok());
         let validated = result.unwrap();

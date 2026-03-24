@@ -18,7 +18,10 @@ use std::collections::HashMap;
 use clarity::vm::clarity::ClarityError;
 use clarity::vm::database::DataVariableMetadata;
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData, TypeSignature};
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
+    TypeSignature,
+};
 use clarity::vm::{SymbolicExpression, Value};
 use sha2::{Digest, Sha256};
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
@@ -26,9 +29,11 @@ use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{to_hex, Hash160};
 
-use crate::burnchains::PoxConstants;
 use crate::burnchains::bitcoin::WitnessScriptHash;
-use crate::chainstate::burn::db::sortdb::{validate_pox_p2wsh_outputs, SortitionDB};
+use crate::burnchains::PoxConstants;
+use crate::chainstate::burn::db::sortdb::{
+    validate_pox_p2wsh_outputs, SortitionDB, WatchedP2WSHOutputMetadata,
+};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     PoxVersions, RawRewardSetEntry, RewardSet, SIGNERS_LAST_UPDATED_BTC_HEIGHT,
@@ -230,7 +235,7 @@ impl RawRewardSetEntry {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum RawPox5EntryInfo {
     Pool(PrincipalData),
     Solo {
@@ -239,7 +244,7 @@ pub enum RawPox5EntryInfo {
     },
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct RawPox5Entry {
     user: StandardPrincipalData,
     num_cycles: u128,
@@ -251,44 +256,105 @@ pub struct RawPox5Entry {
 }
 
 impl RawPox5Entry {
+    /// Test constructor for creating RawPox5Entry instances in tests
+    #[cfg(test)]
+    pub fn new_for_test(
+        stacker_version: u8,
+        stacker_hash: [u8; 20],
+        unlock_height: u32,
+        amount_ustx: u128,
+        unlock_bytes: Vec<u8>,
+    ) -> Self {
+        use stacks_common::types::chainstate::StacksAddress;
+
+        use crate::chainstate::stacks::address::PoxAddress;
+
+        let user = StandardPrincipalData::new(stacker_version, stacker_hash).unwrap();
+        let pox_addr = PoxAddress::Standard(
+            StacksAddress::new(stacker_version, Hash160(stacker_hash)).unwrap(),
+            None,
+        );
+
+        Self {
+            user,
+            num_cycles: 1,
+            unlock_bytes,
+            amount_ustx,
+            first_reward_cycle: 0,
+            unlock_height,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr,
+                signer_key: [0u8; 33],
+            },
+        }
+    }
+
     pub fn script_hash(&self) -> WitnessScriptHash {
         let mut hasher = Sha256::new();
-        hasher.update(&[opcodes::All::OP_PUSHBYTES_22 as u8, self.user.version()]);
-        // todo: must validate `self.user.version == 0x05`
+        hasher.update(&[
+            opcodes::All::OP_PUSHBYTES_22 as u8,
+            0x05,
+            self.user.version(),
+        ]);
         hasher.update(&self.user.1);
-        hasher.update(&[opcodes::All::OP_DROP as u8, opcodes::All::OP_PUSHBYTES_3 as u8]);
+        hasher.update(&[
+            opcodes::All::OP_DROP as u8,
+            opcodes::All::OP_PUSHBYTES_3 as u8,
+        ]);
         hasher.update(&self.unlock_height.to_le_bytes()[0..3]);
         hasher.update(&[opcodes::OP_CLTV as u8, opcodes::All::OP_DROP as u8]);
         hasher.update(&self.unlock_bytes);
         WitnessScriptHash::from(hasher)
     }
 
-    // Note: All of these errors *exit* reward set processing. Should they just skip the given entry?
-    fn try_parse(user: PrincipalData, value: Value, is_mainnet: bool, first_block_ht: u64, pox_constants: &PoxConstants) -> Result<Self, String> {
+    /// Try parsing a value from PoX-5 into a `RawPox5Entry`, if any step of the parsing
+    /// (or validation) fails, return a string error.
+    fn try_parse(
+        user: PrincipalData,
+        value: Value,
+        is_mainnet: bool,
+        first_block_ht: u64,
+        pox_constants: &PoxConstants,
+    ) -> Result<Self, String> {
         let PrincipalData::Standard(user) = user else {
             return Err("Expected a standard principal, not a contract".into());
         };
-        let mut value = value.expect_tuple().map_err(|_| "Staking entry should be a tuple")?;
-        let num_cycles = value.data_map.get("num-cycles")
+        if is_mainnet != user.is_mainnet() {
+            return Err("Expected in-network principal version".into());
+        }
+        let mut value = value
+            .expect_tuple()
+            .map_err(|_| "Staking entry should be a tuple")?;
+        let num_cycles = value
+            .data_map
+            .get("num-cycles")
             .ok_or_else(|| "Staking entry should have num-cycles")?
             .clone()
             .expect_u128()
             .map_err(|_| "Staking entry should be uint")?;
-        let first_reward_cycle = value.data_map.get("first-reward-cycle")
+        let first_reward_cycle = value
+            .data_map
+            .get("first-reward-cycle")
             .ok_or_else(|| "Staking entry should have first-reward-cycle")?
             .clone()
             .expect_u128()
             .map_err(|_| "Staking entry should be uint")?;
-        let amount_ustx = value.data_map.get("amount-ustx")
+        let amount_ustx = value
+            .data_map
+            .get("amount-ustx")
             .ok_or_else(|| "Staking entry should have amount-ustx")?
             .clone()
             .expect_u128()
             .map_err(|_| "Staking entry should be uint")?;
-        let unlock_bytes = value.data_map.remove("unlock-bytes")
+        let unlock_bytes = value
+            .data_map
+            .remove("unlock-bytes")
             .ok_or_else(|| "Staking entry should have unlock-bytes")?
             .expect_buff(683)
             .map_err(|_| "Staking entry should be buff")?;
-        let pool_or_solo_info = value.data_map.remove("pool-or-solo-info")
+        let pool_or_solo_info = value
+            .data_map
+            .remove("pool-or-solo-info")
             .ok_or_else(|| "Staking entry should have pool-or-solo-info")?
             .expect_result()
             .map_err(|_| "Staking entry should be response")?;
@@ -296,36 +362,41 @@ impl RawPox5Entry {
             Ok(pool_info) => RawPox5EntryInfo::Pool(
                 pool_info
                     .expect_principal()
-                    .map_err(|_| "Staking entry should be principal")?
+                    .map_err(|_| "Staking entry should be principal")?,
             ),
             Err(solo_info) => {
-                let solo_info_map = solo_info.expect_tuple()
+                let solo_info_map = solo_info
+                    .expect_tuple()
                     .map_err(|_| "Staking entry info should be tuple")?;
-                let pox_addr_tuple = solo_info_map.get("pox-addr")
+                let pox_addr_tuple = solo_info_map
+                    .get("pox-addr")
                     .map_err(|_| "Staking entry info should have pox-addr")?;
                 let pox_addr = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
-                    .ok_or_else(||
-                        format!("not a valid PoX address: {pox_addr_tuple}")
-                    )?;
-                let Value::Sequence(SequenceData::Buffer(signer)) = solo_info_map.get("signer-key")
-                    .map_err(|_| "Staking entry info should have signer-key")? else {
-                        return Err("signer-key should be a buff".into());
+                    .ok_or_else(|| format!("not a valid PoX address: {pox_addr_tuple}"))?;
+                let Value::Sequence(SequenceData::Buffer(signer)) = solo_info_map
+                    .get("signer-key")
+                    .map_err(|_| "Staking entry info should have signer-key")?
+                else {
+                    return Err("signer-key should be a buff".into());
                 };
 
-                let signer_key: [u8; SIGNERS_PK_LEN] = signer.as_slice().try_into().unwrap_or_else(|_| [0; SIGNERS_PK_LEN]); 
+                let signer_key: [u8; SIGNERS_PK_LEN] = signer
+                    .as_slice()
+                    .try_into()
+                    .unwrap_or_else(|_| [0; SIGNERS_PK_LEN]);
                 RawPox5EntryInfo::Solo {
                     signer_key,
-                    pox_addr
+                    pox_addr,
                 }
-            },
+            }
         };
 
-        let last_cycle: u64 = first_reward_cycle.saturating_add(num_cycles).try_into()
+        let last_cycle: u64 = first_reward_cycle
+            .saturating_add(num_cycles)
+            .try_into()
             .map_err(|_| "Staking entry must have a u64 cycle number")?;
-        let unlock_height: u32 = pox_constants.reward_cycle_to_block_height(
-            first_block_ht,
-            last_cycle
-        )
+        let unlock_height: u32 = pox_constants
+            .reward_cycle_to_block_height(first_block_ht, last_cycle)
             .try_into()
             .map_err(|_| "Staking entry must have a u32 unlock height")?;
         if unlock_height > u32::from_le_bytes([0xff, 0xff, 0xff, 0x00]) {
@@ -354,56 +425,80 @@ pub struct StakeEntryIteratorPox5<'a, 'b, 'c> {
     first_block_ht: u64,
 }
 
-impl <'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
-    fn fallible_next(&mut self) -> Result<Option<RawPox5Entry>, ChainstateError> {
+#[derive(Debug)]
+pub enum PoxEntryParsingError {
+    /// Errors for which PoX set calculation should continue, but skip
+    ///  the offending entry.
+    Skip(String),
+    /// Errors for which PoX set calculation should abort.
+    Abort(String),
+}
+
+impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
+    fn fallible_next(&mut self) -> Result<Option<RawPox5Entry>, PoxEntryParsingError> {
         let Some(cur_staker) = self.current_staker.take() else {
             return Ok(None);
         };
 
         let lookup_staker = SymbolicExpression::atom_value(Value::Principal(cur_staker.clone()));
         // update the iterator using the linked list
-        let next_staker = self.clarity
+        let next_staker = self
+            .clarity
             .eval_method_read_only(
                 &self.pox_contract,
                 "get-staker-set-next-item-for-cycle",
-                &[lookup_staker.clone(), self.reward_cycle_clar.clone()]
-            )?
+                &[lookup_staker.clone(), self.reward_cycle_clar.clone()],
+            )
+            .map_err(|e| PoxEntryParsingError::Abort(e.to_string()))?
             .expect_optional()
             .map_err(|_| {
-                ChainstateError::Expects("get-staker-set-next-item-for-cycle did not return optional".into())
+                PoxEntryParsingError::Abort(
+                    "get-staker-set-next-item-for-cycle did not return optional".into(),
+                )
             })?
             .map(|entry| entry.expect_principal())
             .transpose()
             .map_err(|_| {
-                ChainstateError::Expects("get-staker-set-next-item-for-cycle did not return optional".into())
+                PoxEntryParsingError::Abort(
+                    "get-staker-set-next-item-for-cycle did not return principal".into(),
+                )
             })?;
         self.current_staker = next_staker;
 
-        // TODO: errors below this point should just continue the iterator, while errors above should
-        //  cancel the calculation. So make the error kind matchable
+        // errors below this point just continue the iterator, while errors above should
+        //  cancel the calculation.
         let staker_entry_clar = self.clarity
             .eval_method_read_only(
                 &self.pox_contract,
                 "get-staker-set-item-for-cycle",
                 &[lookup_staker, self.reward_cycle_clar.clone()]
-            )?
+            )
+            .map_err(|e| {
+                PoxEntryParsingError::Skip(e.to_string())
+            })?
             .expect_optional()
             .map_err(|_| {
-                ChainstateError::Expects("get-staker-set-item-for-cycle did not return optional".into())
+                PoxEntryParsingError::Skip("get-staker-set-item-for-cycle did not return optional".into())
             })?
             .ok_or_else(|| {
-                ChainstateError::Expects(format!(
+                PoxEntryParsingError::Skip(format!(
                     "get-staker-set-item-for-cycle did not return Some for a link-list entry: {cur_staker}"))
             })?;
-        let staker_entry = RawPox5Entry::try_parse(cur_staker, staker_entry_clar, self.is_mainnet, self.first_block_ht, &self.pox_constants)
-            .map_err(ChainstateError::Expects)?;
+        let staker_entry = RawPox5Entry::try_parse(
+            cur_staker,
+            staker_entry_clar,
+            self.is_mainnet,
+            self.first_block_ht,
+            &self.pox_constants,
+        )
+        .map_err(PoxEntryParsingError::Skip)?;
 
         Ok(Some(staker_entry))
     }
 }
 
-impl <'a, 'b, 'c> Iterator for StakeEntryIteratorPox5<'a, 'b, 'c> {
-    type Item = Result<RawPox5Entry, ChainstateError>;
+impl<'a, 'b, 'c> Iterator for StakeEntryIteratorPox5<'a, 'b, 'c> {
+    type Item = Result<RawPox5Entry, PoxEntryParsingError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         StakeEntryIteratorPox5::fallible_next(self).transpose()
@@ -411,7 +506,7 @@ impl <'a, 'b, 'c> Iterator for StakeEntryIteratorPox5<'a, 'b, 'c> {
 }
 
 impl NakamotoSigners {
-    fn pox_5_stake_entries<'a, 'b, 'c> (
+    fn pox_5_stake_entries<'a, 'b, 'c>(
         clarity: &'a mut ClarityTransactionConnection<'b, 'c>,
         reward_cycle: u64,
         pox_contract: &str,
@@ -436,16 +531,20 @@ impl NakamotoSigners {
             .eval_method_read_only(
                 &pox_contract,
                 "get-staker-set-first-item-for-cycle",
-                &[reward_cycle_clar.clone()]
+                &[reward_cycle_clar.clone()],
             )?
             .expect_optional()
             .map_err(|_| {
-                ChainstateError::Expects("get-staker-set-first-item-for-cycle did not return optional".into())
+                ChainstateError::Expects(
+                    "get-staker-set-first-item-for-cycle did not return optional".into(),
+                )
             })?
             .map(|value| value.expect_principal())
             .transpose()
             .map_err(|_| {
-                ChainstateError::Expects("get-staker-set-first-item-for-cycle did not return optional principal".into())
+                ChainstateError::Expects(
+                    "get-staker-set-first-item-for-cycle did not return optional principal".into(),
+                )
             })?;
 
         Ok(StakeEntryIteratorPox5 {
@@ -523,40 +622,17 @@ impl NakamotoSigners {
         Ok(slots)
     }
 
-    /// For PoX-4, compute the reward set for the next reward cycle,
-    /// store it, and write it to the .signers contract.
-    ///
-    /// * `reward_cycle` is the reward cycle for the calculation (i.e., the next cycle).
-    fn pox_4_compute_and_update_signers(
+    fn update_signers(
         clarity: &mut ClarityTransactionConnection,
-        pox_constants: &PoxConstants,
         reward_cycle: u64,
-        pox_contract: &str,
+        reward_set: &RewardSet,
+        signers_contract: &QualifiedContractIdentifier,
+        has_participation: bool,
         coinbase_height: u64,
-    ) -> Result<SignerCalculation, ChainstateError> {
-        let is_mainnet = clarity.is_mainnet();
+        is_mainnet: bool,
+    ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
         let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
-        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
-
-        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
-        let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
-        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
-            pox_constants,
-            &reward_slots[..],
-            liquid_ustx,
-        );
-
-        let pox_version: PoxVersions =
-            PoxVersions::lookup_by_name(pox_contract).ok_or(ChainstateError::DefunctPoxContract)?;
-        let reward_set = StacksChainState::make_reward_set(
-            threshold,
-            reward_slots,
-            StacksEpochId::Epoch30,
-            pox_version,
-        );
-
-        test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
-        let stackerdb_list = if participation == 0 {
+        let stackerdb_list = if !has_participation {
             vec![]
         } else {
             reward_set
@@ -584,7 +660,7 @@ impl NakamotoSigners {
                 .collect::<Result<Vec<_>, _>>()?
         };
 
-        let signers_list = if participation == 0 {
+        let signers_list = if !has_participation {
             vec![]
         } else {
             reward_set
@@ -677,6 +753,52 @@ impl NakamotoSigners {
             }
         }
 
+        Ok(events)
+    }
+
+    /// For PoX-4, compute the reward set for the next reward cycle,
+    /// store it, and write it to the .signers contract.
+    ///
+    /// * `reward_cycle` is the reward cycle for the calculation (i.e., the next cycle).
+    fn pox_4_compute_and_update_signers(
+        clarity: &mut ClarityTransactionConnection,
+        pox_constants: &PoxConstants,
+        reward_cycle: u64,
+        pox_contract: &str,
+        coinbase_height: u64,
+    ) -> Result<SignerCalculation, ChainstateError> {
+        let is_mainnet = clarity.is_mainnet();
+        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
+
+        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
+        let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
+        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
+            pox_constants,
+            &reward_slots[..],
+            liquid_ustx,
+        );
+
+        let pox_version: PoxVersions =
+            PoxVersions::lookup_by_name(pox_contract).ok_or(ChainstateError::DefunctPoxContract)?;
+        let reward_set = StacksChainState::make_reward_set(
+            threshold,
+            reward_slots,
+            StacksEpochId::Epoch30,
+            pox_version,
+        );
+
+        test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
+
+        let events = Self::update_signers(
+            clarity,
+            reward_cycle,
+            &reward_set,
+            signers_contract,
+            participation > 0,
+            coinbase_height,
+            is_mainnet,
+        )?;
+
         Ok(SignerCalculation { events, reward_set })
     }
 
@@ -697,34 +819,27 @@ impl NakamotoSigners {
         current_epoch: &StacksEpochId,
     ) -> Result<SignerCalculation, ChainstateError> {
         let is_mainnet = clarity.is_mainnet();
-        let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
         let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
 
         let first_burn_ht = sortition_dbconn.get_burn_start_height();
         let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
-        let mut entries = Self::pox_5_stake_entries(clarity, reward_cycle, pox_contract, pox_constants.clone(), first_burn_ht.into())?;
-
-        // let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
-        // let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
-        //     pox_constants,
-        //     &reward_slots[..],
-        //     liquid_ustx,
-        // );
-
-        // let pox_version: PoxVersions =
-        //     PoxVersions::lookup_by_name(pox_contract).ok_or(ChainstateError::DefunctPoxContract)?;
-        // let reward_set = StacksChainState::make_reward_set(
-        //     threshold,
-        //     reward_slots,
-        //     StacksEpochId::Epoch30,
-        //     pox_version,
-        // );
+        let mut entries = Self::pox_5_stake_entries(
+            clarity,
+            reward_cycle,
+            pox_contract,
+            pox_constants.clone(),
+            first_burn_ht.into(),
+        )?;
 
         // do the p2wsh validation...
         let new_sortition_db = sortition_dbconn.reopen_handle();
         let mut sortition_handle = new_sortition_db.as_ref();
-        let _result =
-            validate_pox_p2wsh_outputs(&mut sortition_handle, &mut entries, last_computed_btc_height)?;
+        let entries = validate_pox_p2wsh_outputs(
+            &mut sortition_handle,
+            &mut entries,
+            last_computed_btc_height,
+        )?;
+
         // store the last_computed_btc_height
         clarity.with_clarity_db(|db| {
             db.set_variable(
@@ -738,8 +853,32 @@ impl NakamotoSigners {
             error!("FATAL: failed to set SIGNERS_LAST_UPDATED_BTC_HEIGHT during reward set calculation");
             ChainstateError::PoxNoRewardCycle
         })?;
-        // todo: apply the validation check changes to the reward set.
-        Err(ChainstateError::Expects("Not implemented".into()))
+
+        // compute the reward set, and then update the signers db
+        let reward_set = Self::pox_5_make_reward_set(entries, liquid_ustx)?;
+        let events = Self::update_signers(
+            clarity,
+            reward_cycle,
+            &reward_set,
+            signers_contract,
+            reward_set.rewarded_addresses.len() > 0,
+            coinbase_height,
+            is_mainnet,
+        )?;
+
+        // if we want to "write-back" any state to PoX-5 (e.g., computed weights)
+        //  we should do it here
+
+        Ok(SignerCalculation { reward_set, events })
+    }
+
+    fn pox_5_make_reward_set(
+        _entries: HashMap<RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>>,
+        _liquid_ustx: u128,
+        // will probably need other arguments here to get the windowed averages for
+        //  STX/BTC price ratio, STX/BTC 95th percentile ratios
+    ) -> Result<RewardSet, ChainstateError> {
+        todo!("Implement PoX-5 reward set calculations")
     }
 
     /// If this block is mined in the prepare phase, based on its tenure's `burn_tip_height`.  If
