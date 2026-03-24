@@ -272,7 +272,7 @@ jobs:
   ## Merge and upload code coverage report files once all tests are done
   ##
   ## Runs when:
-  ##   - always (unless workflow is cancelled OR any tests are skipped)
+  ##   - always (unless workflow is cancelled OR either blockchain or core tests are skipped)
   trigger-code-coverage-report:
     if: always() && !cancelled() && !contains(needs.stacks-core-tests.result, 'skipped') && !contains(needs.bitcoin-tests.result, 'skipped')
     name: Merge & Upload Code Coverage Report
@@ -297,7 +297,7 @@ jobs:
       - name: Check for at least 1 code coverage file
         shell: bash
         run: |
-          file_count=$(ls ./${{ env.REPORT_FILES_DIR }}/*.${{ env.REPORT_FILES_EXT }} | wc -l)
+          file_count=$(find -type f -wholename "./${{ env.REPORT_FILES_DIR }}/*.${{ env.REPORT_FILES_EXT }}" | wc -l)
           if [ "$file_count" -eq 0 ]; then
             echo "ERROR: no code coverage files found to merge. Verify that they were correctly generated and uploaded in prior CI steps"
             exit 1
