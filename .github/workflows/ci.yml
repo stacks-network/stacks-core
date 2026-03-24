@@ -274,7 +274,7 @@ jobs:
   ## Runs when:
   ##   - always (unless workflow is cancelled OR any tests are skipped)
   trigger-code-coverage-report:
-    if: ${{ always() && !cancelled() && !contains(needs.*.result, 'skipped') }}
+    if: always() && !cancelled() && !contains(needs.stacks-core-tests.result, 'skipped') && !contains(needs.bitcoin-tests.result, 'skipped')
     name: Merge & Upload Code Coverage Report
     runs-on: ubuntu-latest
     needs:
