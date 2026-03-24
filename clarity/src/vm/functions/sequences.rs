@@ -57,6 +57,13 @@ pub fn list_cons(
     Ok(value)
 }
 
+/// Implements the Clarity `filter` function: `(filter func sequence)`.
+///
+/// Applies a boolean predicate `func` to each element of `sequence`, returning a new
+/// sequence containing only the elements for which `func` returned `true`.
+/// The predicate must return a `bool`; a type error is raised otherwise.
+///
+/// `args[0]` is the function name (atom) and `args[1]` is the sequence expression.
 pub fn special_filter(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
@@ -113,6 +120,14 @@ pub fn special_filter(
     Ok(sequence)
 }
 
+/// Implements the Clarity `fold` function: `(fold func sequence initial)`.
+///
+/// Iterates over `sequence`, threading an accumulator through successive calls to `func`.
+/// Each step calls `func` with `(element, accumulator)` and uses the result as the new
+/// accumulator. Returns the final accumulator value.
+///
+/// `args[0]` is the function name (atom), `args[1]` is the sequence expression,
+/// and `args[2]` is the initial accumulator value.
 pub fn special_fold(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
@@ -151,6 +166,14 @@ pub fn special_fold(
     Ok(acc)
 }
 
+/// Implements the Clarity `map` function: `(map func sequence-0 ... sequence-n)`.
+///
+/// Applies `func` element-wise across one or more input sequences, collecting the results
+/// into a new list. When multiple sequences are provided, iteration stops at the length of
+/// the shortest sequence. Each call to `func` receives one element from each sequence,
+/// positionally (e.g., the i-th call gets the i-th element of every sequence).
+///
+/// `args[0]` is the function name (atom) and `args[1..]` are the sequence expressions.
 pub fn special_map(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,

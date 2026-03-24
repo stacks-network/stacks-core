@@ -339,6 +339,16 @@ fn dispatch_args(
     resp
 }
 
+/// Evaluates unevaluated arguments and dispatches them to a [`CallableType`].
+///
+/// Each [`SymbolicExpression`] in `args` is evaluated (via [`eval`]) and charged for memory.
+/// The resulting [`Value`]s are then dispatched through [`dispatch_args`] to the appropriate
+/// callable variant (native, native-205, user-defined, or special).
+///
+/// For [`CallableType::SpecialFunction`]s, `args` are passed unevaluated — the special
+/// function is responsible for evaluating its own arguments (e.g., short-circuiting in `and`/`or`).
+///
+/// Enforces recursion detection and max stack-depth limits before dispatch.
 pub fn apply(
     function: &CallableType,
     args: &[SymbolicExpression],
@@ -395,7 +405,7 @@ pub fn apply(
     )
 }
 
-/// Like `apply`, but takes pre-evaluated `Value`s, skipping the `eval` + `clone_with_cost`
+/// Like [`apply`], but takes pre-evaluated [`Value`]s, skipping the `eval` + `clone_with_cost`
 /// round-trip for every argument.
 ///
 /// `fold` and `map` already have the element value and accumulator as owned `Value`s; wrapping
