@@ -9,7 +9,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
-- Set the epoch 3.4 activation height to 943,000 per SIP-039 and finalize all settings for epoch 3.4 and Clarity version 5.
+- Set the epoch 3.4 activation height to 943,333 per SIP-039 and finalize all settings for epoch 3.4 and Clarity version 5.
 - Added post-condition enhancements for epoch 3.4 (SIP-040): `Originator` post-condition mode (`0x03`) and NFT `MAY SEND` condition code (`0x12`), including serialization support and epoch-gated validation/enforcement.
 - Disabled `at-block` starting from Epoch 3.4 (see SIP-042). New contracts referencing `at-block` are rejected during static analysis. Existing contracts that invoke it will fail at runtime with an `AtBlockUnavailable` error.
 

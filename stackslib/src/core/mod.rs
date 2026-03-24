@@ -115,7 +115,7 @@ pub const BITCOIN_MAINNET_STACKS_32_BURN_HEIGHT: u64 = 907_740;
 /// This is Epoch-3.3, activation timing proposed in SIP-033
 pub const BITCOIN_MAINNET_STACKS_33_BURN_HEIGHT: u64 = 923_222;
 /// This is Epoch-3.4, activation timing proposed in SIP-039
-pub const BITCOIN_MAINNET_STACKS_34_BURN_HEIGHT: u64 = 943_000;
+pub const BITCOIN_MAINNET_STACKS_34_BURN_HEIGHT: u64 = 943_333;
 
 /// Bitcoin mainline testnet3 activation heights.
 /// TODO: No longer used since testnet3 is dead, so remove.
