@@ -900,7 +900,7 @@ fn special_contract_of(
             exec_state
                 .global_context
                 .database
-                .get_contract(&trait_data.contract_identifier)
+                .get_contract_cached(&trait_data.contract_identifier)
                 .map_err(|_e| {
                     RuntimeCheckErrorKind::NoSuchContract(
                         trait_data.contract_identifier.to_string(),

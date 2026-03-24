@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::resident_bytes::ResidentBytes;
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -27,6 +28,7 @@ use stacks_common::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, to_hex};
 
 use super::clarity_store::SpecialCaseHandler;
+use super::contract_cache::{CachedContract, ContractCache};
 use super::key_value_wrapper::ValueResult;
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contracts::Contract;
@@ -136,6 +138,10 @@ pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
+    /// Optional parsed-contract cache shared across transactions within a block.
+    /// 
+    /// Set via [`set_contract_cache()`](Self::set_contract_cache).
+    contract_cache: Option<&'a ContractCache>,
 }
 
 pub trait HeadersDB {
@@ -449,6 +455,7 @@ impl<'a> ClarityDatabase<'a> {
             store: RollbackWrapper::new(store),
             headers_db,
             burn_state_db,
+            contract_cache: None,
         }
     }
 
@@ -461,7 +468,13 @@ impl<'a> ClarityDatabase<'a> {
             store,
             headers_db,
             burn_state_db,
+            contract_cache: None,
         }
+    }
+
+    /// Attach a contract cache to this database.
+    pub fn set_contract_cache(&mut self, cache: &'a ContractCache) {
+        self.contract_cache = Some(cache);
     }
 
     pub fn initialize(&mut self) {}
@@ -852,6 +865,67 @@ impl<'a> ClarityDatabase<'a> {
                 .into()))?;
         data.canonicalize_types(&self.get_clarity_epoch_version()?)?;
         Ok(data)
+    }
+
+    /// Returns just the load-contract cost size (contract_size + data_size) from the cache on hit,
+    /// or from the database on miss.
+    pub fn get_contract_load_cost_size(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<u64, VmExecutionError> {
+        // Only attempt the cache if the store is not retargeted to a historical block (e.g. via
+        // at-block).
+        if !self.store.is_retargeted() {
+            let cached = self
+                .contract_cache
+                .as_ref()
+                .and_then(|cc| cc.get(contract_identifier));
+
+            if let Some(entry) = cached {
+                return Ok(entry.load_cost_size);
+            }
+        }
+
+        self.get_contract_size(contract_identifier)
+    }
+
+    /// Load a contract, returning it from the cache on hit or from the backing store on miss.
+    ///
+    /// On a miss, the entry is inserted into the cache (when one is attached).
+    ///
+    /// When the store is retargeted to a historical block (e.g. `(at-block ...)`), the cache is
+    /// bypassed entirely to avoid serving stale data.
+    pub fn get_contract_cached(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<CachedContract, VmExecutionError> {
+        // Bypass the cache when the store has been retargeted to a historical block (e.g. via
+        // at-block).
+        if self.store.is_retargeted() {
+            let contract_size = self.get_contract_size(contract_identifier)?;
+            let contract = self.get_contract(contract_identifier)?;
+            let resident = contract.resident_bytes() as u64;
+            return Ok(CachedContract::new(contract, contract_size, resident));
+        }
+
+        // Cache hit
+        if let Some(entry) = self
+            .contract_cache
+            .as_ref()
+            .and_then(|cc| cc.get(contract_identifier))
+        {
+            return Ok(entry);
+        }
+
+        // Cache miss: load from committed store, safe to cache
+        let contract_size = self.get_contract_size(contract_identifier)?;
+        let contract = self.get_contract(contract_identifier)?;
+        let resident = contract.resident_bytes() as u64;
+        let entry = CachedContract::new(contract, contract_size, resident);
+        if let Some(cc) = self.contract_cache.as_ref() {
+            cc.insert(contract_identifier.clone(), entry.clone());
+        }
+        Ok(entry)
     }
 
     pub fn ustx_liquid_supply_key() -> &'static str {
@@ -2455,141 +2529,421 @@ impl ClarityDatabase<'_> {
     }
 }
 
-#[test]
-fn increment_ustx_liquid_supply_overflow() {
+#[cfg(test)]
+mod contract_cache_tests {
+    use super::*;
     use crate::vm::database::MemoryBackingStore;
-    use crate::vm::errors::{RuntimeError, VmExecutionError};
+    use crate::vm::{ClarityVersion, ContractContext};
 
-    let mut store = MemoryBackingStore::new();
-    let mut db = store.as_clarity_db();
+    /// Write the rows for a minimal contract. Caller is responsible for the surrounding
+    /// `begin`/`commit` transaction.
+    #[track_caller]
+    fn write_test_contract(db: &mut ClarityDatabase, id: &QualifiedContractIdentifier) {
+        let contract = Contract {
+            contract_context: ContractContext::new(id.clone(), ClarityVersion::Clarity2),
+        };
+        db.insert_contract_hash(id, "(define-public (noop) (ok true))")
+            .expect("insert_contract_hash");
+        db.set_contract_data_size(id, 0)
+            .expect("set_contract_data_size");
+        db.insert_contract(id, contract).expect("insert_contract");
+    }
 
-    db.begin();
-    // Set the liquid supply to one less than the max
-    db.set_ustx_liquid_supply(u128::MAX - 1)
-        .expect("Failed to set liquid supply");
-    // Trust but verify.
-    assert_eq!(
-        db.get_total_liquid_ustx().unwrap(),
-        u128::MAX - 1,
-        "Supply should now be u128::MAX - 1"
-    );
+    /// Insert a minimal contract inside its own committed transaction.
+    #[track_caller]
+    fn deploy_test_contract(db: &mut ClarityDatabase, id: &QualifiedContractIdentifier) {
+        db.begin();
+        write_test_contract(db, id);
+        db.commit()
+            .expect("failed to commit test contract deployment");
+    }
 
-    db.increment_ustx_liquid_supply(1)
-        .expect("Increment by 1 should succeed");
+    #[test]
+    fn increment_ustx_liquid_supply_overflow() {
+        use crate::vm::database::MemoryBackingStore;
+        use crate::vm::errors::{RuntimeError, VmExecutionError};
 
-    // Trust but verify.
-    assert_eq!(
-        db.get_total_liquid_ustx().unwrap(),
-        u128::MAX,
-        "Supply should now be u128::MAX"
-    );
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
 
-    // Attempt to overflow
-    let err = db.increment_ustx_liquid_supply(1).unwrap_err();
-    assert!(matches!(
-        err,
-        VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
-    ));
+        db.begin();
+        // Set the liquid supply to one less than the max
+        db.set_ustx_liquid_supply(u128::MAX - 1)
+            .expect("Failed to set liquid supply");
+        // Trust but verify.
+        assert_eq!(
+            db.get_total_liquid_ustx().unwrap(),
+            u128::MAX - 1,
+            "Supply should now be u128::MAX - 1"
+        );
 
-    // Verify adding 0 doesn't overflow
-    db.increment_ustx_liquid_supply(0)
-        .expect("Increment by 0 should succeed");
+        db.increment_ustx_liquid_supply(1)
+            .expect("Increment by 1 should succeed");
 
-    assert_eq!(db.get_total_liquid_ustx().unwrap(), u128::MAX);
+        // Trust but verify.
+        assert_eq!(
+            db.get_total_liquid_ustx().unwrap(),
+            u128::MAX,
+            "Supply should now be u128::MAX"
+        );
 
-    db.commit().unwrap();
-}
-
-#[test]
-fn checked_decrease_token_supply_underflow() {
-    use crate::vm::database::{MemoryBackingStore, StoreType};
-    use crate::vm::errors::{RuntimeError, VmExecutionError};
-
-    let mut store = MemoryBackingStore::new();
-    let mut db = store.as_clarity_db();
-    let contract_id = QualifiedContractIdentifier::transient();
-    let token_name = "token".to_string();
-
-    db.begin();
-
-    // Set initial supply to 1000
-    let key =
-        ClarityDatabase::make_key_for_trip(&contract_id, StoreType::CirculatingSupply, &token_name);
-    db.put_data(&key, &1000u128)
-        .expect("Failed to set initial token supply");
-
-    // Trust but verify.
-    let current_supply: u128 = db.get_data(&key).unwrap().unwrap();
-    assert_eq!(current_supply, 1000, "Initial supply should be 1000");
-
-    // Decrease by 500: should succeed
-    db.checked_decrease_token_supply(&contract_id, &token_name, 500)
-        .expect("Decreasing by 500 should succeed");
-
-    let new_supply: u128 = db.get_data(&key).unwrap().unwrap();
-    assert_eq!(new_supply, 500, "Supply should now be 500");
-
-    // Decrease by 0: should succeed (no change)
-    db.checked_decrease_token_supply(&contract_id, &token_name, 0)
-        .expect("Decreasing by 0 should succeed");
-    let supply_after_zero: u128 = db.get_data(&key).unwrap().unwrap();
-    assert_eq!(
-        supply_after_zero, 500,
-        "Supply should remain 500 after decreasing by 0"
-    );
-
-    // Attempt to decrease by 501; should trigger SupplyUnderflow
-    let err = db
-        .checked_decrease_token_supply(&contract_id, &token_name, 501)
-        .unwrap_err();
-
-    assert!(
-        matches!(
+        // Attempt to overflow
+        let err = db.increment_ustx_liquid_supply(1).unwrap_err();
+        assert!(matches!(
             err,
-            VmExecutionError::Runtime(RuntimeError::SupplyUnderflow(500, 501), _)
-        ),
-        "Expected SupplyUnderflow(500, 501), got: {err:?}"
-    );
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
+        ));
 
-    // Supply should remain unchanged after failed underflow
-    let final_supply: u128 = db.get_data(&key).unwrap().unwrap();
-    assert_eq!(
-        final_supply, 500,
-        "Supply should not change after underflow error"
-    );
+        // Verify adding 0 doesn't overflow
+        db.increment_ustx_liquid_supply(0)
+            .expect("Increment by 0 should succeed");
 
-    db.commit().unwrap();
-}
+        assert_eq!(db.get_total_liquid_ustx().unwrap(), u128::MAX);
 
-#[test]
-fn trigger_no_such_token_rust() {
-    use crate::vm::database::MemoryBackingStore;
-    use crate::vm::errors::{RuntimeError, VmExecutionError};
-    // Set up a memory backing store and Clarity database
-    let mut store = MemoryBackingStore::default();
-    let mut db = store.as_clarity_db();
+        db.commit().unwrap();
+    }
 
-    db.begin();
-    // Define a fake contract identifier
-    let contract_id = QualifiedContractIdentifier::transient();
+    #[test]
+    fn checked_decrease_token_supply_underflow() {
+        use crate::vm::database::{MemoryBackingStore, StoreType};
+        use crate::vm::errors::{RuntimeError, VmExecutionError};
 
-    // Simulate querying a non-existent NFT
-    let asset_id = Value::Bool(false); // this token does not exist
-    let asset_name = "test-nft";
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        let contract_id = QualifiedContractIdentifier::transient();
+        let token_name = "token".to_string();
 
-    // Call get_nft_owner directly
-    let err = db
-        .get_nft_owner(
+        db.begin();
+
+        // Set initial supply to 1000
+        let key = ClarityDatabase::make_key_for_trip(
             &contract_id,
-            asset_name,
-            &asset_id,
-            &TypeSignature::BoolType,
-        )
-        .unwrap_err();
+            StoreType::CirculatingSupply,
+            &token_name,
+        );
+        db.put_data(&key, &1000u128)
+            .expect("Failed to set initial token supply");
 
-    // Assert that it produces NoSuchToken
-    assert!(
-        matches!(err, VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)),
-        "Expected NoSuchToken. Got: {err}"
-    );
+        // Trust but verify.
+        let current_supply: u128 = db.get_data(&key).unwrap().unwrap();
+        assert_eq!(current_supply, 1000, "Initial supply should be 1000");
+
+        // Decrease by 500: should succeed
+        db.checked_decrease_token_supply(&contract_id, &token_name, 500)
+            .expect("Decreasing by 500 should succeed");
+
+        let new_supply: u128 = db.get_data(&key).unwrap().unwrap();
+        assert_eq!(new_supply, 500, "Supply should now be 500");
+
+        // Decrease by 0: should succeed (no change)
+        db.checked_decrease_token_supply(&contract_id, &token_name, 0)
+            .expect("Decreasing by 0 should succeed");
+        let supply_after_zero: u128 = db.get_data(&key).unwrap().unwrap();
+        assert_eq!(
+            supply_after_zero, 500,
+            "Supply should remain 500 after decreasing by 0"
+        );
+
+        // Attempt to decrease by 501; should trigger SupplyUnderflow
+        let err = db
+            .checked_decrease_token_supply(&contract_id, &token_name, 501)
+            .unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                VmExecutionError::Runtime(RuntimeError::SupplyUnderflow(500, 501), _)
+            ),
+            "Expected SupplyUnderflow(500, 501), got: {err:?}"
+        );
+
+        // Supply should remain unchanged after failed underflow
+        let final_supply: u128 = db.get_data(&key).unwrap().unwrap();
+        assert_eq!(
+            final_supply, 500,
+            "Supply should not change after underflow error"
+        );
+
+        db.commit().unwrap();
+    }
+
+    #[test]
+    fn trigger_no_such_token_rust() {
+        use crate::vm::database::MemoryBackingStore;
+        use crate::vm::errors::{RuntimeError, VmExecutionError};
+        // Set up a memory backing store and Clarity database
+        let mut store = MemoryBackingStore::default();
+        let mut db = store.as_clarity_db();
+
+        db.begin();
+        // Define a fake contract identifier
+        let contract_id = QualifiedContractIdentifier::transient();
+
+        // Simulate querying a non-existent NFT
+        let asset_id = Value::Bool(false); // this token does not exist
+        let asset_name = "test-nft";
+
+        // Call get_nft_owner directly
+        let err = db
+            .get_nft_owner(
+                &contract_id,
+                asset_name,
+                &asset_id,
+                &TypeSignature::BoolType,
+            )
+            .unwrap_err();
+
+        // Assert that it produces NoSuchToken
+        assert!(
+            matches!(err, VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)),
+            "Expected NoSuchToken. Got: {err}"
+        );
+    }
+
+    #[test]
+    fn get_contract_cached_populates_cache_on_miss() {
+        let cache = ContractCache::new(64 * 1024 * 1024);
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        db.set_contract_cache(&cache);
+
+        let id = QualifiedContractIdentifier::local("cached-contract").unwrap();
+
+        // TX1: deploy and commit
+        deploy_test_contract(&mut db, &id);
+
+        // Before the call the cache should be empty
+        assert!(cache.get(&id).is_none(), "cache should start empty");
+
+        // TX2: First call: cache miss → populates cache
+        db.begin();
+        let first = db.get_contract_cached(&id).expect("first load");
+        assert_eq!(first.load_cost_size, db.get_contract_size(&id).unwrap());
+
+        // The cache must now contain the entry
+        assert!(
+            cache.get(&id).is_some(),
+            "cache should be populated after first load"
+        );
+        db.roll_back().unwrap();
+    }
+
+    /// Deploy commits in one transaction context, then the next transaction
+    /// loads the contract and populates the cache from committed data.
+    #[test]
+    fn get_contract_cached_after_committed_deploy() {
+        let cache = ContractCache::new(64 * 1024 * 1024);
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        db.set_contract_cache(&cache);
+
+        let id = QualifiedContractIdentifier::local("deploy-then-call").unwrap();
+
+        // TX1: deploy and commit
+        deploy_test_contract(&mut db, &id);
+
+        // TX2: load the contract
+        db.begin();
+        let cached = db.get_contract_cached(&id).expect("load after commit");
+        assert_eq!(cached.contract.contract_context.contract_identifier, id);
+
+        // Cache should be populated from committed data
+        assert!(
+            cache.get(&id).is_some(),
+            "cache should be populated after loading a committed contract"
+        );
+
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn is_retargeted_default_state() {
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        db.begin();
+        assert!(
+            !db.store.is_retargeted(),
+            "MemoryBackingStore should not be retargeted by default"
+        );
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn get_contract_load_cost_size_returns_from_cache() {
+        // Pre-populate the cache directly with a sentinel load_cost_size that the backing store
+        // does NOT contain. If get_contract_load_cost_size returns it, the value must have come
+        // from the cache.
+        let cache = ContractCache::new(64 * 1024 * 1024);
+        let id = QualifiedContractIdentifier::local("cost-size-test").unwrap();
+        let sentinel_cost: u64 = 999_999;
+
+        let contract = Contract {
+            contract_context: ContractContext::new(id.clone(), ClarityVersion::Clarity2),
+        };
+        cache.insert(
+            id.clone(),
+            CachedContract::new(contract, sentinel_cost, 128),
+        );
+
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        db.set_contract_cache(&cache);
+
+        // No contract deployed to the backing store — a DB lookup would fail.
+        // The cache hit must return our sentinel value.
+        db.begin();
+        let cost_size = db.get_contract_load_cost_size(&id).unwrap();
+        assert_eq!(cost_size, sentinel_cost);
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn get_contract_load_cost_size_falls_back_without_cache() {
+        // No cache attached — should fall back to get_contract_size
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+
+        let id = QualifiedContractIdentifier::local("no-cache-cost").unwrap();
+
+        // TX1: deploy and commit
+        deploy_test_contract(&mut db, &id);
+
+        // TX2: call get_contract_load_cost_size, which should fall back to the DB value since no
+        // cache is attached
+        db.begin();
+        let cost_size = db.get_contract_load_cost_size(&id).unwrap();
+        let expected = db.get_contract_size(&id).unwrap();
+        assert_eq!(cost_size, expected);
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn get_contract_cached_without_cache_returns_contract() {
+        // No cache attached — get_contract_cached should still work, just no caching
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+
+        let id = QualifiedContractIdentifier::local("no-cache-load").unwrap();
+
+        // TX1: deploy and commit
+        deploy_test_contract(&mut db, &id);
+
+        // TX2: call get_contract_cached, which should succeed and return the contract even without
+        // a cache attached
+        db.begin();
+        let result = db.get_contract_cached(&id).unwrap();
+        assert_eq!(result.contract.contract_context.contract_identifier, id);
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn retargeted_bypasses_cache_for_get_contract_cached() {
+        let cache = ContractCache::new(64 * 1024 * 1024);
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        db.set_contract_cache(&cache);
+
+        let id = QualifiedContractIdentifier::local("retarget-test").unwrap();
+
+        // TX1: deploy and commit
+        deploy_test_contract(&mut db, &id);
+
+        // Pre-populate the cache with a sentinel load_cost_size that differs from the DB value. If
+        // the retargeted path still returns this sentinel, the cache was NOT bypassed.
+        let sentinel_cost: u64 = 777_777;
+        let sentinel_contract = Contract {
+            contract_context: ContractContext::new(id.clone(), ClarityVersion::Clarity2),
+        };
+        cache.insert(
+            id.clone(),
+            CachedContract::new(sentinel_contract, sentinel_cost, 128),
+        );
+
+        // TX2: retargeted call to get_contract_cached should bypass the cache and return the DB
+        // value, not the sentinel
+        db.begin();
+        db.store.test_set_retargeted(true);
+
+        let result = db.get_contract_cached(&id).unwrap();
+        assert_ne!(
+            result.load_cost_size, sentinel_cost,
+            "retargeted path should bypass the cache sentinel"
+        );
+
+        // The value should match what the DB returns
+        let db_size = db.get_contract_size(&id).unwrap();
+        assert_eq!(result.load_cost_size, db_size);
+
+        db.store.test_set_retargeted(false);
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn retargeted_bypasses_cache_for_get_contract_load_cost_size() {
+        let cache = ContractCache::new(64 * 1024 * 1024);
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        db.set_contract_cache(&cache);
+
+        let id = QualifiedContractIdentifier::local("retarget-cost").unwrap();
+
+        // TX1: deploy and commit
+        deploy_test_contract(&mut db, &id);
+
+        // Pre-populate the cache with a sentinel that differs from the DB value.
+        let sentinel_cost: u64 = 888_888;
+        let sentinel_contract = Contract {
+            contract_context: ContractContext::new(id.clone(), ClarityVersion::Clarity2),
+        };
+        cache.insert(
+            id.clone(),
+            CachedContract::new(sentinel_contract, sentinel_cost, 128),
+        );
+
+        // TX2: retargeted call to get_contract_load_cost_size should bypass the cache and return the DB
+        // value, not the sentinel
+        db.begin();
+        db.store.test_set_retargeted(true);
+
+        let cost_size = db.get_contract_load_cost_size(&id).unwrap();
+        assert_ne!(
+            cost_size, sentinel_cost,
+            "retargeted path should bypass the cache sentinel"
+        );
+        let db_size = db.get_contract_size(&id).unwrap();
+        assert_eq!(cost_size, db_size);
+
+        db.store.test_set_retargeted(false);
+        db.roll_back().unwrap();
+    }
+
+    #[test]
+    fn retargeted_does_not_populate_cache() {
+        let cache = ContractCache::new(64 * 1024 * 1024);
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        db.set_contract_cache(&cache);
+
+        let id = QualifiedContractIdentifier::local("retarget-no-populate").unwrap();
+
+        // TX1: deploy and commit
+        deploy_test_contract(&mut db, &id);
+
+        // TX2: retargeted call to get_contract_cached should bypass the cache and also NOT populate
+        // it, since retargeted loads must not populate the cache
+        db.begin();
+
+        // Retarget before any cache interaction
+        db.store.test_set_retargeted(true);
+        db.get_contract_cached(&id).unwrap();
+
+        // Cache should remain empty — retargeted loads must not populate
+        assert!(
+            cache.get(&id).is_none(),
+            "retargeted load should not populate the cache"
+        );
+
+        db.store.test_set_retargeted(false);
+        db.roll_back().unwrap();
+    }
 }

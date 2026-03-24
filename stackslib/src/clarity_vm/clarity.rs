@@ -24,7 +24,7 @@ pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, RollbackWrapper,
+    BurnStateDB, ClarityBackingStore, ClarityDatabase, ContractCache, HeadersDB, RollbackWrapper,
     RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::VmExecutionError;
@@ -84,10 +84,16 @@ pub const SIP_031_INITIAL_MINT: u128 = 200_000_000_000_000;
 ///   `TransactionConnection` trait, which contains auto implementations for the typical transaction
 ///   types in a Clarity-based blockchain.
 ///
+/// Default byte budget for the parsed-contract cache (64 MiB).
+const DEFAULT_CONTRACT_CACHE_SIZE: usize = 64 * 1024 * 1024;
+
 pub struct ClarityInstance {
     datastore: MarfedKV,
     mainnet: bool,
     chain_id: u32,
+    /// Parsed-contract cache that persists across blocks. Invalidated on reorg or epoch change
+    /// via [`ContractCache::check_and_advance`].
+    contract_cache: ContractCache,
 }
 
 ///
@@ -117,6 +123,8 @@ pub struct ClarityBlockConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
+    /// Borrowed from [`ClarityInstance`]. `None` for genesis and test contexts.
+    contract_cache: Option<&'a ContractCache>,
 }
 
 ///
@@ -133,6 +141,8 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
+    /// Borrowed from [`ClarityInstance`]. `None` for genesis and test contexts.
+    contract_cache: Option<&'a ContractCache>,
 }
 
 /// Unified API common to all MARF stores
@@ -250,6 +260,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         mainnet: bool,
         chain_id: u32,
         epoch: StacksEpochId,
+        contract_cache: Option<&'a ContractCache>,
     ) -> ClarityTransactionConnection<'a, 'b> {
         let mut log = RollbackWrapperPersistedLog::new();
         log.nest();
@@ -262,6 +273,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             mainnet,
             chain_id,
             epoch,
+            contract_cache,
         }
     }
 }
@@ -318,6 +330,7 @@ impl ClarityBlockConnection<'_, '_> {
             mainnet: false,
             chain_id: CHAIN_ID_TESTNET,
             epoch,
+            contract_cache: None,
         }
     }
 
@@ -376,7 +389,14 @@ impl ClarityInstance {
             datastore,
             mainnet,
             chain_id,
+            contract_cache: ContractCache::new(DEFAULT_CONTRACT_CACHE_SIZE),
         }
+    }
+
+    /// Inspect the contract cache (test-only).
+    #[cfg(test)]
+    pub fn contract_cache(&self) -> &ContractCache {
+        &self.contract_cache
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -436,6 +456,9 @@ impl ClarityInstance {
             )
         };
 
+        self.contract_cache
+            .check_and_advance(current, next, epoch.epoch_id);
+
         ClarityBlockConnection {
             datastore: Box::new(datastore),
             header_db,
@@ -444,6 +467,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            contract_cache: Some(&self.contract_cache),
         }
     }
 
@@ -468,6 +492,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            contract_cache: None,
         }
     }
 
@@ -494,6 +519,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            contract_cache: None,
         };
 
         let use_mainnet = self.mainnet;
@@ -590,6 +616,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
+            contract_cache: None,
         };
 
         let use_mainnet = self.mainnet;
@@ -698,6 +725,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            contract_cache: None,
         }
     }
 
@@ -738,6 +766,7 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
+            contract_cache: None,
         }
     }
 
@@ -820,6 +849,9 @@ impl ClarityConnection for ClarityBlockConnection<'_, '_> {
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
         let mut db = ClarityDatabase::new(&mut self.datastore, self.header_db, self.burn_state_db);
+        if let Some(cc) = self.contract_cache {
+            db.set_contract_cache(cc);
+        }
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back()
@@ -1957,6 +1989,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             self.mainnet,
             self.chain_id,
             self.epoch,
+            self.contract_cache,
         )
     }
 
@@ -2025,6 +2058,9 @@ impl ClarityConnection for ClarityTransactionConnection<'_, '_> {
                 self.header_db,
                 self.burn_state_db,
             );
+            if let Some(cc) = self.contract_cache {
+                db.set_contract_cache(cc);
+            }
             db.begin();
             let (r, mut db) = to_do(db);
             db.roll_back()
@@ -2090,6 +2126,9 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                     self.header_db,
                     self.burn_state_db,
                 );
+                if let Some(cc) = self.contract_cache {
+                    db.set_contract_cache(cc);
+                }
 
                 // wrap the whole contract-call in a claritydb transaction,
                 //   so we can abort on call_back's boolean retun
@@ -2162,6 +2201,9 @@ impl ClarityTransactionConnection<'_, '_> {
                 self.header_db,
                 self.burn_state_db,
             );
+            if let Some(cc) = self.contract_cache {
+                db.set_contract_cache(cc);
+            }
 
             db.begin();
             let result = to_do(&mut db);
@@ -3331,5 +3373,134 @@ mod tests {
 
             conn.commit_block();
         }
+    }
+
+    #[test]
+    pub fn contract_cache_persists_across_blocks() {
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
+        let contract_identifier = QualifiedContractIdentifier::local("counter").unwrap();
+        let sender = StandardPrincipalData::transient().into();
+
+        // Genesis
+        clarity_instance
+            .begin_test_genesis_block(
+                &StacksBlockId::sentinel(),
+                &StacksBlockId([0; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            )
+            .commit_block();
+
+        // Block 1: deploy the contract
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            );
+
+            let contract = "(define-data-var counter int 0)
+                 (define-public (increment) (begin (var-set counter (+ (var-get counter) 1)) (ok (var-get counter))))";
+
+            conn.as_transaction(|tx| {
+                let (ct_ast, ct_analysis) = tx
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        contract,
+                    )
+                    .unwrap();
+                tx.initialize_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity1,
+                    &ct_ast,
+                    contract,
+                    None,
+                    |_, _| None,
+                    None,
+                )
+                .unwrap();
+                tx.save_analysis(&contract_identifier, &ct_analysis)
+                    .unwrap();
+            });
+
+            conn.commit_block();
+        }
+
+        // No hits or misses yet — deploy doesn't go through get_contract_cached
+        assert_eq!(clarity_instance.contract_cache().hits(), 0);
+        assert_eq!(clarity_instance.contract_cache().misses(), 0);
+
+        // Block 2: call the contract (cache miss → populates)
+        let misses_before_block2 = clarity_instance.contract_cache().misses();
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([1; 32]),
+                &StacksBlockId([2; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            );
+
+            let result = conn
+                .as_transaction(|tx| {
+                    tx.run_contract_call(
+                        &sender,
+                        None,
+                        &contract_identifier,
+                        "increment",
+                        &[],
+                        |_, _| None,
+                        None,
+                    )
+                })
+                .unwrap()
+                .0;
+            assert_eq!(result, Value::okay(Value::Int(1)).unwrap());
+
+            conn.commit_block();
+        }
+
+        // The contract load should have been a cache miss
+        assert!(
+            clarity_instance.contract_cache().misses() > misses_before_block2,
+            "block 2 should record at least one cache miss"
+        );
+
+        // Block 3: call again — the cached contract should produce a hit
+        let hits_before_block3 = clarity_instance.contract_cache().hits();
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([2; 32]),
+                &StacksBlockId([3; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            );
+
+            let result = conn
+                .as_transaction(|tx| {
+                    tx.run_contract_call(
+                        &sender,
+                        None,
+                        &contract_identifier,
+                        "increment",
+                        &[],
+                        |_, _| None,
+                        None,
+                    )
+                })
+                .unwrap()
+                .0;
+            assert_eq!(result, Value::okay(Value::Int(2)).unwrap());
+
+            conn.commit_block();
+        }
+
+        // The contract load in block 3 should have been a cache hit
+        assert!(
+            clarity_instance.contract_cache().hits() > hits_before_block3,
+            "block 3 should record at least one cache hit (cross-block persistence)"
+        );
     }
 }

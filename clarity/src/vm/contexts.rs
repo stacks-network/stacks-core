@@ -1088,10 +1088,10 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
 
         self.global_context.begin();
 
-        let contract = self
+        let cached = self
             .global_context
             .database
-            .get_contract(contract_identifier)
+            .get_contract_cached(contract_identifier)
             .or_else(|e| {
                 self.global_context.roll_back()?;
                 Err(e)
@@ -1099,7 +1099,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
 
         let result = {
             let nested_view = InvocationContext {
-                contract_context: &contract.contract_context,
+                contract_context: &cached.contract.contract_context,
                 sender: invoke_ctx.sender.clone(),
                 caller: invoke_ctx.caller.clone(),
                 sponsor: invoke_ctx.sponsor.clone(),
@@ -1215,19 +1215,27 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         read_only: bool,
         allow_private: bool,
     ) -> Result<Value, VmExecutionError> {
-        let contract_size = self
+        // Charge the load cost before loading the full contract. This matters when
+        // canonicalize_types() fails (e.g. CouldNotDetermineType); the cost must be charged even
+        // though the load itself errors.
+        let load_cost_size = self
             .global_context
             .database
-            .get_contract_size(contract_identifier)?;
-        runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
+            .get_contract_load_cost_size(contract_identifier)?;
 
-        self.global_context.add_memory(contract_size)?;
+        runtime_cost(ClarityCostFunction::LoadContract, self, load_cost_size)?;
 
-        finally_drop_memory!(self.global_context, contract_size; {
-            let contract = self.global_context.database.get_contract(contract_identifier)?;
+        self.global_context.add_memory(load_cost_size)?;
 
-            let func = contract.contract_context.lookup_function(tx_name)
+        finally_drop_memory!(self.global_context, load_cost_size; {
+            let cached = self
+                .global_context
+                .database
+                .get_contract_cached(contract_identifier)?;
+
+            let func = cached.contract.contract_context.lookup_function(tx_name)
                 .ok_or_else(|| { RuntimeCheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
+
             if !allow_private && !func.is_public() {
                 return Err(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             } else if read_only && !func.is_read_only() {
@@ -1262,7 +1270,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                 return Err(RuntimeCheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, Some(&contract.contract_context), allow_private);
+            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, Some(&cached.contract.contract_context), allow_private);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
