@@ -289,5 +289,6 @@ jobs:
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
         with:
           file: code_coverage_files/code-coverage-report.info
+          compare-ref: ${{ github.base_ref }} # defaults to master if this isn't supplied
           fail-on-error: true
       
