@@ -75,6 +75,38 @@ fn test_load_store_trie_blob() {
 }
 
 #[test]
+fn test_migrate_tables_readonly_succeeds_when_current() {
+    let mut db = setup_db("test_migrate_tables_readonly_ok");
+    // First migrate in writable mode to bring schema to current version
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db, false).unwrap();
+    // Now a read-only migration check should succeed
+    let version = trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db, true).unwrap();
+    assert_eq!(version, trie_sql::SQL_MARF_SCHEMA_VERSION);
+}
+
+#[test]
+fn test_migrate_tables_readonly_fails_when_outdated() {
+    let path = db_path("test_migrate_tables_readonly_fail");
+    if fs::metadata(&path).is_ok() {
+        fs::remove_file(&path).unwrap();
+    }
+    let mut db = sqlite_open(
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+        true,
+    )
+    .unwrap();
+    trie_sql::create_tables_if_needed(&mut db).unwrap();
+    // Don't migrate - schema is at version 1.
+    // A read-only open should fail because the schema is outdated.
+    let err = trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db, true).unwrap_err();
+    assert!(
+        matches!(&err, crate::chainstate::stacks::index::Error::CorruptionError(msg) if msg.contains("not compatible with read-only")),
+        "instead got: {err}"
+    );
+}
+
+#[test]
 fn test_migrate_existing_trie_blobs() {
     let test_file = "/tmp/test_migrate_existing_trie_blobs.sqlite";
     let test_blobs_file = "/tmp/test_migrate_existing_trie_blobs.sqlite.blobs";
