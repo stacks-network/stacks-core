@@ -439,14 +439,14 @@ impl AssetMap {
         &mut self,
         principal: &PrincipalData,
         asset: AssetIdentifier,
-        transfered: Value,
+        transferred: Value,
     ) {
         let principal_map = self.asset_map.entry(principal.clone()).or_default();
 
         if let Some(map_entry) = principal_map.get_mut(&asset) {
-            map_entry.push(transfered);
+            map_entry.push(transferred);
         } else {
-            principal_map.insert(asset, vec![transfered]);
+            principal_map.insert(asset, vec![transferred]);
         }
     }
 
@@ -1728,14 +1728,14 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         sender: &PrincipalData,
         contract_identifier: &QualifiedContractIdentifier,
         asset_name: &ClarityName,
-        transfered: Value,
+        transferred: Value,
     ) -> Result<(), VmExecutionError> {
         let asset_identifier = AssetIdentifier {
             contract_identifier: contract_identifier.clone(),
             asset_name: asset_name.clone(),
         };
         self.get_asset_map()?
-            .add_asset_transfer(sender, asset_identifier, transfered);
+            .add_asset_transfer(sender, asset_identifier, transferred);
         Ok(())
     }
 
@@ -1744,30 +1744,30 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         sender: &PrincipalData,
         contract_identifier: &QualifiedContractIdentifier,
         asset_name: &ClarityName,
-        transfered: u128,
+        transferred: u128,
     ) -> Result<(), VmExecutionError> {
         let asset_identifier = AssetIdentifier {
             contract_identifier: contract_identifier.clone(),
             asset_name: asset_name.clone(),
         };
         self.get_asset_map()?
-            .add_token_transfer(sender, asset_identifier, transfered)
+            .add_token_transfer(sender, asset_identifier, transferred)
     }
 
     pub fn log_stx_transfer(
         &mut self,
         sender: &PrincipalData,
-        transfered: u128,
+        transferred: u128,
     ) -> Result<(), VmExecutionError> {
-        self.get_asset_map()?.add_stx_transfer(sender, transfered)
+        self.get_asset_map()?.add_stx_transfer(sender, transferred)
     }
 
     pub fn log_stx_burn(
         &mut self,
         sender: &PrincipalData,
-        transfered: u128,
+        transferred: u128,
     ) -> Result<(), VmExecutionError> {
-        self.get_asset_map()?.add_stx_burn(sender, transfered)
+        self.get_asset_map()?.add_stx_burn(sender, transferred)
     }
 
     pub fn log_stacking(
