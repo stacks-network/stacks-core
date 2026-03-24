@@ -378,7 +378,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         block_id: &StacksBlockId,
         cur_epoch: StacksEpoch,
     ) -> Result<RewardSet, Error> {
-        let mut pox_version = PoxVersions::Pox4;
+        let pox_version = PoxVersions::Pox4;
         match cur_epoch.epoch_id {
             StacksEpochId::Epoch10
             | StacksEpochId::Epoch20
@@ -429,9 +429,10 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                     return Ok(RewardSet::empty());
                 }
 
-                if active_pox_contract == POX_5_NAME {
-                    pox_version = PoxVersions::Pox5;
-                }
+                // TODO [Pox5]: Enable Pox5 support
+                // if active_pox_contract == POX_5_NAME {
+                //     pox_version = PoxVersions::Pox5;
+                // }
             }
         };
 
@@ -1378,7 +1379,7 @@ impl<
             for (ch, bhh, height) in stacks_blocks_to_reaccept.into_iter() {
                 debug!("Re-accept Stacks block {}/{} height {}", &ch, &bhh, height);
                 revalidated_stacks_block = true;
-                sortition_db_handle.set_stacks_block_accepted(&ch, &bhh, height)?;
+                sortition_db_handle.set_stacks_block_accepted(&ch, &ch, &bhh, height)?;
             }
             sortition_db_handle.commit()?;
 

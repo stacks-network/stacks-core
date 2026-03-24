@@ -19,6 +19,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::Value::CallableContract;
 use crate::vm::callables::{CallableType, NativeHandle, cost_input_sized_vararg};
+use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
 use crate::vm::errors::{
@@ -28,43 +29,44 @@ use crate::vm::errors::{
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{PrincipalData, TypeSignature, Value};
-use crate::vm::{Environment, LocalContext, eval, is_reserved};
+use crate::vm::{LocalContext, eval, is_reserved};
 
 macro_rules! switch_on_global_epoch {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
         pub fn $Name(
             args: &[SymbolicExpression],
-            env: &mut Environment,
+            exec_state: &mut crate::vm::ExecutionState,
+            invoke_ctx: &crate::vm::InvocationContext,
             context: &LocalContext,
         ) -> std::result::Result<Value, VmExecutionError> {
-            match env.epoch() {
+            match exec_state.epoch() {
                 StacksEpochId::Epoch10 => {
                     panic!("Executing Clarity method during Epoch 1.0, before Clarity")
                 }
-                StacksEpochId::Epoch20 => $Epoch2Version(args, env, context),
-                StacksEpochId::Epoch2_05 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch20 => $Epoch2Version(args, exec_state, invoke_ctx, context),
+                StacksEpochId::Epoch2_05 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 2.1.
-                StacksEpochId::Epoch21 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch21 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 2.2.
-                StacksEpochId::Epoch22 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch22 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 2.3.
-                StacksEpochId::Epoch23 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch23 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 2.4.
-                StacksEpochId::Epoch24 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch24 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 2.5.
-                StacksEpochId::Epoch25 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch25 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 3.0.
-                StacksEpochId::Epoch30 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch30 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 3.1.
-                StacksEpochId::Epoch31 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch31 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 3.2.
-                StacksEpochId::Epoch32 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch32 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 3.3.
-                StacksEpochId::Epoch33 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch33 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 3.4.
-                StacksEpochId::Epoch34 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch34 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 3.5.
-                StacksEpochId::Epoch35 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch35 => $Epoch205Version(args, exec_state, invoke_ctx, context),
             }
         }
     };
@@ -152,7 +154,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     AsContract("as-contract", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity3)),
     ContractOf("contract-of", ClarityVersion::Clarity1, None),
     PrincipalOf("principal-of?", ClarityVersion::Clarity1, None),
-    AtBlock("at-block", ClarityVersion::Clarity1, None),
+    AtBlock("at-block", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity4)),
     GetBlockInfo("get-block-info?", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity2)),
     GetBurnBlockInfo("get-burn-block-info?", ClarityVersion::Clarity2, None),
     ConsError("err", ClarityVersion::Clarity1, None),
@@ -603,7 +605,11 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
     }
 }
 
-fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value, VmExecutionError> {
+fn native_eq(
+    args: Vec<Value>,
+    exec_state: &mut ExecutionState,
+    _invoke_ctx: &InvocationContext,
+) -> Result<Value, VmExecutionError> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
@@ -616,7 +622,7 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value, VmExecuti
         let mut arg_type = TypeSignature::type_of(first)?;
         for x in args.iter() {
             arg_type = TypeSignature::least_supertype(
-                env.epoch(),
+                exec_state.epoch(),
                 &TypeSignature::type_of(x)?,
                 &arg_type,
             )?;
@@ -640,45 +646,52 @@ fn native_begin(mut args: Vec<Value>) -> Result<Value, VmExecutionError> {
 
 fn special_print(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let arg = args.first().ok_or_else(|| {
         VmInternalError::BadSymbolicRepresentation("Print should have an argument".into())
     })?;
-    let input = eval(arg, env, context)?;
+    let input = eval(arg, exec_state, invoke_ctx, context)?;
 
-    runtime_cost(ClarityCostFunction::Print, env, input.size()?)?;
+    runtime_cost(
+        ClarityCostFunction::Print,
+        exec_state,
+        input.as_ref().size()?,
+    )?;
 
     if cfg!(feature = "developer-mode") {
-        debug!("{}", &input);
+        debug!("{}", input.as_ref());
     }
 
-    env.register_print_event(input.clone())?;
-    Ok(input)
+    let value = input.clone_with_cost(exec_state)?;
+    exec_state.register_print_event(invoke_ctx, value.clone())?;
+    Ok(value)
 }
 
 fn special_if(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
-    runtime_cost(ClarityCostFunction::If, env, 0)?;
+    runtime_cost(ClarityCostFunction::If, exec_state, 0)?;
     // handle the conditional clause.
-    let conditional = eval(&args[0], env, context)?;
-    match conditional {
+    let conditional = eval(&args[0], exec_state, invoke_ctx, context)?;
+    match conditional.as_ref() {
         Value::Bool(result) => {
-            if result {
-                eval(&args[1], env, context)
+            if *result {
+                eval(&args[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)
             } else {
-                eval(&args[2], env, context)
+                eval(&args[2], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)
             }
         }
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
-            Box::new(conditional),
+            conditional.as_ref().to_error_string(),
         )
         .into()),
     }
@@ -686,27 +699,29 @@ fn special_if(
 
 fn special_asserts(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    runtime_cost(ClarityCostFunction::Asserts, env, 0)?;
+    runtime_cost(ClarityCostFunction::Asserts, exec_state, 0)?;
     // handle the conditional clause.
-    let conditional = eval(&args[0], env, context)?;
+    let conditional = eval(&args[0], exec_state, invoke_ctx, context)?;
 
-    match conditional {
+    match conditional.as_ref() {
         Value::Bool(result) => {
-            if result {
-                Ok(conditional)
+            if *result {
+                conditional.clone_with_cost(exec_state)
             } else {
-                let thrown = eval(&args[1], env, context)?;
+                let thrown =
+                    eval(&args[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
                 Err(EarlyReturnError::AssertionFailed(Box::new(thrown)).into())
             }
         }
         _ => Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
-            Box::new(conditional),
+            conditional.as_ref().to_error_string(),
         )
         .into()),
     }
@@ -751,20 +766,30 @@ where
 pub fn parse_eval_bindings(
     bindings: &[SymbolicExpression],
     binding_error_type: SyntaxBindingErrorType,
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Vec<(ClarityName, Value)>, VmExecutionError> {
     let mut result = Vec::with_capacity(bindings.len());
-    handle_binding_list(bindings, binding_error_type, |var_name, var_sexp| {
-        eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
-    })?;
+
+    handle_binding_list(
+        bindings,
+        binding_error_type,
+        |var_name, var_sexp| -> Result<(), VmExecutionError> {
+            let value =
+                eval(var_sexp, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+            result.push((var_name.clone(), value));
+            Ok(())
+        },
+    )?;
 
     Ok(result)
 }
 
 fn special_let(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (let ((x 1) (y 2)) (+ x y)) -> 3
@@ -779,27 +804,28 @@ fn special_let(
             "Bad let syntax".to_string(),
         ))?;
 
-    runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
+    runtime_cost(ClarityCostFunction::Let, exec_state, bindings.len())?;
 
     // create a new context.
     let mut inner_context = context.extend()?;
 
     let mut memory_use = 0;
 
-    finally_drop_memory!( env, memory_use; {
+    finally_drop_memory!( exec_state, memory_use; {
         handle_binding_list::<_, VmExecutionError>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
-            if is_reserved(binding_name, env.contract_context.get_clarity_version()) ||
-                env.contract_context.lookup_function(binding_name).is_some() ||
+            if is_reserved(binding_name, invoke_ctx.contract_context.get_clarity_version()) ||
+                invoke_ctx.contract_context.lookup_function(binding_name).is_some() ||
                 inner_context.lookup_variable(binding_name).is_some() {
                     return Err(RuntimeCheckErrorKind::NameAlreadyUsed(binding_name.clone().into()).into())
                 }
 
-            let binding_value = eval(var_sexp, env, &inner_context)?;
+            let binding_value = eval(var_sexp, exec_state, invoke_ctx, &inner_context)?;
 
-            let bind_mem_use = binding_value.get_memory_use()?;
-            env.add_memory(bind_mem_use)?;
+            let bind_mem_use = binding_value.as_ref().get_memory_use()?;
+            exec_state.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
-            if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 && let CallableContract(trait_data) = &binding_value {
+            let binding_value = binding_value.clone_with_cost(exec_state)?;
+            if *invoke_ctx.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 && let CallableContract(trait_data) = &binding_value {
                 inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
             }
             inner_context.variables.insert(binding_name.clone(), binding_value);
@@ -809,17 +835,18 @@ fn special_let(
         // evaluate the let-bodies
         let mut last_result = None;
         for body in args[1..].iter() {
-            let body_result = eval(body, env, &inner_context)?;
+            let body_result = eval(body, exec_state, invoke_ctx, &inner_context)?;
             last_result.replace(body_result);
         }
         // last_result should always be Some(...), because of the arg len check above.
-        last_result.ok_or_else(|| VmInternalError::Expect("Failed to get let result".into()).into())
+        last_result.ok_or_else(|| VmExecutionError::from(VmInternalError::Expect("Failed to get let result".into())))?.clone_with_cost(exec_state)
     })
 }
 
 fn special_as_contract(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (as-contract (..))
@@ -827,33 +854,38 @@ fn special_as_contract(
     check_argument_count(1, args)?;
 
     // in epoch 2.1 and later, this has a cost
-    if *env.epoch() >= StacksEpochId::Epoch21 {
-        runtime_cost(ClarityCostFunction::AsContract, env, 0)?;
+    if *exec_state.epoch() >= StacksEpochId::Epoch21 {
+        runtime_cost(ClarityCostFunction::AsContract, exec_state, 0)?;
     }
 
     // nest an environment.
-    env.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
+    exec_state.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
 
-    let contract_principal = env.contract_context.contract_identifier.clone().into();
-    let mut nested_env = env.nest_as_principal(contract_principal);
+    let contract_principal = invoke_ctx
+        .contract_context
+        .contract_identifier
+        .clone()
+        .into();
+    let nested_view = invoke_ctx.with_principal(contract_principal);
 
-    let result = eval(&args[0], &mut nested_env, context);
+    let result = eval(&args[0], exec_state, &nested_view, context);
 
-    env.drop_memory(cost_constants::AS_CONTRACT_MEMORY)?;
+    exec_state.drop_memory(cost_constants::AS_CONTRACT_MEMORY)?;
 
-    result
+    result?.clone_with_cost(exec_state)
 }
 
 fn special_contract_of(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    exec_state: &mut ExecutionState,
+    _invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     // (contract-of (..))
     // arg0 => trait
     check_argument_count(1, args)?;
 
-    runtime_cost(ClarityCostFunction::ContractOf, env, 0)?;
+    runtime_cost(ClarityCostFunction::ContractOf, exec_state, 0)?;
 
     let contract_ref = match &args[0].expr {
         SymbolicExpressionType::Atom(contract_ref) => contract_ref,
@@ -867,7 +899,8 @@ fn special_contract_of(
 
     let contract_identifier = match context.lookup_callable_contract(contract_ref) {
         Some(trait_data) => {
-            env.global_context
+            exec_state
+                .global_context
                 .database
                 .get_contract(&trait_data.contract_identifier)
                 .map_err(|_e| {
@@ -897,6 +930,7 @@ mod test {
     use stacks_common::types::StacksEpochId;
 
     use super::ClarityVersion;
+    use crate::vm::contexts::{ExecutionState, InvocationContext};
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::errors::VmExecutionError;
@@ -908,8 +942,7 @@ mod test {
     use crate::vm::tests::test_clarity_versions;
     use crate::vm::types::QualifiedContractIdentifier;
     use crate::vm::{
-        CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
-        Value,
+        CallStack, ContractContext, GlobalContext, LocalContext, SymbolicExpression, Value,
     };
 
     /// Tests that if somehow we bypass static analysis checks, contract_of will return
@@ -936,16 +969,19 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_contract_of(&[non_atom], &mut env, &context).unwrap_err();
+        let err =
+            special_contract_of(&[non_atom], &mut exec_state, &invoke_ctx, &context).unwrap_err();
         assert_eq!(
             err,
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
@@ -980,16 +1016,18 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_contract_of(&[atom], &mut env, &context).unwrap_err();
+        let err = special_contract_of(&[atom], &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             err,
@@ -1024,16 +1062,18 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_let(&args, &mut env, &context).unwrap_err();
+        let err = special_let(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
@@ -1071,16 +1111,19 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_get_tenure_info(&args, &mut env, &context).unwrap_err();
+        let err =
+            special_get_tenure_info(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             err,
@@ -1120,16 +1163,19 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_get_burn_block_info(&args, &mut env, &context).unwrap_err();
+        let err =
+            special_get_burn_block_info(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             err,
@@ -1167,16 +1213,19 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_get_stacks_block_info(&args, &mut env, &context).unwrap_err();
+        let err = special_get_stacks_block_info(&args, &mut exec_state, &invoke_ctx, &context)
+            .unwrap_err();
 
         assert_eq!(
             err,
@@ -1215,16 +1264,19 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_get_stacks_block_info(&args, &mut env, &context).unwrap_err();
+        let err = special_get_stacks_block_info(&args, &mut exec_state, &invoke_ctx, &context)
+            .unwrap_err();
 
         assert_eq!(
             err,
@@ -1264,16 +1316,19 @@ mod test {
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
 
-        let err = special_get_burn_block_info(&args, &mut env, &context).unwrap_err();
+        let err =
+            special_get_burn_block_info(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             err,
@@ -1303,22 +1358,23 @@ mod test {
         let context = LocalContext::new(); // EMPTY — no callable_contracts
         let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
-
+        let mut exec_state = ExecutionState {
+            global_context: &mut global_context,
+            call_stack: &mut call_stack,
+        };
+        let invoke_ctx = InvocationContext {
+            contract_context: &contract_context,
+            sender: None,
+            caller: None,
+            sponsor: None,
+        };
         // (contract-call? unknown-contract foo)
         let args = vec![
             SymbolicExpression::atom("unknown-contract".into()), // Atom, NOT registered
             SymbolicExpression::atom("foo".into()),              // Valid function name atom
         ];
 
-        let err = special_contract_call(&args, &mut env, &context).unwrap_err();
+        let err = special_contract_call(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
 
         assert_eq!(
             err,

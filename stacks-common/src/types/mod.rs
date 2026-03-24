@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -642,6 +642,26 @@ impl StacksEpochId {
         self < &StacksEpochId::Epoch34
     }
 
+    /// Whether or not this epoch pre-sanitizes contract variables at deploy
+    /// and load time, allowing variable lookups to borrow directly.
+    pub fn uses_pre_sanitized_variables(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => false,
+            StacksEpochId::Epoch34 | StacksEpochId::Epoch35 => true,
+        }
+    }
+
     /// What is the sortition mining commitment window for this epoch?
     pub fn mining_commitment_window(&self) -> u8 {
         MINING_COMMITMENT_WINDOW
@@ -707,6 +727,12 @@ impl StacksEpochId {
             | StacksEpochId::Epoch34
             | StacksEpochId::Epoch35 => cur_reward_cycle > first_epoch30_reward_cycle,
         }
+    }
+
+    /// Does this epoch support the post-condition enhancements from SIP-040?
+    /// This includes support for `Originator` mode and the `MaySend` NFT condition.
+    pub fn supports_sip040_post_conditions(&self) -> bool {
+        self >= &StacksEpochId::Epoch34
     }
 
     /// What is the coinbase (in uSTX) to award for the given burnchain height?
@@ -930,6 +956,11 @@ impl StacksEpochId {
 
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
+    }
+
+    /// Whether `at-block` is available in this epoch.
+    pub fn supports_at_block(&self) -> bool {
+        self < &StacksEpochId::Epoch34
     }
 
     /// Return the network epoch associated with the StacksEpochId

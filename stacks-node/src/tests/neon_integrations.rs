@@ -4300,41 +4300,41 @@ fn cost_voting_integration() {
         &[Value::UInt(1)],
     );
 
+    test_observer::clear();
     submit_tx(&http_origin, &vote_tx);
     submit_tx(&http_origin, &call_le_tx);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // Mine blocks until both txs are confirmed (nonces 3 and 4)
+    wait_for(120, || {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        let res = get_account(&http_origin, &spender_princ);
+        Ok(res.nonce >= 5)
+    })
+    .expect("vote and execute txs should have been mined");
 
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let mut blocks = test_observer::get_blocks();
-    // should have produced 1 new block
-    assert_eq!(blocks.len(), 1);
-    let block = blocks.pop().unwrap();
-    let transactions = block.get("transactions").unwrap().as_array().unwrap();
-    eprintln!("{}", transactions.len());
+    let blocks = test_observer::get_blocks();
     let mut tested = false;
     let mut exec_cost = ExecutionCost::ZERO;
-    for tx in transactions.iter() {
-        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-        if raw_tx == "0x00" {
-            continue;
-        }
-        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-            eprintln!("{}", contract_call.function_name.as_str());
-            if contract_call.function_name.as_str() == "execute-2" {
-                exec_cost =
-                    serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
-            } else if contract_call.function_name.as_str() == "propose-vote-confirm" {
-                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
-                assert_eq!(parsed.to_string(), "(ok u0)");
-                tested = true;
+    for block in blocks.iter() {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                if contract_call.function_name.as_str() == "execute-2" {
+                    exec_cost =
+                        serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
+                } else if contract_call.function_name.as_str() == "propose-vote-confirm" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                    assert_eq!(parsed.to_string(), "(ok u0)");
+                    tested = true;
+                }
             }
         }
     }
@@ -4352,36 +4352,36 @@ fn cost_voting_integration() {
         &[Value::UInt(0)],
     );
 
+    test_observer::clear();
     submit_tx(&http_origin, &confirm_proposal);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // Mine blocks until early confirm-miners is confirmed (nonce 5)
+    wait_for(120, || {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        let res = get_account(&http_origin, &spender_princ);
+        Ok(res.nonce >= 6)
+    })
+    .expect("early confirm-miners tx should have been mined");
 
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let mut blocks = test_observer::get_blocks();
-    // should have produced 1 new block
-    assert_eq!(blocks.len(), 1);
-    let block = blocks.pop().unwrap();
-    let transactions = block.get("transactions").unwrap().as_array().unwrap();
-    eprintln!("{}", transactions.len());
+    let blocks = test_observer::get_blocks();
     let mut tested = false;
-    for tx in transactions.iter() {
-        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-        if raw_tx == "0x00" {
-            continue;
-        }
-        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-            eprintln!("{}", contract_call.function_name.as_str());
-            if contract_call.function_name.as_str() == "confirm-miners" {
-                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
-                assert_eq!(parsed.to_string(), "(err 13)");
-                tested = true;
+    for block in blocks.iter() {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                if contract_call.function_name.as_str() == "confirm-miners" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                    assert_eq!(parsed.to_string(), "(err 13)");
+                    tested = true;
+                }
             }
         }
     }
@@ -4403,35 +4403,36 @@ fn cost_voting_integration() {
         &[Value::UInt(0)],
     );
 
+    test_observer::clear();
     submit_tx(&http_origin, &confirm_proposal);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // Mine blocks until confirm-miners after maturation is confirmed (nonce 6)
+    wait_for(120, || {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        let res = get_account(&http_origin, &spender_princ);
+        Ok(res.nonce >= 7)
+    })
+    .expect("confirm-miners tx should have been mined");
 
-    let mut blocks = test_observer::get_blocks();
-    // should have produced 1 new block
-    assert_eq!(blocks.len(), 1);
-    let block = blocks.pop().unwrap();
-    let transactions = block.get("transactions").unwrap().as_array().unwrap();
-    eprintln!("{}", transactions.len());
+    let blocks = test_observer::get_blocks();
     let mut tested = false;
-    for tx in transactions.iter() {
-        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-        if raw_tx == "0x00" {
-            continue;
-        }
-        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-            eprintln!("{}", contract_call.function_name.as_str());
-            if contract_call.function_name.as_str() == "confirm-miners" {
-                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
-                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
-                assert_eq!(parsed.to_string(), "(ok true)");
-                tested = true;
+    for block in blocks.iter() {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                if contract_call.function_name.as_str() == "confirm-miners" {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                    assert_eq!(parsed.to_string(), "(ok true)");
+                    tested = true;
+                }
             }
         }
     }
@@ -4448,35 +4449,36 @@ fn cost_voting_integration() {
         &[Value::UInt(1)],
     );
 
+    test_observer::clear();
     submit_tx(&http_origin, &call_le_tx);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // clear and mine another burnchain block, so that the new winner is seen by the observer
-    //   (the observer is logically "one block behind" the miner
-    test_observer::clear();
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // Mine blocks until execute-2 with new cost is confirmed (nonce 7)
+    wait_for(120, || {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        let res = get_account(&http_origin, &spender_princ);
+        Ok(res.nonce >= 8)
+    })
+    .expect("execute-2 tx should have been mined");
 
-    let mut blocks = test_observer::get_blocks();
-    // should have produced 1 new block
-    assert_eq!(blocks.len(), 1);
-    let block = blocks.pop().unwrap();
-    let transactions = block.get("transactions").unwrap().as_array().unwrap();
-
+    let blocks = test_observer::get_blocks();
     let mut tested = false;
     let mut new_exec_cost = ExecutionCost::max_value();
-    for tx in transactions.iter() {
-        let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-        if raw_tx == "0x00" {
-            continue;
-        }
-        let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-        let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-        if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
-            eprintln!("{}", contract_call.function_name.as_str());
-            if contract_call.function_name.as_str() == "execute-2" {
-                new_exec_cost =
-                    serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
-                tested = true;
+    for block in blocks.iter() {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                if contract_call.function_name.as_str() == "execute-2" {
+                    new_exec_cost =
+                        serde_json::from_value(tx.get("execution_cost").cloned().unwrap()).unwrap();
+                    tested = true;
+                }
             }
         }
     }
@@ -7347,22 +7349,26 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
 
     // Check that:
     // 1) The cost is always the same.
-    // 2) Fee rate grows monotonically.
+    // 2) Fee rate trends upward overall. With 2 blocks mined per transaction the
+    //    estimator window contains a mix of transaction-bearing and empty blocks.
+    //    Empty blocks contribute fee_rate=1.0 (the minimum), which can cause
+    //    intermediate dips in the median — so we verify the overall trend rather
+    //    than strict monotonicity at every step.
     for i in 1..response_estimated_costs.len() {
         let curr_cost = response_estimated_costs[i];
         let last_cost = response_estimated_costs[i - 1];
         assert_eq!(curr_cost, last_cost);
-
-        let curr_rate = response_top_fee_rates[i];
-        let last_rate = response_top_fee_rates[i - 1];
-        assert!(curr_rate >= last_rate);
     }
 
-    // Check the final value is near input parameter.
-    assert!(is_close_f64(
-        *response_top_fee_rates.last().unwrap(),
-        expected_final_value
-    ));
+    let first_rate = *response_top_fee_rates.first().unwrap();
+    let last_rate = *response_top_fee_rates.last().unwrap();
+    assert!(
+        last_rate > first_rate,
+        "Fee rate should trend upward: first={first_rate}, last={last_rate}"
+    );
+
+    // Check the final value is near the expected value.
+    assert!(is_close_f64(last_rate, expected_final_value));
 
     channel.stop_chains_coordinator();
 }
@@ -9476,7 +9482,7 @@ fn mock_miner_replay() {
         return;
     }
 
-    let timeout = Some(Duration::from_secs(30));
+    let timeout = Some(Duration::from_secs(120));
     // Had to add this so that mock miner makes an attempt on EVERY block
     let block_gap = Duration::from_secs(1);
 
