@@ -62,6 +62,8 @@ use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBTx, Stacker
 use crate::net::{Error as net_error, Neighbor, NeighborKey, *};
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
+const REWARD_SET_RELOAD_INTERVAL_SECS: u64 = 5; // may reload a reward set from disk every 5 seconds if there has been no change in the chainstate
+
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
 pub enum NetworkRequest {
@@ -495,8 +497,8 @@ pub struct PeerNetwork {
     /// The reward sets of the past three reward cycles.
     /// Needed to validate blocks, which are signed by a threshold of stackers
     pub current_reward_sets: BTreeMap<u64, CurrentRewardSet>,
-    /// The last Stacks tip at which a reward set load was attempted
-    pub reward_set_loaded_at: HashMap<u64, StacksBlockId>,
+    /// The last Stacks tip at which a reward set load was attempted, and the timestamp
+    pub reward_set_loaded_at: HashMap<u64, (StacksBlockId, u64)>,
 
     // information about the state of the network's anchor blocks
     pub last_anchor_block_hash: BlockHeaderHash,
@@ -4600,9 +4602,12 @@ impl PeerNetwork {
                 true
             });
         }
-        self.reward_set_loaded_at.retain(|tried_rc, _| {
-            *tried_rc >= rc || self.current_reward_sets.contains_key(tried_rc)
-        });
+        self.reward_set_loaded_at
+            .retain(|tried_rc, (_tip, load_ts)| {
+                *tried_rc >= rc
+                    || self.current_reward_sets.contains_key(tried_rc)
+                    || *load_ts + REWARD_SET_RELOAD_INTERVAL_SECS >= get_epoch_time_secs()
+            });
     }
 
     /// Determine if we need to invalidate a given cached reward set.
@@ -4702,15 +4707,7 @@ impl PeerNetwork {
         let prev_rc = cur_rc.saturating_sub(1);
         let prev_prev_rc = prev_rc.saturating_sub(1);
 
-        let rcs = if self.burnchain.is_in_prepare_phase(tip_sn.block_height) {
-            // try to load the reward cycle computed at the end of this reward cycle, since we'll
-            // need it to validate the tenure that straddles the reward cycle boundary.
-            vec![cur_rc, prev_rc, prev_prev_rc]
-        } else {
-            vec![prev_rc, prev_prev_rc]
-        };
-
-        for rc in rcs.into_iter() {
+        for rc in [cur_rc, prev_rc, prev_prev_rc].into_iter() {
             let have_cached = self.current_reward_sets.contains_key(&rc);
             let tried_stacks_tip_opt = self.reward_set_loaded_at.get(&rc);
             let is_reorg = self.check_reload_cached_reward_set(
@@ -4727,15 +4724,18 @@ impl PeerNetwork {
                 if have_cached {
                     continue;
                 }
-                if let Some(stacks_tip_id) = tried_stacks_tip_opt {
-                    if stacks_tip_id == tip_block_id {
+                if let Some((stacks_tip_id, reload_ts)) = tried_stacks_tip_opt {
+                    if stacks_tip_id == tip_block_id
+                        && reload_ts + REWARD_SET_RELOAD_INTERVAL_SECS >= get_epoch_time_secs()
+                    {
                         continue;
                     }
                 }
             }
 
             debug!("Refresh reward cycle info for cycle {rc} as of Stacks tip {tip_block_id} height {tip_height}");
-            self.reward_set_loaded_at.insert(rc, tip_block_id.clone());
+            self.reward_set_loaded_at
+                .insert(rc, (tip_block_id.clone(), get_epoch_time_secs()));
 
             let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
                 rc,
@@ -5522,6 +5522,7 @@ impl PeerNetwork {
         txindex: bool,
     ) -> Result<NetworkResult, net_error> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
+        let dispatch_begin = get_epoch_time_ms();
         let mut poll_states = match self.network {
             None => {
                 debug!("{:?}: network not connected", &self.local_peer);
@@ -5626,7 +5627,9 @@ impl PeerNetwork {
         );
 
         self.log_neighbors();
-        debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+
+        let dispatch_end = get_epoch_time_ms();
+        debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch ({}ms) <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<", dispatch_end.saturating_sub(dispatch_begin));
         Ok(network_result)
     }
 }
