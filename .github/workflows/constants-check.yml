@@ -8,7 +8,7 @@ on:
 jobs:
   check-consts:
     name: Check the constants from stacks-inspect
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-m
     defaults:
       run:
         shell: bash
