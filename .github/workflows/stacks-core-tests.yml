@@ -23,8 +23,6 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    ## Continue the workflow in case a step fails (ex a single test fails)
-    continue-on-error: true
     strategy:
       ## Continue the workflow in case a step fails (ex a single test fails)
       fail-fast: false
@@ -140,6 +138,7 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     needs:
+      - unit-tests
       - open-api-validation
       - node-config-docsgen
       - core-contracts-clarinet-test
