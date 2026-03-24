@@ -38,7 +38,34 @@
         inherit (pkgs) lib;
 
         toolchain = pkgs.rust-bin.fromRustupToolchainFile ../../rust-toolchain.toml;
-        craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
+        craneLib = ((crane.mkLib pkgs).overrideToolchain toolchain).overrideScope (
+          final: prev: {
+            downloadCargoPackageFromGit =
+              args:
+              let
+                drv = prev.downloadCargoPackageFromGit args;
+                # The pinned stacks-core git dep at this rev has readme = "README.md"
+                # in stackslib/Cargo.toml but the file doesn't exist. Rust 1.94+
+                # errors on `cargo package -l` for missing readmes.
+                needsPatch =
+                  args.git == "https://github.com/stacks-network/stacks-core.git"
+                  && args.rev == "ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd";
+              in
+              if needsPatch then
+                drv.overrideAttrs (old: {
+                  preInstall = (old.preInstall or "") + ''
+                    find . -name Cargo.toml | while read -r toml; do
+                      readme=$(sed -n 's/^readme *= *"\(.*\)"/\1/p' "$toml")
+                      if [ -n "$readme" ] && [ ! -f "$(dirname "$toml")/$readme" ]; then
+                        touch "$(dirname "$toml")/$readme"
+                      fi
+                    done
+                  '';
+                })
+              else
+                drv;
+          }
+        );
 
         name = "stacks-core";
 
