@@ -1986,7 +1986,6 @@ version = "0.0.1"
 dependencies = [
  "clarity 0.0.1",
  "hashbrown 0.15.2",
- "lazy_static",
  "libc",
  "libstackerdb 0.0.1",
  "mutants",
