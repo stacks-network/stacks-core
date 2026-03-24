@@ -8,6 +8,8 @@ on:
 ## env vars are transferred to composite action steps
 env:
   BITCOIND_TEST: 1
+  # Docker tag for the Bitcoin Core image used when spinning up container with `testcontainers` crate.
+  BITCOIN_IMAGE_TAG: "25"
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
   TEST_TIMEOUT: 30
