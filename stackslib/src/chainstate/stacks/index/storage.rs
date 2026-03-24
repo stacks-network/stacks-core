@@ -890,7 +890,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                     if TrieHashCalculationMode::Deferred == storage_tx.deref().hash_calculation_mode
                         && ptr.id() != TrieNodeID::Leaf as u8
                     {
-                        if ptr.ptr() > u32::MAX as u64 {
+                        if ptr.ptr() > u64::from(u32::MAX) {
                             return Err(Error::CorruptionError(format!(
                                 "In-memory child index {} exceeds u32::MAX",
                                 ptr.ptr()

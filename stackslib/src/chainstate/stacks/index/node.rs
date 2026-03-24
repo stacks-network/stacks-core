@@ -482,7 +482,7 @@ impl TriePtr {
     /// control bit to match the encoded pointer width.
     #[inline]
     pub fn encoded_id(&self) -> u8 {
-        if self.ptr() > u32::MAX as u64 {
+        if self.ptr() > u64::from(u32::MAX) {
             set_u64_ptr(self.id())
         } else {
             clear_u64_ptr(self.id())
@@ -522,7 +522,8 @@ impl TriePtr {
         if is_u64_ptr(encoded_id) {
             w.write_all(&self.ptr().to_be_bytes())?;
         } else {
-            w.write_all(&(self.ptr() as u32).to_be_bytes())?;
+            let ptr32 = u32::try_from(self.ptr()).map_err(|_| Error::OverflowError)?;
+            w.write_all(&ptr32.to_be_bytes())?;
         }
         w.write_all(&self.back_block().to_be_bytes())?;
         Ok(())
@@ -535,7 +536,8 @@ impl TriePtr {
         if is_u64_ptr(encoded_id) {
             w.write_all(&self.ptr().to_be_bytes())?;
         } else {
-            w.write_all(&(self.ptr() as u32).to_be_bytes())?;
+            let ptr32 = u32::try_from(self.ptr()).map_err(|_| Error::OverflowError)?;
+            w.write_all(&ptr32.to_be_bytes())?;
         }
         if is_backptr(self.id()) {
             w.write_all(&self.back_block().to_be_bytes())?;
@@ -582,7 +584,7 @@ impl TriePtr {
             let back_block = u32::from_be_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]);
             (ptr, back_block)
         } else {
-            let ptr = u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]) as u64;
+            let ptr = u64::from(u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]));
             let back_block = u32::from_be_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]);
             (ptr, back_block)
         };
@@ -610,7 +612,7 @@ impl TriePtr {
                 bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
             ])
         } else {
-            u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]) as u64
+            u64::from(u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]))
         };
 
         let back_block = if is_backptr(id) {
@@ -650,7 +652,7 @@ impl TriePtr {
             u64::from_be_bytes([hi[0], hi[1], hi[2], hi[3], lo[0], lo[1], lo[2], lo[3]])
         } else {
             let ptr_be_bytes: [u8; 4] = read_next(fd)?;
-            u32::from_be_bytes(ptr_be_bytes) as u64
+            u64::from(u32::from_be_bytes(ptr_be_bytes))
         };
         let back_block = if is_backptr(id) {
             let bytes: [u8; 4] = read_next(fd)?;
