@@ -27,7 +27,7 @@
 
         inherit (pkgs) lib;
 
-        toolchain = pkgs.rust-bin.fromRustupToolchainFile ../../rust-toolchain;
+        toolchain = pkgs.rust-bin.fromRustupToolchainFile ../../rust-toolchain.toml;
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
 
         name = "stacks-core";
