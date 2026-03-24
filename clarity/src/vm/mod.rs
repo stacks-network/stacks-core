@@ -280,6 +280,7 @@ fn add_stack_trace(result: &mut Result<Value, VmExecutionError>, exec_state: &mu
 
 /// Validates recursion and stack-depth invariants common to both [`apply`] and
 /// [`apply_evaluated`], returning the function's identifier and whether recursion is tracked.
+#[inline]
 fn check_call_preconditions(
     function: &CallableType,
     exec_state: &ExecutionState,
