@@ -53,11 +53,10 @@ impl error::Error for CursorError {
 }
 
 // All numeric values of a Trie node when encoded.
-// They are all 6-bit numbers
-// * the 8th bit is used to indicate whether or not the value
-// identifies a back-pointer to be followed.
-// * the 7th bit is used to indicate whether or not the ptrs
-// are compressed. This bit is cleared on read.
+// They are all 5-bit numbers (values 0-6)
+// * the 8th bit (0x80) indicates a back-pointer to be followed
+// * the 7th bit (0x40) indicates the ptrs are compressed. Cleared on read.
+// * the 6th bit (0x20) indicates the ptr offset is encoded as u64, instead of u32. Cleared on read.
 define_u8_enum!(TrieNodeID {
     Empty = 0,
     Leaf = 1,

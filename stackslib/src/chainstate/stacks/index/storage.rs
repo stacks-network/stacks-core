@@ -957,8 +957,6 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 .map_err(|_| Error::CorruptionError("Root pointer exceeds u32::MAX".into()))?,
         );
 
-        // first 32 bytes is reserved for the parent block hash
-        //    next 4 bytes is the local block identifier
         while let Some(pointer) = frontier.pop_front() {
             let (node, _node_hash) = self.get_nodetype(pointer)?;
 
@@ -984,6 +982,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
         }
 
         // step 2: repeatedly lay out nodes until serialized offsets stabilize
+        // The first 32 bytes are reserved for the parent block hash,
+        // and the next 4 bytes for the local block identifier.
         let mut end_offset = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
         let mut offsets = Vec::with_capacity(node_data.len());
         // The first pass replaces in-memory indices with serialized offsets.
@@ -1153,8 +1153,6 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 .map_err(|_| Error::CorruptionError("Root pointer exceeds u32::MAX".into()))?,
         );
 
-        // first 32 bytes is reserved for the parent block hash
-        //    next 4 bytes is the local block identifier
         while let Some(pointer) = frontier.pop_front() {
             let (node, node_hash) = self.get_nodetype(pointer)?;
 
@@ -1243,6 +1241,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
         }
 
         // step 2: repeatedly lay out nodes until serialized offsets stabilize
+        // The first 32 bytes are reserved for the parent block hash,
+        // and the next 4 bytes for the local block identifier.
         let mut end_offset = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
         let mut offsets = vec![];
         // The first pass replaces in-memory indices with serialized offsets.
