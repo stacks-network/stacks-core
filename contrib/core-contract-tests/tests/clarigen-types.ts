@@ -5253,6 +5253,11 @@ export const contracts = {
         type: 'uint128',
         access: 'constant',
       } as TypedAbiVariable<bigint>,
+      MIN_STACKING_AMOUNT: {
+        name: 'MIN_STACKING_AMOUNT',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
       PREPARE_CYCLE_LENGTH: {
         name: 'PREPARE_CYCLE_LENGTH',
         type: 'uint128',
@@ -5348,6 +5353,7 @@ export const contracts = {
       mAX_ADDRESS_VERSION_BUFF_20: 4n,
       mAX_ADDRESS_VERSION_BUFF_32: 6n,
       MAX_NUM_CYCLES: 24n,
+      MIN_STACKING_AMOUNT: 100_000_000n,
       PREPARE_CYCLE_LENGTH: 50n,
       REWARD_CYCLE_LENGTH: 1_050n,
       STACKS_ADDR_VERSION_MAINNET: Uint8Array.from([22]),

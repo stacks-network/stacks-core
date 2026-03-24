@@ -39,6 +39,9 @@
 ;; Maximum number of cycles you can stake for
 (define-constant MAX_NUM_CYCLES u24)
 
+;; Minimum amount of uSTX you can stake
+(define-constant MIN_STACKING_AMOUNT u100000000) ;; 100 STX
+
 ;; Keep these constants in lock-step with the address version buffs above
 ;; Maximum value of an address version as a uint
 (define-constant MAX_ADDRESS_VERSION u6)
@@ -257,7 +260,7 @@
         )
 
         ;;  amount must be valid
-        (asserts! (> amount-ustx u0) ERR_INVALID_AMOUNT)
+        (asserts! (>= amount-ustx MIN_STACKING_AMOUNT) ERR_INVALID_AMOUNT)
 
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)

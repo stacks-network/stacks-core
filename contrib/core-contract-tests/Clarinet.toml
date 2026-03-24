@@ -67,3 +67,4 @@ epoch = 3.3
 [repl.analysis.lints]
 unused_const = "warn"
 unused_data_var = "warn"
+panic = "off"
