@@ -141,18 +141,27 @@ fn signer_waits_for_validation_before_signing() {
 
     // The 4 signers on miner 1 should have validated and sent pre-commits
     // The 1 signer on miner 2 should be waiting for validation and should NOT have issued a signature
-    let block =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk_1)
-            .expect("Failed to mine block N+1");
+    let block = wait_for_block_pushed_by_miner_key(
+        30,
+        info_before.stacks_tip_height + 1,
+        &miner_pk_1,
+        miners.get_test_observer(),
+    )
+    .expect("Failed to mine block N+1");
     let signer_signature_hash = block.header.signer_signature_hash();
     info!("------------------------- Mined {signer_signature_hash}. Checking for Pre-Commits for {} Signers-------------------------", approving_signers.len());
-    wait_for_block_pre_commits_from_signers(30, &signer_signature_hash, &approving_signers)
-        .expect("Failed to receive pre-commits from approving signers");
+    wait_for_block_pre_commits_from_signers(
+        30,
+        &signer_signature_hash,
+        &approving_signers,
+        miners.get_test_observer(),
+    )
+    .expect("Failed to receive pre-commits from approving signers");
     // We only wait a small amount of time for each of these checks since we already received block commits from everyone else.
     let stalled_pk = stalled_signer[0].clone();
     assert!(
         wait_for(15, || {
-            for (chunk, message) in get_stackerdb_signer_messages() {
+            for (chunk, message) in get_stackerdb_signer_messages(miners.get_test_observer()) {
                 let pk = chunk.recover_pk().expect("Failed to recover pk");
                 if stalled_pk != pk {
                     continue;
@@ -195,7 +204,7 @@ fn signer_waits_for_validation_before_signing() {
     let mut found_commit = false;
     let mut found_accept = false;
     wait_for(15, || {
-        for (chunk, message) in get_stackerdb_signer_messages() {
+        for (chunk, message) in get_stackerdb_signer_messages(miners.get_test_observer()) {
             let pk = chunk.recover_pk().expect("Failed to recover pk");
             if stalled_pk != pk {
                 continue;

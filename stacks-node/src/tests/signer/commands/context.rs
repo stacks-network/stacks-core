@@ -1,3 +1,17 @@
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -117,21 +131,27 @@ impl SignerTestContext {
         start_block_height: u64,
         miner_pk: &StacksPublicKey,
     ) -> usize {
-        get_nakamoto_headers(conf)
-            .into_iter()
-            .filter(|block| {
-                if block.stacks_block_height <= start_block_height {
-                    return false;
-                }
-                let nakamoto_block_header = block.anchored_header.as_stacks_nakamoto().unwrap();
-                miner_pk
-                    .verify(
-                        nakamoto_block_header.miner_signature_hash().as_bytes(),
-                        &nakamoto_block_header.miner_signature,
-                    )
-                    .unwrap()
-            })
-            .count()
+        get_nakamoto_headers(
+            conf,
+            self.miners
+                .try_lock()
+                .expect("mutex poisoned")
+                .get_test_observer(),
+        )
+        .into_iter()
+        .filter(|block| {
+            if block.stacks_block_height <= start_block_height {
+                return false;
+            }
+            let nakamoto_block_header = block.anchored_header.as_stacks_nakamoto().unwrap();
+            miner_pk
+                .verify(
+                    nakamoto_block_header.miner_signature_hash().as_bytes(),
+                    &nakamoto_block_header.miner_signature,
+                )
+                .unwrap()
+        })
+        .count()
     }
 }
 

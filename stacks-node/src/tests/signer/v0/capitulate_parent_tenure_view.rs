@@ -30,7 +30,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 use super::{SignerTest, *};
 use crate::nakamoto_node::miner::TEST_BLOCK_ANNOUNCE_STALL;
 use crate::tests::nakamoto_integrations::wait_for;
-use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
+use crate::tests::neon_integrations::{get_chain_info, submit_tx};
 
 #[test]
 #[ignore]
@@ -87,7 +87,7 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
             config.tenure_last_block_proposal_timeout = capitulate_miner_view_timeout;
             config.block_proposal_timeout = Duration::from_secs(u64::MAX); // Don't time out the miner
         },
-        |config| {
+        |config, _| {
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
         None,
@@ -112,7 +112,7 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     info!("------------------------- Test Mine Nakamoto Block N -------------------------");
     let info_before = signer_test.get_peer_info();
 
-    test_observer::clear();
+    signer_test.get_test_observer().clear();
     // submit a tx so that the miner will mine a stacks block N
     let mut sender_nonce = 0;
     let transfer_tx = make_stacks_transfer_serialized(
@@ -133,11 +133,14 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     .expect("Timed out waiting for N to be mined and processed");
 
     // Ensure that the block was accepted globally so the stacks tip has advanced to N
-    let _block_n =
-        wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 1, &miner_pk, || {
-            signer_test.get_peer_info().stacks_tip
-        })
-        .expect("Timed out waiting for block N to be mined");
+    let _block_n = wait_for_block_pushed_and_tip(
+        30,
+        info_before.stacks_tip_height + 1,
+        &miner_pk,
+        || signer_test.get_peer_info().stacks_tip,
+        signer_test.get_test_observer(),
+    )
+    .expect("Timed out waiting for block N to be mined");
 
     let info_after = signer_test.get_peer_info();
     assert_eq!(
@@ -148,7 +151,7 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     info!("------------------------- Mine Nakamoto Block N+1 -------------------------");
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers.clone());
     TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(approving_signers.clone());
-    test_observer::clear();
+    signer_test.get_test_observer().clear();
 
     // submit a tx so that the miner will mine a stacks block N+1
     let info_before = signer_test.get_peer_info();
@@ -163,18 +166,24 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N+1");
 
-    let block_n_1 = wait_for_block_proposal_block(30, info_before.stacks_tip_height + 1, &miner_pk)
-        .expect("Timed out waiting for block N+1 to be proposed");
+    let block_n_1 = wait_for_block_proposal_block(
+        30,
+        info_before.stacks_tip_height + 1,
+        &miner_pk,
+        signer_test.get_test_observer(),
+    )
+    .expect("Timed out waiting for block N+1 to be proposed");
 
     wait_for_block_rejections_from_signers(
         30,
         &block_n_1.header.signer_signature_hash(),
         &rejecting_signers,
+        signer_test.get_test_observer(),
     )
     .expect("Rejecting signers did not reject block N+1");
 
     info!("------------------------- Start Next Tenure -------------------------");
-    test_observer::clear();
+    signer_test.get_test_observer().clear();
     signer_test.mine_bitcoin_block();
     let now = std::time::Instant::now();
     let info = get_chain_info(&signer_test.running_nodes.conf);
@@ -206,7 +215,7 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     wait_for(30, || {
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
         let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
-        for (chunk, message) in get_stackerdb_signer_messages() {
+        for (chunk, message) in get_stackerdb_signer_messages(signer_test.get_test_observer()) {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -261,7 +270,7 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     std::thread::sleep(time_to_wait);
     wait_for(30, || {
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
-        for (chunk, message) in get_stackerdb_signer_messages() {
+        for (chunk, message) in get_stackerdb_signer_messages(signer_test.get_test_observer()) {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -294,9 +303,13 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     info!("------------------------- Waiting for block N+1' approval from capitulated signer -------------------------");
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
     TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
-    let block_n_1_prime =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
-            .expect("Failed to mine block N+1' after signers capitulated");
+    let block_n_1_prime = wait_for_block_pushed_by_miner_key(
+        30,
+        info_before.stacks_tip_height + 1,
+        &miner_pk,
+        signer_test.get_test_observer(),
+    )
+    .expect("Failed to mine block N+1' after signers capitulated");
     assert_ne!(
         block_n_1_prime, block_n_1,
         "Block N+1' should be different from original block N+1"
@@ -355,7 +368,7 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
             config.capitulate_miner_view_timeout = capitulate_miner_view_timeout;
             config.tenure_last_block_proposal_timeout = capitulate_miner_view_timeout;
         },
-        |config| {
+        |config, _| {
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
         None,
@@ -380,7 +393,7 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     info!("------------------------- Test Mine Nakamoto Block N -------------------------");
     let info_before = signer_test.get_peer_info();
 
-    test_observer::clear();
+    signer_test.get_test_observer().clear();
     // submit a tx so that the miner will mine a stacks block N
     let mut sender_nonce = 0;
     let transfer_tx = make_stacks_transfer_serialized(
@@ -401,11 +414,14 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     .expect("Timed out waiting for N to be mined and processed");
 
     // Ensure that the block was accepted globally so the stacks tip has advanced to N
-    let _block_n =
-        wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 1, &miner_pk, || {
-            signer_test.get_peer_info().stacks_tip
-        })
-        .expect("Timed out waiting for block N to be mined");
+    let _block_n = wait_for_block_pushed_and_tip(
+        30,
+        info_before.stacks_tip_height + 1,
+        &miner_pk,
+        || signer_test.get_peer_info().stacks_tip,
+        signer_test.get_test_observer(),
+    )
+    .expect("Timed out waiting for block N to be mined");
 
     let info_after = signer_test.get_peer_info();
     assert_eq!(
@@ -420,7 +436,7 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT.set(rejecting_signers.clone());
     TEST_SKIP_BLOCK_BROADCAST.set(true);
     TEST_BLOCK_ANNOUNCE_STALL.set(true);
-    test_observer::clear();
+    signer_test.get_test_observer().clear();
 
     // submit a tx so that the miner will mine a stacks block N+1
     let info_before = signer_test.get_peer_info();
@@ -434,13 +450,19 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     );
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N+1");
-    let block_n_1 = wait_for_block_proposal_block(30, info_before.stacks_tip_height + 1, &miner_pk)
-        .expect("Timed out waiting for block N+1 to be proposed");
+    let block_n_1 = wait_for_block_proposal_block(
+        30,
+        info_before.stacks_tip_height + 1,
+        &miner_pk,
+        signer_test.get_test_observer(),
+    )
+    .expect("Timed out waiting for block N+1 to be proposed");
 
     wait_for_block_rejections_from_signers(
         30,
         &block_n_1.header.signer_signature_hash(),
         &rejecting_signers,
+        signer_test.get_test_observer(),
     )
     .expect("Rejecting signers did not reject block N+1");
 
@@ -448,7 +470,7 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
     TEST_SIGNERS_IGNORE_PRE_COMMITS.set(vec![]);
     TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
-    test_observer::clear();
+    signer_test.get_test_observer().clear();
     signer_test.mine_bitcoin_block();
     let now = std::time::Instant::now();
     let info = get_chain_info(&signer_test.running_nodes.conf);
@@ -480,7 +502,7 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     wait_for(30, || {
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
         let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
-        for (chunk, message) in get_stackerdb_signer_messages() {
+        for (chunk, message) in get_stackerdb_signer_messages(signer_test.get_test_observer()) {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -539,7 +561,7 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     std::thread::sleep(time_to_wait);
     wait_for(30, || {
         let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
-        for (chunk, message) in get_stackerdb_signer_messages() {
+        for (chunk, message) in get_stackerdb_signer_messages(signer_test.get_test_observer()) {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
             };
@@ -583,13 +605,18 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     let tx = submit_tx(&http_origin, &transfer_tx);
     info!("Submitted tx {tx} in to mine block N+2");
 
-    let block_n_2 =
-        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 2, &miner_pk)
-            .expect("Failed to mine block N+2' after signers capitulated");
+    let block_n_2 = wait_for_block_pushed_by_miner_key(
+        30,
+        info_before.stacks_tip_height + 2,
+        &miner_pk,
+        signer_test.get_test_observer(),
+    )
+    .expect("Failed to mine block N+2' after signers capitulated");
     wait_for_block_global_acceptance_from_signers(
         30,
         &block_n_2.header.signer_signature_hash(),
         &rejecting_signers,
+        signer_test.get_test_observer(),
     )
     .expect("Capitulating signers failed to sign block N+2");
     signer_test.shutdown();

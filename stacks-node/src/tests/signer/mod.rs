@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -80,12 +80,12 @@ use crate::tests::nakamoto_integrations::{
     naka_neon_integration_conf, next_block_and_wait_for_commits, POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
-    get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
-    wait_for_runloop,
+    get_chain_info, next_block_and_wait, run_until_burnchain_height, wait_for_runloop,
 };
 use crate::tests::signer::v0::{
     wait_for_state_machine_update, wait_for_state_machine_update_by_miner_tenure_id,
 };
+use crate::tests::test_observer::TestObserver;
 use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
 
@@ -99,6 +99,7 @@ pub struct RunningNodes {
     pub counters: Counters,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
+    pub test_observer: TestObserver,
 }
 
 impl RunningNodes {
@@ -186,13 +187,20 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             num_signers,
             initial_balances,
             |_| {},
-            |_| {},
+            |_, _| {},
             None,
             None,
         )
     }
 
-    pub fn new_with_config_modifications<F: FnMut(&mut SignerConfig), G: FnMut(&mut NeonConfig)>(
+    /// `node_config_modifier` is a function that modifies the node configuration.
+    /// The second parameter passed to it is the port of the test observer,
+    /// so the modifying code can ensure not to remove any registered event
+    /// observers with that port.
+    pub fn new_with_config_modifications<
+        F: FnMut(&mut SignerConfig),
+        G: FnMut(&mut NeonConfig, u16),
+    >(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
         signer_config_modifier: F,
@@ -211,9 +219,13 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         )
     }
 
+    /// `node_config_modifier` is a function that modifies the node configuration.
+    /// The second parameter passed to it is the port of the test observer,
+    /// so the modifying code can ensure not to remove any registered event
+    /// observers with that port.
     pub fn new_with_config_modifications_and_snapshot<
         F: FnMut(&mut SignerConfig),
-        G: FnMut(&mut NeonConfig),
+        G: FnMut(&mut NeonConfig, u16),
     >(
         num_signers: usize,
         initial_balances: Vec<(StacksAddress, u64)>,
@@ -248,7 +260,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         naka_conf.miner.activated_vrf_key_path =
             Some(format!("{}/vrf_key", naka_conf.node.working_dir));
 
-        node_config_modifier(&mut naka_conf);
+        // Spawn a test observer for verification purposes
+        let test_observer = TestObserver::spawn();
+
+        node_config_modifier(&mut naka_conf, test_observer.port);
 
         // Add initial balances to the config
         for (address, amount) in initial_balances.iter() {
@@ -309,13 +324,16 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             SetupSnapshotResult::NoSnapshot => false,
         };
 
+        let test_observer_port = test_observer.port;
+
         let node = setup_stx_btc_node(
             naka_conf,
             &signer_stacks_private_keys,
             &signer_configs,
             btc_miner_pubkeys.as_slice(),
-            node_config_modifier,
+            |conf| node_config_modifier(conf, test_observer_port),
             snapshot_exists,
+            test_observer,
         );
         let config = signer_configs.first().unwrap();
         let stacks_client = StacksClient::from(config);
@@ -584,6 +602,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             peer_info.burn_block_height,
             None,
             &self.signer_addresses_versions_majority(),
+            self.get_test_observer(),
         )
         .expect("Signers failed to update to new burn block view");
         TEST_MINE_SKIP.set(was_skipping);
@@ -1180,6 +1199,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             timeout.as_secs(),
             &get_chain_info(&self.running_nodes.conf).pox_consensus,
             &self.signer_addresses_versions_majority(),
+            self.get_test_observer(),
         )
         .expect("Failed to update signer state machine");
 
@@ -1228,7 +1248,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         node_counters: &[&Counters],
         timeout: Duration,
     ) {
-        let blocks_len = test_observer::get_blocks().len();
+        let test_observer = self.get_test_observer();
+
+        let blocks_len = test_observer.get_blocks().len();
         let mined_block_time = Instant::now();
         next_block_and_wait_for_commits(
             &self.running_nodes.btc_regtest_controller,
@@ -1239,7 +1261,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         )
         .unwrap();
         let t_start = Instant::now();
-        while test_observer::get_blocks().len() <= blocks_len {
+        while test_observer.get_blocks().len() <= blocks_len {
             assert!(
                 t_start.elapsed() < timeout,
                 "Timed out while waiting for nakamoto block to be processed"
@@ -1297,9 +1319,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         block_signer_sighash: &Sha512Trunc256Sum,
         timeout: Duration,
     ) -> serde_json::Map<String, serde_json::Value> {
+        let test_observer = self.get_test_observer();
         let t_start = Instant::now();
         while t_start.elapsed() <= timeout {
-            let blocks = test_observer::get_blocks();
+            let blocks = test_observer.get_blocks();
             if let Some(block) = blocks.iter().find_map(|block_json| {
                 let block_obj = block_json.as_object().unwrap();
                 let sighash = block_obj
@@ -1323,8 +1346,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     fn wait_for_validate_ok_response(&self, timeout_secs: u64) -> BlockValidateOk {
         // Wait for the block to show up in the test observer
         let mut validate = None;
+        let test_observer = self.get_test_observer();
         wait_for(timeout_secs, || {
-            let responses = test_observer::get_proposal_responses();
+            let responses = test_observer.get_proposal_responses();
             for response in responses {
                 let BlockValidateResponse::Ok(validation) = response else {
                     continue;
@@ -1345,8 +1369,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     ) -> BlockValidateReject {
         // Wait for the block to show up in the test observer
         let mut reject = None;
+        let test_observer = self.get_test_observer();
         wait_for(timeout_secs, || {
-            let responses = test_observer::get_proposal_responses();
+            let responses = test_observer.get_proposal_responses();
             for response in responses {
                 let BlockValidateResponse::Reject(rejection) = response else {
                     continue;
@@ -1528,7 +1553,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     }
 
     fn shutdown_and_make_snapshot(mut self, needs_snapshot: bool) {
-        check_nakamoto_empty_block_heuristics(self.stacks_client.mainnet);
+        check_nakamoto_empty_block_heuristics(self.stacks_client.mainnet, self.get_test_observer());
 
         self.running_nodes
             .coord_channel
@@ -1621,7 +1646,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
     /// Get miner stackerDB messages
     pub fn get_miner_proposal_messages(&self) -> Vec<BlockProposal> {
-        let proposals: Vec<_> = test_observer::get_stackerdb_chunks()
+        let proposals: Vec<_> = self
+            .get_test_observer()
+            .get_stackerdb_chunks()
             .into_iter()
             .flat_map(|chunk| chunk.modified_slots)
             .filter_map(|chunk| {
@@ -1762,6 +1789,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         }
         self.wait_for_registered();
     }
+
+    pub fn get_test_observer(&self) -> &TestObserver {
+        &self.running_nodes.test_observer
+    }
 }
 
 fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
@@ -1771,6 +1802,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     btc_miner_pubkeys: &[Secp256k1PublicKey],
     mut node_config_modifier: G,
     snapshot_exists: bool,
+    test_observer: TestObserver,
 ) -> RunningNodes {
     // Spawn the endpoints for observing signers
     for signer_config in signer_configs {
@@ -1786,20 +1818,15 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         });
     }
 
-    // Spawn a test observer for verification purposes
-    test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![
+    test_observer.register(
+        &mut naka_conf,
+        &[
             EventKeyType::StackerDBChunks,
             EventKeyType::BlockProposal,
             EventKeyType::MinedBlocks,
             EventKeyType::BurnchainBlocks,
         ],
-        timeout_ms: 1000,
-        disable_retries: false,
-    });
+    );
 
     // The signers need some initial balances in order to pay for epoch 2.5 transaction votes
     let mut initial_balances = Vec::new();
@@ -1887,5 +1914,6 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         coord_channel,
         counters,
         conf: naka_conf,
+        test_observer,
     }
 }

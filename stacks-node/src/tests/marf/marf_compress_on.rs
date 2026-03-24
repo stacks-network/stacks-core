@@ -32,7 +32,7 @@ pub mod utils {
         blind_signer, boot_to_epoch_3, naka_neon_integration_conf, setup_stacker,
         wait_for_first_naka_block_commit,
     };
-    use crate::tests::neon_integrations::{test_observer, wait_for_runloop};
+    use crate::tests::neon_integrations::wait_for_runloop;
     use crate::tests::{self};
     use crate::{BitcoinRegtestController, BurnchainController};
 
@@ -53,9 +53,6 @@ pub mod utils {
             100000,
         );
         let stacker_sk = setup_stacker(&mut naka_conf);
-
-        test_observer::spawn();
-        test_observer::register_any(&mut naka_conf);
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
         btcd_controller

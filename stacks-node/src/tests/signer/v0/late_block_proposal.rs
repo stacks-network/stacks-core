@@ -29,7 +29,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
 use crate::tests::nakamoto_integrations::wait_for;
-use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
+use crate::tests::neon_integrations::{get_chain_info, submit_tx};
 use crate::tests::signer::v0::{
     get_stackerdb_signer_messages, wait_for_block_proposal, wait_for_block_pushed_and_tip,
 };
@@ -88,7 +88,7 @@ fn signer_rejects_proposal_after_block_pushed() {
     let all_signers = signer_test.signer_test_pks();
     let signer_1 = all_signers[0].clone();
     info!("------------------------- Ignore all Proposals for Signer 1 -------------------------"; "signer_public_key" => ?signer_1);
-    test_observer::clear();
+    signer_test.get_test_observer().clear();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![signer_1.clone()]);
     info!("------------------------- Force Miner to Send a Block Proposal To Signers -------------------------");
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
@@ -104,17 +104,26 @@ fn signer_rejects_proposal_after_block_pushed() {
     );
     submit_tx(&http_origin, &transfer_tx);
     // Grab the proposal itself so it can be reproposed later
-    let block_n_proposal =
-        wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
-            .expect("Timed out waiting for block N+1 to be proposed");
+    let test_observer = signer_test.get_test_observer();
+    let block_n_proposal = wait_for_block_proposal(
+        30,
+        info_before.stacks_tip_height + 1,
+        &miner_pk,
+        test_observer,
+    )
+    .expect("Timed out waiting for block N+1 to be proposed");
     let signer_signature_hash = block_n_proposal.block.header.signer_signature_hash();
-    let _ = wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 1, &miner_pk, || {
-        get_chain_info(&signer_test.running_nodes.conf).stacks_tip
-    })
+    let _ = wait_for_block_pushed_and_tip(
+        30,
+        info_before.stacks_tip_height + 1,
+        &miner_pk,
+        || get_chain_info(&signer_test.running_nodes.conf).stacks_tip,
+        test_observer,
+    )
     .expect("Failed to get BlockPushed for block N");
 
     info!("------------------------- Verify Signer 1 did NOT respond to the Block Proposal -------------------------");
-    let messages = get_stackerdb_signer_messages();
+    let messages = get_stackerdb_signer_messages(test_observer);
     for (_chunk, message) in messages {
         match message {
             SignerMessage::BlockResponse(BlockResponse::Rejected(rejected)) => {
@@ -152,13 +161,14 @@ fn signer_rejects_proposal_after_block_pushed() {
     );
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![]);
     info!("------------------------- Re-Propose Block N to the Signers -------------------------");
-    test_observer::clear();
+    let test_observer = signer_test.get_test_observer();
+    test_observer.clear();
     signer_test.send_block_proposal(block_n_proposal, Duration::from_secs(30));
     info!(
         "------------------------- Verify Signer 1 Rejected the Proposal -------------------------"
     );
     wait_for(30, || {
-        let messages = get_stackerdb_signer_messages();
+        let messages = get_stackerdb_signer_messages(test_observer);
         for (_chunk, message) in messages {
             let SignerMessage::BlockResponse(BlockResponse::Rejected(rejected)) = message else {
                 continue;
