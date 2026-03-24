@@ -600,7 +600,7 @@ fn main() {
                     );
                     let argument_value = friendly_expect_opt(
                         argument_parsed,
-                        "Failed to parse a value from the argument",
+                        &format!("Failed to parse a value from the argument '{argument}'"),
                     );
                     SymbolicExpression::atom_value(argument_value)
                 })
