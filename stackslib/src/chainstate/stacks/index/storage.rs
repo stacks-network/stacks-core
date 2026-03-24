@@ -997,7 +997,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
             for pointer in node_data.iter() {
                 let (node, _) = self.get_nodetype(*pointer)?;
-                ptr += get_node_byte_len(node) as u64;
+                ptr += u64::try_from(get_node_byte_len(node)).map_err(|_| Error::OverflowError)?;
                 offsets.push(ptr);
             }
             end_offset = ptr;
@@ -1007,7 +1007,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             for node_data_ptr in node_data.iter() {
                 let next_node = &mut self
                     .data
-                    .get_mut(*node_data_ptr as usize)
+                    .get_mut(usize::try_from(*node_data_ptr).map_err(|_| Error::OverflowError)?)
                     .ok_or_else(|| {
                         Error::CorruptionError("Miscalculated dump_consume pointer".into())
                     })?
@@ -1256,10 +1256,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
             let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
             for node_data_ptr in node_data.iter() {
                 if let Some(patch) = node_data_ptr.patch() {
-                    ptr += (TRIEHASH_ENCODED_SIZE + patch.size()) as u64;
+                    ptr += u64::try_from(TRIEHASH_ENCODED_SIZE + patch.size())
+                        .map_err(|_| Error::OverflowError)?;
                 } else {
                     let (node, _) = self.get_nodetype(node_data_ptr.ptr())?;
-                    ptr += get_node_byte_len_compressed(node) as u64;
+                    ptr += u64::try_from(get_node_byte_len_compressed(node))
+                        .map_err(|_| Error::OverflowError)?;
                 }
                 offsets.push(ptr);
             }
@@ -1286,7 +1288,10 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 } else {
                     let next_node = &mut self
                         .data
-                        .get_mut(node_data_ptr.ptr() as usize)
+                        .get_mut(
+                            usize::try_from(node_data_ptr.ptr())
+                                .map_err(|_| Error::OverflowError)?,
+                        )
                         .ok_or_else(|| {
                             Error::CorruptionError(
                                 "Miscalculated dump_compressed_consume pointer".into(),
@@ -1535,7 +1540,9 @@ impl<T: MarfTrieId> TrieRAM<T> {
         if let Some(existing_node) = self.data.get_mut(node_index) {
             *existing_node = (node.clone(), hash);
             Ok(())
-        } else if node_array_ptr == (self.data.len() as u64) {
+        } else if node_array_ptr
+            == u64::try_from(self.data.len()).map_err(|_| Error::OverflowError)?
+        {
             self.data.push((node.clone(), hash));
             self.total_bytes += get_node_byte_len(node);
             Ok(())
@@ -1572,7 +1579,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
     /// Get the next ptr value for a node to store.
     pub fn last_ptr(&mut self) -> Result<u64, Error> {
-        Ok(self.data.len() as u64)
+        u64::try_from(self.data.len()).map_err(|_| Error::OverflowError)
     }
 
     #[cfg(test)]
