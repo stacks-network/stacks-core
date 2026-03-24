@@ -58,3 +58,14 @@ jobs:
         uses: stacks-network/actions/stacks-core/cache/build-cache@main
         with:
           genesis: true
+
+      - name: Generate constants artifact
+        run: |
+          cargo run --bin stacks-inspect -- dump-consts > constants.json
+
+      - name: Upload constants artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: constants-dump
+          path: constants.json
+          retention-days: 1

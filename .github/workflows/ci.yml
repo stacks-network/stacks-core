@@ -169,6 +169,7 @@ jobs:
       - rustfmt
       - changelog-check
       - check-release
+      - create-cache
     uses: ./.github/workflows/constants-check.yml
 
   ## Checks to run on built binaries
