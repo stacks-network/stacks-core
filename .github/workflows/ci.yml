@@ -124,10 +124,6 @@ jobs:
       github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
     name: Create Test Cache
-    needs:
-      - rustfmt
-      - changelog-check
-      - check-release
     uses: ./.github/workflows/create-cache.yml
 
   ## Tests to run regularly
