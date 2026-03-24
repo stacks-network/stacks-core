@@ -1,4 +1,4 @@
-// Copyright (C) 2025-2026 Stacks Open Internet Foundation
+// Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,10 +13,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Bitcoin Integration Test Module
-//!
-//! Entry point for all bitcoin related test modules
+use stacks_common::versions::STACKS_SIGNER_VERSION;
 
-mod core_container;
-mod core_controller_integrations;
-mod rpc_integrations;
+use crate::{VERSION_ONLY_STRING, VERSION_STRING};
+
+#[test]
+fn test_version_named_string() {
+    assert!(VERSION_STRING.starts_with(&format!("stacks-signer {STACKS_SIGNER_VERSION}")));
+}
+
+#[test]
+fn test_version_only_string() {
+    assert!(VERSION_ONLY_STRING.starts_with(STACKS_SIGNER_VERSION));
+}
