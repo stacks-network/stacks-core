@@ -320,7 +320,7 @@ jobs:
         run: |
           EXT="${{ env.REPORT_FILES_EXT }}"
           DIR="${{ env.REPORT_FILES_DIR }}"
-          CHUNK_SIZE=60
+          CHUNK_SIZE=30
           INTERMEDIATE_FILES=()
     
           cd "$DIR" || exit 1
