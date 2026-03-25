@@ -3,6 +3,7 @@ import {
   Cl,
   createAddress,
   encodeStructuredDataBytes,
+  getAddressFromPublicKey,
   signWithKey,
 } from '@stacks/transactions';
 import { hex } from '@scure/base';
@@ -128,6 +129,52 @@ export function setupSigner(staker: string) {
   const authId = grantAuthIdCounter++;
   createSignerKeyGrant({ staker, signerSk, poxAddr: null, authId });
   return { signerSk, signerKey };
+}
+
+/** Get the testnet STX address for a signer key. */
+export function signerAddress(signerKey: Uint8Array) {
+  return getAddressFromPublicKey(signerKey, 'testnet');
+}
+
+/** Sign a per-transaction signer authorization (the signer-sig path). */
+export function signPerTransactionAuth({
+  signerSk,
+  poxAddr,
+  rewardCycle,
+  topic,
+  period,
+  maxAmount,
+  authId,
+}: {
+  signerSk: Uint8Array;
+  poxAddr: { version: Uint8Array; hashbytes: Uint8Array };
+  rewardCycle: bigint;
+  topic: string;
+  period: bigint | number;
+  maxAmount: bigint | number;
+  authId: bigint | number;
+}) {
+  const message = Cl.tuple({
+    'pox-addr': Cl.tuple({
+      version: Cl.buffer(poxAddr.version),
+      hashbytes: Cl.buffer(poxAddr.hashbytes),
+    }),
+    'reward-cycle': Cl.uint(rewardCycle),
+    topic: Cl.stringAscii(topic),
+    period: Cl.uint(period),
+    'auth-id': Cl.uint(authId),
+    'max-amount': Cl.uint(maxAmount),
+  });
+  const fullMessage = encodeStructuredDataBytes({
+    message,
+    domain: Cl.tuple({
+      name: Cl.stringAscii(pox5.constants.pOX_5_SIGNER_DOMAIN.name),
+      version: Cl.stringAscii(pox5.constants.pOX_5_SIGNER_DOMAIN.version),
+      'chain-id': Cl.uint(pox5.constants.pOX_5_SIGNER_DOMAIN.chainId),
+    }),
+  });
+  const data = signWithKey(signerSk, hex.encode(sha256(fullMessage)));
+  return hex.decode(data.slice(2) + data.slice(0, 2));
 }
 
 /** Register the test pool with a valid signer key grant. Returns the signer key and pox address. */
