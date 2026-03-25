@@ -503,10 +503,7 @@ pub mod pox5 {
                     "topic".into(),
                     Value::string_ascii_from_bytes("grant-authorization".into()).unwrap(),
                 ),
-                (
-                    "staker".into(),
-                    Value::Principal(stacker.clone()),
-                ),
+                ("staker".into(), Value::Principal(stacker.clone())),
                 ("pox-addr".into(), pox_addr_value),
                 ("auth-id".into(), Value::UInt(auth_id)),
             ])
@@ -523,8 +520,7 @@ pub mod pox5 {
         chain_id: u32,
         signer_key: &StacksPrivateKey,
     ) -> Result<MessageSignature, &'static str> {
-        let msg_hash =
-            make_pox_5_signer_grant_message_hash(stacker, pox_addr, auth_id, chain_id);
+        let msg_hash = make_pox_5_signer_grant_message_hash(stacker, pox_addr, auth_id, chain_id);
         signer_key.sign(msg_hash.as_bytes())
     }
 }
