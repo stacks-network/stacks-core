@@ -936,11 +936,13 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
     /// Walk through the buffered TrieNodes and dump them to f.
     /// This consumes this TrieRAM instance.
-    fn dump_consume<F: Write + Seek>(mut self, f: &mut F) -> Result<u64, Error> {
+    pub(crate) fn dump_consume<F: Write + Seek>(mut self, f: &mut F) -> Result<u64, Error> {
         // step 1: determine breadth-first node order
         let mut frontier: VecDeque<u32> = VecDeque::new();
         let mut node_data = vec![];
         let mut forward_ptr_count = 0usize;
+        // True when a node has forward pointers whose encoding may widen.
+        let mut has_forward_ptrs = vec![];
 
         let start = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr();
         frontier.push_back(
@@ -952,23 +954,21 @@ impl<T: MarfTrieId> TrieRAM<T> {
             let (node, _node_hash) = self.get_nodetype(pointer)?;
 
             // queue each child
+            let mut has_fwd = false;
             if !node.is_leaf() {
                 for ptr in node.ptrs().iter() {
                     if !ptr.is_empty() && !is_backptr(ptr.id) {
-                        let idx = u32::try_from(ptr.ptr()).map_err(|_| {
-                            Error::CorruptionError(format!(
-                                "In-memory node index {} exceeds u32::MAX",
-                                ptr.ptr()
-                            ))
-                        })?;
+                        let idx = ptr.ptr_as_u32()?;
                         frontier.push_back(idx);
                         forward_ptr_count = forward_ptr_count
                             .checked_add(1)
                             .ok_or_else(|| Error::OverflowError)?;
+                        has_fwd = true;
                     }
                 }
             }
 
+            has_forward_ptrs.push(has_fwd);
             node_data.push(pointer);
         }
 
@@ -977,6 +977,15 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // and the next 4 bytes for the local block identifier.
         let mut end_offset = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
         let mut offsets = Vec::with_capacity(node_data.len());
+        // Cached byte lengths: nodes without forward pointers have constant
+        // sizes across passes, so we only recompute nodes with forward ptrs.
+        let mut byte_lens = node_data
+            .iter()
+            .map(|p| {
+                let (node, _) = self.get_nodetype(*p)?;
+                u64::try_from(get_node_byte_len(node)).map_err(|_| Error::OverflowError)
+            })
+            .collect::<Result<Vec<u64>, Error>>()?;
         // The first pass replaces in-memory indices with serialized offsets.
         // Afterwards, each mutable child pointer can widen from u32 to u64 at most once.
         // A pass that changes offsets without introducing any new wide pointers is the final
@@ -986,36 +995,45 @@ impl<T: MarfTrieId> TrieRAM<T> {
         for _ in 0..max_layout_passes {
             offsets.clear();
             let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
-            for pointer in node_data.iter() {
-                let (node, _) = self.get_nodetype(*pointer)?;
-                ptr += u64::try_from(get_node_byte_len(node)).map_err(|_| Error::OverflowError)?;
+            for ((&pointer, &has_fwd), blen) in node_data
+                .iter()
+                .zip(has_forward_ptrs.iter())
+                .zip(byte_lens.iter_mut())
+            {
+                if has_fwd {
+                    let (node, _) = self.get_nodetype(pointer)?;
+                    *blen =
+                        u64::try_from(get_node_byte_len(node)).map_err(|_| Error::OverflowError)?;
+                }
+                ptr += *blen;
                 offsets.push(ptr);
             }
             end_offset = ptr;
 
             let mut changed = false;
             let mut i = 0;
-            for node_data_ptr in node_data.iter() {
+            for (&node_data_ptr, &has_fwd) in node_data.iter().zip(has_forward_ptrs.iter()) {
+                if !has_fwd {
+                    continue;
+                }
                 let next_node = &mut self
                     .data
-                    .get_mut(usize::try_from(*node_data_ptr).map_err(|_| Error::OverflowError)?)
+                    .get_mut(usize::try_from(node_data_ptr).map_err(|_| Error::OverflowError)?)
                     .ok_or_else(|| {
                         Error::CorruptionError("Miscalculated dump_consume pointer".into())
                     })?
                     .0;
-                if !next_node.is_leaf() {
-                    let ptrs = next_node.ptrs_mut();
-                    for ptr in ptrs.iter_mut() {
-                        if !ptr.is_empty() && !is_backptr(ptr.id) {
-                            let next_offset = *offsets.get(i).ok_or_else(|| {
-                                Error::CorruptionError("Miscalculated dump_consume offsets".into())
-                            })?;
-                            if ptr.ptr != next_offset {
-                                ptr.ptr = next_offset;
-                                changed = true;
-                            }
-                            i += 1;
+                let ptrs = next_node.ptrs_mut();
+                for ptr in ptrs.iter_mut() {
+                    if !ptr.is_empty() && !is_backptr(ptr.id) {
+                        let next_offset = *offsets.get(i).ok_or_else(|| {
+                            Error::CorruptionError("Miscalculated dump_consume offsets".into())
+                        })?;
+                        if ptr.ptr != next_offset {
+                            ptr.ptr = next_offset;
+                            changed = true;
                         }
+                        i += 1;
                     }
                 }
             }
@@ -1040,11 +1058,6 @@ impl<T: MarfTrieId> TrieRAM<T> {
         )?;
 
         Ok(end_offset)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn dump_consume_for_test<F: Write + Seek>(self, f: &mut F) -> Result<u64, Error> {
-        self.dump_consume(f)
     }
 
     fn make_node_patch(
@@ -1127,7 +1140,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     ///
     /// Returns Ok(len) to report number of bytes written
     /// Returns Err(..) if we fail to write
-    fn dump_compressed_consume<F: Write + Seek>(
+    pub(crate) fn dump_compressed_consume<F: Write + Seek>(
         mut self,
         storage_tx: &mut TrieStorageTransaction<T>,
         f: &mut F,
@@ -1137,6 +1150,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         let mut node_data = vec![];
         let mut forward_ptr_count = 0usize;
+        let mut has_forward_ptrs = vec![];
 
         let start = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr();
         frontier.push_back(
@@ -1195,18 +1209,25 @@ impl<T: MarfTrieId> TrieRAM<T> {
             };
 
             if let Some((_, patch_node)) = patch_node_opt.as_ref() {
-                let mut num_new_nodes = 0;
-                if !node.is_leaf() {
-                    for ptr in node.ptrs().iter() {
-                        if !ptr.is_empty() && !is_backptr(ptr.id) {
-                            num_new_nodes += 1;
-                        }
-                    }
-                }
-                assert_eq!(num_new_nodes, patch_node.ptr_diff.len());
+                // The BFS frontier and the convergence loop must visit the
+                // exact same forward children in the same order. Compare the
+                // chr() sequence of forward pointers in the full node against
+                // the patch diff to guarantee this.
+                let node_forward = node
+                    .ptrs()
+                    .iter()
+                    .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                    .map(|p| p.chr());
+                let diff_forward = patch_node
+                    .ptr_diff
+                    .iter()
+                    .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                    .map(|p| p.chr());
+                assert!(node_forward.eq(diff_forward));
             }
 
             // queue each child
+            let mut has_fwd = false;
             if !node.is_leaf() {
                 for ptr in node.ptrs().iter() {
                     if !ptr.is_empty() && !is_backptr(ptr.id) {
@@ -1220,15 +1241,20 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         forward_ptr_count = forward_ptr_count
                             .checked_add(1)
                             .ok_or_else(|| Error::OverflowError)?;
+                        has_fwd = true;
                     }
                 }
             }
 
+            // Normal nodes with forward ptrs need re-measurement; patch
+            // nodes have a fixed size independent of pointer encoding.
+            let fwd = has_fwd && patch_node_opt.is_none();
             if let Some((hash_bytes, patch)) = patch_node_opt.take() {
                 node_data.push(DumpPtr::Patch(pointer, hash_bytes, patch));
             } else {
                 node_data.push(DumpPtr::Normal(pointer));
             }
+            has_forward_ptrs.push(fwd);
         }
 
         // step 2: repeatedly lay out nodes until serialized offsets stabilize
@@ -1236,6 +1262,20 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // and the next 4 bytes for the local block identifier.
         let mut end_offset = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
         let mut offsets = vec![];
+        // Cached byte lengths: leaf / pointer-free / patch node sizes are
+        // constant across passes, so we only recompute non-leaf nodes.
+        let mut byte_lens = node_data
+            .iter()
+            .map(|dp| {
+                let byte_len = if let Some(patch) = dp.patch() {
+                    TRIEHASH_ENCODED_SIZE + patch.size()
+                } else {
+                    let (node, _) = self.get_nodetype(dp.ptr())?;
+                    get_node_byte_len_compressed(node)
+                };
+                u64::try_from(byte_len).map_err(|_| Error::OverflowError)
+            })
+            .collect::<Result<Vec<u64>, Error>>()?;
         // The first pass replaces in-memory indices with serialized offsets.
         // Afterwards, each mutable child pointer can widen from u32 to u64 at most once.
         // A pass that changes offsets without introducing any new wide pointers is the final
@@ -1245,22 +1285,23 @@ impl<T: MarfTrieId> TrieRAM<T> {
         for _pass in 0..max_layout_passes {
             offsets.clear();
             let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
-            for node_data_ptr in node_data.iter() {
-                if let Some(patch) = node_data_ptr.patch() {
-                    ptr += u64::try_from(TRIEHASH_ENCODED_SIZE + patch.size())
-                        .map_err(|_| Error::OverflowError)?;
-                } else {
+            for (node_data_ptr, (&has_fwd, blen)) in node_data
+                .iter()
+                .zip(has_forward_ptrs.iter().zip(byte_lens.iter_mut()))
+            {
+                if has_fwd {
                     let (node, _) = self.get_nodetype(node_data_ptr.ptr())?;
-                    ptr += u64::try_from(get_node_byte_len_compressed(node))
+                    *blen = u64::try_from(get_node_byte_len_compressed(node))
                         .map_err(|_| Error::OverflowError)?;
                 }
+                ptr += *blen;
                 offsets.push(ptr);
             }
             end_offset = ptr;
 
             let mut changed = false;
             let mut i = 0;
-            for node_data_ptr in node_data.iter_mut() {
+            for (node_data_ptr, &has_fwd) in node_data.iter_mut().zip(has_forward_ptrs.iter()) {
                 if let Some(patch) = node_data_ptr.patch_mut() {
                     for ptr in patch.ptr_diff.iter_mut() {
                         if !ptr.is_empty() && !is_backptr(ptr.id) {
@@ -1276,7 +1317,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                             i += 1;
                         }
                     }
-                } else {
+                } else if has_fwd {
                     let next_node = &mut self
                         .data
                         .get_mut(
@@ -1289,21 +1330,19 @@ impl<T: MarfTrieId> TrieRAM<T> {
                             )
                         })?
                         .0;
-                    if !next_node.is_leaf() {
-                        let ptrs = next_node.ptrs_mut();
-                        for ptr in ptrs.iter_mut() {
-                            if !ptr.is_empty() && !is_backptr(ptr.id) {
-                                let next_offset = *offsets.get(i).ok_or_else(|| {
-                                    Error::CorruptionError(
-                                        "Miscalculated dump_compressed_consume offsets".into(),
-                                    )
-                                })?;
-                                if ptr.ptr != next_offset {
-                                    ptr.ptr = next_offset;
-                                    changed = true;
-                                }
-                                i += 1;
+                    let ptrs = next_node.ptrs_mut();
+                    for ptr in ptrs.iter_mut() {
+                        if !ptr.is_empty() && !is_backptr(ptr.id) {
+                            let next_offset = *offsets.get(i).ok_or_else(|| {
+                                Error::CorruptionError(
+                                    "Miscalculated dump_compressed_consume offsets".into(),
+                                )
+                            })?;
+                            if ptr.ptr != next_offset {
+                                ptr.ptr = next_offset;
+                                changed = true;
                             }
+                            i += 1;
                         }
                     }
                 }
@@ -1426,12 +1465,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
     /// Read a node's hash from the TrieRAM.  ptr.ptr() is an array index.
     pub fn read_node_hash(&self, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let idx = usize::try_from(ptr.ptr()).map_err(|_| {
-            Error::CorruptionError(format!(
-                "In-memory node index {} exceeds usize::MAX",
-                ptr.ptr()
-            ))
-        })?;
+        let idx = ptr.ptr_as_usize()?;
         let (_, node_trie_hash) = self.data.get(idx).ok_or_else(|| {
             error!(
                 "TrieRAM: Failed to read node bytes: {} >= {}",
@@ -1477,12 +1511,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             self.read_node_count += 1;
         }
 
-        let idx = usize::try_from(ptr.ptr()).map_err(|_| {
-            Error::CorruptionError(format!(
-                "In-memory node index {} exceeds usize::MAX",
-                ptr.ptr()
-            ))
-        })?;
+        let idx = ptr.ptr_as_usize()?;
         if let Some(node) = self.data.get(idx) {
             Ok(node.clone())
         } else {
