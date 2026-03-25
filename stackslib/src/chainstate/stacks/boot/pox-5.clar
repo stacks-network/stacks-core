@@ -13,6 +13,14 @@
 (define-constant ERR_INVALID_AMOUNT (err u11))
 (define-constant ERR_INVALID_POX_ADDRESS (err u13))
 (define-constant ERR_POOL_NOT_FOUND (err u14))
+;; The signer key grant has already been used
+(define-constant ERR_SIGNER_KEY_GRANT_USED (err u15))
+(define-constant ERR_INVALID_SIGNATURE_RECOVER (err u16))
+(define-constant ERR_INVALID_SIGNATURE_PUBKEY (err u17))
+(define-constant ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH (err u19))
+(define-constant ERR_SIGNER_AUTH_USED (err u20))
+(define-constant ERR_SIGNER_KEY_GRANT_NOT_FOUND (err u21))
+(define-constant ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH (err u22))
 
 (define-trait pool-owner-trait (
     (validate-stake!
@@ -41,6 +49,16 @@
 
 ;; Minimum amount of uSTX you can stake
 (define-constant MIN_STACKING_AMOUNT u100000000) ;; 100 STX
+
+;; SIP18 message prefix
+(define-constant SIP018_MSG_PREFIX 0x534950303138)
+
+;; SIP018 domain
+(define-constant POX_5_SIGNER_DOMAIN {
+    name: "pox-5-signer",
+    version: "1.0.0",
+    chain-id: chain-id,
+})
 
 ;; Keep these constants in lock-step with the address version buffs above
 ;; Maximum value of an address version as a uint
@@ -127,6 +145,45 @@
     }
 )
 
+(define-map signer-key-grants
+    {
+        signer-key: (buff 33),
+        staker: principal,
+    }
+    (optional {
+        version: (buff 1),
+        hashbytes: (buff 32),
+    })
+)
+
+(define-map used-signer-key-grants
+    {
+        signer-key: (buff 33),
+        staker: principal,
+        auth-id: uint,
+    }
+    bool
+)
+
+;; State for tracking used signer key authorizations. This prevents re-use
+;; of the same signature or pre-set authorization for multiple transactions.
+;; Refer to the `signer-key-authorizations` map for the documentation on these fields
+(define-map used-signer-key-authorizations
+    {
+        signer-key: (buff 33),
+        reward-cycle: uint,
+        period: uint,
+        topic: (string-ascii 14),
+        pox-addr: {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        },
+        auth-id: uint,
+        max-amount: uint,
+    }
+    bool ;; Whether the field has been used or not
+)
+
 ;; What's the reward cycle number of the burnchain block height?
 ;; Will runtime-abort if height is less than the first burnchain block (this is intentional)
 (define-read-only (burn-height-to-reward-cycle (height uint))
@@ -206,23 +263,22 @@
             hashbytes: (buff 32),
         })
         (start-burn-ht uint)
-        ;; #[allow(unused_binding)]
         (signer-sig (optional (buff 65)))
         (signer-key (buff 33))
-        ;; #[allow(unused_binding)]
         (max-amount uint)
-        ;; #[allow(unused_binding)]
         (auth-id uint)
         (num-cycles uint)
         (unlock-bytes (buff 683))
     )
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (begin
-        ;;;;  Validate ownership of the given signer key
-        ;; (try! (consume-signer-key-authorization pox-addr (- first-reward-cycle u1) "stack-stx" lock-period signer-sig signer-key amount-ustx max-amount auth-id))
-
         ;;  pox-addr must be valid
         (try! (check-pox-addr pox-addr))
+
+        (try! (validate-signer-key-usage pox-addr (current-pox-reward-cycle) "stake"
+            num-cycles signer-sig signer-key amount-ustx max-amount auth-id
+            tx-sender
+        ))
 
         (inner-stake amount-ustx num-cycles unlock-bytes start-burn-ht
             (err {
@@ -331,7 +387,10 @@
         (unlock-bytes (buff 683))
     )
     (begin
-        ;; TODO: verify signer sig
+        (try! (validate-signer-key-usage pox-addr (current-pox-reward-cycle)
+            "stake-extend" num-cycles signer-sig signer-key amount-ustx
+            max-amount auth-id tx-sender
+        ))
 
         ;;  pox-addr must be valid
         (try! (check-pox-addr pox-addr))
@@ -422,7 +481,7 @@
         (auth-id uint)
     )
     (let ((owner (contract-of pool-owner)))
-        ;; TODO: verify signer sig
+        (try! (verify-signer-key-grant tx-sender signer-key pox-addr))
 
         (try! (check-pox-addr pox-addr))
 
@@ -479,16 +538,25 @@
         (auth-id uint)
     )
     (begin
-        ;; TODO: verify signer sig
-
         ;;  pox-addr must be valid
         (try! (check-pox-addr pox-addr))
 
-        (inner-stake-update amount-ustx-increase
-            (err {
-                pox-addr: pox-addr,
-                signer-key: signer-key,
-            })
+        (let (
+                (stake-update-result (try! (inner-stake-update amount-ustx-increase
+                    (err {
+                        pox-addr: pox-addr,
+                        signer-key: signer-key,
+                    })
+                )))
+                (cycles-remaining (- (get unlock-cycle stake-update-result)
+                    (current-pox-reward-cycle)
+                ))
+            )
+            (try! (validate-signer-key-usage pox-addr (current-pox-reward-cycle)
+                "stake-update" cycles-remaining signer-sig signer-key
+                amount-ustx-increase max-amount auth-id tx-sender
+            ))
+            (ok stake-update-result)
         )
     )
 )
@@ -539,6 +607,278 @@
             pool-or-solo-info: pool-or-solo-info,
         })
     )
+)
+
+;;; Signer key authorization functions
+
+;; Generate a message hash for validating a signer key.
+;; The message hash follows SIP018 for signing structured data. The structured data
+;; is the tuple `{ pox-addr: { version, hashbytes }, reward-cycle, auth-id, max-amount, topic, period }`.
+;; The domain is [POX_5_SIGNER_DOMAIN].
+(define-read-only (get-signer-key-message-hash
+        (pox-addr {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        })
+        (reward-cycle uint)
+        (topic (string-ascii 14))
+        (period uint)
+        (max-amount uint)
+        (auth-id uint)
+    )
+    (sha256 (concat SIP018_MSG_PREFIX
+        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
+            (sha256 (unwrap-panic (to-consensus-buff? {
+                pox-addr: pox-addr,
+                reward-cycle: reward-cycle,
+                topic: topic,
+                period: period,
+                auth-id: auth-id,
+                max-amount: max-amount,
+            })))
+        )))
+)
+
+;; Construct the message hash for validating a signer key grant. Unlike [get-signer-key-message-hash],
+;; this message hash does not include `max-amount`, `period`, or `reward-cycle`. The topic is always `"grant-authorization"`.
+;; The `pox-addr` field is optional. When `none`, it means the signer key can be used for any PoX address.
+(define-read-only (get-signer-grant-message-hash
+        (staker principal)
+        (pox-addr (optional {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        }))
+        (auth-id uint)
+    )
+    (sha256 (concat SIP018_MSG_PREFIX
+        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
+            (sha256 (unwrap-panic (to-consensus-buff? {
+                topic: "grant-authorization",
+                staker: staker,
+                pox-addr: pox-addr,
+                auth-id: auth-id,
+            })))
+        )))
+)
+
+(define-public (grant-signer-key
+        (signer-key (buff 33))
+        (staker principal)
+        (pox-addr (optional {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        }))
+        (auth-id uint)
+        (signer-sig (buff 65))
+    )
+    (begin
+        (asserts!
+            (is-none (map-get? used-signer-key-grants {
+                signer-key: signer-key,
+                staker: staker,
+                auth-id: auth-id,
+            }))
+            ERR_SIGNER_KEY_GRANT_USED
+        )
+
+        (asserts!
+            (is-eq
+                (unwrap!
+                    (secp256k1-recover?
+                        (get-signer-grant-message-hash staker pox-addr auth-id)
+                        signer-sig
+                    )
+                    ERR_INVALID_SIGNATURE_RECOVER
+                )
+                signer-key
+            )
+            ERR_INVALID_SIGNATURE_PUBKEY
+        )
+
+        (asserts!
+            (map-insert used-signer-key-grants {
+                signer-key: signer-key,
+                staker: staker,
+                auth-id: auth-id,
+            }
+                true
+            )
+            ERR_SIGNER_KEY_GRANT_USED
+        )
+
+        (map-set signer-key-grants {
+            signer-key: signer-key,
+            staker: staker,
+        }
+            pox-addr
+        )
+
+        (ok true)
+    )
+)
+
+;; Verify a signature from the signing key for this specific stacker.
+;; See `get-signer-key-message-hash` for details on the message hash.
+;;
+;; Note that `reward-cycle` corresponds to the _current_ reward cycle,
+;; when used with `stack-stx` and `stack-extend`. Both the reward cycle and
+;; the lock period are inflexible, which means that the stacker must confirm their transaction
+;; during the exact reward cycle and with the exact period that the signature or authorization was
+;; generated for.
+;;
+;; The `amount` field is checked to ensure it is not larger than `max-amount`, which is
+;; a field in the authorization. `auth-id` is a random uint to prevent authorization
+;; replays.
+;;
+;; This function does not verify the payload of the authorization. The caller of
+;; this function must ensure that the payload (reward cycle, period, topic, and pox-addr)
+;; are valid according to the caller function's requirements.
+;;
+;; When `signer-sig` is present, the public key is recovered from the signature
+;; and compared to `signer-key`. If `signer-sig` is `none`, the function verifies that an authorization was previously
+;; added for this key.
+;;
+;; This function checks to ensure that the authorization hasn't been used yet, but it
+;; does _not_ store the authorization as used. The function `consume-signer-key-authorization`
+;; handles that, and this read-only function is exposed for client-side verification.
+(define-read-only (verify-signer-key-sig
+        (pox-addr {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        })
+        (reward-cycle uint)
+        (topic (string-ascii 14))
+        (period uint)
+        (signer-sig (buff 65))
+        (signer-key (buff 33))
+        (amount uint)
+        (max-amount uint)
+        (auth-id uint)
+    )
+    (begin
+        ;; Validate that amount is less than or equal to `max-amount`
+        (asserts! (>= max-amount amount) ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH)
+        (asserts!
+            (is-none (map-get? used-signer-key-authorizations {
+                signer-key: signer-key,
+                reward-cycle: reward-cycle,
+                topic: topic,
+                period: period,
+                pox-addr: pox-addr,
+                auth-id: auth-id,
+                max-amount: max-amount,
+            }))
+            ERR_SIGNER_AUTH_USED
+        )
+        (ok (asserts!
+            (is-eq
+                (unwrap!
+                    (secp256k1-recover?
+                        (get-signer-key-message-hash pox-addr reward-cycle topic
+                            period max-amount auth-id
+                        )
+                        signer-sig
+                    )
+                    ERR_INVALID_SIGNATURE_RECOVER
+                )
+                signer-key
+            )
+            ERR_INVALID_SIGNATURE_PUBKEY
+        ))
+    )
+)
+
+;; This function does two things:
+;;
+;; - Verify that a signer key is authorized to be used
+;; - Updates the `used-signer-key-authorizations` map to prevent reuse
+;;
+;; This "wrapper" method around `verify-signer-key-sig` allows that function to remain
+;; read-only, so that it can be used by clients as a sanity check before submitting a transaction.
+(define-private (consume-signer-key-authorization
+        (pox-addr {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        })
+        (reward-cycle uint)
+        (topic (string-ascii 14))
+        (period uint)
+        (signer-sig (buff 65))
+        (signer-key (buff 33))
+        (amount uint)
+        (max-amount uint)
+        (auth-id uint)
+    )
+    (begin
+        ;; verify the authorization
+        (try! (verify-signer-key-sig pox-addr reward-cycle topic period signer-sig
+            signer-key amount max-amount auth-id
+        ))
+        ;; update the `used-signer-key-authorizations` map
+        (asserts!
+            (map-insert used-signer-key-authorizations {
+                signer-key: signer-key,
+                reward-cycle: reward-cycle,
+                topic: topic,
+                period: period,
+                pox-addr: pox-addr,
+                auth-id: auth-id,
+                max-amount: max-amount,
+            }
+                true
+            )
+            ERR_SIGNER_AUTH_USED
+        )
+        (ok true)
+    )
+)
+
+;; if signer-sig-opt is present, verify the signature. Otherwise,
+;; verify that a grant was previously added for this key.
+(define-private (validate-signer-key-usage
+        (pox-addr {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        })
+        (reward-cycle uint)
+        (topic (string-ascii 14))
+        (period uint)
+        (signer-sig-opt (optional (buff 65)))
+        (signer-key (buff 33))
+        (amount uint)
+        (max-amount uint)
+        (auth-id uint)
+        (staker principal)
+    )
+    (match signer-sig-opt
+        signer-sig (consume-signer-key-authorization pox-addr reward-cycle topic period
+            signer-sig signer-key amount max-amount auth-id
+        )
+        (verify-signer-key-grant staker signer-key pox-addr)
+    )
+)
+
+(define-read-only (verify-signer-key-grant
+        (staker principal)
+        (signer-key (buff 33))
+        (pox-addr {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        })
+    )
+    (ok (asserts!
+        (match (unwrap!
+            (map-get? signer-key-grants {
+                signer-key: signer-key,
+                staker: staker,
+            })
+            ERR_SIGNER_KEY_GRANT_NOT_FOUND
+        )
+            grant-pox-addr (is-eq grant-pox-addr pox-addr)
+            true
+        )
+        ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH
+    ))
 )
 
 ;;; Validation helpers

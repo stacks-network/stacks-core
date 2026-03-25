@@ -1,14 +1,28 @@
 import { accounts } from '../clarigen-types';
-import { assertErr, assertOk, rov, txErr, txOk } from '@clarigen/test';
+import { assertErr, assertOk, rov, rovOk, txErr, txOk } from '@clarigen/test';
 import { test, expect, describe, beforeEach } from 'vitest';
 import {
   mineUntil,
   randomPoxAddress,
+  randomSecretKey,
   randomStacksAddress,
 } from '../test-helpers';
-import { pox5, errorCodes, testPool } from './pox-5-helpers';
-import { randomBytes } from '@stacks/transactions';
+import {
+  pox5,
+  errorCodes,
+  testPool,
+  createSignerKeyGrant,
+} from './pox-5-helpers';
+import {
+  Cl,
+  encodeStructuredDataBytes,
+  randomBytes,
+  signWithKey,
+} from '@stacks/transactions';
 import { inspect } from 'node:util';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { hex } from '@scure/base';
 
 const deployer = accounts.deployer.address;
 const alice = accounts.wallet_1.address;
@@ -57,8 +71,15 @@ describe('staking', () => {
   test('staking adds a stacker to the linked list', () => {
     const stacker = alice;
     const numCycles = 4;
+    const signerSk = randomSecretKey();
     const unlockBytes = randomBytes(255);
-    const signerKey = randomBytes(33);
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    createSignerKeyGrant({
+      staker: stacker,
+      signerSk: signerSk,
+      poxAddr: null,
+      authId: 0n,
+    });
     const result = txOk(
       pox5.stake({
         amountUstx: minAmount,
@@ -66,7 +87,7 @@ describe('staking', () => {
         signerKey,
         maxAmount: minAmount,
         authId: 0,
-        signerSig: randomBytes(65),
+        signerSig: null,
         startBurnHt: simnet.burnBlockHeight,
         numCycles,
         unlockBytes,
@@ -831,6 +852,61 @@ describe('staking', () => {
 
       expect(result.value).toEqual(errorCodes.ERR_INVALID_POX_ADDRESS);
     });
+  });
+});
+
+describe('signer key grants', () => {
+  test('can create a signer key grant', () => {
+    const stacker = alice;
+    const signerSk = randomSecretKey();
+    const authId = 0n;
+    const poxAddr = randomPoxAddress();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const message = Cl.tuple({
+      staker: Cl.principal(stacker),
+      topic: Cl.stringAscii('grant-authorization'),
+      'pox-addr': Cl.some(
+        Cl.tuple({
+          version: Cl.buffer(poxAddr.version),
+          hashbytes: Cl.buffer(poxAddr.hashbytes),
+        }),
+      ),
+      'auth-id': Cl.uint(authId),
+    });
+    const fullMessage = encodeStructuredDataBytes({
+      message,
+      domain: Cl.tuple({
+        name: Cl.stringAscii(pox5.constants.pOX_5_SIGNER_DOMAIN.name),
+        version: Cl.stringAscii(pox5.constants.pOX_5_SIGNER_DOMAIN.version),
+        'chain-id': Cl.uint(pox5.constants.pOX_5_SIGNER_DOMAIN.chainId),
+      }),
+    });
+    const messageHashFromContract = rov(
+      pox5.getSignerGrantMessageHash(stacker, poxAddr, authId),
+    );
+    expect(sha256(fullMessage)).toStrictEqual(messageHashFromContract);
+    const data = signWithKey(signerSk, hex.encode(sha256(fullMessage)));
+    const signature = hex.decode(data.slice(2) + data.slice(0, 2));
+    const result = txOk(
+      pox5.grantSignerKey({
+        signerKey: signerKey,
+        staker: stacker,
+        poxAddr: poxAddr,
+        authId: authId,
+        signerSig: signature,
+      }),
+      deployer,
+    );
+    expect(result.value).toBe(true);
+
+    const isValid = rovOk(
+      pox5.verifySignerKeyGrant({
+        staker: stacker,
+        signerKey: signerKey,
+        poxAddr: poxAddr,
+      }),
+    );
+    expect(isValid).toBe(true);
   });
 });
 
