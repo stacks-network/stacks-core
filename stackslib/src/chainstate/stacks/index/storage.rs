@@ -272,7 +272,7 @@ impl<T: MarfTrieId> UncommittedState<T> {
 
     /// Write a node hash to a particular slot in the TrieRAM.
     /// Panics of the UncommittedState is sealed already.
-    pub fn write_node_hash(&mut self, node_array_ptr: u64, hash: TrieHash) -> Result<(), Error> {
+    pub fn write_node_hash(&mut self, node_array_ptr: u32, hash: TrieHash) -> Result<(), Error> {
         match self {
             UncommittedState::RW(ref mut trie_ram) => {
                 trie_ram.write_node_hash(node_array_ptr, hash)
