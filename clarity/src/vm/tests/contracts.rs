@@ -1635,7 +1635,6 @@ fn test_contract_call_with_constant_at_deploy(
         (call-foo)
         ";
 
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
@@ -1684,7 +1683,6 @@ fn test_nested_cc_with_constant_at_deploy(
         (call-call-foo)
         ";
 
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
