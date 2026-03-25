@@ -3532,12 +3532,11 @@ pub mod nakamoto_block_signatures {
     /// the bug would accept the sequence because index 1 > index 0 (the stale
     /// last_index), even though index 1 < index 2 (the actual previous signer).
     fn test_out_of_order_signer_signatures_after_first() {
-        // We need 4 signers so we can construct a sequence where the first
-        // pair is in order but a later pair is not: [0, 2, 1, 3] or similar.
-        // We'll use [0, 2, 1] (skip signer 3) — indices go 0 -> 2 -> 1,
-        // which is out of order at the third signature.
+        // We need 3 signers so we can construct a sequence where the first
+        // pair is in order but a later pair is not: [0, 2, 1] or similar.
+        // We'll use [0, 2, 1] — indices go 0 -> 2 -> 1, which is out of order
+        // at the third signature.
         let signers = [
-            (Secp256k1PrivateKey::random(), 100),
             (Secp256k1PrivateKey::random(), 100),
             (Secp256k1PrivateKey::random(), 100),
             (Secp256k1PrivateKey::random(), 100),
