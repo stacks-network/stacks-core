@@ -54,8 +54,8 @@ use super::stacks::boot::{
 };
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::{
-    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
-    StacksBlockHeaderTypes, StacksEpochReceipt, StacksHeaderInfo,
+    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerRewardInfo, StacksBlockHeaderTypes,
+    StacksEpochReceipt, StacksHeaderInfo,
 };
 use super::stacks::events::StacksTransactionReceipt;
 use super::stacks::{
@@ -636,7 +636,7 @@ pub struct StxBtcCycleTotals {
     pub reward_cycle: u64,
     /// Number of tenures that completed in this cycle.
     pub tenure_count: u64,
-    /// Total STX (coinbase + transaction fees) earned by miners in this cycle, in micro-STX.
+    /// Total STX coinbase earned by miners in this cycle, in micro-STX.
     pub stx_earned_ustx: u128,
     /// Total BTC spent by all block-commit transactions in this cycle, in satoshis.
     /// This includes both the BTC outputs to PoX addresses, i.e. `burnchain_sortition_burn`,
@@ -4034,15 +4034,19 @@ impl NakamotoChainState {
             );
         }
 
-        // The walk starts from anchor_block(end_reward_cycle + 1), which is the exclusive
-        // upper bound (first tenure of the next cycle). We don't accumulate it but do
-        // capture its fees_from_child_tenure for correct fee attribution.
-        let Some(mut tenure_consensus_hash) = Self::get_tenure_consensus_hash_at_cycle_end(
+        // anchor_block(end_reward_cycle + 1) is the exclusive upper bound — skip it
+        // and start from its parent (the last tenure in end_reward_cycle).
+        let Some(anchor_ch) = Self::get_tenure_consensus_hash_at_cycle_end(
             conn,
             sort_db,
             tip_index_hash,
             end_reward_cycle,
         )?
+        else {
+            return Ok(totals_by_cycle);
+        };
+        let Some(mut tenure_consensus_hash) =
+            conn.get_parent_tenure_consensus_hash(tip_index_hash, &anchor_ch)?
         else {
             return Ok(totals_by_cycle);
         };
@@ -4057,13 +4061,6 @@ impl NakamotoChainState {
         }
 
         let mut current_cycle = end_reward_cycle;
-        // `parent_fees` in a tenure's schedule belong to the *parent* tenure.
-        // As we scan newest -> oldest tenure, carry each schedule's `parent_fees` to the next
-        // iteration so fees are attributed to the tenure that produced them.
-        let mut fees_from_child_tenure = None;
-        // The first tenure (anchor_block of end_cycle+1) is not accumulated — it belongs
-        // to the next cycle. We only extract its fee chain data.
-        let mut skip_accumulation = true;
 
         loop {
             let Some(tenure_start_header) = Self::get_nakamoto_tenure_start_block_header(
@@ -4075,68 +4072,57 @@ impl NakamotoChainState {
                 break;
             };
 
-            let miner_info_opt = StacksChainState::get_miner_info(
+            if let Some(miner_info) = StacksChainState::get_miner_info(
                 conn.sqlite(),
                 &tenure_start_header.consensus_hash,
                 &tenure_start_header.anchored_header.block_hash(),
-            )?;
-
-            if !skip_accumulation {
-                if let Some(miner_info) = miner_info_opt.as_ref() {
-                    let stx_earned =
-                        Self::stx_earned_for_tenure(&miner_info, fees_from_child_tenure);
-                    let (cycle_totals, newest_ch) = totals_by_cycle
-                        .get_mut(&current_cycle)
-                        .expect("FATAL: missing cycle totals for populated range");
-                    cycle_totals.tenure_count = cycle_totals.tenure_count.saturating_add(1);
-                    cycle_totals.stx_earned_ustx =
-                        cycle_totals.stx_earned_ustx.saturating_add(stx_earned);
-                    cycle_totals.btc_spent_sats = cycle_totals
-                        .btc_spent_sats
-                        .saturating_add(miner_info.burnchain_sortition_burn);
-                    let btc_extra = Self::total_extra_btc_for_sortition(
-                        sort_db.conn(),
-                        &tenure_start_header.consensus_hash,
-                    )?;
-                    cycle_totals.btc_spent_sats =
-                        cycle_totals.btc_spent_sats.saturating_add(btc_extra);
-                    // Track the newest tenure for this cycle (first one we see, since we
-                    // walk newest→oldest).
-                    if *newest_ch == ConsensusHash([0u8; 20]) {
-                        *newest_ch = tenure_start_header.consensus_hash.clone();
-                    }
-                } else {
-                    warn!(
-                        "No miner payment record for tenure {}; excluding from STX/BTC cycle totals",
-                        &tenure_start_header.consensus_hash
-                    );
+            )? {
+                let (cycle_totals, newest_ch) = totals_by_cycle
+                    .get_mut(&current_cycle)
+                    .expect("FATAL: missing cycle totals for populated range");
+                cycle_totals.tenure_count = cycle_totals.tenure_count.saturating_add(1);
+                cycle_totals.stx_earned_ustx = cycle_totals
+                    .stx_earned_ustx
+                    .saturating_add(miner_info.coinbase);
+                cycle_totals.btc_spent_sats = cycle_totals
+                    .btc_spent_sats
+                    .saturating_add(miner_info.burnchain_sortition_burn);
+                let btc_extra = Self::total_extra_btc_for_sortition(
+                    sort_db.conn(),
+                    &tenure_start_header.consensus_hash,
+                )?;
+                cycle_totals.btc_spent_sats = cycle_totals.btc_spent_sats.saturating_add(btc_extra);
+                // Track the newest tenure for this cycle (first one we see, since we
+                // walk newest→oldest).
+                if *newest_ch == ConsensusHash([0u8; 20]) {
+                    *newest_ch = tenure_start_header.consensus_hash.clone();
                 }
-
-                // Check if this tenure is the anchor block (inclusive start) of current_cycle.
-                // If so, we've finished current_cycle — move to the previous one.
-                let is_cycle_start = anchor_chs
-                    .get(&current_cycle)
-                    .map(|ch| *ch == tenure_consensus_hash)
-                    .unwrap_or(false);
-                if is_cycle_start {
-                    if current_cycle <= start_reward_cycle {
-                        break; // Done — we've accumulated all requested cycles.
-                    }
-                    current_cycle = current_cycle.saturating_sub(1);
-                }
+            } else {
+                warn!(
+                    "No miner payment record for tenure {}; excluding from STX/BTC cycle totals",
+                    &tenure_start_header.consensus_hash
+                );
             }
-            skip_accumulation = false;
 
-            fees_from_child_tenure = miner_info_opt
-                .as_ref()
-                .and_then(|miner_info| Self::fees_for_parent_tenure(&miner_info.tx_fees));
+            // Check if this tenure is the anchor block (inclusive start) of current_cycle.
+            // If so, we've finished current_cycle — move to the previous one.
+            let is_cycle_start = anchor_chs
+                .get(&current_cycle)
+                .map(|ch| *ch == tenure_consensus_hash)
+                .unwrap_or(false);
+            if is_cycle_start {
+                if current_cycle <= start_reward_cycle {
+                    break; // Done — we've accumulated all requested cycles.
+                }
+                current_cycle = current_cycle.saturating_sub(1);
+            }
 
-            let Some(parent_tenure_consensus_hash) =
+            let Some(parent_ch) =
                 conn.get_parent_tenure_consensus_hash(tip_index_hash, &tenure_consensus_hash)?
             else {
                 break;
             };
-            tenure_consensus_hash = parent_tenure_consensus_hash;
+            tenure_consensus_hash = parent_ch;
         }
 
         Ok(totals_by_cycle)
@@ -4145,12 +4131,8 @@ impl NakamotoChainState {
     /// Incrementally update a cached in-progress cycle by walking only the new tenures
     /// since the cache was last computed.
     ///
-    /// Walks from anchor_block(reward_cycle+1) back to `stop_at_ch` (exclusive),
-    /// accumulating the delta STX/BTC. The first tenure (the anchor block itself) is
-    /// skipped since it belongs to cycle+1; only tenures in `reward_cycle` are counted.
-    /// Also applies a `parent_fees` correction — the fees belonging to the tenure at
-    /// `stop_at_ch` that weren't counted at cache time because its child tenure didn't
-    /// exist yet.
+    /// Walks from the parent of anchor_block(reward_cycle+1) back to `stop_at_ch`
+    /// (exclusive), accumulating the delta STX/BTC totals for new tenures.
     ///
     /// Returns `Some((delta_totals, newest_tenure_ch))` on success, where `newest_tenure_ch`
     /// is the consensus hash of the newest tenure processed (for updating the cache resume
@@ -4169,10 +4151,10 @@ impl NakamotoChainState {
             stx_earned_ustx: 0,
             btc_spent_sats: 0,
         };
-        let mut newest_ch = stop_at_ch.clone();
 
-        // Walk starts from anchor_block(reward_cycle+1) — the exclusive upper bound.
-        let Some(mut tenure_consensus_hash) = Self::get_tenure_consensus_hash_at_cycle_end(
+        // anchor_block(reward_cycle+1) is the exclusive upper bound — skip it and
+        // start from its parent (the last tenure in reward_cycle).
+        let Some(anchor_ch) = Self::get_tenure_consensus_hash_at_cycle_end(
             conn,
             sort_db,
             tip_index_hash,
@@ -4181,24 +4163,20 @@ impl NakamotoChainState {
         else {
             return Ok(None);
         };
+        let Some(mut tenure_consensus_hash) =
+            conn.get_parent_tenure_consensus_hash(tip_index_hash, &anchor_ch)?
+        else {
+            return Ok(None);
+        };
 
-        let mut fees_from_child_tenure = None;
-        let mut is_first = true;
-        let mut reached_boundary = false;
-        // Skip the first tenure (anchor_block of cycle+1) — it's not in our cycle.
-        let mut skip_accumulation = true;
+        let mut newest_ch = None;
 
         loop {
-            // If we've reached the cached boundary, apply the parent_fees correction
-            // (these fees belong to the tenure at stop_at_ch but weren't counted last time
-            // because its child tenure didn't exist yet).
             if tenure_consensus_hash == *stop_at_ch {
-                if let Some(parent_fees_correction) = fees_from_child_tenure {
-                    delta.stx_earned_ustx =
-                        delta.stx_earned_ustx.saturating_add(parent_fees_correction);
-                }
-                reached_boundary = true;
-                break;
+                return Ok(Some((
+                    delta,
+                    newest_ch.unwrap_or_else(|| stop_at_ch.clone()),
+                )));
             }
 
             let Some(tenure_start_header) = Self::get_nakamoto_tenure_start_block_header(
@@ -4207,65 +4185,42 @@ impl NakamotoChainState {
                 &tenure_consensus_hash,
             )?
             else {
-                break;
+                return Ok(None);
             };
 
-            let miner_info_opt = StacksChainState::get_miner_info(
+            if let Some(miner_info) = StacksChainState::get_miner_info(
                 conn.sqlite(),
                 &tenure_start_header.consensus_hash,
                 &tenure_start_header.anchored_header.block_hash(),
-            )?;
+            )? {
+                delta.tenure_count = delta.tenure_count.saturating_add(1);
+                delta.stx_earned_ustx = delta.stx_earned_ustx.saturating_add(miner_info.coinbase);
+                delta.btc_spent_sats = delta
+                    .btc_spent_sats
+                    .saturating_add(miner_info.burnchain_sortition_burn);
+                let btc_extra = Self::total_extra_btc_for_sortition(
+                    sort_db.conn(),
+                    &tenure_start_header.consensus_hash,
+                )?;
+                delta.btc_spent_sats = delta.btc_spent_sats.saturating_add(btc_extra);
 
-            if !skip_accumulation {
-                if let Some(miner_info) = miner_info_opt.as_ref() {
-                    let stx_earned =
-                        Self::stx_earned_for_tenure(&miner_info, fees_from_child_tenure);
-                    delta.tenure_count = delta.tenure_count.saturating_add(1);
-                    delta.stx_earned_ustx = delta.stx_earned_ustx.saturating_add(stx_earned);
-                    delta.btc_spent_sats = delta
-                        .btc_spent_sats
-                        .saturating_add(miner_info.burnchain_sortition_burn);
-                    let btc_extra = Self::total_extra_btc_for_sortition(
-                        sort_db.conn(),
-                        &tenure_start_header.consensus_hash,
-                    )?;
-                    delta.btc_spent_sats = delta.btc_spent_sats.saturating_add(btc_extra);
-
-                    // Track the newest tenure we processed for this cycle.
-                    if is_first {
-                        newest_ch = tenure_start_header.consensus_hash.clone();
-                        is_first = false;
-                    }
-                } else {
-                    warn!(
-                        "No miner payment record for tenure {}; excluding from incremental STX/BTC cycle totals",
-                        &tenure_start_header.consensus_hash
-                    );
+                if newest_ch.is_none() {
+                    newest_ch = Some(tenure_start_header.consensus_hash.clone());
                 }
+            } else {
+                warn!(
+                    "No miner payment record for tenure {}; excluding from incremental STX/BTC cycle totals",
+                    &tenure_start_header.consensus_hash
+                );
             }
-            skip_accumulation = false;
-
-            fees_from_child_tenure = miner_info_opt
-                .as_ref()
-                .and_then(|mi| Self::fees_for_parent_tenure(&mi.tx_fees));
 
             let Some(parent_ch) =
                 conn.get_parent_tenure_consensus_hash(tip_index_hash, &tenure_consensus_hash)?
             else {
-                break;
+                return Ok(None);
             };
             tenure_consensus_hash = parent_ch;
         }
-
-        if !reached_boundary {
-            warn!(
-                "Incremental cycle update for cycle {} did not reach cached boundary tenure {}; falling back to full recompute",
-                reward_cycle, stop_at_ch
-            );
-            return Ok(None);
-        }
-
-        Ok(Some((delta, newest_ch)))
     }
 
     /// Load cached cycle totals for cycles in `[start_cycle, end_cycle]`.
@@ -4474,9 +4429,7 @@ impl NakamotoChainState {
     /// Incrementally update the STX/BTC cycle cache when a new tenure is processed.
     ///
     /// Call this from `append_block` when `is_new_tenure` is true. It adds this single
-    /// tenure's contribution to the current cycle's running totals, and also applies
-    /// the `parent_fees` correction for the previous tenure (whose fees were unknown
-    /// until this child tenure arrived).
+    /// tenure's coinbase and BTC spend to the current cycle's running totals.
     ///
     /// Cycle assignment uses anchor-block boundaries, consistent with the full scan path:
     /// cycle N = [anchor_block(N), anchor_block(N+1)).
@@ -4578,46 +4531,6 @@ impl NakamotoChainState {
             totals.btc_spent_sats = totals.btc_spent_sats.saturating_add(btc_extra);
         }
 
-        // The parent_fees in this tenure's schedule are the tx fees earned by the
-        // *parent* tenure, which was cached with coinbase only. Determine which cycle
-        // the parent belongs to so we apply the correction to the right place.
-        if let Some(parent_fees) = Self::fees_for_parent_tenure(&miner_reward.tx_fees) {
-            if parent_fees > 0 {
-                let parent_cycle = Self::anchor_block_cycle_for_tenure(
-                    conn,
-                    sort_db,
-                    tip,
-                    pox_constants,
-                    first_burn_height,
-                    &miner_reward.parent_consensus_hash,
-                );
-
-                match parent_cycle {
-                    Some(pc) if pc == reward_cycle => {
-                        // Same cycle — include the correction in the current store.
-                        totals.stx_earned_ustx = totals.stx_earned_ustx.saturating_add(parent_fees);
-                    }
-                    Some(pc) => {
-                        // Cross-cycle boundary: apply correction to the parent's cycle.
-                        Self::apply_parent_fees_to_cycle(
-                            conn.sqlite(),
-                            pc,
-                            parent_fees,
-                            tip,
-                            &miner_reward.parent_consensus_hash,
-                        );
-                    }
-                    None => {
-                        warn!(
-                            "STX/BTC cache: could not determine cycle for parent tenure {}; \
-                             dropping {} uSTX in parent_fees correction",
-                            &miner_reward.parent_consensus_hash, parent_fees
-                        );
-                    }
-                }
-            }
-        }
-
         Self::store_cycle_totals_cache(
             conn.sqlite(),
             &totals,
@@ -4630,50 +4543,6 @@ impl NakamotoChainState {
         } else {
             None
         }
-    }
-
-    /// Apply a parent_fees correction to a previous cycle's cache entry.
-    /// No-op if the cycle is already complete or has no cache entry.
-    fn apply_parent_fees_to_cycle(
-        chainstate_conn: &Connection,
-        parent_cycle: u64,
-        parent_fees: u128,
-        tip: &StacksBlockId,
-        parent_consensus_hash: &ConsensusHash,
-    ) {
-        let (prev_complete, prev_incomplete) = match Self::load_cached_cycle_totals(
-            chainstate_conn,
-            parent_cycle,
-            parent_cycle,
-            tip,
-        ) {
-            Ok(maps) => maps,
-            Err(_) => return,
-        };
-
-        // Don't touch completed cycles — they were computed via the full-scan
-        // which already includes cross-cycle fee attribution.
-        if prev_complete.contains_key(&parent_cycle) {
-            return;
-        }
-
-        let Some(cached) = prev_incomplete.get(&parent_cycle) else {
-            // No cache entry for the parent cycle — skip. The lazy path
-            // will handle it on first query.
-            return;
-        };
-
-        let mut prev_totals = cached.totals.clone();
-        prev_totals.stx_earned_ustx = prev_totals.stx_earned_ustx.saturating_add(parent_fees);
-        // Cross-cycle parent_fees means the parent cycle is finished — mark complete.
-        // This is authoritative because cycle assignment uses anchor-block boundaries.
-        Self::store_cycle_totals_cache(
-            chainstate_conn,
-            &prev_totals,
-            true,
-            tip,
-            parent_consensus_hash,
-        );
     }
 
     /// Check whether `last_tenure_ch` is reachable from `tip_index_hash` in the current fork.
@@ -4845,24 +4714,6 @@ impl NakamotoChainState {
             stx_btc_ratio,
             smoothed_stx_btc_ratio,
         })
-    }
-
-    fn stx_earned_for_tenure(
-        miner_info: &MinerPaymentSchedule,
-        fees_from_child_tenure: Option<u128>,
-    ) -> u128 {
-        let fee_component = match miner_info.tx_fees {
-            MinerPaymentTxFees::Nakamoto { .. } => fees_from_child_tenure.unwrap_or(0),
-            MinerPaymentTxFees::Epoch2 { anchored, streamed } => anchored.saturating_add(streamed),
-        };
-        miner_info.coinbase.saturating_add(fee_component)
-    }
-
-    fn fees_for_parent_tenure(tx_fees: &MinerPaymentTxFees) -> Option<u128> {
-        match tx_fees {
-            MinerPaymentTxFees::Nakamoto { parent_fees } => Some(*parent_fees),
-            MinerPaymentTxFees::Epoch2 { .. } => None,
-        }
     }
 
     /// Compute the raw STX/BTC ratio for a cycle in units of μSTX per satoshi.
@@ -6758,46 +6609,6 @@ mod stx_btc_ratio_tests {
     }
 
     // -----------------------------------------------------------------------
-    // stx_earned_for_tenure
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn stx_earned_nakamoto_no_child_fees() {
-        let schedule = schedule(1_000_000, MinerPaymentTxFees::Nakamoto { parent_fees: 500 });
-        // With no child tenure fees, only coinbase counts
-        assert_eq!(
-            NakamotoChainState::stx_earned_for_tenure(&schedule, None),
-            1_000_000
-        );
-    }
-
-    #[test]
-    fn stx_earned_nakamoto_with_child_fees() {
-        let schedule = schedule(1_000_000, MinerPaymentTxFees::Nakamoto { parent_fees: 500 });
-        // Child tenure's parent_fees are credited to this tenure
-        assert_eq!(
-            NakamotoChainState::stx_earned_for_tenure(&schedule, Some(250)),
-            1_000_250
-        );
-    }
-
-    #[test]
-    fn stx_earned_epoch2_uses_own_fees() {
-        let schedule = schedule(
-            1_000_000,
-            MinerPaymentTxFees::Epoch2 {
-                anchored: 300,
-                streamed: 200,
-            },
-        );
-        // Epoch 2: coinbase + anchored + streamed; child fees are ignored
-        assert_eq!(
-            NakamotoChainState::stx_earned_for_tenure(&schedule, Some(9999)),
-            1_000_500
-        );
-    }
-
-    // -----------------------------------------------------------------------
     // weighted_smoothed_stx_btc_ratio
     // -----------------------------------------------------------------------
 
@@ -7445,14 +7256,13 @@ mod stx_btc_cache_tests {
                 .unwrap();
         let entry = complete.get(&reward_cycle).unwrap();
         assert_eq!(entry.tenure_count, 2);
-        // Tenure 1: coinbase 500_000
-        // Tenure 2: coinbase 500_000 + parent_fees correction 2_000 (same cycle)
-        assert_eq!(entry.stx_earned_ustx, 1_002_000);
+        // Only coinbase counts — parent_fees (2_000) is intentionally excluded.
+        assert_eq!(entry.stx_earned_ustx, 1_000_000); // 500k + 500k coinbase
         assert_eq!(entry.btc_spent_sats, 11_000);
     }
 
     #[test]
-    fn test_proactive_update_parent_fees_same_cycle() {
+    fn test_proactive_update_two_tenures_same_cycle() {
         use clarity::vm::types::PrincipalData;
         use stacks_common::types::chainstate::StacksAddress;
 
@@ -7527,7 +7337,7 @@ mod stx_btc_cache_tests {
             &reward1,
         );
 
-        // Tenure 2: parent_fees = 3_000 belonging to tenure 1 (same cycle).
+        // Tenure 2: has parent_fees = 3_000 which should be excluded from the ratio.
         let tip2 = make_tip(0xbb);
         let reward2 = crate::chainstate::stacks::db::MinerPaymentSchedule {
             recipient: PrincipalData::Standard(addr.clone().into()),
@@ -7557,138 +7367,8 @@ mod stx_btc_cache_tests {
             NakamotoChainState::load_cached_cycle_totals(&conn, cycle1, cycle1, &tip2).unwrap();
         let entry = complete.get(&cycle1).unwrap();
         assert_eq!(entry.tenure_count, 2);
-        // Tenure 1 coinbase (500_000) + Tenure 2 coinbase (500_000) + parent_fees correction (3_000)
-        assert_eq!(entry.stx_earned_ustx, 1_003_000);
+        // Only coinbase counts — parent_fees (3_000) is intentionally excluded.
+        assert_eq!(entry.stx_earned_ustx, 1_000_000); // 500k + 500k coinbase
         assert_eq!(entry.btc_spent_sats, 11_000);
-    }
-
-    #[test]
-    fn test_proactive_update_parent_fees_cross_cycle() {
-        use clarity::vm::types::PrincipalData;
-        use stacks_common::types::chainstate::StacksAddress;
-
-        use crate::burnchains::PoxConstants;
-        use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
-        use crate::chainstate::burn::db::sortdb::SortitionDB;
-        use crate::chainstate::stacks::db::MinerPaymentTxFees;
-
-        let mut conn = setup_cache_db();
-        let first_burn_height = 0u64;
-        let first_burn_hash = stacks_common::types::chainstate::BurnchainHeaderHash([0u8; 32]);
-        let mut sort_db = SortitionDB::connect_test(first_burn_height, &first_burn_hash).unwrap();
-
-        // Use a small cycle length (5) so we only need a few snapshots.
-        let mut pox = PoxConstants::testnet_default();
-        pox.reward_cycle_length = 5;
-        pox.prepare_length = 2;
-        let cycle_len = pox.reward_cycle_length as u64;
-
-        // Append snapshots to cross the cycle boundary.
-        // Genesis is at height 0. We need cycle_len snapshots to reach cycle 1.
-        let mut last_sn = None;
-        for i in 1..=cycle_len {
-            let sn = test_append_snapshot(
-                &mut sort_db,
-                stacks_common::types::chainstate::BurnchainHeaderHash([i as u8; 32]),
-                &[],
-            );
-            last_sn = Some(sn);
-        }
-        // last_sn is at height cycle_len, which is the first block in cycle 1.
-        let sn_cycle1 = last_sn.unwrap();
-        let parent_cycle = pox
-            .block_height_to_reward_cycle(first_burn_height, sn_cycle1.block_height - 1)
-            .unwrap();
-        let child_cycle = pox
-            .block_height_to_reward_cycle(first_burn_height, sn_cycle1.block_height)
-            .unwrap();
-        assert_ne!(
-            parent_cycle, child_cycle,
-            "Parent and child must be in different cycles"
-        );
-
-        let addr = StacksAddress::new(0, stacks_common::util::hash::Hash160([0u8; 20])).unwrap();
-
-        // Get the snapshot for the last block in parent_cycle.
-        let parent_sn =
-            SortitionDB::get_block_snapshot(sort_db.conn(), &sn_cycle1.parent_sortition_id)
-                .unwrap()
-                .unwrap();
-
-        // Seed the parent cycle's cache with one tenure (simulates prior incremental updates).
-        let tip0 = make_tip(0x99);
-        let parent_totals = make_totals(parent_cycle, 1, 500_000, 5_000);
-        NakamotoChainState::store_cycle_totals_cache(
-            &conn,
-            &parent_totals,
-            false,
-            &tip0,
-            &parent_sn.consensus_hash,
-        );
-
-        // Now process the first tenure in child_cycle, whose parent_fees (4_000)
-        // belong to the last tenure in parent_cycle.
-        let tip1 = make_tip(0xcc);
-        let reward = crate::chainstate::stacks::db::MinerPaymentSchedule {
-            recipient: PrincipalData::Standard(addr.clone().into()),
-            address: addr.clone(),
-            block_hash: BlockHeaderHash([0xcc; 32]),
-            consensus_hash: sn_cycle1.consensus_hash.clone(),
-            parent_block_hash: BlockHeaderHash([0u8; 32]),
-            parent_consensus_hash: parent_sn.consensus_hash.clone(),
-            coinbase: 500_000,
-            tx_fees: MinerPaymentTxFees::Nakamoto { parent_fees: 4_000 },
-            burnchain_commit_burn: 0,
-            burnchain_sortition_burn: 7_000,
-            miner: true,
-            stacks_block_height: 10,
-            vtxindex: 0,
-        };
-        NakamotoChainState::update_stx_btc_cache_for_new_tenure(
-            &mut conn,
-            &sort_db,
-            &pox,
-            first_burn_height,
-            &tip1,
-            &reward,
-        );
-
-        // Child cycle should have coinbase only — no parent_fees (those belong to parent cycle).
-        let (complete_child, _) =
-            NakamotoChainState::load_cached_cycle_totals(&conn, child_cycle, child_cycle, &tip1)
-                .unwrap();
-        let child_entry = complete_child.get(&child_cycle).unwrap();
-        assert_eq!(child_entry.tenure_count, 1);
-        assert_eq!(child_entry.stx_earned_ustx, 500_000);
-        assert_eq!(child_entry.btc_spent_sats, 7_000);
-
-        // Parent cycle should have the parent_fees correction applied.
-        // Note: tip changed, so we need to load with tip1 — parent cycle entry was
-        // stored as incomplete with tip0, so it'll show up as incomplete with tip1.
-        // But update_stx_btc_cache_for_new_tenure re-stores it with tip1.
-        let (complete_parent, _) =
-            NakamotoChainState::load_cached_cycle_totals(&conn, parent_cycle, parent_cycle, &tip1)
-                .unwrap();
-        let parent_entry = complete_parent.get(&parent_cycle).unwrap();
-        assert_eq!(parent_entry.tenure_count, 1); // unchanged
-                                                  // Original 500_000 + parent_fees correction 4_000
-        assert_eq!(parent_entry.stx_earned_ustx, 504_000);
-        assert_eq!(parent_entry.btc_spent_sats, 5_000); // unchanged
-
-        // The parent cycle should be marked complete (survives a tip change).
-        let future_tip = make_tip(0xdd);
-        let (complete_from_future, incomplete_from_future) =
-            NakamotoChainState::load_cached_cycle_totals(
-                &conn,
-                parent_cycle,
-                parent_cycle,
-                &future_tip,
-            )
-            .unwrap();
-        assert!(
-            complete_from_future.contains_key(&parent_cycle),
-            "Parent cycle should be marked complete and not depend on tip"
-        );
-        assert!(incomplete_from_future.is_empty());
     }
 }

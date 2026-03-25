@@ -61,7 +61,7 @@ pub struct GetStxBtcRatioResponse {
     pub reward_cycle: u64,
     /// Number of tenures that completed in this cycle.
     pub tenure_count: u64,
-    /// Total STX (coinbase + fees) earned by miners in this cycle, in micro-STX.
+    /// Total STX coinbase earned by miners in this cycle, in micro-STX.
     pub stx_earned_ustx: u128,
     /// Total BTC spent by all block-commit transactions in this cycle, in satoshis.
     /// Includes PoX outputs plus estimated Bitcoin tx fees for every competing commit.
