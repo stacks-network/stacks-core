@@ -25,28 +25,9 @@ use crate::vm::errors::{
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    AssetIdentifier, BuffData, CallableData, PrincipalData, SequenceData, TupleData, TypeSignature,
-    Value,
+    AssetIdentifier, BuffData, PrincipalData, SequenceData, TupleData, TypeSignature, Value,
 };
-use crate::vm::{LocalContext, ValueRef, eval};
-
-/// Normalize a CallableContract value (with no trait) back to its canonical
-/// Principal form. This is applied to NFT identifier values so that
-/// downstream consumers (asset map, events, postcondition checks) always
-/// see the canonical representation.
-fn normalize_asset_value(value: ValueRef) -> ValueRef {
-    if let Value::CallableContract(CallableData {
-        contract_identifier,
-        trait_identifier: None,
-    }) = value.as_ref()
-    {
-        ValueRef::Owned(Value::Principal(PrincipalData::Contract(
-            contract_identifier.clone(),
-        )))
-    } else {
-        value
-    }
-}
+use crate::vm::{LocalContext, eval};
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,
@@ -524,7 +505,7 @@ pub fn special_mint_asset_v205(
             "Bad token name".to_string(),
         ))?;
 
-    let asset = normalize_asset_value(eval(&args[1], exec_state, invoke_ctx, context)?);
+    let asset = eval(&args[1], exec_state, invoke_ctx, context)?;
     let to = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     let nft_metadata = invoke_ctx.contract_context.meta_nft.get(asset_name).ok_or(
@@ -703,7 +684,7 @@ pub fn special_transfer_asset_v205(
             "Bad token name".to_string(),
         ))?;
 
-    let asset = normalize_asset_value(eval(&args[1], exec_state, invoke_ctx, context)?);
+    let asset = eval(&args[1], exec_state, invoke_ctx, context)?;
     let from = eval(&args[2], exec_state, invoke_ctx, context)?;
     let to = eval(&args[3], exec_state, invoke_ctx, context)?;
 
@@ -1238,7 +1219,7 @@ pub fn special_burn_asset_v205(
             "Bad token name".to_string(),
         ))?;
 
-    let asset = normalize_asset_value(eval(&args[1], exec_state, invoke_ctx, context)?);
+    let asset = eval(&args[1], exec_state, invoke_ctx, context)?;
     let sender = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     let nft_metadata = invoke_ctx.contract_context.meta_nft.get(asset_name).ok_or(

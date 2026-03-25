@@ -779,8 +779,12 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity1,
             ));
-            let (mut exec_state, invoke_ctx) =
-                self.get_exec_environment(Some(sender), sponsor, &initial_context, is_contract_deploy);
+            let (mut exec_state, invoke_ctx) = self.get_exec_environment(
+                Some(sender),
+                sponsor,
+                &initial_context,
+                is_contract_deploy,
+            );
             f(&mut exec_state, &invoke_ctx)
         };
 
@@ -2586,6 +2590,7 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
+            is_contract_deploy: true,
         };
 
         let contract_id = QualifiedContractIdentifier::local("dup").unwrap();

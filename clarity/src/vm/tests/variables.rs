@@ -72,7 +72,7 @@ fn test_block_height(
     );
 
     let (mut exec_state, invoke_ctx) =
-        owned_env.get_exec_environment(None, None, &placeholder_context);
+        owned_env.get_exec_environment(None, None, &placeholder_context, false);
 
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
@@ -132,7 +132,7 @@ fn test_stacks_block_height(
     );
 
     let (mut exec_state, invoke_ctx) =
-        owned_env.get_exec_environment(None, None, &placeholder_context);
+        owned_env.get_exec_environment(None, None, &placeholder_context, false);
 
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
@@ -194,7 +194,7 @@ fn test_tenure_height(
     );
 
     let (mut exec_state, invoke_ctx) =
-        owned_env.get_exec_environment(None, None, &placeholder_context);
+        owned_env.get_exec_environment(None, None, &placeholder_context, false);
 
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
@@ -293,7 +293,7 @@ fn expect_contract_error(
     }
 
     let (mut exec_state, invoke_ctx) =
-        owned_env.get_exec_environment(None, None, &placeholder_context);
+        owned_env.get_exec_environment(None, None, &placeholder_context, false);
 
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
@@ -1210,7 +1210,7 @@ fn test_block_time(
     );
 
     let (mut exec_state, invoke_ctx) =
-        owned_env.get_exec_environment(None, None, &placeholder_context);
+        owned_env.get_exec_environment(None, None, &placeholder_context, false);
 
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
@@ -1263,7 +1263,7 @@ fn test_block_time_in_expressions() {
     assert!(result.is_ok());
 
     let (mut exec_state, invoke_ctx) =
-        owned_env.get_exec_environment(None, None, &placeholder_context);
+        owned_env.get_exec_environment(None, None, &placeholder_context, false);
 
     // Test comparison: 1 >= 0 should be true
     let eval_result =
@@ -1344,7 +1344,7 @@ fn test_current_contract(
     );
 
     let (mut exec_state, invoke_ctx) =
-        owned_env.get_exec_environment(None, None, &placeholder_context);
+        owned_env.get_exec_environment(None, None, &placeholder_context, false);
 
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");

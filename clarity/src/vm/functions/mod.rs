@@ -976,6 +976,7 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
+            is_contract_deploy: false,
         };
 
         let err =
@@ -1023,6 +1024,7 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
+            is_contract_deploy: false,
         };
 
         let err = special_contract_of(&[atom], &mut exec_state, &invoke_ctx, &context).unwrap_err();
@@ -1069,6 +1071,7 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
+            is_contract_deploy: false,
         };
 
         let err = special_let(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();
@@ -1118,6 +1121,7 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
+            is_contract_deploy: false,
         };
 
         let err =
@@ -1170,6 +1174,7 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
+            is_contract_deploy: false,
         };
 
         let err =
@@ -1220,6 +1225,7 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
+            is_contract_deploy: false,
         };
 
         let err = special_get_stacks_block_info(&args, &mut exec_state, &invoke_ctx, &context)
@@ -1271,6 +1277,7 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
+            is_contract_deploy: false,
         };
 
         let err = special_get_stacks_block_info(&args, &mut exec_state, &invoke_ctx, &context)
@@ -1323,6 +1330,7 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
+            is_contract_deploy: false,
         };
 
         let err =
@@ -1365,6 +1373,7 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
+            is_contract_deploy: false,
         };
         // (contract-call? unknown-contract foo)
         let args = vec![

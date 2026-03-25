@@ -47,7 +47,7 @@ fn test_dynamic_dispatch_by_defining_trait(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -72,6 +72,7 @@ fn test_dynamic_dispatch_by_defining_trait(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -110,7 +111,7 @@ fn test_dynamic_dispatch_pass_trait_nested_in_let(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -135,6 +136,7 @@ fn test_dynamic_dispatch_pass_trait_nested_in_let(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -172,7 +174,7 @@ fn test_dynamic_dispatch_pass_trait(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -197,6 +199,7 @@ fn test_dynamic_dispatch_pass_trait(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -233,7 +236,7 @@ fn test_dynamic_dispatch_intra_contract_call(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -258,6 +261,7 @@ fn test_dynamic_dispatch_intra_contract_call(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         let err_result = exec_state
             .execute_contract(
@@ -296,7 +300,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -328,6 +332,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -367,7 +372,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -399,6 +404,7 @@ fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -435,7 +441,7 @@ fn test_dynamic_dispatch_by_importing_trait(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -467,6 +473,7 @@ fn test_dynamic_dispatch_by_importing_trait(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -510,7 +517,7 @@ fn test_dynamic_dispatch_including_nested_trait(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -559,6 +566,7 @@ fn test_dynamic_dispatch_including_nested_trait(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -594,7 +602,7 @@ fn test_dynamic_dispatch_mismatched_args(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -619,6 +627,7 @@ fn test_dynamic_dispatch_mismatched_args(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         let err_result = exec_state
             .execute_contract(
@@ -656,7 +665,7 @@ fn test_dynamic_dispatch_mismatched_returned(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -681,6 +690,7 @@ fn test_dynamic_dispatch_mismatched_returned(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         let err_result = exec_state
             .execute_contract(
@@ -719,7 +729,7 @@ fn test_reentrant_dynamic_dispatch(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -744,6 +754,7 @@ fn test_reentrant_dynamic_dispatch(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         let err_result = exec_state
             .execute_contract(
@@ -780,7 +791,7 @@ fn test_readwrite_dynamic_dispatch(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -805,6 +816,7 @@ fn test_readwrite_dynamic_dispatch(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         let err_result = exec_state
             .execute_contract(
@@ -844,7 +856,7 @@ fn test_readwrite_violation_dynamic_dispatch(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -869,6 +881,7 @@ fn test_readwrite_violation_dynamic_dispatch(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         let err_result = exec_state
             .execute_contract(
@@ -914,7 +927,7 @@ fn test_bad_call_with_trait(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -950,6 +963,7 @@ fn test_bad_call_with_trait(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -989,7 +1003,7 @@ fn test_good_call_with_trait(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1025,6 +1039,7 @@ fn test_good_call_with_trait(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -1065,7 +1080,7 @@ fn test_good_call_2_with_trait(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1104,6 +1119,7 @@ fn test_good_call_2_with_trait(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
 
         assert_eq!(
@@ -1143,7 +1159,7 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1175,6 +1191,7 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -1212,7 +1229,7 @@ fn test_contract_of_value(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1245,6 +1262,7 @@ fn test_contract_of_value(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
 
         assert_eq!(
@@ -1285,7 +1303,7 @@ fn test_contract_of_no_impl(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1318,6 +1336,7 @@ fn test_contract_of_no_impl(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
 
         assert_eq!(
@@ -1356,7 +1375,7 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1381,6 +1400,7 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -1418,7 +1438,7 @@ fn test_return_trait_with_contract_of_wrapped_in_let(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1443,6 +1463,7 @@ fn test_return_trait_with_contract_of_wrapped_in_let(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -1478,7 +1499,7 @@ fn test_return_trait_with_contract_of(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1503,6 +1524,7 @@ fn test_return_trait_with_contract_of(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -1547,7 +1569,7 @@ fn test_pass_trait_to_subtrait(epoch: StacksEpochId, mut env_factory: MemoryEnvi
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1573,6 +1595,7 @@ fn test_pass_trait_to_subtrait(epoch: StacksEpochId, mut env_factory: MemoryEnvi
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -1614,7 +1637,7 @@ fn test_embedded_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentG
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1641,6 +1664,7 @@ fn test_embedded_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentG
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -1692,7 +1716,7 @@ fn test_pass_embedded_trait_to_subtrait_optional(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1718,6 +1742,7 @@ fn test_pass_embedded_trait_to_subtrait_optional(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -1769,7 +1794,7 @@ fn test_pass_embedded_trait_to_subtrait_ok(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1795,6 +1820,7 @@ fn test_pass_embedded_trait_to_subtrait_ok(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -1846,7 +1872,7 @@ fn test_pass_embedded_trait_to_subtrait_err(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1872,6 +1898,7 @@ fn test_pass_embedded_trait_to_subtrait_err(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -1923,7 +1950,7 @@ fn test_pass_embedded_trait_to_subtrait_list(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -1949,6 +1976,7 @@ fn test_pass_embedded_trait_to_subtrait_list(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -2003,7 +2031,7 @@ fn test_pass_embedded_trait_to_subtrait_list_option(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -2029,6 +2057,7 @@ fn test_pass_embedded_trait_to_subtrait_list_option(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -2083,7 +2112,7 @@ fn test_pass_embedded_trait_to_subtrait_option_list(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -2109,6 +2138,7 @@ fn test_pass_embedded_trait_to_subtrait_option_list(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -2149,7 +2179,7 @@ fn test_let_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenera
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -2175,6 +2205,7 @@ fn test_let_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenera
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -2219,7 +2250,7 @@ fn test_let3_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGener
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -2245,6 +2276,7 @@ fn test_let3_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGener
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state
@@ -2285,7 +2317,7 @@ fn test_pass_principal_literal_to_trait(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         exec_state
             .initialize_contract(
                 &invoke_ctx,
@@ -2311,6 +2343,7 @@ fn test_pass_principal_literal_to_trait(
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
+            false,
         );
         assert_eq!(
             exec_state

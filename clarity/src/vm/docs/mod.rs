@@ -3477,6 +3477,7 @@ mod test {
                     QualifiedContractIdentifier::local("tokens").unwrap().into(),
                     None,
                     None,
+                    false,
                     |e, _invoke_ctx| {
                         let mut snapshot = e
                             .global_context

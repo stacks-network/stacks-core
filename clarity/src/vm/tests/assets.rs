@@ -1050,7 +1050,7 @@ fn test_simple_naming_system(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         assert_eq!(
             exec_state
                 .eval_read_only(
@@ -1327,7 +1327,7 @@ fn test_simple_naming_system(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context);
+            owned_env.get_exec_environment(None, None, &placeholder_context, false);
         assert_eq!(
             exec_state
                 .eval_read_only(

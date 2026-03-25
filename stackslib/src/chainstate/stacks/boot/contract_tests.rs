@@ -909,6 +909,7 @@ fn pox_2_lock_extend_units() {
             boot_code_addr(false).into(),
             None,
             None,
+            false,
             |exec_state, invoke_ctx| {
                 exec_state.execute_contract(
                     invoke_ctx,

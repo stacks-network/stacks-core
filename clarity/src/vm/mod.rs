@@ -802,6 +802,7 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
+            is_contract_deploy: true,
         };
         assert_eq!(
             Ok(ValueRef::Owned(Value::Int(64))),
