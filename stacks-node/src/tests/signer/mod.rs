@@ -1536,12 +1536,14 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .expect("Mutex poisoned")
             .stop_chains_coordinator();
 
-        self.running_nodes.btcd_controller.stop_bitcoind().unwrap();
-
         self.running_nodes
             .run_loop_stopper
             .store(false, Ordering::SeqCst);
         self.running_nodes.run_loop_thread.join().unwrap();
+
+        // Stop bitcoind after the run loop is fully shut down,
+        // so the relayer doesn't hit ConnectionRefused.
+        self.running_nodes.btcd_controller.stop_bitcoind().unwrap();
 
         if needs_snapshot {
             Self::make_snapshot(
