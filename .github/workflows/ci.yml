@@ -185,7 +185,6 @@ jobs:
       needs.check-release.outputs.is_node_release == 'true' ||
       needs.check-release.outputs.is_signer_release == 'true' ||
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
       github.event_name == 'merge_group'
     name: Cargo Hack Check
     needs:
