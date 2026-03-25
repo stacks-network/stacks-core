@@ -3947,6 +3947,7 @@ impl NakamotoChainState {
     /// - `burn_fee` for every missed commit (BTC burned to PoX addresses that didn't land in
     ///   the right sortition, so not included in `burnchain_sortition_burn`)
     /// - `expected_btc_tx_fee` for every missed commit
+    ///
     /// And does NOT include:
     /// - the `burn_fee` for regular commits, since those are already included in
     ///   `burnchain_sortition_burn`
