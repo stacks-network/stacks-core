@@ -824,14 +824,11 @@ impl<T: MarfTrieId> TrieRAM<T> {
     fn calculate_node_hashes(
         &mut self,
         storage_tx: &mut TrieStorageTransaction<T>,
-        node_ptr: u64,
+        node_ptr: u32, // in-memory index is always a u32
     ) -> Result<TrieHash, Error> {
         let start_time = storage_tx.bench.write_children_hashes_start();
         let mut start_node_time = Some(storage_tx.bench.write_children_hashes_same_block_start());
-        let node_ptr_u32 = u32::try_from(node_ptr).map_err(|_| {
-            Error::CorruptionError(format!("In-memory node index {node_ptr} exceeds u32::MAX"))
-        })?;
-        let (node, node_hash) = self.get_nodetype(node_ptr_u32)?.to_owned();
+        let (node, node_hash) = self.get_nodetype(node_ptr)?.to_owned();
         if node.is_leaf() {
             // base case: we already have the hash of the leaf, so return it.
             Ok(node_hash)
@@ -872,7 +869,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         .write_children_hashes_empty_finish(start_time);
                 } else if !is_backptr(ptr.id()) {
                     // hash is the hash of this node's children
-                    let node_hash = self.calculate_node_hashes(storage_tx, ptr.ptr())?;
+                    let node_hash = self.calculate_node_hashes(storage_tx, ptr.ptr_as_u32()?)?;
 
                     // count the time taken to store the hash towards the
                     // write_children_hashes_same_benchmark
@@ -890,14 +887,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
                     if TrieHashCalculationMode::Deferred == storage_tx.deref().hash_calculation_mode
                         && ptr.id() != TrieNodeID::Leaf as u8
                     {
-                        if ptr.ptr() > u64::from(u32::MAX) {
-                            return Err(Error::CorruptionError(format!(
-                                "In-memory child index {} exceeds u32::MAX",
-                                ptr.ptr()
-                            )));
-                        }
                         // need to store this hash too, since we deferred calculation
-                        self.write_node_hash(ptr.ptr(), node_hash)?;
+                        self.write_node_hash(ptr.ptr_as_u32()?, node_hash)?;
                     }
 
                     storage_tx
@@ -1553,7 +1544,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     }
 
     /// Store a node hash into the TrieRAM at a given node slot.
-    pub fn write_node_hash(&mut self, node_array_ptr: u64, hash: TrieHash) -> Result<(), Error> {
+    pub fn write_node_hash(&mut self, node_array_ptr: u32, hash: TrieHash) -> Result<(), Error> {
         if self.readonly {
             trace!("Read-only!");
             return Err(Error::ReadOnlyError);
@@ -1597,12 +1588,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
 impl<T: MarfTrieId> NodeHashReader for TrieRAM<T> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
-        let idx = usize::try_from(ptr.ptr()).map_err(|_| {
-            Error::CorruptionError(format!(
-                "In-memory node index {} exceeds usize::MAX",
-                ptr.ptr()
-            ))
-        })?;
+        let idx = ptr.ptr_as_usize()?;
         let (_, node_trie_hash) = self.data.get(idx).ok_or_else(|| {
             error!(
                 "TrieRAM: Failed to read node bytes: {} >= {}",

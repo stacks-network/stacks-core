@@ -468,12 +468,13 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
                 .checked_add(TriePtr::encoded_size_for_id(ptr_id))
                 .ok_or_else(|| Error::OverflowError)?;
         }
-        r.seek(SeekFrom::Start(
-            ptrs_start_disk_ptr
-                .checked_add(u64::try_from(cursor + 1).expect("infallible"))
-                .expect("FATAL: read far too many bytes"),
-        ))
-        .inspect_err(|e| error!("Failed to seek to the end of the uncompressed ptrs: {e:?}"))?;
+        let seek_target = u64::try_from(cursor)
+            .ok()
+            .and_then(|c| c.checked_add(1))
+            .and_then(|c| ptrs_start_disk_ptr.checked_add(c))
+            .ok_or(Error::OverflowError)?;
+        r.seek(SeekFrom::Start(seek_target))
+            .inspect_err(|e| error!("Failed to seek to the end of the uncompressed ptrs: {e:?}"))?;
     }
 
     Ok(clear_compressed(*nid))

@@ -461,6 +461,20 @@ impl TriePtr {
         self.ptr
     }
 
+    /// Convert `self.ptr()` to a `u32` in-memory index, or return an error
+    /// if the value exceeds `u32::MAX`.
+    #[inline]
+    pub fn ptr_as_u32(&self) -> Result<u32, Error> {
+        u32::try_from(self.ptr).map_err(|_| Error::OverflowError)
+    }
+
+    /// Convert `self.ptr()` to a `usize` in-memory index, or return an error
+    /// if the value exceeds `usize::MAX`.
+    #[inline]
+    pub fn ptr_as_usize(&self) -> Result<usize, Error> {
+        usize::try_from(self.ptr).map_err(|_| Error::OverflowError)
+    }
+
     #[inline]
     pub fn back_block(&self) -> u32 {
         self.back_block
