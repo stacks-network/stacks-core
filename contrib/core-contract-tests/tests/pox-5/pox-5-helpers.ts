@@ -11,6 +11,7 @@ import { accounts, project } from '../clarigen-types';
 import { rov, txOk } from '@clarigen/test';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { randomPoxAddress } from '../test-helpers';
 
 const contracts = projectFactory(project, 'simnet');
 export const pox5 = contracts.pox5;
@@ -116,4 +117,38 @@ export function createSignerKeyGrant({
     }),
     accounts.deployer.address,
   );
+}
+
+let grantAuthIdCounter = 1000n;
+
+/** Create a signer key grant for `staker` (any pox-addr) and return the key pair. */
+export function setupSigner(staker: string) {
+  const signerSk = secp256k1.utils.randomSecretKey();
+  const signerKey = secp256k1.getPublicKey(signerSk, true);
+  const authId = grantAuthIdCounter++;
+  createSignerKeyGrant({ staker, signerSk, poxAddr: null, authId });
+  return { signerSk, signerKey };
+}
+
+/** Register the test pool with a valid signer key grant. Returns the signer key and pox address. */
+export function registerPool({
+  caller,
+  poxAddr,
+}: {
+  caller: string;
+  poxAddr?: { version: Uint8Array; hashbytes: Uint8Array };
+}) {
+  const { signerKey } = setupSigner(caller);
+  const addr = poxAddr ?? randomPoxAddress();
+  txOk(
+    pox5.registerPool({
+      poolOwner: testPool.identifier,
+      signerKey,
+      poxAddr: addr,
+      signerSig: new Uint8Array(65),
+      authId: 0,
+    }),
+    caller,
+  );
+  return { signerKey, poxAddr: addr };
 }
