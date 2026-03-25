@@ -808,7 +808,6 @@ fn main() {
         } => {
             check_shadow_network(&network);
             let (sort_db, chain_state) = open_nakamoto_chainstate_dbs(&chainstate_dir, &network);
-            let (_, _, pox_constants, _) = nakamoto_network_params(&network);
 
             let tip_index_block = if let Some(chain_tip) = chain_tip {
                 StacksBlockId::from_hex(&chain_tip).unwrap_or_else(|e| {
@@ -825,8 +824,6 @@ fn main() {
                 &mut chain_state.index_conn(),
                 &sort_db,
                 &tip_index_block,
-                &pox_constants,
-                sort_db.first_block_height,
                 reward_cycle,
             )
             .unwrap_or_else(|e| panic!("Failed to calculate STX/BTC ratio: {e}"));

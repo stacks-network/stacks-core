@@ -109,6 +109,8 @@ pub mod test_signers;
 #[cfg(test)]
 pub mod tests;
 
+mod bigint_math;
+
 pub use self::staging_blocks::{
     NakamotoStagingBlocksConn, NakamotoStagingBlocksConnRef, NakamotoStagingBlocksTx,
 };
@@ -3828,53 +3830,113 @@ impl NakamotoChainState {
             .map_err(ChainstateError::from)
     }
 
-    /// Find the tenure consensus hash to start scanning from when computing cycle totals.
-    /// This resolves to the first sortition in `end_reward_cycle + 1` (if available), capped at
-    /// `tip_index_hash`, so the final tenure in `end_reward_cycle` can be attributed its fees.
-    fn get_tenure_consensus_hash_at_cycle_end<SDBI: StacksDBIndexed>(
+    /// Resolve the anchor block for `reward_cycle` using the same consensus logic
+    /// as `load_nakamoto_reward_set`: find the prepare-phase sortitions via
+    /// `get_ancestor_sort_id` + parent-chain walk, then return the first sortition
+    /// with a processed Stacks tenure start block.
+    ///
+    /// The sortition tip is derived from `tip_index_hash` (the Stacks block tip)
+    /// rather than the global canonical burnchain tip. This ensures determinism:
+    /// all nodes processing the same Stacks block agree on the burnchain state
+    /// and thus resolve the same anchor block.
+    ///
+    /// Returns the full `BlockSnapshot` so callers can access both the consensus hash
+    /// and burn height. Returns `None` if the prepare phase hasn't been reached yet
+    /// or no sortition in the prepare phase has a processed tenure.
+    ///
+    /// This is O(prepare_length) — bounded and small.
+    fn resolve_anchor_block<SDBI: StacksDBIndexed>(
         conn: &mut SDBI,
         sort_db: &SortitionDB,
         tip_index_hash: &StacksBlockId,
-        pox_constants: &PoxConstants,
-        first_burn_height: u64,
-        end_reward_cycle: u64,
-    ) -> Result<Option<ConsensusHash>, ChainstateError> {
+        reward_cycle: u64,
+    ) -> Result<Option<BlockSnapshot>, ChainstateError> {
+        if reward_cycle == 0 {
+            return Ok(None);
+        }
+
+        // Derive the sortition tip from the Stacks block tip for determinism.
+        // All nodes that process the same Stacks block agree on its consensus hash,
+        // which maps to a specific sortition — ensuring everyone walks the same
+        // burnchain fork regardless of how far ahead their local burnchain tip is.
         let Some(tip_header) = Self::get_block_header(conn.sqlite(), tip_index_hash)? else {
             return Ok(None);
         };
-
-        let Some(tip_snapshot) =
+        let Some(tip_sn) =
             SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &tip_header.consensus_hash)?
         else {
             return Ok(None);
         };
 
-        // Find the first sortition in the next cycle, which will compute this miner's fees up to
-        // the end of the target cycle. If there are no sortitions after the start of the next
-        // cycle, then we'll just use the latest sortition we have, which will undercount fees for
-        // the last tenure but is still correct for all previous tenures.
-        let anchor_cycle = end_reward_cycle.saturating_add(1);
-        let anchor_cycle_start_burn_height =
-            pox_constants.reward_cycle_to_block_height(first_burn_height, anchor_cycle);
-        let cycle_end_burn_height = pox_constants
-            .reward_cycle_to_block_height(first_burn_height, anchor_cycle.saturating_add(1))
-            .saturating_sub(1);
-        let search_end_burn_height = cycle_end_burn_height.min(tip_snapshot.block_height);
-        let sort_handle = sort_db.index_handle(&tip_snapshot.sortition_id);
-        if anchor_cycle_start_burn_height <= search_end_burn_height {
-            for burn_height in anchor_cycle_start_burn_height..=search_end_burn_height {
-                let Some(snapshot) = sort_handle.get_block_snapshot_by_height(burn_height)? else {
-                    break;
-                };
-                if snapshot.sortition {
-                    return Ok(Some(snapshot.consensus_hash));
-                }
+        let pox_constants = &sort_db.pox_constants;
+        let first_burn_height = sort_db.first_block_height;
+        let cycle_start_height =
+            pox_constants.reward_cycle_to_block_height(first_burn_height, reward_cycle);
+
+        let Some(prior_cycle_end) = get_ancestor_sort_id(
+            &sort_db.index_conn(),
+            cycle_start_height.saturating_sub(1),
+            &tip_sn.sortition_id,
+        )?
+        else {
+            return Ok(None);
+        };
+
+        // Walk backwards through the prepare phase, collecting sortitions.
+        let mut prepare_phase_sn =
+            SortitionDB::get_block_snapshot(sort_db.conn(), &prior_cycle_end)?
+                .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
+        let mut height = prepare_phase_sn.block_height;
+        let mut sns: Vec<BlockSnapshot> = vec![];
+        while pox_constants.is_in_prepare_phase(first_burn_height, height) && height > 0 {
+            let parent_id = prepare_phase_sn.parent_sortition_id.clone();
+            sns.push(prepare_phase_sn);
+            let Some(sn) = SortitionDB::get_block_snapshot(sort_db.conn(), &parent_id)? else {
+                break;
+            };
+            prepare_phase_sn = sn;
+            height = height.saturating_sub(1);
+        }
+        sns.reverse();
+
+        // The anchor block is the first sortition with a processed tenure start block.
+        for sn in &sns {
+            if !sn.sortition {
+                continue;
+            }
+            if Self::get_nakamoto_tenure_start_block_header(
+                conn,
+                tip_index_hash,
+                &sn.consensus_hash,
+            )?
+            .is_some()
+            {
+                return Ok(Some(sn.clone()));
             }
         }
 
-        let fallback_snapshot =
-            sort_handle.get_last_snapshot_with_sortition(search_end_burn_height)?;
-        Ok(Some(fallback_snapshot.consensus_hash))
+        Ok(None)
+    }
+
+    /// Find the consensus hash to start scanning from when computing cycle totals.
+    ///
+    /// Returns the anchor block consensus hash for `end_reward_cycle + 1`, which is the
+    /// exclusive upper bound of cycle `end_reward_cycle`. The scan walks backwards from
+    /// this tenure (without accumulating it) to cover all tenures in the target cycle.
+    ///
+    /// Returns `None` if the anchor block for the next cycle hasn't been recorded yet
+    /// (i.e. the cycle is still in progress).
+    fn get_tenure_consensus_hash_at_cycle_end<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
+        sort_db: &SortitionDB,
+        tip_index_hash: &StacksBlockId,
+        end_reward_cycle: u64,
+    ) -> Result<Option<ConsensusHash>, ChainstateError> {
+        let anchor_cycle = end_reward_cycle.saturating_add(1);
+        Ok(
+            Self::resolve_anchor_block(conn, sort_db, tip_index_hash, anchor_cycle)?
+                .map(|sn| sn.consensus_hash),
+        )
     }
 
     /// Sum all extra BTC spent by block-commits and missed commits for the sortition identified by
@@ -3936,18 +3998,19 @@ impl NakamotoChainState {
     /// Compute aggregate STX earned and BTC spent for each reward cycle in
     /// `[start_reward_cycle, end_reward_cycle]`.
     ///
+    /// Cycle boundaries are defined by anchor blocks: cycle N includes all tenures from
+    /// anchor_block(N) (inclusive) to anchor_block(N+1) (exclusive). The walk starts from
+    /// anchor_block(end_reward_cycle+1) and walks backwards through the tenure chain,
+    /// switching cycles each time an anchor block boundary is crossed.
+    ///
     /// STX earned is the immediate per-tenure miner schedule (`coinbase + fees`).  BTC spent is
     /// the per-tenure sortition total burn (`burnchain_sortition_burn`, i.e. `burn_fee` summed
     /// over all regular block-commits) plus, for each sortition: the estimated Bitcoin tx fees
     /// for regular commits, and both the `burn_fee` and estimated tx fees for missed commits.
-    /// Full-scan computation of cycle totals. Returns totals per cycle and the newest tenure
-    /// consensus hash per cycle (for cache storage as a resume point).
     pub fn get_stx_btc_cycle_totals<SDBI: StacksDBIndexed>(
         conn: &mut SDBI,
         sort_db: &SortitionDB,
         tip_index_hash: &StacksBlockId,
-        pox_constants: &PoxConstants,
-        first_burn_height: u64,
         start_reward_cycle: u64,
         end_reward_cycle: u64,
     ) -> Result<HashMap<u64, (StxBtcCycleTotals, ConsensusHash)>, ChainstateError> {
@@ -3971,21 +4034,36 @@ impl NakamotoChainState {
             );
         }
 
+        // The walk starts from anchor_block(end_reward_cycle + 1), which is the exclusive
+        // upper bound (first tenure of the next cycle). We don't accumulate it but do
+        // capture its fees_from_child_tenure for correct fee attribution.
         let Some(mut tenure_consensus_hash) = Self::get_tenure_consensus_hash_at_cycle_end(
             conn,
             sort_db,
             tip_index_hash,
-            pox_constants,
-            first_burn_height,
             end_reward_cycle,
         )?
         else {
             return Ok(totals_by_cycle);
         };
+
+        // Precompute anchor block consensus hashes for cycle boundary detection.
+        // anchor_chs[cycle] = first tenure of that cycle (inclusive lower bound).
+        let mut anchor_chs: HashMap<u64, ConsensusHash> = HashMap::new();
+        for cycle in start_reward_cycle..=end_reward_cycle {
+            if let Some(sn) = Self::resolve_anchor_block(conn, sort_db, tip_index_hash, cycle)? {
+                anchor_chs.insert(cycle, sn.consensus_hash);
+            }
+        }
+
+        let mut current_cycle = end_reward_cycle;
         // `parent_fees` in a tenure's schedule belong to the *parent* tenure.
         // As we scan newest -> oldest tenure, carry each schedule's `parent_fees` to the next
         // iteration so fees are attributed to the tenure that produced them.
         let mut fees_from_child_tenure = None;
+        // The first tenure (anchor_block of end_cycle+1) is not accumulated — it belongs
+        // to the next cycle. We only extract its fee chain data.
+        let mut skip_accumulation = true;
 
         loop {
             let Some(tenure_start_header) = Self::get_nakamoto_tenure_start_block_header(
@@ -3997,29 +4075,18 @@ impl NakamotoChainState {
                 break;
             };
 
-            let Some(reward_cycle) = pox_constants.block_height_to_reward_cycle(
-                first_burn_height,
-                u64::from(tenure_start_header.burn_header_height),
-            ) else {
-                break;
-            };
-
-            // If we've gone back past the start cycle, stop.
-            if reward_cycle < start_reward_cycle {
-                break;
-            }
-
             let miner_info_opt = StacksChainState::get_miner_info(
                 conn.sqlite(),
                 &tenure_start_header.consensus_hash,
                 &tenure_start_header.anchored_header.block_hash(),
             )?;
-            if reward_cycle <= end_reward_cycle {
+
+            if !skip_accumulation {
                 if let Some(miner_info) = miner_info_opt.as_ref() {
                     let stx_earned =
                         Self::stx_earned_for_tenure(&miner_info, fees_from_child_tenure);
                     let (cycle_totals, newest_ch) = totals_by_cycle
-                        .get_mut(&reward_cycle)
+                        .get_mut(&current_cycle)
                         .expect("FATAL: missing cycle totals for populated range");
                     cycle_totals.tenure_count = cycle_totals.tenure_count.saturating_add(1);
                     cycle_totals.stx_earned_ustx =
@@ -4039,15 +4106,27 @@ impl NakamotoChainState {
                         *newest_ch = tenure_start_header.consensus_hash.clone();
                     }
                 } else {
-                    // Missing miner payment record for this tenure. The tenure is excluded from
-                    // cycle totals, and fees_from_child_tenure will be reset to None below,
-                    // so the parent tenure's fee contribution will also be lost.
                     warn!(
                         "No miner payment record for tenure {}; excluding from STX/BTC cycle totals",
                         &tenure_start_header.consensus_hash
                     );
                 }
+
+                // Check if this tenure is the anchor block (inclusive start) of current_cycle.
+                // If so, we've finished current_cycle — move to the previous one.
+                let is_cycle_start = anchor_chs
+                    .get(&current_cycle)
+                    .map(|ch| *ch == tenure_consensus_hash)
+                    .unwrap_or(false);
+                if is_cycle_start {
+                    if current_cycle <= start_reward_cycle {
+                        break; // Done — we've accumulated all requested cycles.
+                    }
+                    current_cycle = current_cycle.saturating_sub(1);
+                }
             }
+            skip_accumulation = false;
+
             fees_from_child_tenure = miner_info_opt
                 .as_ref()
                 .and_then(|miner_info| Self::fees_for_parent_tenure(&miner_info.tx_fees));
@@ -4066,10 +4145,12 @@ impl NakamotoChainState {
     /// Incrementally update a cached in-progress cycle by walking only the new tenures
     /// since the cache was last computed.
     ///
-    /// Walks from the newest tenure in `reward_cycle` back to `stop_at_ch` (exclusive),
-    /// accumulating the delta STX/BTC. Also applies a `parent_fees` correction — the fees
-    /// belonging to the tenure at `stop_at_ch` that weren't counted at cache time because
-    /// its child tenure didn't exist yet.
+    /// Walks from anchor_block(reward_cycle+1) back to `stop_at_ch` (exclusive),
+    /// accumulating the delta STX/BTC. The first tenure (the anchor block itself) is
+    /// skipped since it belongs to cycle+1; only tenures in `reward_cycle` are counted.
+    /// Also applies a `parent_fees` correction — the fees belonging to the tenure at
+    /// `stop_at_ch` that weren't counted at cache time because its child tenure didn't
+    /// exist yet.
     ///
     /// Returns `Some((delta_totals, newest_tenure_ch))` on success, where `newest_tenure_ch`
     /// is the consensus hash of the newest tenure processed (for updating the cache resume
@@ -4079,8 +4160,6 @@ impl NakamotoChainState {
         conn: &mut SDBI,
         sort_db: &SortitionDB,
         tip_index_hash: &StacksBlockId,
-        pox_constants: &PoxConstants,
-        first_burn_height: u64,
         reward_cycle: u64,
         stop_at_ch: &ConsensusHash,
     ) -> Result<Option<(StxBtcCycleTotals, ConsensusHash)>, ChainstateError> {
@@ -4092,17 +4171,11 @@ impl NakamotoChainState {
         };
         let mut newest_ch = stop_at_ch.clone();
 
-        // Find the newest tenure in this cycle from the current tip.
-        // Note: get_tenure_consensus_hash_at_cycle_end resolves to the first sortition
-        // in cycle+1 so that the last tenure's fees are captured. This means the first
-        // few tenures we walk may be in cycle+1; we skip accumulating those but still
-        // carry fees_from_child_tenure so the fee chain is correct.
+        // Walk starts from anchor_block(reward_cycle+1) — the exclusive upper bound.
         let Some(mut tenure_consensus_hash) = Self::get_tenure_consensus_hash_at_cycle_end(
             conn,
             sort_db,
             tip_index_hash,
-            pox_constants,
-            first_burn_height,
             reward_cycle,
         )?
         else {
@@ -4112,6 +4185,8 @@ impl NakamotoChainState {
         let mut fees_from_child_tenure = None;
         let mut is_first = true;
         let mut reached_boundary = false;
+        // Skip the first tenure (anchor_block of cycle+1) — it's not in our cycle.
+        let mut skip_accumulation = true;
 
         loop {
             // If we've reached the cached boundary, apply the parent_fees correction
@@ -4135,28 +4210,13 @@ impl NakamotoChainState {
                 break;
             };
 
-            let Some(rc) = pox_constants.block_height_to_reward_cycle(
-                first_burn_height,
-                u64::from(tenure_start_header.burn_header_height),
-            ) else {
-                break;
-            };
-
-            // If we've walked past our target cycle without hitting stop_at_ch, bail out.
-            if rc < reward_cycle {
-                break;
-            }
-
-            // Always look up miner info so we can carry fees_from_child_tenure
-            // correctly across cycle boundaries.
             let miner_info_opt = StacksChainState::get_miner_info(
                 conn.sqlite(),
                 &tenure_start_header.consensus_hash,
                 &tenure_start_header.anchored_header.block_hash(),
             )?;
 
-            // Only accumulate tenures that are in our target cycle.
-            if rc == reward_cycle {
+            if !skip_accumulation {
                 if let Some(miner_info) = miner_info_opt.as_ref() {
                     let stx_earned =
                         Self::stx_earned_for_tenure(&miner_info, fees_from_child_tenure);
@@ -4171,8 +4231,7 @@ impl NakamotoChainState {
                     )?;
                     delta.btc_spent_sats = delta.btc_spent_sats.saturating_add(btc_extra);
 
-                    // Track the newest tenure we processed for this cycle, which will become the
-                    // new cache resume point if we successfully reach the boundary.
+                    // Track the newest tenure we processed for this cycle.
                     if is_first {
                         newest_ch = tenure_start_header.consensus_hash.clone();
                         is_first = false;
@@ -4184,9 +4243,8 @@ impl NakamotoChainState {
                     );
                 }
             }
+            skip_accumulation = false;
 
-            // Always update fees_from_child_tenure, even for tenures outside the target
-            // cycle. This keeps the fee chain correct when the walk starts from cycle+1.
             fees_from_child_tenure = miner_info_opt
                 .as_ref()
                 .and_then(|mi| Self::fees_for_parent_tenure(&mi.tx_fees));
@@ -4347,12 +4405,81 @@ impl NakamotoChainState {
         }
     }
 
-    /// Proactively update the STX/BTC cycle cache when a new tenure is processed.
+    /// Determine the anchor-block-based reward cycle for a tenure identified by its
+    /// consensus hash. Cycle N is defined as [anchor_block(N), anchor_block(N+1)).
     ///
-    /// Call this from `append_block` when `is_new_tenure` is true. It performs an O(1)
-    /// cache update for the current cycle by adding this single tenure's contribution,
-    /// and also applies the `parent_fees` correction for the previous tenure (whose fees
-    /// were unknown until this child tenure arrived).
+    /// For tenures outside the prepare phase, burn-height and anchor-block cycles agree.
+    /// For tenures in the prepare phase, checks whether the anchor block for the next
+    /// cycle exists and whether this tenure is at or after it.
+    ///
+    /// Returns `None` if the cycle cannot be determined (DB error or missing snapshot).
+    fn anchor_block_cycle_for_tenure<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
+        sort_db: &SortitionDB,
+        tip_index_hash: &StacksBlockId,
+        pox_constants: &PoxConstants,
+        first_burn_height: u64,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<u64> {
+        let sn = SortitionDB::get_block_snapshot_consensus(sort_db.conn(), consensus_hash)
+            .ok()
+            .flatten()?;
+        let burn_height_cycle =
+            pox_constants.block_height_to_reward_cycle(first_burn_height, sn.block_height)?;
+
+        // If not in the prepare phase, burn height and anchor-block cycles agree.
+        // Note: is_in_prepare_phase treats reward_index == 0 (the cycle boundary block) as
+        // part of the prepare phase, but block_height_to_reward_cycle assigns it to the new
+        // cycle. For anchor-block cycle assignment, the boundary block belongs to the new
+        // cycle — not the prepare phase — so we exclude it here.
+        let effective_height = sn.block_height.saturating_sub(first_burn_height);
+        let reward_index = effective_height % u64::from(pox_constants.reward_cycle_length);
+        let in_prepare_phase = reward_index != 0
+            && pox_constants.is_in_prepare_phase(first_burn_height, sn.block_height);
+        if !in_prepare_phase {
+            return Some(burn_height_cycle);
+        }
+
+        // In the prepare phase: check if the anchor block for the next cycle is known
+        // and whether this tenure is at or after it.
+        let next_cycle = burn_height_cycle.saturating_add(1);
+        match Self::resolve_anchor_block(conn, sort_db, tip_index_hash, next_cycle) {
+            Ok(Some(ref asn)) if asn.consensus_hash == *consensus_hash => {
+                // This tenure IS the anchor block for the next cycle.
+                Some(next_cycle)
+            }
+            Ok(Some(ref asn)) if sn.block_height >= asn.block_height => {
+                // This tenure is at or after the anchor block — it's in the next cycle.
+                Some(next_cycle)
+            }
+            Ok(Some(_)) => {
+                // This tenure is before the anchor block — still in the current cycle.
+                Some(burn_height_cycle)
+            }
+            Ok(None) => {
+                // Anchor block for next cycle not yet known — the prepare phase hasn't
+                // produced one yet. This tenure is in the current cycle.
+                Some(burn_height_cycle)
+            }
+            Err(e) => {
+                warn!(
+                    "anchor_block_cycle_for_tenure: failed to resolve anchor block for cycle {}: {e}",
+                    next_cycle
+                );
+                None
+            }
+        }
+    }
+
+    /// Incrementally update the STX/BTC cycle cache when a new tenure is processed.
+    ///
+    /// Call this from `append_block` when `is_new_tenure` is true. It adds this single
+    /// tenure's contribution to the current cycle's running totals, and also applies
+    /// the `parent_fees` correction for the previous tenure (whose fees were unknown
+    /// until this child tenure arrived).
+    ///
+    /// Cycle assignment uses anchor-block boundaries, consistent with the full scan path:
+    /// cycle N = [anchor_block(N), anchor_block(N+1)).
     ///
     /// This spreads the cost of cache maintenance across block processing rather than
     /// paying it all on the first ratio query. A fresh entry is only created when this
@@ -4362,31 +4489,31 @@ impl NakamotoChainState {
     ///
     /// Returns `Some(reward_cycle)` if a full scan is needed (mid-cycle cold start),
     /// or `None` if the update was handled entirely here.
-    pub fn update_stx_btc_cache_for_new_tenure(
-        chainstate_conn: &Connection,
-        sort_conn: &Connection,
+    pub fn update_stx_btc_cache_for_new_tenure<SDBI: StacksDBIndexed>(
+        conn: &mut SDBI,
+        sort_db: &SortitionDB,
         pox_constants: &PoxConstants,
         first_burn_height: u64,
         tip: &StacksBlockId,
         miner_reward: &MinerPaymentSchedule,
-        burn_header_height: u64,
     ) -> Option<u64> {
-        let Some(reward_cycle) =
-            pox_constants.block_height_to_reward_cycle(first_burn_height, burn_header_height)
-        else {
+        let Some(reward_cycle) = Self::anchor_block_cycle_for_tenure(
+            conn,
+            sort_db,
+            tip,
+            pox_constants,
+            first_burn_height,
+            &miner_reward.consensus_hash,
+        ) else {
             return None;
         };
 
         // Load existing cache for this cycle.
-        let (complete, incomplete) = match Self::load_cached_cycle_totals(
-            chainstate_conn,
-            reward_cycle,
-            reward_cycle,
-            tip,
-        ) {
-            Ok(maps) => maps,
-            Err(_) => return None,
-        };
+        let (complete, incomplete) =
+            match Self::load_cached_cycle_totals(conn.sqlite(), reward_cycle, reward_cycle, tip) {
+                Ok(maps) => maps,
+                Err(_) => return None,
+            };
 
         // If the cycle is already marked complete, nothing to do. This shouldn't
         // happen during normal operation since we're processing a live tenure.
@@ -4401,29 +4528,32 @@ impl NakamotoChainState {
         // Determine base totals: use existing cache, or create fresh only if this
         // is the first tenure in the cycle. Mid-cycle cold starts signal the caller
         // to perform a one-time full scan.
+        let mut needs_full_scan = false;
         let mut totals = if let Some(cached) = incomplete.get(&reward_cycle) {
             cached.totals.clone()
         } else {
-            // Check if this is the first tenure in the cycle by looking at the parent's cycle.
-            let parent_cycle = SortitionDB::get_block_snapshot_consensus(
-                sort_conn,
+            // Check if this is the first tenure in the cycle by comparing the parent's
+            // anchor-block-based cycle against the current tenure's cycle.
+            let parent_cycle = Self::anchor_block_cycle_for_tenure(
+                conn,
+                sort_db,
+                tip,
+                pox_constants,
+                first_burn_height,
                 &miner_reward.parent_consensus_hash,
-            )
-            .ok()
-            .flatten()
-            .and_then(|sn| {
-                pox_constants.block_height_to_reward_cycle(first_burn_height, sn.block_height)
-            });
+            );
 
             let is_first_in_cycle = parent_cycle.map(|pc| pc < reward_cycle).unwrap_or(false);
             if !is_first_in_cycle {
-                // Mid-cycle with no existing entry — signal the caller to do a full scan.
-                // This only happens once after a node upgrade/restart.
+                // Mid-cycle with no cache entry — we've lost historical data (e.g., node
+                // upgrade/restart). Signal the caller to attempt a full scan which can
+                // recover completed cycles. For in-progress cycles the full scan won't
+                // find data, but we still accumulate from this tenure onward.
                 info!(
                     "STX/BTC cache: mid-cycle cold start for cycle {}; requesting full scan",
                     reward_cycle
                 );
-                return Some(reward_cycle);
+                needs_full_scan = true;
             }
             StxBtcCycleTotals {
                 reward_cycle,
@@ -4443,7 +4573,7 @@ impl NakamotoChainState {
 
         // Add extra BTC (tx fees for commits + missed commits).
         if let Ok(btc_extra) =
-            Self::total_extra_btc_for_sortition(sort_conn, &miner_reward.consensus_hash)
+            Self::total_extra_btc_for_sortition(sort_db.conn(), &miner_reward.consensus_hash)
         {
             totals.btc_spent_sats = totals.btc_spent_sats.saturating_add(btc_extra);
         }
@@ -4453,15 +4583,14 @@ impl NakamotoChainState {
         // the parent belongs to so we apply the correction to the right place.
         if let Some(parent_fees) = Self::fees_for_parent_tenure(&miner_reward.tx_fees) {
             if parent_fees > 0 {
-                let parent_cycle = SortitionDB::get_block_snapshot_consensus(
-                    sort_conn,
+                let parent_cycle = Self::anchor_block_cycle_for_tenure(
+                    conn,
+                    sort_db,
+                    tip,
+                    pox_constants,
+                    first_burn_height,
                     &miner_reward.parent_consensus_hash,
-                )
-                .ok()
-                .flatten()
-                .and_then(|sn| {
-                    pox_constants.block_height_to_reward_cycle(first_burn_height, sn.block_height)
-                });
+                );
 
                 match parent_cycle {
                     Some(pc) if pc == reward_cycle => {
@@ -4471,7 +4600,7 @@ impl NakamotoChainState {
                     Some(pc) => {
                         // Cross-cycle boundary: apply correction to the parent's cycle.
                         Self::apply_parent_fees_to_cycle(
-                            chainstate_conn,
+                            conn.sqlite(),
                             pc,
                             parent_fees,
                             tip,
@@ -4490,13 +4619,17 @@ impl NakamotoChainState {
         }
 
         Self::store_cycle_totals_cache(
-            chainstate_conn,
+            conn.sqlite(),
             &totals,
             false,
             tip,
             &miner_reward.consensus_hash,
         );
-        None
+        if needs_full_scan {
+            Some(reward_cycle)
+        } else {
+            None
+        }
     }
 
     /// Apply a parent_fees correction to a previous cycle's cache entry.
@@ -4532,7 +4665,8 @@ impl NakamotoChainState {
 
         let mut prev_totals = cached.totals.clone();
         prev_totals.stx_earned_ustx = prev_totals.stx_earned_ustx.saturating_add(parent_fees);
-        // If we're applying parent_fees from the next cycle, the parent cycle is finished.
+        // Cross-cycle parent_fees means the parent cycle is finished — mark complete.
+        // This is authoritative because cycle assignment uses anchor-block boundaries.
         Self::store_cycle_totals_cache(
             chainstate_conn,
             &prev_totals,
@@ -4568,8 +4702,6 @@ impl NakamotoChainState {
         conn: &mut SDBI,
         sort_db: &SortitionDB,
         tip_index_hash: &StacksBlockId,
-        pox_constants: &PoxConstants,
-        first_burn_height: u64,
         reward_cycle: u64,
     ) -> Result<StxBtcCycleRatio, ChainstateError> {
         const SMOOTHING_WEIGHTS: [u32; 5] = [5, 4, 3, 2, 1];
@@ -4584,22 +4716,33 @@ impl NakamotoChainState {
         )
         .unwrap_or_default();
 
-        // Determine the current reward cycle so we can mark older cycles as complete.
-        let current_cycle = Self::get_block_header(conn.sqlite(), tip_index_hash)?.and_then(|h| {
-            pox_constants
-                .block_height_to_reward_cycle(first_burn_height, u64::from(h.burn_header_height))
-        });
+        // Pre-compute which cycles are now complete. A cycle is complete when the
+        // anchor block for the *next* cycle is available. We resolve this up-front
+        // to avoid mutable borrow conflicts with `conn` in the loop below.
+        let complete_cycles: HashSet<u64> = (start_cycle..=reward_cycle)
+            .filter(|&c| {
+                Self::resolve_anchor_block(conn, sort_db, tip_index_hash, c.saturating_add(1))
+                    .ok()
+                    .flatten()
+                    .is_some()
+            })
+            .collect();
 
         // Try to incrementally update stale incomplete cycles.
         for (&cycle, cached) in &incomplete_cache {
-            if Self::is_tenure_in_fork(conn, tip_index_hash, &cached.last_tenure_ch) {
-                // Last cached tenure is in the current fork — try incremental update.
+            if !Self::is_tenure_in_fork(conn, tip_index_hash, &cached.last_tenure_ch) {
+                // Not in fork — leave it missing, will be fully recomputed below.
+                continue;
+            }
+
+            let cycle_complete = complete_cycles.contains(&cycle);
+            if cycle_complete {
+                // Cycle is now complete (anchor block for next cycle exists).
+                // Try incremental update to capture any new tenures since the cache.
                 if let Some((delta, newest_ch)) = Self::incremental_cycle_totals(
                     conn,
                     sort_db,
                     tip_index_hash,
-                    pox_constants,
-                    first_burn_height,
                     cycle,
                     &cached.last_tenure_ch,
                 )? {
@@ -4611,11 +4754,10 @@ impl NakamotoChainState {
                     updated.btc_spent_sats =
                         updated.btc_spent_sats.saturating_add(delta.btc_spent_sats);
 
-                    let is_complete = current_cycle.map(|cc| cycle < cc).unwrap_or(false);
                     Self::store_cycle_totals_cache(
                         conn.sqlite(),
                         &updated,
-                        is_complete,
+                        true,
                         tip_index_hash,
                         &newest_ch,
                     );
@@ -4623,8 +4765,19 @@ impl NakamotoChainState {
                 }
                 // If None, the walk didn't reach the boundary — leave it missing
                 // so it gets fully recomputed below.
+            } else {
+                // Cycle still in progress (no anchor block for next cycle yet).
+                // The incremental path keeps the cache current during block processing.
+                // Re-store with current tip so it stays fresh, and use as-is.
+                Self::store_cycle_totals_cache(
+                    conn.sqlite(),
+                    &cached.totals,
+                    false,
+                    tip_index_hash,
+                    &cached.last_tenure_ch,
+                );
+                complete_cache.insert(cycle, cached.totals.clone());
             }
-            // If not in fork, leave it missing — will be fully recomputed below.
         }
 
         // Identify cycles that are still missing (neither complete-cached nor incrementally updated).
@@ -4639,22 +4792,23 @@ impl NakamotoChainState {
                 conn,
                 sort_db,
                 tip_index_hash,
-                pox_constants,
-                first_burn_height,
                 miss_start,
                 miss_end,
             )?;
 
             for (&cycle, (totals, newest_ch)) in &computed {
                 if missing_cycles.contains(&cycle) {
-                    let is_complete = current_cycle.map(|cc| cycle < cc).unwrap_or(false);
-                    Self::store_cycle_totals_cache(
-                        conn.sqlite(),
-                        totals,
-                        is_complete,
-                        tip_index_hash,
-                        newest_ch,
-                    );
+                    // Only cache if the scan actually collected data (non-zero newest_ch
+                    // means the anchor block was available and tenures were walked).
+                    if *newest_ch != ConsensusHash([0u8; 20]) {
+                        Self::store_cycle_totals_cache(
+                            conn.sqlite(),
+                            totals,
+                            complete_cycles.contains(&cycle),
+                            tip_index_hash,
+                            newest_ch,
+                        );
+                    }
                 }
             }
 
@@ -4747,84 +4901,8 @@ impl NakamotoChainState {
         //   w_5^(5/15) * w_4^(4/15) * w_3^(3/15) * w_2^(2/15) * w_1^(1/15)
         // (or the same expression with dynamic W if some cycles are missing).
         // Same Q64 scaling as AtcRational.
+        use bigint_math::{bigint_from_uint256, cmp_bigint, mul_bigint, pow_bigint};
         const FIXED_POINT_SHIFT: usize = 64;
-
-        fn normalize_bigint(value: &mut Vec<u64>) {
-            while value.len() > 1 && value.last().copied() == Some(0) {
-                value.pop();
-            }
-        }
-
-        fn cmp_bigint(a: &[u64], b: &[u64]) -> std::cmp::Ordering {
-            if a.len() != b.len() {
-                return a.len().cmp(&b.len());
-            }
-            a.iter().rev().cmp(b.iter().rev())
-        }
-
-        fn bigint_from_uint256(value: &Uint256) -> Vec<u64> {
-            let mut result = vec![value.0[0], value.0[1], value.0[2], value.0[3]];
-            normalize_bigint(&mut result);
-            result
-        }
-
-        fn mul_bigint(lhs: &[u64], rhs: &[u64]) -> Vec<u64> {
-            if lhs.len() == 1 && lhs.first() == Some(&0) {
-                return vec![0];
-            }
-            if rhs.len() == 1 && rhs.first() == Some(&0) {
-                return vec![0];
-            }
-
-            let mut result = vec![0u64; lhs.len() + rhs.len()];
-            for (i, lhs_limb) in lhs.iter().enumerate() {
-                let mut carry = 0u128;
-                {
-                    let (_, result_tail) = result.split_at_mut(i);
-
-                    for (slot, rhs_limb) in result_tail.iter_mut().zip(rhs.iter()) {
-                        let accum = u128::from(*lhs_limb) * u128::from(*rhs_limb)
-                            + u128::from(*slot)
-                            + carry;
-                        *slot = accum as u64;
-                        carry = accum >> 64;
-                    }
-
-                    for slot in result_tail.iter_mut().skip(rhs.len()) {
-                        if carry == 0 {
-                            break;
-                        }
-                        let accum = u128::from(*slot) + carry;
-                        *slot = accum as u64;
-                        carry = accum >> 64;
-                    }
-                }
-
-                while carry > 0 {
-                    result.push(carry as u64);
-                    carry >>= 64;
-                }
-            }
-
-            normalize_bigint(&mut result);
-            result
-        }
-
-        fn pow_bigint(base: &[u64], exponent: u32) -> Vec<u64> {
-            let mut result = vec![1u64];
-            let mut power = base.to_vec();
-            let mut exp = exponent;
-            while exp > 0 {
-                if (exp & 1) == 1 {
-                    result = mul_bigint(&result, &power);
-                }
-                exp >>= 1;
-                if exp > 0 {
-                    power = mul_bigint(&power, &power);
-                }
-            }
-            result
-        }
 
         fn uint256_to_u128_saturating(value: &Uint256) -> u128 {
             if value.0[2] != 0 || value.0[3] != 0 {
@@ -6152,17 +6230,16 @@ impl NakamotoChainState {
         let new_block_id = new_tip.index_block_hash();
         chainstate_tx.log_transactions_processed(&tx_receipts);
 
-        // Proactively update the STX/BTC cycle cache for this new tenure.
-        // This is O(1) — just adds one tenure's data to the running totals.
+        // Incrementally update the STX/BTC cycle cache for this new tenure —
+        // just adds one tenure's data to the running totals.
         if let Some(ref miner_reward) = scheduled_miner_reward {
             let needs_full_scan = Self::update_stx_btc_cache_for_new_tenure(
-                chainstate_tx.tx.sqlite(),
-                burn_dbconn.sqlite(),
+                &mut chainstate_tx.tx,
+                sort_db,
                 pox_constants,
                 first_block_height,
                 &new_block_id,
                 miner_reward,
-                chain_tip_burn_header_height.into(),
             );
 
             // Mid-cycle cold start: perform a one-time full scan to populate the cache.
@@ -6172,20 +6249,23 @@ impl NakamotoChainState {
                     &mut chainstate_tx.tx,
                     sort_db,
                     &new_block_id,
-                    pox_constants,
-                    first_block_height,
                     cycle,
                     cycle,
                 ) {
                     Ok(computed) => {
                         if let Some((totals, newest_ch)) = computed.get(&cycle) {
-                            Self::store_cycle_totals_cache(
-                                chainstate_tx.tx.sqlite(),
-                                totals,
-                                false,
-                                &new_block_id,
-                                newest_ch,
-                            );
+                            // Only store if the scan actually found data (non-zero newest_ch).
+                            // For in-progress cycles the scan returns empty because
+                            // anchor_block(cycle+1) doesn't exist yet.
+                            if *newest_ch != ConsensusHash([0u8; 20]) {
+                                Self::store_cycle_totals_cache(
+                                    chainstate_tx.tx.sqlite(),
+                                    totals,
+                                    false,
+                                    &new_block_id,
+                                    newest_ch,
+                                );
+                            }
                         }
                     }
                     Err(e) => {
@@ -6779,6 +6859,100 @@ mod stx_btc_ratio_tests {
             Some(200)
         );
     }
+
+    #[test]
+    fn smoothed_reward_cycle_zero() {
+        // Cycle 0 with data — no prior cycles possible. Should return the raw ratio.
+        let map = ratios(&[(0, Some(42))]);
+        assert_eq!(
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(0, &map, &WEIGHTS),
+            Some(42)
+        );
+    }
+
+    #[test]
+    fn smoothed_reward_cycle_zero_none() {
+        // Cycle 0 with no data.
+        let map = ratios(&[(0, None)]);
+        assert_eq!(
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(0, &map, &WEIGHTS),
+            None
+        );
+    }
+
+    #[test]
+    fn smoothed_large_ratios() {
+        // Exercise bigint paths with large values.
+        // All equal large values → geometric mean should equal the same value.
+        let large = 1_000_000_000_000_000u128; // 10^15
+        let map = ratios(&[
+            (10, Some(large)),
+            (9, Some(large)),
+            (8, Some(large)),
+            (7, Some(large)),
+            (6, Some(large)),
+        ]);
+        assert_eq!(
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            Some(large)
+        );
+    }
+
+    #[test]
+    fn smoothed_varying_ratios_known_result() {
+        // Verify against a known computation.
+        // Cycles 10..6, all present, ratios: [1000, 2000, 4000, 8000, 16000]
+        // Weights: [5, 4, 3, 2, 1], W = 15
+        // Geometric mean = (1000^5 * 2000^4 * 4000^3 * 8000^2 * 16000^1)^(1/15)
+        // = 1000 * (2^(4*1 + 3*2 + 2*3 + 1*4) / 1)^(1/15)
+        // = 1000 * 2^(4+6+6+4)/15 = 1000 * 2^(20/15) = 1000 * 2^(4/3)
+        // ≈ 1000 * 2.5198 ≈ 2519
+        // Due to integer floor in the binary search, we expect the floor value.
+        let map = ratios(&[
+            (10, Some(1000)),
+            (9, Some(2000)),
+            (8, Some(4000)),
+            (7, Some(8000)),
+            (6, Some(16000)),
+        ]);
+        let result =
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS).unwrap();
+        // Allow a tolerance of ±1 for integer floor rounding.
+        // Python: round((1000**5 * 2000**4 * 4000**3 * 8000**2 * 16000**1) ** (1.0/15)) = 2519
+        assert!(
+            (2518..=2520).contains(&result),
+            "Expected ~2519, got {result}"
+        );
+    }
+
+    #[test]
+    fn smoothed_empty_map_returns_none() {
+        let map: HashMap<u64, Option<u128>> = HashMap::new();
+        assert_eq!(
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            None
+        );
+    }
+
+    #[test]
+    fn smoothed_all_none_except_current_returns_current() {
+        // Only current cycle has data; prior cycles all None.
+        let map = ratios(&[(10, Some(777)), (9, None), (8, None), (7, None), (6, None)]);
+        assert_eq!(
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            Some(777)
+        );
+    }
+
+    #[test]
+    fn smoothed_ratio_of_one() {
+        // Edge case: ratio = 1 for all cycles.
+        let map = ratios(&[(10, Some(1)), (9, Some(1)), (8, Some(1))]);
+        assert_eq!(
+            NakamotoChainState::weighted_smoothed_stx_btc_ratio(10, &map, &WEIGHTS),
+            Some(1)
+        );
+    }
 }
 
 #[cfg(test)]
@@ -6786,12 +6960,63 @@ mod stx_btc_cache_tests {
     use rusqlite::Connection;
     use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
 
-    use super::{NakamotoChainState, StxBtcCycleTotals, NAKAMOTO_CHAINSTATE_SCHEMA_9};
+    use super::{
+        NakamotoChainState, StacksDBIndexed, StxBtcCycleTotals, NAKAMOTO_CHAINSTATE_SCHEMA_9,
+    };
+    use crate::util_lib::db::Error as DBError;
 
-    fn setup_cache_db() -> Connection {
+    /// Minimal `StacksDBIndexed` wrapper around a raw `Connection` for unit tests.
+    /// MARF methods return `None`/error — tests that need actual MARF should use
+    /// the integration test infrastructure instead.
+    struct TestConn(Connection);
+
+    impl StacksDBIndexed for TestConn {
+        fn get(&mut self, _tip: &StacksBlockId, _key: &str) -> Result<Option<String>, DBError> {
+            Ok(None)
+        }
+        fn sqlite(&self) -> &Connection {
+            &self.0
+        }
+        fn get_ancestor_block_id(
+            &mut self,
+            _coinbase_height: u64,
+            _tip_index_hash: &StacksBlockId,
+        ) -> Result<Option<StacksBlockId>, DBError> {
+            Ok(None)
+        }
+    }
+
+    impl std::ops::Deref for TestConn {
+        type Target = Connection;
+        fn deref(&self) -> &Connection {
+            &self.0
+        }
+    }
+
+    fn setup_cache_db() -> TestConn {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(NAKAMOTO_CHAINSTATE_SCHEMA_9[1]).unwrap();
-        conn
+        // Create minimal header tables so that resolve_anchor_block returns Ok(None)
+        // instead of a SQL error when tenures are in the prepare phase.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS nakamoto_block_headers (
+                consensus_hash TEXT NOT NULL,
+                block_hash TEXT NOT NULL,
+                index_block_hash TEXT NOT NULL,
+                burn_header_height INT NOT NULL,
+                tenure_changed INTEGER NOT NULL,
+                PRIMARY KEY(consensus_hash, block_hash)
+            );
+            CREATE TABLE IF NOT EXISTS block_headers (
+                consensus_hash TEXT NOT NULL,
+                block_hash TEXT NOT NULL,
+                index_block_hash TEXT NOT NULL,
+                burn_header_height INT NOT NULL,
+                PRIMARY KEY(index_block_hash)
+            );",
+        )
+        .unwrap();
+        TestConn(conn)
     }
 
     fn make_tip(byte: u8) -> StacksBlockId {
@@ -6957,13 +7182,14 @@ mod stx_btc_cache_tests {
         use crate::chainstate::burn::db::sortdb::SortitionDB;
         use crate::chainstate::stacks::db::MinerPaymentTxFees;
 
-        let conn = setup_cache_db();
+        let mut conn = setup_cache_db();
         let first_burn_height = 0u64;
         let first_burn_hash = stacks_common::types::chainstate::BurnchainHeaderHash([0u8; 32]);
         let mut sort_db = SortitionDB::connect_test(first_burn_height, &first_burn_hash).unwrap();
 
         let mut pox = PoxConstants::testnet_default();
         pox.reward_cycle_length = 5;
+        pox.prepare_length = 2;
 
         // Create snapshots 1 and 2 (heights 1, 2) — both mid-cycle in cycle 0.
         let sn1 = test_append_snapshot(
@@ -7002,13 +7228,12 @@ mod stx_btc_cache_tests {
         };
 
         let needs_full_scan = NakamotoChainState::update_stx_btc_cache_for_new_tenure(
-            &conn,
-            sort_db.conn(),
+            &mut conn,
+            &sort_db,
             &pox,
             first_burn_height,
             &tip,
             &reward,
-            sn1.block_height,
         );
 
         // Should signal that a full scan is needed for this cycle.
@@ -7018,13 +7243,14 @@ mod stx_btc_cache_tests {
             "Mid-cycle cold start should signal full scan"
         );
 
-        // Should NOT have created a cache entry itself (the caller handles the full scan).
+        // Should have created a cache entry with this tenure's data (so the cache
+        // isn't empty even if the full scan can't run for in-progress cycles).
         let (complete, incomplete) =
             NakamotoChainState::load_cached_cycle_totals(&conn, reward_cycle, reward_cycle, &tip)
                 .unwrap();
         assert!(
-            complete.is_empty() && incomplete.is_empty(),
-            "Mid-cycle cold start should not create a cache entry directly"
+            complete.contains_key(&reward_cycle) || incomplete.contains_key(&reward_cycle),
+            "Mid-cycle cold start should still store this tenure's data"
         );
     }
 
@@ -7038,13 +7264,14 @@ mod stx_btc_cache_tests {
         use crate::chainstate::burn::db::sortdb::SortitionDB;
         use crate::chainstate::stacks::db::MinerPaymentTxFees;
 
-        let conn = setup_cache_db();
+        let mut conn = setup_cache_db();
         let first_burn_height = 0u64;
         let first_burn_hash = stacks_common::types::chainstate::BurnchainHeaderHash([0u8; 32]);
         let mut sort_db = SortitionDB::connect_test(first_burn_height, &first_burn_hash).unwrap();
 
         let mut pox = PoxConstants::testnet_default();
         pox.reward_cycle_length = 5;
+        pox.prepare_length = 2;
 
         // Append 5 snapshots to reach cycle 1 boundary (heights 1..=5).
         let mut last_sn = None;
@@ -7094,13 +7321,12 @@ mod stx_btc_cache_tests {
         };
 
         let needs_full_scan = NakamotoChainState::update_stx_btc_cache_for_new_tenure(
-            &conn,
-            sort_db.conn(),
+            &mut conn,
+            &sort_db,
             &pox,
             first_burn_height,
             &tip,
             &reward,
-            sn_cycle1.block_height,
         );
 
         // First-in-cycle should not need a full scan.
@@ -7129,13 +7355,14 @@ mod stx_btc_cache_tests {
         use crate::chainstate::burn::db::sortdb::SortitionDB;
         use crate::chainstate::stacks::db::MinerPaymentTxFees;
 
-        let conn = setup_cache_db();
+        let mut conn = setup_cache_db();
         let first_burn_height = 0u64;
         let first_burn_hash = stacks_common::types::chainstate::BurnchainHeaderHash([0u8; 32]);
         let mut sort_db = SortitionDB::connect_test(first_burn_height, &first_burn_hash).unwrap();
 
         let mut pox = PoxConstants::testnet_default();
         pox.reward_cycle_length = 5;
+        pox.prepare_length = 2;
 
         // Append 6 snapshots so we have heights 1..=6. Height 5 is the first in cycle 1.
         let mut snapshots = vec![];
@@ -7179,13 +7406,12 @@ mod stx_btc_cache_tests {
             vtxindex: 0,
         };
         NakamotoChainState::update_stx_btc_cache_for_new_tenure(
-            &conn,
-            sort_db.conn(),
+            &mut conn,
+            &sort_db,
             &pox,
             first_burn_height,
             &tip1,
             &reward1,
-            sn_first.block_height,
         );
 
         // Tenure 2: same cycle, should increment.
@@ -7206,13 +7432,12 @@ mod stx_btc_cache_tests {
             vtxindex: 0,
         };
         NakamotoChainState::update_stx_btc_cache_for_new_tenure(
-            &conn,
-            sort_db.conn(),
+            &mut conn,
+            &sort_db,
             &pox,
             first_burn_height,
             &tip2,
             &reward2,
-            sn_second.block_height,
         );
 
         let (complete, _) =
@@ -7236,13 +7461,14 @@ mod stx_btc_cache_tests {
         use crate::chainstate::burn::db::sortdb::SortitionDB;
         use crate::chainstate::stacks::db::MinerPaymentTxFees;
 
-        let conn = setup_cache_db();
+        let mut conn = setup_cache_db();
         let first_burn_height = 0u64;
         let first_burn_hash = stacks_common::types::chainstate::BurnchainHeaderHash([0u8; 32]);
         let mut sort_db = SortitionDB::connect_test(first_burn_height, &first_burn_hash).unwrap();
 
         let mut pox = PoxConstants::testnet_default();
         pox.reward_cycle_length = 5;
+        pox.prepare_length = 2;
 
         // Append 6 snapshots: heights 1..=6. Height 5 starts cycle 1.
         let mut snapshots = vec![];
@@ -7293,13 +7519,12 @@ mod stx_btc_cache_tests {
             vtxindex: 0,
         };
         NakamotoChainState::update_stx_btc_cache_for_new_tenure(
-            &conn,
-            sort_db.conn(),
+            &mut conn,
+            &sort_db,
             &pox,
             first_burn_height,
             &tip1,
             &reward1,
-            sn1.block_height,
         );
 
         // Tenure 2: parent_fees = 3_000 belonging to tenure 1 (same cycle).
@@ -7320,13 +7545,12 @@ mod stx_btc_cache_tests {
             vtxindex: 0,
         };
         NakamotoChainState::update_stx_btc_cache_for_new_tenure(
-            &conn,
-            sort_db.conn(),
+            &mut conn,
+            &sort_db,
             &pox,
             first_burn_height,
             &tip2,
             &reward2,
-            sn2.block_height,
         );
 
         let (complete, _) =
@@ -7348,7 +7572,7 @@ mod stx_btc_cache_tests {
         use crate::chainstate::burn::db::sortdb::SortitionDB;
         use crate::chainstate::stacks::db::MinerPaymentTxFees;
 
-        let conn = setup_cache_db();
+        let mut conn = setup_cache_db();
         let first_burn_height = 0u64;
         let first_burn_hash = stacks_common::types::chainstate::BurnchainHeaderHash([0u8; 32]);
         let mut sort_db = SortitionDB::connect_test(first_burn_height, &first_burn_hash).unwrap();
@@ -7356,6 +7580,7 @@ mod stx_btc_cache_tests {
         // Use a small cycle length (5) so we only need a few snapshots.
         let mut pox = PoxConstants::testnet_default();
         pox.reward_cycle_length = 5;
+        pox.prepare_length = 2;
         let cycle_len = pox.reward_cycle_length as u64;
 
         // Append snapshots to cross the cycle boundary.
@@ -7390,7 +7615,7 @@ mod stx_btc_cache_tests {
                 .unwrap()
                 .unwrap();
 
-        // Seed the parent cycle's cache with one tenure (simulates prior proactive updates).
+        // Seed the parent cycle's cache with one tenure (simulates prior incremental updates).
         let tip0 = make_tip(0x99);
         let parent_totals = make_totals(parent_cycle, 1, 500_000, 5_000);
         NakamotoChainState::store_cycle_totals_cache(
@@ -7420,13 +7645,12 @@ mod stx_btc_cache_tests {
             vtxindex: 0,
         };
         NakamotoChainState::update_stx_btc_cache_for_new_tenure(
-            &conn,
-            sort_db.conn(),
+            &mut conn,
+            &sort_db,
             &pox,
             first_burn_height,
             &tip1,
             &reward,
-            sn_cycle1.block_height,
         );
 
         // Child cycle should have coinbase only — no parent_fees (those belong to parent cycle).

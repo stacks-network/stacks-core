@@ -178,14 +178,11 @@ impl RPCRequestHandler for GetStxBtcRatioRequestHandler {
             }
         }
 
-        let response = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
-            let burnchain = network.get_burnchain();
+        let response = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
             NakamotoChainState::get_stx_btc_ratio_for_cycle(
                 &mut chainstate.index_conn(),
                 sortdb,
                 &tip,
-                &burnchain.pox_constants,
-                burnchain.first_block_height,
                 reward_cycle,
             )
             .map(GetStxBtcRatioResponse::from)
