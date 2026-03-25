@@ -1,0 +1,5 @@
+# Nextest configuration for CI test execution
+# See https://nexte.st/docs/configuration/reference/
+
+[profile.ci.junit]
+path = "junit.xml"
