@@ -4249,6 +4249,21 @@ export const contracts = {
           bigint
         >
       >,
+      revokeSignerGrant: {
+        name: 'revoke-signer-grant',
+        access: 'public',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'signer-key', type: { buffer: { length: 33 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
+        ],
+        Response<boolean, bigint>
+      >,
       setBurnchainParameters: {
         name: 'set-burnchain-parameters',
         access: 'public',
@@ -5586,6 +5601,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NOT_ALLOWED: {
+        name: 'ERR_NOT_ALLOWED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_NOT_STAKED: {
         name: 'ERR_NOT_STAKED',
         type: {
@@ -5812,6 +5837,10 @@ export const contracts = {
       ERR_INVALID_START_BURN_HEIGHT: {
         isOk: false,
         value: 8n,
+      },
+      ERR_NOT_ALLOWED: {
+        isOk: false,
+        value: 23n,
       },
       ERR_NOT_STAKED: {
         isOk: false,

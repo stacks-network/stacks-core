@@ -21,6 +21,7 @@
 (define-constant ERR_SIGNER_AUTH_USED (err u20))
 (define-constant ERR_SIGNER_KEY_GRANT_NOT_FOUND (err u21))
 (define-constant ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH (err u22))
+(define-constant ERR_NOT_ALLOWED (err u23))
 
 (define-trait pool-owner-trait (
     (validate-stake!
@@ -611,56 +612,6 @@
 
 ;;; Signer key authorization functions
 
-;; Generate a message hash for validating a signer key.
-;; The message hash follows SIP018 for signing structured data. The structured data
-;; is the tuple `{ pox-addr: { version, hashbytes }, reward-cycle, auth-id, max-amount, topic, period }`.
-;; The domain is [POX_5_SIGNER_DOMAIN].
-(define-read-only (get-signer-key-message-hash
-        (pox-addr {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        })
-        (reward-cycle uint)
-        (topic (string-ascii 14))
-        (period uint)
-        (max-amount uint)
-        (auth-id uint)
-    )
-    (sha256 (concat SIP018_MSG_PREFIX
-        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
-            (sha256 (unwrap-panic (to-consensus-buff? {
-                pox-addr: pox-addr,
-                reward-cycle: reward-cycle,
-                topic: topic,
-                period: period,
-                auth-id: auth-id,
-                max-amount: max-amount,
-            })))
-        )))
-)
-
-;; Construct the message hash for validating a signer key grant. Unlike [get-signer-key-message-hash],
-;; this message hash does not include `max-amount`, `period`, or `reward-cycle`. The topic is always `"grant-authorization"`.
-;; The `pox-addr` field is optional. When `none`, it means the signer key can be used for any PoX address.
-(define-read-only (get-signer-grant-message-hash
-        (staker principal)
-        (pox-addr (optional {
-            version: (buff 1),
-            hashbytes: (buff 32),
-        }))
-        (auth-id uint)
-    )
-    (sha256 (concat SIP018_MSG_PREFIX
-        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
-            (sha256 (unwrap-panic (to-consensus-buff? {
-                topic: "grant-authorization",
-                staker: staker,
-                pox-addr: pox-addr,
-                auth-id: auth-id,
-            })))
-        )))
-)
-
 (define-public (grant-signer-key
         (signer-key (buff 33))
         (staker principal)
@@ -715,6 +666,86 @@
 
         (ok true)
     )
+)
+
+;; Revoke a signer key grant for a staker. Only the Stacks principal
+;; associated with `signer-key` can call this function.
+;;
+;; Returns a boolean indicating whether the signer key grant existed.
+(define-public (revoke-signer-grant
+        (staker principal)
+        (signer-key (buff 33))
+    )
+    (begin
+        ;; Validate that `tx-sender` has the same pubkey hash as `signer-key`
+        (asserts!
+            (is-eq
+                (unwrap-panic (principal-construct?
+                    (if is-in-mainnet
+                        STACKS_ADDR_VERSION_MAINNET
+                        STACKS_ADDR_VERSION_TESTNET
+                    )
+                    (hash160 signer-key)
+                ))
+                tx-sender
+            )
+            ERR_NOT_ALLOWED
+        )
+        (ok (map-delete signer-key-grants {
+            signer-key: signer-key,
+            staker: staker,
+        }))
+    )
+)
+
+;; Generate a message hash for validating a signer key.
+;; The message hash follows SIP018 for signing structured data. The structured data
+;; is the tuple `{ pox-addr: { version, hashbytes }, reward-cycle, auth-id, max-amount, topic, period }`.
+;; The domain is [POX_5_SIGNER_DOMAIN].
+(define-read-only (get-signer-key-message-hash
+        (pox-addr {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        })
+        (reward-cycle uint)
+        (topic (string-ascii 14))
+        (period uint)
+        (max-amount uint)
+        (auth-id uint)
+    )
+    (sha256 (concat SIP018_MSG_PREFIX
+        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
+            (sha256 (unwrap-panic (to-consensus-buff? {
+                pox-addr: pox-addr,
+                reward-cycle: reward-cycle,
+                topic: topic,
+                period: period,
+                auth-id: auth-id,
+                max-amount: max-amount,
+            })))
+        )))
+)
+
+;; Construct the message hash for validating a signer key grant. Unlike [get-signer-key-message-hash],
+;; this message hash does not include `max-amount`, `period`, or `reward-cycle`. The topic is always `"grant-authorization"`.
+;; The `pox-addr` field is optional. When `none`, it means the signer key can be used for any PoX address.
+(define-read-only (get-signer-grant-message-hash
+        (staker principal)
+        (pox-addr (optional {
+            version: (buff 1),
+            hashbytes: (buff 32),
+        }))
+        (auth-id uint)
+    )
+    (sha256 (concat SIP018_MSG_PREFIX
+        (concat (sha256 (unwrap-panic (to-consensus-buff? POX_5_SIGNER_DOMAIN)))
+            (sha256 (unwrap-panic (to-consensus-buff? {
+                topic: "grant-authorization",
+                staker: staker,
+                pox-addr: pox-addr,
+                auth-id: auth-id,
+            })))
+        )))
 )
 
 ;; Verify a signature from the signing key for this specific stacker.
