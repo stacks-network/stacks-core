@@ -1779,3 +1779,162 @@ fn test_constant_to_trait(
 
     assert_eq!(call_result.unwrap(), Value::okay_true());
 }
+
+/// Contract principal constants must work with principal-inspecting functions
+/// (is-standard, principal-destruct?, principal-to-ascii). These functions
+/// pattern-match on Value::Principal and previously failed when constants were
+/// rewritten to Value::CallableContract.
+#[apply(test_clarity_versions)]
+fn test_constant_contract_principal_in_principal_functions(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    if !epoch.supports_call_with_constant() || !version.supports_callables() {
+        return;
+    }
+
+    let mut owned_env = env_factory.get_env(epoch);
+
+    let contract_a = "(define-public (ping) (ok true))";
+    let contract_b = "
+        (define-constant TARGET .contract-a)
+        (define-read-only (check-standard)
+            (is-standard TARGET))
+        (define-read-only (check-destruct)
+            (principal-destruct? TARGET))
+    ";
+
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    {
+        let (mut exec_env, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_env
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract-a").unwrap(),
+                contract_a,
+            )
+            .unwrap();
+        exec_env
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract-b").unwrap(),
+                contract_b,
+            )
+            .unwrap();
+    }
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let (mut exec_env, invoke_ctx) = owned_env.get_exec_environment(
+        Some(p1.expect_principal().unwrap()),
+        None,
+        &placeholder_context,
+    );
+
+    // is-standard should work with a constant contract principal.
+    // The local test principal has a non-standard version byte, so the
+    // result is false — but the important thing is it doesn't crash with
+    // TypeValueError (which was the bug when constants were CallableContract).
+    let result = exec_env
+        .execute_contract(
+            &invoke_ctx,
+            &QualifiedContractIdentifier::local("contract-b").unwrap(),
+            "check-standard",
+            &[],
+            false,
+        )
+        .unwrap();
+    assert!(matches!(result, Value::Bool(_)));
+
+    // principal-destruct? should work with a constant contract principal.
+    // It returns a Response — the key assertion is it doesn't crash.
+    let result = exec_env
+        .execute_contract(
+            &invoke_ctx,
+            &QualifiedContractIdentifier::local("contract-b").unwrap(),
+            "check-destruct",
+            &[],
+            false,
+        )
+        .unwrap();
+    assert!(matches!(result, Value::Response(_)));
+}
+
+/// A constant contract principal can be used as BOTH a contract-call? target
+/// AND a principal argument to native functions within the same contract.
+#[apply(test_clarity_versions)]
+fn test_constant_contract_principal_dual_use(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut env_factory: MemoryEnvironmentGenerator,
+) {
+    if !epoch.supports_call_with_constant() || !version.supports_callables() {
+        return;
+    }
+
+    let mut owned_env = env_factory.get_env(epoch);
+
+    let contract_a = "
+        (define-public (foo) (ok true))
+    ";
+    let contract_b = "
+        (define-constant TARGET .contract-a)
+        (define-public (call-it)
+            (contract-call? TARGET foo))
+        (define-read-only (get-bal)
+            (stx-get-balance TARGET))
+        (define-read-only (check-standard)
+            (is-standard TARGET))
+    ";
+
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    {
+        let (mut exec_env, invoke_ctx) =
+            owned_env.get_exec_environment(None, None, &placeholder_context);
+        exec_env
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract-a").unwrap(),
+                contract_a,
+            )
+            .unwrap();
+        exec_env
+            .initialize_contract(
+                &invoke_ctx,
+                QualifiedContractIdentifier::local("contract-b").unwrap(),
+                contract_b,
+            )
+            .unwrap();
+    }
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let (mut exec_env, invoke_ctx) = owned_env.get_exec_environment(
+        Some(p1.expect_principal().unwrap()),
+        None,
+        &placeholder_context,
+    );
+    let contract_b_id = QualifiedContractIdentifier::local("contract-b").unwrap();
+
+    // Use as contract-call? target
+    let result = exec_env
+        .execute_contract(&invoke_ctx, &contract_b_id, "call-it", &[], false)
+        .unwrap();
+    assert_eq!(result, Value::okay_true());
+
+    // Use as stx-get-balance argument
+    let result = exec_env
+        .execute_contract(&invoke_ctx, &contract_b_id, "get-bal", &[], false)
+        .unwrap();
+    assert_eq!(result, Value::UInt(0));
+
+    // Use as is-standard argument (returns Bool, not a crash)
+    let result = exec_env
+        .execute_contract(&invoke_ctx, &contract_b_id, "check-standard", &[], false)
+        .unwrap();
+    assert!(matches!(result, Value::Bool(_)));
+}
