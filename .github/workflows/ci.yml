@@ -349,16 +349,8 @@ jobs:
               lcov "${CHUNK_ARGS[@]}" -o "$PART_FILE" & 
           done
     
-          # 3. Fail-Fast Monitor: loop exactly as many times as there are background jobs
-          for (( i=0; i<JOB_COUNT; i++ )); do
-              # wait -n waits for the FIRST job to finish and returns its exit code
-              if ! wait -n; then
-                  echo "ERROR: A background lcov process failed. Terminating all tasks..."
-                  # Kill all remaining background jobs in this shell's job table
-                  kill $(jobs -p) 2>/dev/null
-                  exit 1
-              fi
-          done
+          # 3. Wait for all background processes to finish
+          wait
     
           # 4. Final Merge: Combine the intermediate files into the final report
           FINAL_ARGS=()
