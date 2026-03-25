@@ -1375,6 +1375,8 @@ fn test_constant_contract_principal_in_stx_ops() {
             (stx-account TARGET))
         (define-public (do-transfer (amount uint))
             (stx-transfer? amount tx-sender TARGET))
+        (define-public (do-transfer2 (amount uint))
+            (stx-transfer? amount TARGET tx-sender))
         (define-public (do-transfer-memo (amount uint))
             (stx-transfer-memo? amount tx-sender TARGET 0x01020304))
         (define-public (do-burn (amount uint))
@@ -1425,6 +1427,19 @@ fn test_constant_contract_principal_in_stx_ops() {
     )
     .unwrap();
     assert!(is_committed(&result));
+
+    // stx-transfer? with constant contract principal as sender
+    let (result, _, _) = execute_transaction(
+        &mut owned_env,
+        p1_principal.clone(),
+        &test_id,
+        "do-transfer2",
+        &symbols_from_values(vec![Value::UInt(100)]),
+    )
+    .unwrap();
+    // This should fail, but only because a send from sender != tx-sender fails
+    let expected = Value::err_uint(4);
+    assert_eq!(result, expected);
 
     // stx-transfer-memo? with constant contract principal as recipient
     let (result, _, _) = execute_transaction(
