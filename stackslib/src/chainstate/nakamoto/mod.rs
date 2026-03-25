@@ -1417,7 +1417,7 @@ impl NakamotoBlock {
         // have both a coinbase and a tenure-change
         let coinbase_idx = 1;
         let tc_idx = 0;
-        if coinbase_position != Some(coinbase_idx) && tenure_change_position != Some(tc_idx) {
+        if coinbase_position != Some(coinbase_idx) || tenure_change_position != Some(tc_idx) {
             // invalid -- expect exactly one sortition-induced tenure change and exactly one coinbase expected,
             // and the tenure change must be the first transaction and the coinbase must be the second transaction
             warn!("Invalid block -- coinbase and/or tenure change txs are in the wrong position -- ({coinbase_positions:?}, {tenure_change_positions:?}) != [{coinbase_idx}], [{tc_idx}]";
