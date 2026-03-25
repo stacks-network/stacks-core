@@ -16,7 +16,7 @@
 
 use std::collections::VecDeque;
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Seek, SeekFrom};
 
 use tempfile::tempdir;
 
