@@ -309,14 +309,8 @@ impl NakamotoSigners {
             liquid_ustx,
         );
 
-        let pox_version: PoxVersions =
-            PoxVersions::lookup_by_name(pox_contract).ok_or(ChainstateError::DefunctPoxContract)?;
-        let reward_set = StacksChainState::make_reward_set(
-            threshold,
-            reward_slots,
-            StacksEpochId::Epoch30,
-            pox_version,
-        );
+        let reward_set =
+            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
 
         test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
         let stackerdb_list = if participation == 0 {

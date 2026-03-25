@@ -1965,7 +1965,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     })
                     .unwrap();
 
-                // require 3.4 rules henceforth in this connection as well
+                // require 3.5 rules henceforth in this connection as well
                 tx_conn.epoch = StacksEpochId::Epoch35;
             });
 
