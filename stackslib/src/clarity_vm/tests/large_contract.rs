@@ -562,7 +562,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context, false);
+            owned_env.get_exec_environment(None, None, &placeholder_context);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
         exec_state
@@ -580,7 +580,6 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
-            false,
         );
 
         assert!(is_err_code_i128(
@@ -602,7 +601,6 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
             Some(p1.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
-            false,
         );
         assert!(is_committed(
             &exec_state
@@ -635,7 +633,6 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
-            false,
         );
         assert!(is_err_code_i128(
             &exec_state
@@ -657,7 +654,6 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
             Some(p1.expect_principal().unwrap()),
             None,
             &placeholder_context,
-            false,
         );
         assert!(is_committed(
             &exec_state
@@ -678,7 +674,6 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
             Some(p2.clone().expect_principal().unwrap()),
             None,
             &placeholder_context,
-            false,
         );
         assert!(is_committed(
             &exec_state

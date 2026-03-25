@@ -709,7 +709,6 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
-            is_contract_deploy: false,
         };
         let err =
             eval_allowance(&allowance_expr, &mut exec_state, &invoke_ctx, &context).unwrap_err();

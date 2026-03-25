@@ -87,7 +87,7 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db(), epoch);
         let (mut exec_state, invoke_ctx) =
-            env.get_exec_environment(None, None, &placeholder_context, false);
+            env.get_exec_environment(None, None, &placeholder_context);
         assert_eq!(
             Ok(ValueRef::Owned(Value::Int(7))),
             eval(&parsed_program[0], &mut exec_state, &invoke_ctx, &context)
@@ -752,7 +752,6 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             sender: None,
             caller: None,
             sponsor: None,
-            is_contract_deploy: true,
         };
 
         if let Ok(tests) = evals {

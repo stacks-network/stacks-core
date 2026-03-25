@@ -79,8 +79,6 @@ pub struct InvocationContext<'a> {
     pub caller: Option<PrincipalData>,
     /// The sponsor responsible for paying execution costs, if any.
     pub sponsor: Option<PrincipalData>,
-    /// Is the current execution a contract deploy?
-    pub is_contract_deploy: bool,
 }
 
 impl InvocationContext<'_> {
@@ -94,7 +92,6 @@ impl InvocationContext<'_> {
             sender: Some(sender.clone()),
             caller: Some(sender),
             sponsor: self.sponsor.clone(),
-            is_contract_deploy: self.is_contract_deploy,
         }
     }
 
@@ -109,7 +106,6 @@ impl InvocationContext<'_> {
             sender: self.sender.clone(),
             caller: Some(caller),
             sponsor: self.sponsor.clone(),
-            is_contract_deploy: self.is_contract_deploy,
         }
     }
 }
@@ -326,6 +322,11 @@ pub struct ContractContext {
     pub data_size: u64,
     /// The clarity version of this contract
     clarity_version: ClarityVersion,
+    /// True while the contract is being deployed (inside `initialize_from_ast`).
+    /// Constants may only be used as `contract-call?` dispatch targets
+    /// after deployment, when their values are frozen.
+    #[serde(skip)]
+    pub is_deploying: bool,
 }
 
 pub struct LocalContext<'a> {
@@ -742,7 +743,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
         context: &'b ContractContext,
-        is_contract_deploy: bool,
     ) -> (ExecutionState<'b, 'a, 'hooks>, InvocationContext<'b>) {
         (
             ExecutionState {
@@ -754,7 +754,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 sender: sender.clone(),
                 caller: sender,
                 sponsor,
-                is_contract_deploy,
             },
         )
     }
@@ -764,7 +763,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         initial_context: Option<ContractContext>,
-        is_contract_deploy: bool,
         f: F,
     ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
     where
@@ -779,12 +777,8 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity1,
             ));
-            let (mut exec_state, invoke_ctx) = self.get_exec_environment(
-                Some(sender),
-                sponsor,
-                &initial_context,
-                is_contract_deploy,
-            );
+            let (mut exec_state, invoke_ctx) =
+                self.get_exec_environment(Some(sender), sponsor, &initial_context);
             f(&mut exec_state, &invoke_ctx)
         };
 
@@ -813,7 +807,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             contract_identifier.issuer.clone().into(),
             sponsor,
             None,
-            true,
             |exec_state, invoke_ctx| {
                 exec_state.initialize_contract(invoke_ctx, contract_identifier, contract_content)
             },
@@ -834,7 +827,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 QualifiedContractIdentifier::transient(),
                 version,
             )),
-            true,
             |exec_state, invoke_ctx| {
                 exec_state.initialize_contract(invoke_ctx, contract_identifier, contract_content)
             },
@@ -856,7 +848,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 QualifiedContractIdentifier::transient(),
                 clarity_version,
             )),
-            true,
             |exec_state, invoke_ctx| {
                 exec_state.initialize_contract_from_ast(
                     invoke_ctx,
@@ -877,7 +868,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         tx_name: &str,
         args: &[SymbolicExpression],
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
-        self.execute_in_env(sender, sponsor, None, false, |exec_state, invoke_ctx| {
+        self.execute_in_env(sender, sponsor, None, |exec_state, invoke_ctx| {
             exec_state.execute_contract(invoke_ctx, &contract_identifier, tx_name, args, false)
         })
     }
@@ -889,7 +880,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         amount: u128,
         memo: &BuffData,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
-        self.execute_in_env(from.clone(), None, None, false, |exec_state, invoke_ctx| {
+        self.execute_in_env(from.clone(), None, None, |exec_state, invoke_ctx| {
             exec_state.stx_transfer(invoke_ctx, from, to, amount, memo)
         })
     }
@@ -904,7 +895,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             recipient.clone(),
             None,
             None,
-            false,
             |exec_state, _invoke_ctx| {
                 let mut snapshot = exec_state
                     .global_context
@@ -937,7 +927,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             QualifiedContractIdentifier::transient().issuer.into(),
             None,
             None,
-            true,
             |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, program),
         )
     }
@@ -951,7 +940,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             QualifiedContractIdentifier::transient().issuer.into(),
             None,
             None,
-            false,
             |exec_state, invoke_ctx| exec_state.eval_read_only(invoke_ctx, contract, program),
         )
     }
@@ -1103,7 +1091,6 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                 sender: invoke_ctx.sender.clone(),
                 caller: invoke_ctx.caller.clone(),
                 sponsor: invoke_ctx.sponsor.clone(),
-                is_contract_deploy: false,
             };
             let local_context = LocalContext::new();
             eval(&parsed[0], self, &nested_view, &local_context)
@@ -1302,11 +1289,6 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             self.global_context.begin();
         }
 
-        let is_contract_deploy = if next_contract_context.is_some() {
-            false
-        } else {
-            invoke_ctx.is_contract_deploy
-        };
         let next_contract_context = next_contract_context.unwrap_or(invoke_ctx.contract_context);
 
         let result = {
@@ -1315,7 +1297,6 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                 sender: invoke_ctx.sender.clone(),
                 caller: invoke_ctx.caller.clone(),
                 sponsor: invoke_ctx.sponsor.clone(),
-                is_contract_deploy,
             };
             function.execute_apply(args, self, &nested_view)
         };
@@ -1844,7 +1825,6 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 contract_context: &contract_context,
                 sender: Some(sender.clone()),
                 caller: Some(sender),
-                is_contract_deploy: false,
                 sponsor,
             };
             f(&mut exec_state, &invoke_ctx)
@@ -2000,6 +1980,7 @@ impl ContractContext {
             meta_nft: HashMap::new(),
             meta_ft: HashMap::new(),
             clarity_version,
+            is_deploying: false,
         }
     }
 
@@ -2590,7 +2571,6 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
-            is_contract_deploy: true,
         };
 
         let contract_id = QualifiedContractIdentifier::local("dup").unwrap();

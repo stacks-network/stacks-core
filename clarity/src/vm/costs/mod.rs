@@ -1140,7 +1140,6 @@ pub fn compute_cost(
             contract_context: cost_contract,
             sender: Some(publisher.clone()),
             caller: Some(publisher.clone()),
-            is_contract_deploy: false,
             sponsor: None,
         };
         super::eval(&function_invocation, &mut env, &invoke_ctx, &context)

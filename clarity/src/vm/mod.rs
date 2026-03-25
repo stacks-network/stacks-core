@@ -471,8 +471,6 @@ pub fn eval_all(
                     sender: Some(publisher.clone()),
                     caller: Some(publisher.clone()),
                     sponsor: sponsor.clone(),
-                    // set to true, because eval_all is where contract deploys happen.
-                    is_contract_deploy: true,
                 };
                 functions::define::evaluate_define(exp, &mut exec_state, &invoke_ctx)
             })?;
@@ -561,7 +559,6 @@ pub fn eval_all(
                             sender: Some(publisher.clone()),
                             caller: Some(publisher.clone()),
                             sponsor: sponsor.clone(),
-                            is_contract_deploy: true,
                         };
                         let result = eval(exp, &mut exec_state, &invoke_ctx, &context)?.clone_with_cost(&mut exec_state)?;
                         last_executed = Some(result);
@@ -802,7 +799,6 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
-            is_contract_deploy: true,
         };
         assert_eq!(
             Ok(ValueRef::Owned(Value::Int(64))),

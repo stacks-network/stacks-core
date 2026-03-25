@@ -83,7 +83,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
 
         {
             let (mut exec_state, invoke_ctx) =
-                owned_env.get_exec_environment(None, None, &placeholder_context, false);
+                owned_env.get_exec_environment(None, None, &placeholder_context);
             let command = "(var-get datum)";
             let value = exec_state.eval_read_only(&invoke_ctx, &c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
@@ -180,7 +180,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
 
         {
             let (mut exec_state, invoke_ctx) =
-                owned_env.get_exec_environment(None, None, &placeholder_context, false);
+                owned_env.get_exec_environment(None, None, &placeholder_context);
             let command = "(var-get datum)";
             let value = exec_state.eval_read_only(&invoke_ctx, &c, command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
@@ -404,7 +404,7 @@ fn branched_execution(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context, false);
+            owned_env.get_exec_environment(None, None, &placeholder_context);
         let command = format!("(get-balance {})", p1_str);
         let balance = exec_state
             .eval_read_only(&invoke_ctx, &contract_identifier, &command)

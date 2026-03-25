@@ -565,7 +565,6 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
-            is_contract_deploy: true,
         };
 
         let err = handle_define_function(
@@ -634,7 +633,6 @@ mod test {
             sender: None,
             caller: None,
             sponsor: None,
-            is_contract_deploy: true,
         };
 
         let err = handle_define_trait(

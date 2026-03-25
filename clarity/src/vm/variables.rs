@@ -198,7 +198,6 @@ mod test {
             sender: Some(PrincipalData::Standard(contract.issuer.clone())),
             caller: None, // <- intentionally missing
             sponsor: None,
-            is_contract_deploy: false,
         };
 
         let res = lookup_reserved_variable("contract-caller", &mut exec_state, &invoke_ctx);
@@ -233,7 +232,6 @@ mod test {
             sender: None, // <- intentionally missing
             caller: Some(PrincipalData::Standard(contract.issuer.clone())),
             sponsor: None,
-            is_contract_deploy: false,
         };
         let res = lookup_reserved_variable("tx-sender", &mut exec_state, &invoke_ctx);
         assert!(matches!(

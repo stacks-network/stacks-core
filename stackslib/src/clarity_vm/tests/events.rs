@@ -100,7 +100,7 @@ fn helper_execute_epoch(
 
     {
         let (mut exec_state, invoke_ctx) =
-            owned_env.get_exec_environment(None, None, &placeholder_context, false);
+            owned_env.get_exec_environment(None, None, &placeholder_context);
         exec_state
             .initialize_contract(&invoke_ctx, contract_id.clone(), contract)
             .unwrap();

@@ -217,7 +217,7 @@ pub trait ClarityConnection {
                 mainnet, chain_id, clarity_db, cost_track, epoch_id,
             );
             let result = vm_env
-                .execute_in_env(sender, sponsor, Some(initial_context), false, to_do)
+                .execute_in_env(sender, sponsor, Some(initial_context), to_do)
                 .map(|(result, _, _)| result);
             // this expect is allowed, if the database has escaped this context, then it is no longer sane
             //  and we must crash

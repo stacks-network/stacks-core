@@ -2198,22 +2198,16 @@ impl ClarityTransactionConnection<'_, '_> {
         self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .execute_in_env(
-                        sender.clone(),
-                        None,
-                        None,
-                        false,
-                        |exec_state, invoke_ctx| {
-                            exec_state.run_as_transaction(invoke_ctx, |exec_state, invoke_ctx| {
-                                StacksChainState::handle_poison_microblock(
-                                    exec_state,
-                                    invoke_ctx,
-                                    mblock_header_1,
-                                    mblock_header_2,
-                                )
-                            })
-                        },
-                    )
+                    .execute_in_env(sender.clone(), None, None, |exec_state, invoke_ctx| {
+                        exec_state.run_as_transaction(invoke_ctx, |exec_state, invoke_ctx| {
+                            StacksChainState::handle_poison_microblock(
+                                exec_state,
+                                invoke_ctx,
+                                mblock_header_1,
+                                mblock_header_2,
+                            )
+                        })
+                    })
                     .map_err(ClarityError::from)
             },
             |_, _| None,

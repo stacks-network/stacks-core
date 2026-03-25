@@ -98,7 +98,6 @@ pub fn special_contract_call(
         }
         SymbolicExpressionType::Atom(contract_ref) => {
             // First, check if the atom references a contract constant which is a callable
-
             let callable = invoke_ctx
                 .contract_context
                 .lookup_variable(contract_ref)
@@ -113,7 +112,7 @@ pub fn special_contract_call(
                     if !exec_state.epoch().supports_call_with_constant() {
                         return None;
                     }
-                    if invoke_ctx.is_contract_deploy {
+                    if invoke_ctx.contract_context.is_deploying {
                         return None;
                     }
                     let Value::Principal(PrincipalData::Contract(contract_identifier)) = value

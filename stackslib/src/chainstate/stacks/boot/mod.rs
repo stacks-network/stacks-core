@@ -590,7 +590,6 @@ impl StacksChainState {
                             sender_addr.clone(),
                             None,
                             None,
-                            false,
                             |exec_state, invoke_ctx| {
                                 exec_state.execute_contract_allow_private(
                                     invoke_ctx,
