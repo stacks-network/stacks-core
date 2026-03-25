@@ -17,10 +17,10 @@
 use std::{error, fmt};
 
 use clarity_types::representations::{PreSymbolicExpression, Span};
-use clarity_types::token::Token;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::parser::v2::lexer::error::LexerError;
+use crate::vm::ast::parser::v2::lexer::token::Token;
 use crate::vm::costs::{CostErrors, ExecutionCost};
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
 

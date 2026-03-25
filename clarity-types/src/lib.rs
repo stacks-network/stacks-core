@@ -26,7 +26,6 @@ pub use stacks_common::{
 
 pub mod errors;
 pub mod representations;
-pub mod token;
 pub mod types;
 
 pub use errors::{ClarityTypeError, IncomparableError};
