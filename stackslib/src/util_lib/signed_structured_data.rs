@@ -401,6 +401,134 @@ pub mod pox4 {
     }
 }
 
+pub mod pox5 {
+    use clarity::vm::types::PrincipalData;
+
+    use super::{
+        make_structured_data_domain, structured_data_message_hash, MessageSignature, PoxAddress,
+        PrivateKey, Sha256Sum, StacksPrivateKey, TupleData, Value,
+    };
+
+    define_named_enum!(Pox5SignatureTopic {
+        Stake("stake"),
+        StakeExtend("stake-extend"),
+        StakeUpdate("stake-update"),
+    });
+
+    pub fn make_pox_5_signed_data_domain(chain_id: u32) -> Value {
+        make_structured_data_domain("pox-5-signer", "1.0.0", chain_id)
+    }
+
+    pub fn make_pox_5_signer_key_message_hash(
+        pox_addr: &PoxAddress,
+        reward_cycle: u128,
+        topic: &Pox5SignatureTopic,
+        chain_id: u32,
+        period: u128,
+        max_amount: u128,
+        auth_id: u128,
+    ) -> Sha256Sum {
+        let domain_tuple = make_pox_5_signed_data_domain(chain_id);
+        let data_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "pox-addr".into(),
+                    pox_addr
+                        .clone()
+                        .as_clarity_tuple()
+                        .expect("Error creating signature hash - invalid PoX Address")
+                        .into(),
+                ),
+                ("reward-cycle".into(), Value::UInt(reward_cycle)),
+                ("period".into(), Value::UInt(period)),
+                (
+                    "topic".into(),
+                    Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
+                ),
+                ("auth-id".into(), Value::UInt(auth_id)),
+                ("max-amount".into(), Value::UInt(max_amount)),
+            ])
+            .expect("Error creating signature hash"),
+        );
+        structured_data_message_hash(data_tuple, domain_tuple)
+    }
+
+    pub fn make_pox_5_signer_key_signature(
+        pox_addr: &PoxAddress,
+        signer_key: &StacksPrivateKey,
+        reward_cycle: u128,
+        topic: &Pox5SignatureTopic,
+        chain_id: u32,
+        period: u128,
+        max_amount: u128,
+        auth_id: u128,
+    ) -> Result<MessageSignature, &'static str> {
+        let msg_hash = make_pox_5_signer_key_message_hash(
+            pox_addr,
+            reward_cycle,
+            topic,
+            chain_id,
+            period,
+            max_amount,
+            auth_id,
+        );
+        signer_key.sign(msg_hash.as_bytes())
+    }
+
+    /// Generate the message hash for a signer key grant authorization.
+    /// The grant message includes the stacker principal, an optional pox-addr constraint,
+    /// and an auth-id for replay protection.
+    pub fn make_pox_5_signer_grant_message_hash(
+        stacker: &PrincipalData,
+        pox_addr: Option<&PoxAddress>,
+        auth_id: u128,
+        chain_id: u32,
+    ) -> Sha256Sum {
+        let domain_tuple = make_pox_5_signed_data_domain(chain_id);
+
+        let pox_addr_value = match pox_addr {
+            Some(addr) => Value::some(
+                addr.clone()
+                    .as_clarity_tuple()
+                    .expect("Error creating grant hash - invalid PoX Address")
+                    .into(),
+            )
+            .unwrap(),
+            None => Value::none(),
+        };
+
+        let data_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "topic".into(),
+                    Value::string_ascii_from_bytes("grant-authorization".into()).unwrap(),
+                ),
+                (
+                    "staker".into(),
+                    Value::Principal(stacker.clone()),
+                ),
+                ("pox-addr".into(), pox_addr_value),
+                ("auth-id".into(), Value::UInt(auth_id)),
+            ])
+            .expect("Error creating grant hash"),
+        );
+        structured_data_message_hash(data_tuple, domain_tuple)
+    }
+
+    /// Sign a signer key grant authorization.
+    pub fn make_pox_5_signer_grant_signature(
+        stacker: &PrincipalData,
+        pox_addr: Option<&PoxAddress>,
+        auth_id: u128,
+        chain_id: u32,
+        signer_key: &StacksPrivateKey,
+    ) -> Result<MessageSignature, &'static str> {
+        let msg_hash =
+            make_pox_5_signer_grant_message_hash(stacker, pox_addr, auth_id, chain_id);
+        signer_key.sign(msg_hash.as_bytes())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use clarity::vm::types::{TupleData, Value};

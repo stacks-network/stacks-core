@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 // Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
@@ -15,16 +16,15 @@
 use std::env;
 use std::time::Duration;
 
+use clarity::vm::types::PrincipalData;
 use stacks::address::AddressHashMode;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::core::test_util::make_contract_call;
-use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
+use stacks::core::StacksEpochId;
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util_lib::boot::boot_code_id;
-use stacks::util_lib::signed_structured_data::pox4::{
-    make_pox_4_signer_key_signature, Pox4SignatureTopic,
-};
+use stacks::util_lib::signed_structured_data::pox5::make_pox_5_signer_grant_signature;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -35,19 +35,81 @@ use crate::tests::signer::SignerTest;
 use crate::tests::{self};
 use crate::BurnchainController;
 
-/// Submit `stake` transactions to pox-5 for each signer
+/// Submit a `grant-signer-key` transaction so that `stacker_addr` can use `signer_sk`
+/// without a per-transaction signature.
+fn grant_signer_key(
+    signer_test: &SignerTest<SpawnedSigner>,
+    submitter_sk: &Secp256k1PrivateKey,
+    submitter_nonce: u64,
+    stacker_addr: &StacksAddress,
+    signer_sk: &Secp256k1PrivateKey,
+    auth_id: u128,
+) {
+    let chain_id = signer_test.running_nodes.conf.burnchain.chain_id;
+    let stacker_principal = PrincipalData::from(stacker_addr.clone());
+    let signer_pk = StacksPublicKey::from_private(signer_sk);
+
+    let grant_sig = make_pox_5_signer_grant_signature(
+        &stacker_principal,
+        None, // no pox-addr constraint
+        auth_id,
+        chain_id,
+        signer_sk,
+    )
+    .expect("Failed to create grant signature")
+    .to_rsv();
+
+    let grant_tx = make_contract_call(
+        submitter_sk,
+        submitter_nonce,
+        1000,
+        chain_id,
+        &StacksAddress::burn_address(false),
+        "pox-5",
+        "grant-signer-key",
+        &[
+            // signer-key
+            clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+            // staker
+            clarity::vm::Value::Principal(stacker_principal),
+            // pox-addr (none = any address allowed)
+            clarity::vm::Value::none(),
+            // auth-id
+            clarity::vm::Value::UInt(auth_id),
+            // signer-sig
+            clarity::vm::Value::buff_from(grant_sig).unwrap(),
+        ],
+    );
+    submit_tx(&signer_test.running_nodes.rpc_origin(), &grant_tx);
+}
+
+/// Submit `grant-signer-key` and then `stake` transactions to pox-5 for each signer
 fn stake_pox_5(signer_test: &SignerTest<SpawnedSigner>) {
     let block_height = signer_test
         .running_nodes
         .btc_regtest_controller
         .get_headers_height();
-    let reward_cycle = signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .get_burnchain()
-        .block_height_to_reward_cycle(block_height)
-        .unwrap();
     let lock_period = 12;
+    let chain_id = signer_test.running_nodes.conf.burnchain.chain_id;
+
+    let mut nonces: HashMap<StacksAddress, u64> = HashMap::new();
+
+    // First, grant signer keys for each stacker
+    for stacker_sk in signer_test.signer_stacks_private_keys.iter() {
+        let stacker_addr = tests::to_addr(stacker_sk);
+        let nonce = get_account(&signer_test.running_nodes.rpc_origin(), &stacker_addr).nonce;
+        nonces.insert(stacker_addr.clone(), nonce);
+        grant_signer_key(signer_test, stacker_sk, nonce, &stacker_addr, stacker_sk, 0);
+    }
+
+    wait_for(30, || {
+        Ok(nonces.iter().all(|(addr, nonce)| {
+            get_account(&signer_test.running_nodes.rpc_origin(), addr).nonce > *nonce
+        }))
+    })
+    .expect("Timed out waiting for grant-signer-key transactions");
+
+    // Now submit stake transactions using the grant path (signer-sig: none)
     for stacker_sk in signer_test.signer_stacks_private_keys.iter() {
         let stacker_addr = tests::to_addr(stacker_sk);
         let pox_addr = PoxAddress::from_legacy(
@@ -56,20 +118,6 @@ fn stake_pox_5(signer_test: &SignerTest<SpawnedSigner>) {
         );
         let pox_addr_tuple: clarity::vm::Value =
             pox_addr.clone().as_clarity_tuple().unwrap().into();
-        // TODO: update to use pox-5 signature
-        let signature = make_pox_4_signer_key_signature(
-            &pox_addr,
-            stacker_sk,
-            reward_cycle.into(),
-            &Pox4SignatureTopic::StackStx,
-            CHAIN_ID_TESTNET,
-            lock_period,
-            u128::MAX,
-            1,
-        )
-        .unwrap()
-        .to_rsv();
-
         let signer_pk = StacksPublicKey::from_private(stacker_sk);
         let nonce = get_account(&signer_test.running_nodes.rpc_origin(), &stacker_addr).nonce;
         info!("---- Submitting pox-5 stake ----";
@@ -79,17 +127,17 @@ fn stake_pox_5(signer_test: &SignerTest<SpawnedSigner>) {
             stacker_sk,
             nonce,
             1000,
-            signer_test.running_nodes.conf.burnchain.chain_id,
+            chain_id,
             &StacksAddress::burn_address(false),
             "pox-5",
             "stake",
             &[
                 // TODO: use a real amount once we have unlocking from pox-4
-                clarity::vm::Value::UInt(1000),
+                clarity::vm::Value::UInt(1000_000000),
                 pox_addr_tuple.clone(),
                 clarity::vm::Value::UInt(block_height as u128),
-                clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
-                    .unwrap(),
+                // signer-sig: none (use grant path)
+                clarity::vm::Value::none(),
                 clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
                 clarity::vm::Value::UInt(u128::MAX),
                 clarity::vm::Value::UInt(1),
@@ -99,6 +147,13 @@ fn stake_pox_5(signer_test: &SignerTest<SpawnedSigner>) {
         );
         submit_tx(&signer_test.running_nodes.rpc_origin(), &stacking_tx);
     }
+
+    wait_for(30, || {
+        Ok(nonces.iter().all(|(addr, nonce)| {
+            get_account(&signer_test.running_nodes.rpc_origin(), addr).nonce > (*nonce + 1)
+        }))
+    })
+    .expect("Timed out waiting for stake transactions");
 }
 
 #[test]
@@ -179,12 +234,9 @@ fn test_pox_5_activation() {
 
     info!("---- Staking in pox-5 ----");
 
-    let signer_addr = tests::to_addr(&signer_test.signer_stacks_private_keys[0]);
-    let nonce = get_account(&signer_test.running_nodes.rpc_origin(), &signer_addr).nonce;
     stake_pox_5(&signer_test);
-    signer_test
-        .wait_for_nonce_increase(&signer_addr, nonce)
-        .unwrap();
+
+    let signer_addr = tests::to_addr(&signer_test.signer_stacks_private_keys[0]);
 
     let staker_info = signer_test
         .eval_read_only(
