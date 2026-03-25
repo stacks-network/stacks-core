@@ -1779,9 +1779,9 @@ fn test_constant_to_trait(
 }
 
 /// Contract principal constants must work with principal-inspecting functions
-/// (is-standard, principal-destruct?, principal-to-ascii). These functions
-/// pattern-match on Value::Principal and previously failed when constants were
-/// rewritten to Value::CallableContract.
+/// (`is-standard`, `principal-destruct?`, `to-ascii?`). These functions
+/// pattern-match on `Value::Principal` and previously failed when constants were
+/// rewritten to `Value::CallableContract`.
 #[apply(test_clarity_versions)]
 fn test_constant_contract_principal_in_principal_functions(
     version: ClarityVersion,
@@ -1795,13 +1795,26 @@ fn test_constant_contract_principal_in_principal_functions(
     let mut owned_env = env_factory.get_env(epoch);
 
     let contract_a = "(define-public (ping) (ok true))";
-    let contract_b = "
+    let has_to_ascii = version >= ClarityVersion::Clarity4;
+    let contract_b = if has_to_ascii {
+        "
         (define-constant TARGET .contract-a)
         (define-read-only (check-standard)
             (is-standard TARGET))
         (define-read-only (check-destruct)
             (principal-destruct? TARGET))
-    ";
+        (define-read-only (check-to-ascii)
+            (to-ascii? TARGET))
+        "
+    } else {
+        "
+        (define-constant TARGET .contract-a)
+        (define-read-only (check-standard)
+            (is-standard TARGET))
+        (define-read-only (check-destruct)
+            (principal-destruct? TARGET))
+        "
+    };
 
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
@@ -1832,33 +1845,38 @@ fn test_constant_contract_principal_in_principal_functions(
         &placeholder_context,
     );
 
-    // is-standard should work with a constant contract principal.
-    // The local test principal has a non-standard version byte, so the
-    // result is false — but the important thing is it doesn't crash with
-    // TypeValueError (which was the bug when constants were CallableContract).
-    let result = exec_env
-        .execute_contract(
-            &invoke_ctx,
-            &QualifiedContractIdentifier::local("contract-b").unwrap(),
-            "check-standard",
-            &[],
-            false,
-        )
-        .unwrap();
-    assert!(matches!(result, Value::Bool(_)));
+    let contract_b_id = QualifiedContractIdentifier::local("contract-b").unwrap();
 
-    // principal-destruct? should work with a constant contract principal.
-    // It returns a Response — the key assertion is it doesn't crash.
+    // is-standard returns false because the local test principal uses a
+    // non-standard version byte (0x01).
     let result = exec_env
-        .execute_contract(
-            &invoke_ctx,
-            &QualifiedContractIdentifier::local("contract-b").unwrap(),
-            "check-destruct",
-            &[],
-            false,
-        )
+        .execute_contract(&invoke_ctx, &contract_b_id, "check-standard", &[], false)
         .unwrap();
-    assert!(matches!(result, Value::Response(_)));
+    assert_eq!(result, Value::Bool(false));
+
+    // principal-destruct? returns (err ...) because version byte 0x01 is not
+    // a recognized network version. The tuple still contains the decomposed
+    // principal fields.
+    let result = exec_env
+        .execute_contract(&invoke_ctx, &contract_b_id, "check-destruct", &[], false)
+        .unwrap();
+    assert_eq!(
+        result,
+        execute(
+            "(err { version: 0x01, hash-bytes: 0x0101010101010101010101010101010101010101, name: (some \"contract-a\") })"
+        )
+    );
+
+    // to-ascii? returns (ok <string>) with the full principal representation.
+    if has_to_ascii {
+        let result = exec_env
+            .execute_contract(&invoke_ctx, &contract_b_id, "check-to-ascii", &[], false)
+            .unwrap();
+        assert_eq!(
+            result,
+            execute("(ok \"S1G2081040G2081040G2081040G208105NK8PE5.contract-a\")")
+        );
+    }
 }
 
 /// A constant contract principal can be used as BOTH a contract-call? target
