@@ -1782,13 +1782,18 @@ fn test_constant_to_trait(
 /// (`is-standard`, `principal-destruct?`, `to-ascii?`). These functions
 /// pattern-match on `Value::Principal` and previously failed when constants were
 /// rewritten to `Value::CallableContract`.
+///
+/// Skips Clarity1 because `is-standard` and `principal-destruct?` are not
+/// available. Runs in all epochs for Clarity2+ because `define-constant`
+/// with a contract principal literal always stores a `Value::Principal`.
 #[apply(test_clarity_versions)]
 fn test_constant_contract_principal_in_principal_functions(
     version: ClarityVersion,
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
-    if !epoch.supports_call_with_constant() || !version.supports_callables() {
+    if version < ClarityVersion::Clarity2 {
+        // Clarity1 does not have is-standard or principal-destruct?
         return;
     }
 
@@ -1881,16 +1886,23 @@ fn test_constant_contract_principal_in_principal_functions(
 
 /// A constant contract principal can be used as BOTH a contract-call? target
 /// AND a principal argument to native functions within the same contract.
+///
+/// In unsupported epochs, `contract-call?` via a constant fails with
+/// `ContractCallExpectName`, but the principal-accepting functions
+/// (`stx-get-balance`, `is-standard`) still work because the constant
+/// evaluates to `Value::Principal`.
+///
+/// Skips Clarity1 because `is-standard` is not available.
 #[apply(test_clarity_versions)]
 fn test_constant_contract_principal_dual_use(
     version: ClarityVersion,
     epoch: StacksEpochId,
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
-    if !epoch.supports_call_with_constant() || !version.supports_callables() {
+    if version < ClarityVersion::Clarity2 {
+        // Clarity1 does not have is-standard
         return;
     }
-
     let mut owned_env = env_factory.get_env(epoch);
 
     let contract_a = "
@@ -1936,21 +1948,28 @@ fn test_constant_contract_principal_dual_use(
     );
     let contract_b_id = QualifiedContractIdentifier::local("contract-b").unwrap();
 
-    // Use as contract-call? target
-    let result = exec_env
-        .execute_contract(&invoke_ctx, &contract_b_id, "call-it", &[], false)
-        .unwrap();
-    assert_eq!(result, Value::okay_true());
+    // contract-call? via constant requires epoch + version support
+    let call_result = exec_env.execute_contract(&invoke_ctx, &contract_b_id, "call-it", &[], false);
+    if epoch.supports_call_with_constant() && version.supports_callables() {
+        assert_eq!(call_result.unwrap(), Value::okay_true());
+    } else {
+        assert_eq!(
+            call_result.unwrap_err(),
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ContractCallExpectName)
+        );
+    }
 
-    // Use as stx-get-balance argument
+    // stx-get-balance and is-standard work in all epochs because the
+    // constant is always `Value::Principal`.
     let result = exec_env
         .execute_contract(&invoke_ctx, &contract_b_id, "get-bal", &[], false)
         .unwrap();
     assert_eq!(result, Value::UInt(0));
 
-    // Use as is-standard argument (returns Bool, not a crash)
+    // is-standard returns false because the local test principal uses a
+    // non-standard version byte (0x01).
     let result = exec_env
         .execute_contract(&invoke_ctx, &contract_b_id, "check-standard", &[], false)
         .unwrap();
-    assert!(matches!(result, Value::Bool(_)));
+    assert_eq!(result, Value::Bool(false));
 }
