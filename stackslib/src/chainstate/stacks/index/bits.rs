@@ -240,7 +240,7 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
 
     let max_ptr_size = TriePtr::max_encoded_size();
     let patch_overhead = max_ptr_size + 1;
-    let mut bytes = vec![0u8; num_ptrs * max_ptr_size + patch_overhead];
+    let mut bytes = vec![0u8; 1 + num_ptrs * max_ptr_size + patch_overhead];
     let mut offset = 0;
     loop {
         let nr = match r.read(
