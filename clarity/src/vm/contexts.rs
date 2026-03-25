@@ -322,6 +322,11 @@ pub struct ContractContext {
     pub data_size: u64,
     /// The clarity version of this contract
     clarity_version: ClarityVersion,
+    /// True while the contract is being deployed (inside `initialize_from_ast`).
+    /// Constants may only be used as `contract-call?` dispatch targets
+    /// after deployment, when their values are frozen.
+    #[serde(skip)]
+    pub is_deploying: bool,
 }
 
 pub struct LocalContext<'a> {
@@ -1975,6 +1980,7 @@ impl ContractContext {
             meta_nft: HashMap::new(),
             meta_ft: HashMap::new(),
             clarity_version,
+            is_deploying: false,
         }
     }
 

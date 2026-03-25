@@ -312,7 +312,7 @@ impl TraitIdentifier {
     }
 }
 
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Value {
     Int(i128),
     UInt(u128),
@@ -326,40 +326,6 @@ pub enum Value {
     // NOTE: any new value variants which may contain _other values_ (i.e.,
     //  compound values like `Optional`, `Tuple`, `Response`, or `Sequence(List)`)
     //  must be handled in the value sanitization routine!
-}
-
-/// Custom PartialEq: `CallableContract` with no trait identifier is
-/// semantically identical to the equivalent `Principal(Contract(..))`.
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Value::Int(a), Value::Int(b)) => a == b,
-            (Value::UInt(a), Value::UInt(b)) => a == b,
-            (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Sequence(a), Value::Sequence(b)) => a == b,
-            (Value::Principal(a), Value::Principal(b)) => a == b,
-            (Value::Tuple(a), Value::Tuple(b)) => a == b,
-            (Value::Optional(a), Value::Optional(b)) => a == b,
-            (Value::Response(a), Value::Response(b)) => a == b,
-            (Value::CallableContract(a), Value::CallableContract(b)) => a == b,
-            // CallableContract with no trait is equal to the matching Contract principal
-            (
-                Value::CallableContract(CallableData {
-                    contract_identifier,
-                    trait_identifier: None,
-                }),
-                Value::Principal(PrincipalData::Contract(other_id)),
-            )
-            | (
-                Value::Principal(PrincipalData::Contract(other_id)),
-                Value::CallableContract(CallableData {
-                    contract_identifier,
-                    trait_identifier: None,
-                }),
-            ) => contract_identifier == other_id,
-            _ => false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -1824,38 +1790,5 @@ impl FunctionIdentifier {
     pub fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
         let identifier = format!("{context}:{name}");
         FunctionIdentifier { identifier }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_callable_contract_equals_principal() {
-        let contract_id = QualifiedContractIdentifier::new(
-            StandardPrincipalData(1, [0x11; 20]),
-            ContractName::from("my-contract"),
-        );
-
-        let as_principal = Value::Principal(PrincipalData::Contract(contract_id.clone()));
-        let as_callable = Value::CallableContract(CallableData {
-            contract_identifier: contract_id.clone(),
-            trait_identifier: None,
-        });
-
-        // A callable constant with no trait is the same principal.
-        assert_eq!(as_principal, as_callable);
-        assert_eq!(as_callable, as_principal);
-
-        // A callable constant *with* a trait is not equal to a bare principal.
-        let as_callable_with_trait = Value::CallableContract(CallableData {
-            contract_identifier: contract_id.clone(),
-            trait_identifier: Some(TraitIdentifier {
-                name: ClarityName::from("my-trait"),
-                contract_identifier: contract_id,
-            }),
-        });
-        assert_ne!(as_principal, as_callable_with_trait);
     }
 }
