@@ -170,4 +170,154 @@ snapshot_kind: text
       runtime: 25299,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f3b77b9b3bf8207840e5277469ecfb36f1e6362104976ef8640dd0ddfd5bf0be",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 25299,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 25299,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a208bd2ffa3de190d84de6951a063b3111d1a53c80835ce25da2b523ca3c1bd4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 25299,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 25299,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "666300c55b6943649962224ebdb0877d4f829680841c2bd3316cc58038f73856",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 25299,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 25299,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b4caafed5701aaf9401d0c8401b52144ae14d2b38713c6cc572b183acf73a22a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 25299,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 25299,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a68541f0075ca7481f1b2a252b7f5653b9037abf6f514dd9be5cbdd5e1c9772b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(AST has too deep of an expression nesting. The maximum stack depth is 128) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 25299,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 25299,
+    ),
+  )),
 ]

@@ -274,4 +274,154 @@ snapshot_kind: text
       runtime: 945,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "326c91301dcde95c466cfc89b4a4272276114009aa546efffd9beec8bd77dcad",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(expected whitespace before expression) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 945,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 945,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f6d6d5262b9062c8cd66a83976a0ccc92b76fa7e02bf926323b343097d27f3cc",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(expected whitespace before expression) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 945,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 945,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "07c502bc5d5e539c9b4eb2d92e6c4885552afd497f3109e3dd6cfd7c9a568b8c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(expected whitespace before expression) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 945,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 945,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f29fa128247c270e135792c65334049fecdb62a20856e6007dc2ce162a5c731e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(expected whitespace before expression) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 945,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 945,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c0bfd48fd1bb61bbf677e7bedde86728f1aaa45c317d398fe641a5352a886d71",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(expected whitespace before expression) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 945,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 945,
+    ),
+  )),
 ]

@@ -2634,4 +2634,1054 @@ snapshot_kind: text
       runtime: 16032,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6a6b989b10fe7a4eeab0109863bd1b15547be75c6b5c6defec2ad82630cd0467",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_0-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8c37b4a3b2d3c10a447274c9ae59bd52fe4ede4712c80ed65d4a81f31571b529",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_05-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "031e335ee316d296ef4914f2b913672f9389ceca3905bd68e42c248bbfcd6616",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_1-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d851ecf47aed66346c51eded5d6cb4dbcf2348f361363d0be8354ae90fbcf2a9",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_1-Clarity2, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7d2bb045f14497d1c5ca5a4a5173facd8deda7a7bf4e1b5817f0a50c61a5efc4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_2-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ad7cdb9f5efde447b15b1a33b9ae1552b3c046d15fe997334e69d1fce58f55ae",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_2-Clarity2, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "fc0ea566b8e458595027603577a1ef1a0b5cb1bbc3af4567b1b03787e76af4be",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_3-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4a02e2e4f378cb16b08b2cde83425b27721dc1312de47d0afb3901890884eed8",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_3-Clarity2, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "cf97dbb7557dd07bff642b219775804ee2566d004c96afc4a25ceba683bdedbe",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_4-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5dbb5de7d10e45a6e9f5c05849cadb28b5caa3e88afc5ca869360d2547070b9b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_4-Clarity2, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1082cee792a870116902ea3a30e6dfc78202b0e7a68ce0ccebb8a62a19234cb7",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_5-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "345ca73bd57cbc821b2934cfdc0bf513c9281e168c25f8ff7f0ea45e309536a4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch2_5-Clarity2, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a116726e4628747ea30178652608c7a855523778dea3eec2fa9f2adbf8e24757",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_0-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "87ba88e435fd0ec9c67fecc17aaf9bb87bbfa22cb6224a964cf2bd6a7730ec4a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_0-Clarity2, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4b669a8d79c4dd122296e2abe493e807b7855d5abc06da9fda250c926a08c2aa",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_0-Clarity3, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "29566703c716730ca0099b6f1783c445b1af24db48c1a23f98984ee2d30d8ba8",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_1-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "52bfdcd0e2a6d512d47f3fadced05f3cfab31497a682ecae4fe8917b4b2e17c0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_1-Clarity2, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c388afdff0c223eb5b9f1aa17540e49eec847fb213363c90fc8aa3624b6f3c35",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_1-Clarity3, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3ccacb88dce1313d6a24415c18e59170ae408887799606171191ad86a682223b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_2-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "80b3ac7feaf02a3c670d483927371923c7922f992c08e959df677bbb8ed50e34",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_2-Clarity2, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a8a49bfa56da71216fceae43a8f3568a55f855ff86188631fe513eb95e64582e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_2-Clarity3, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9b595e8d3f96697f5e2865d93b1ac47e516f2ad03a2389eb17313c95b4018946",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_3-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "44e4ecc3ce94e0aa7a0a8f7f7b46f64deb9e688c7202855c71ff0b8a97f11968",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_3-Clarity2, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f397fbc284c5c14603c50dd4869f0dcb6cec21f970e0ec724e17e2d31c3d0922",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_3-Clarity3, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "77ba0e602ed8e564119aedd704fe4017f55168cedeed3db026df809902fbadc3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_3-Clarity4, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "370dbf4f84b5dfaa14242ac82c3f6893a99a659e03293671294dc3033d6db959",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_4-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "65dbbb9ba519d0a27110c5b16a8f3d97b5db37756352c53204436b71c95e5ce2",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_4-Clarity2, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5e05f0b840919f6a556be0600b8ad1a56c8e3389c24343784088b707105122d9",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_4-Clarity3, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ee003eec0c1e5a322ea0be44f59ff95231ea8228e88b72f8e66f6c913730a44f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_4-Clarity4, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "802f2c24bfa4e8eca0a2f33adf8ab6e9dfb264ad94f0639c9ce324a31c40a60c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_4-Clarity5, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2687ade7e89890c82e023003c2567c58bcc192b3cfe7093f7391234c6ee0c173",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_5-Clarity1, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ca5c1fb6d2c4f6d9312cf581a8d99785f47fcaf4288089e9c1632690a8c4954d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_5-Clarity2, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6dc7f4e99ce907059dfeacbedc5e1132cea4a2e4f1f723765777c7749da0124e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_5-Clarity3, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "756286c10dca808cbb07139dd781c8e2f6632ead8c05af072f01fc6a68a16c73",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_5-Clarity4, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "236ea78c3381a66965934b59fd69b4ebe572fdaa9f5f00f999e4b6c3d85ff142",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: dispatching-contract-Epoch3_5-Clarity5, function_name: wrapped-get-1, function_args: [[Principal(Contract(QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"target-contract\") }))]])",
+        vm_error: "Some(BadTraitImplementation(\"getter-trait\", \"get-1\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 190,
+          read_count: 3,
+          runtime: 751,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 190,
+      read_count: 3,
+      runtime: 751,
+    ),
+  )),
 ]

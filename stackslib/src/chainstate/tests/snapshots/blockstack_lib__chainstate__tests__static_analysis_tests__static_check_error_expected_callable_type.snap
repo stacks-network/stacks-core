@@ -274,4 +274,154 @@ snapshot_kind: text
       runtime: 2927,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "cf33c33af825e50412f5afce79ce88df48e613247bc92957b83bd31018166fd8",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: exp-callable-type-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: use of undeclared trait <bad-contract>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2927,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2927,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d01f208520d888229e96445f2a8cae62d4fc1047a34b35854b6e0228058a3342",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: exp-callable-type-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: expected a callable contract, found uint) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2927,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2927,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d064d47c3e501e05a22046c69278d4051ce7672b91e50c8abd44cccbba9dedeb",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: exp-callable-type-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: expected a callable contract, found uint) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2927,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2927,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1bc84bd566334a56aafbf25742fa14111d1725ecfe9f2487866b02298d1eb499",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: exp-callable-type-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: expected a callable contract, found uint) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2927,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2927,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "afe63997042bde4fc9c93a2c5e53d4a1cf7697767c3ac70958d58d017952a931",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: exp-callable-type-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: expected a callable contract, found uint) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 9,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2927,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 9,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2927,
+    ),
+  )),
 ]

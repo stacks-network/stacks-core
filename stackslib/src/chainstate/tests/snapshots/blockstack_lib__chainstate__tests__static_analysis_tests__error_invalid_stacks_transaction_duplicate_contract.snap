@@ -68,4 +68,24 @@ snapshot_kind: text
     evaluated_epoch: Epoch34,
     error: "Invalid Stacks block edf51543a3bf974ae58f576fdae7309e2d89b0c5d21e02430d58ab2a8f395f47: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
   )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch35,
+    error: "Invalid Stacks block 1d60c82f3659237ab00b26faedb3c2f72f3aacee792e413f72b0061483fcdba0: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch35,
+    error: "Invalid Stacks block e7a536aead322d203c48c29df312c4df84e04ee06c7713fa27e2fd2d3d19d249: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch35,
+    error: "Invalid Stacks block 58b5a03b9e83c168309f2e993706db2076eed223d356f6339cb0a2d21bbe93ce: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch35,
+    error: "Invalid Stacks block 6c85c25839237bc8ed175a1dea8aa2ffe292aab760c1fee2f7815c63158b4e8b: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch35,
+    error: "Invalid Stacks block af90ebb5935258a9e699b97adebb1d19f54286aa46c7ca240d29fc37127a0773: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
+  )),
 ]

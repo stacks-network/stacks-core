@@ -256,4 +256,144 @@ snapshot_kind: text
       runtime: 11968,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d0a76fcfe8a47242a926808edca54aefdf6b8d111dee94eb23dc1351189b689a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: foo_contract-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 121,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11968,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 121,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11968,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "226e71589896cdb204f871e6bcf543027ded5f9f105af4b5a089cedfa5ea17e2",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: foo_contract-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 121,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11968,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 121,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11968,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7c120947fff8064cbaa1fd85183cf5171b13c4f291157e6e954f3cf713164ee4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: foo_contract-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 121,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11968,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 121,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11968,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "90c05268cb1158de556fd092b1d8a84eccdba2c22a28ae77428be7b1c22e53a1",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: foo_contract-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 121,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11968,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 121,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11968,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "360ba809b8252295220602412ac8ddb6afeed38155b7dad5620e0837b4b01d95",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: foo_contract-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 121,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11968,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 121,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 11968,
+    ),
+  )),
 ]
