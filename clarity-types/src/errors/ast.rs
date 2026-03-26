@@ -205,7 +205,7 @@ impl ParseError {
 
     pub fn rejectable_in_epoch(&self, epoch: StacksEpochId) -> bool {
         match *self.err {
-            ParseErrorKind::InterpreterFailure => true,
+            ParseErrorKind::InterpreterFailure | ParseErrorKind::UnexpectedParserFailure => true,
             ParseErrorKind::ExpressionStackDepthTooDeep { .. }
             | ParseErrorKind::VaryExpressionStackDepthTooDeep { .. } => {
                 epoch.rejects_parse_depth_errors()
@@ -216,7 +216,10 @@ impl ParseError {
 
     /// Returns true if this error is an unreachable error, indicating a potential bug.
     pub fn is_unreachable(&self) -> bool {
-        matches!(*self.err, ParseErrorKind::InterpreterFailure)
+        matches!(
+            *self.err,
+            ParseErrorKind::InterpreterFailure | ParseErrorKind::UnexpectedParserFailure
+        )
     }
 
     pub fn has_pre_expression(&self) -> bool {
@@ -438,9 +441,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_error_unexpected_parser_failure_not_unreachable() {
+    fn parse_error_unexpected_parser_failure_is_unreachable() {
         let err = ParseError::new(ParseErrorKind::UnexpectedParserFailure);
-        assert!(!err.is_unreachable());
+        assert!(err.is_unreachable());
     }
 
     #[test]
