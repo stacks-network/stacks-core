@@ -263,7 +263,7 @@ impl EventDispatcherWorker {
             // entity and retrieving it, and that should be fine.
             // If there was a *major* adjustment, all bets are off anyway. You shouldn't mess with your
             // clock on a server running a node.
-            if payload.timestamp + Duration::from_mins(5) < SystemTime::now() {
+            if payload.timestamp + Duration::from_secs(5 * 60) < SystemTime::now() {
                 warn!(
                     "Event Dispatcher Worker: Event payload transmitting more than 5 minutes after event";
                     "timestamp" => format!("{:?}", payload.timestamp),
