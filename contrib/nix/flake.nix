@@ -47,6 +47,8 @@
                 # The pinned stacks-core git dep at this rev has readme = "README.md"
                 # in stackslib/Cargo.toml but the file doesn't exist. Rust 1.94+
                 # errors on `cargo package -l` for missing readmes.
+                # TODO: remove this override when the pinned dep moves to a revision which no longer
+                # has invalid 'readme' keys.
                 needsPatch =
                   args.git == "https://github.com/stacks-network/stacks-core.git"
                   && args.rev == "ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd";
