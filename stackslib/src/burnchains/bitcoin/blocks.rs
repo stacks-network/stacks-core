@@ -534,11 +534,14 @@ impl BitcoinBlockParser {
             .unwrap_or(false)
     }
 
-    fn bitcoin_subsidy_sats(block_height: u64) -> u64 {
+    fn bitcoin_subsidy_sats(block_height: u64, network: BitcoinNetworkType) -> u64 {
         const INITIAL_SUBSIDY_SATS: u64 = 5_000_000_000;
-        const HALVING_INTERVAL: u64 = 210_000;
+        let halving_interval: u64 = match network {
+            BitcoinNetworkType::Regtest => 150,
+            _ => 210_000,
+        };
 
-        let halvings = block_height / HALVING_INTERVAL;
+        let halvings = block_height / halving_interval;
         if halvings >= 64 {
             return 0;
         }
@@ -560,7 +563,7 @@ impl BitcoinBlockParser {
             .iter()
             .try_fold(0u64, |sum, output| sum.checked_add(output.value))?;
 
-        let subsidy = Self::bitcoin_subsidy_sats(block_height);
+        let subsidy = Self::bitcoin_subsidy_sats(block_height, self.network_id);
         let total_fees = coinbase_outputs_total.checked_sub(subsidy)?;
 
         let non_coinbase_vbytes = non_coinbase_txs
@@ -1388,20 +1391,46 @@ mod tests {
 
     #[test]
     fn bitcoin_subsidy_halving_schedule() {
-        assert_eq!(BitcoinBlockParser::bitcoin_subsidy_sats(0), 5_000_000_000);
+        let mainnet = BitcoinNetworkType::Mainnet;
         assert_eq!(
-            BitcoinBlockParser::bitcoin_subsidy_sats(209_999),
+            BitcoinBlockParser::bitcoin_subsidy_sats(0, mainnet),
             5_000_000_000
         );
         assert_eq!(
-            BitcoinBlockParser::bitcoin_subsidy_sats(210_000),
+            BitcoinBlockParser::bitcoin_subsidy_sats(209_999, mainnet),
+            5_000_000_000
+        );
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(210_000, mainnet),
             2_500_000_000
         );
         assert_eq!(
-            BitcoinBlockParser::bitcoin_subsidy_sats(420_000),
+            BitcoinBlockParser::bitcoin_subsidy_sats(420_000, mainnet),
             1_250_000_000
         );
-        assert_eq!(BitcoinBlockParser::bitcoin_subsidy_sats(210_000 * 33), 0);
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(210_000 * 33, mainnet),
+            0
+        );
+
+        // Regtest halves every 150 blocks
+        let regtest = BitcoinNetworkType::Regtest;
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(0, regtest),
+            5_000_000_000
+        );
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(149, regtest),
+            5_000_000_000
+        );
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(150, regtest),
+            2_500_000_000
+        );
+        assert_eq!(
+            BitcoinBlockParser::bitcoin_subsidy_sats(300, regtest),
+            1_250_000_000
+        );
     }
 
     #[test]
