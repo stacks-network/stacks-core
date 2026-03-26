@@ -1029,13 +1029,14 @@ fn run_topology_test_ex<F>(
                 ports.insert(k.port);
             }
 
+            let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
+            peer_counts += all_neighbors.len();
+
             // done?
             let now_finished = if use_finished_check {
                 finished_check(peers)
             } else {
                 let mut done = true;
-                let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
-                peer_counts += all_neighbors.len();
                 test_debug!("Peer {} ({}) has {} neighbors", i, &nk, all_neighbors.len());
 
                 if (all_neighbors.len() as u64) < ((peer_count - 1) as u64) {
