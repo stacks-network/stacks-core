@@ -263,14 +263,12 @@ impl EventDispatcherWorker {
             // entity and retrieving it, and that should be fine.
             // If there was a *major* adjustment, all bets are off anyway. You shouldn't mess with your
             // clock on a server running a node.
-            if let Ok(age) = SystemTime::now().duration_since(payload.timestamp) {
-                if age.as_secs() > 5 * 60 {
-                    warn!(
-                        "Event Dispatcher Worker: Event payload transmitting more than 5 minutes after event";
-                        "age_ms" => age.as_millis(),
-                        "id"=> id
-                    );
-                }
+            if payload.timestamp + Duration::from_mins(5) < SystemTime::now() {
+                warn!(
+                    "Event Dispatcher Worker: Event payload transmitting more than 5 minutes after event";
+                    "timestamp" => format!("{:?}", payload.timestamp),
+                    "id"=> id
+                );
             }
 
             if let Some(timeout_override) = timeout_override {
