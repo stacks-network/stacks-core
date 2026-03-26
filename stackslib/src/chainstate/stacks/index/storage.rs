@@ -1246,15 +1246,14 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 }
             }
 
-            // Normal nodes with forward ptrs need re-measurement; patch
-            // nodes have a fixed size independent of pointer encoding.
-            let fwd = has_fwd && patch_node_opt.is_none();
+            // Nodes with forward ptrs need re-measurement each layout
+            // pass because child offsets can widen from u32 to u64.
             if let Some((hash_bytes, patch)) = patch_node_opt.take() {
                 node_data.push(DumpPtr::Patch(pointer, hash_bytes, patch));
             } else {
                 node_data.push(DumpPtr::Normal(pointer));
             }
-            has_forward_ptrs.push(fwd);
+            has_forward_ptrs.push(has_fwd);
         }
 
         // step 2: repeatedly lay out nodes until serialized offsets stabilize
@@ -1290,9 +1289,13 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 .zip(has_forward_ptrs.iter().zip(byte_lens.iter_mut()))
             {
                 if has_fwd {
-                    let (node, _) = self.get_nodetype(node_data_ptr.ptr())?;
-                    *blen = u64::try_from(get_node_byte_len_compressed(node))
-                        .map_err(|_| Error::OverflowError)?;
+                    let new_len = if let Some(patch) = node_data_ptr.patch() {
+                        TRIEHASH_ENCODED_SIZE + patch.size()
+                    } else {
+                        let (node, _) = self.get_nodetype(node_data_ptr.ptr())?;
+                        get_node_byte_len_compressed(node)
+                    };
+                    *blen = u64::try_from(new_len).map_err(|_| Error::OverflowError)?;
                 }
                 ptr += *blen;
                 offsets.push(ptr);
