@@ -260,6 +260,11 @@ lazy_static! {
         "Total number of times the miner stopped for each reason",
         &["reason"]
     ).unwrap();
+
+    pub static ref UNREACHABLE_ERRORS_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_unreachable_errors_total",
+        "Number of unreachable Clarity VM errors triggered (indicates potential bugs)"
+    )).unwrap();
 }
 
 pub fn new_rpc_call_timer(path: &str) -> HistogramTimer {

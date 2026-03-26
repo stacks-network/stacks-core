@@ -214,6 +214,11 @@ impl ParseError {
         }
     }
 
+    /// Returns true if this error is an unreachable error, indicating a potential bug.
+    pub fn is_unreachable(&self) -> bool {
+        matches!(*self.err, ParseErrorKind::InterpreterFailure)
+    }
+
     pub fn has_pre_expression(&self) -> bool {
         self.pre_expressions.is_some()
     }
@@ -420,4 +425,27 @@ impl DiagnosableError for ParseErrorKind {
 pub struct PlacedError {
     pub e: ParseErrorKind,
     pub span: Span,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_error_interpreter_failure_is_unreachable() {
+        let err = ParseError::new(ParseErrorKind::InterpreterFailure);
+        assert!(err.is_unreachable());
+    }
+
+    #[test]
+    fn parse_error_unexpected_parser_failure_not_unreachable() {
+        let err = ParseError::new(ParseErrorKind::UnexpectedParserFailure);
+        assert!(!err.is_unreachable());
+    }
+
+    #[test]
+    fn parse_error_separator_expected_not_unreachable() {
+        let err = ParseError::new(ParseErrorKind::SeparatorExpected("x".into()));
+        assert!(!err.is_unreachable());
+    }
 }

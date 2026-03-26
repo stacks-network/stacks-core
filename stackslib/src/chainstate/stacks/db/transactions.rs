@@ -34,6 +34,7 @@ use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityError, ClarityTransactionConnection};
+use crate::monitoring::increment_unreachable_errors_counter;
 use crate::util_lib::strings::VecDisplay;
 
 /// This is a safe-to-hash Clarity value
@@ -387,6 +388,14 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
         }
         ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_check_err)) => {
             if runtime_check_err.rejectable() {
+                if runtime_check_err.is_unreachable() {
+                    error!("UNREACHABLE_ERROR_TRIGGERED: runtime check error that should never occur was hit";
+                        "event_name" => "unreachable_error",
+                        "error_type" => "runtime_check",
+                        "error" => %runtime_check_err,
+                    );
+                    increment_unreachable_errors_counter();
+                }
                 ClarityRuntimeTxError::Rejectable(ClarityError::Interpreter(
                     VmExecutionError::RuntimeCheck(runtime_check_err),
                 ))
@@ -1327,6 +1336,15 @@ impl StacksChainState {
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {
                                     if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
+                                        if err.is_unreachable() {
+                                            error!("UNREACHABLE_ERROR_TRIGGERED: parse error that should never occur was hit";
+                                                "event_name" => "unreachable_error",
+                                                "error_type" => "parse",
+                                                "txid" => %tx.txid(),
+                                                "error" => %err,
+                                            );
+                                            increment_unreachable_errors_counter();
+                                        }
                                         info!(
                                             "Transaction {} is problematic and should have prevented this block from being relayed",
                                             tx.txid()
@@ -1336,6 +1354,15 @@ impl StacksChainState {
                                 }
                                 if let ClarityError::StaticCheck(err) = &other_error {
                                     if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
+                                        if err.err.is_unreachable() {
+                                            error!("UNREACHABLE_ERROR_TRIGGERED: static check error that should never occur was hit";
+                                                "event_name" => "unreachable_error",
+                                                "error_type" => "static_check",
+                                                "txid" => %tx.txid(),
+                                                "error" => %err,
+                                            );
+                                            increment_unreachable_errors_counter();
+                                        }
                                         info!(
                                             "Transaction {} is problematic and should have prevented this block from being relayed",
                                             tx.txid()

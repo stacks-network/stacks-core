@@ -664,6 +664,11 @@ impl RuntimeCheckErrorKind {
     pub fn rejectable(&self) -> bool {
         matches!(self, RuntimeCheckErrorKind::Unreachable(_))
     }
+
+    /// Returns true if this error is an unreachable error, indicating a potential bug.
+    pub fn is_unreachable(&self) -> bool {
+        matches!(self, RuntimeCheckErrorKind::Unreachable(_))
+    }
 }
 
 impl StaticCheckErrorKind {
@@ -674,6 +679,11 @@ impl StaticCheckErrorKind {
             StaticCheckErrorKind::Unreachable(_) => true,
             _ => false,
         }
+    }
+
+    /// Returns true if this error is an unreachable error, indicating a potential bug.
+    pub fn is_unreachable(&self) -> bool {
+        matches!(self, StaticCheckErrorKind::Unreachable(_))
     }
 }
 
@@ -1235,5 +1245,56 @@ impl DiagnosableError for StaticCheckErrorKind {
             ),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_check_unreachable_returns_true() {
+        let err = RuntimeCheckErrorKind::Unreachable("test bug".into());
+        assert!(err.is_unreachable());
+    }
+
+    #[test]
+    fn runtime_check_cost_overflow_not_unreachable() {
+        assert!(!RuntimeCheckErrorKind::CostOverflow.is_unreachable());
+    }
+
+    #[test]
+    fn runtime_check_type_error_not_unreachable() {
+        let err = RuntimeCheckErrorKind::TypeError(
+            Box::new(TypeSignature::IntType),
+            Box::new(TypeSignature::UIntType),
+        );
+        assert!(!err.is_unreachable());
+    }
+
+    #[test]
+    fn runtime_check_value_too_large_not_unreachable() {
+        assert!(!RuntimeCheckErrorKind::ValueTooLarge.is_unreachable());
+    }
+
+    #[test]
+    fn static_check_unreachable_returns_true() {
+        let err = StaticCheckErrorKind::Unreachable("test bug".into());
+        assert!(err.is_unreachable());
+    }
+
+    #[test]
+    fn static_check_supertype_too_large_not_unreachable() {
+        assert!(!StaticCheckErrorKind::SupertypeTooLarge.is_unreachable());
+    }
+
+    #[test]
+    fn static_check_cost_overflow_not_unreachable() {
+        assert!(!StaticCheckErrorKind::CostOverflow.is_unreachable());
+    }
+
+    #[test]
+    fn static_check_type_already_annotated_not_unreachable() {
+        assert!(!StaticCheckErrorKind::TypeAlreadyAnnotatedFailure.is_unreachable());
     }
 }
