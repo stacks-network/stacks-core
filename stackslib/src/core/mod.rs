@@ -348,7 +348,7 @@ lazy_static! {
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch35,
-            start_height: BITCOIN_MAINNET_STACKS_34_BURN_HEIGHT,
+            start_height: BITCOIN_MAINNET_STACKS_35_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_5
