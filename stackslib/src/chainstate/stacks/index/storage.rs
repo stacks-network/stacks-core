@@ -380,7 +380,7 @@ impl<T: MarfTrieId> UncommittedState<T> {
 /// In-RAM trie storage.
 /// Used by TrieFileStorage to buffer the next trie being built.
 ///
-/// Pointer in `TrieRAM` are index-based, not disk-offset-based:
+/// Pointers in `TrieRAM` are index-based, not disk-offset-based:
 /// `TriePtr::ptr()` is treated as an in-memory node index into `data`, and
 /// traversal/indexing paths are intentionally bounded to `u32`.
 /// Large `u64` byte offsets are only materialized when serializing this trie
