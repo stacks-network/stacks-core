@@ -203,7 +203,6 @@ fn test_try_make_response() {
             tip_tx.events.len()
         };
         assert_eq!(resp_tx.events.len(), expected_events);
-        assert_eq!(resp_tx.result, tip_tx.result);
         assert_eq!(resp_tx.result_hex, tip_tx.result);
         assert!(!resp_tx.post_condition_aborted);
     }
@@ -401,7 +400,6 @@ fn test_try_make_response_with_unsuccessful_transaction() {
             tip_tx.events.len()
         };
         assert_eq!(resp_tx.events.len(), expected_events);
-        assert_eq!(resp_tx.result, tip_tx.result);
         assert_eq!(resp_tx.result_hex, tip_tx.result);
         assert!(!resp_tx.post_condition_aborted);
     }

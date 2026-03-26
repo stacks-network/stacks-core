@@ -1714,6 +1714,7 @@ pub mod test {
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
     use clarity::vm::types::ResponseData;
+    use pinny::tag;
     use proptest::prelude::*;
     use rand::Rng;
     use rstest::rstest;
@@ -7508,6 +7509,7 @@ pub mod test {
     }
 
     proptest! {
+        #[tag(t_prop)]
         #[test]
         fn proptest_check_postconditions_originator_mode_coverage(
             origin_sent in 1u64..10_000,
@@ -7570,6 +7572,7 @@ pub mod test {
     }
 
     proptest! {
+        #[tag(t_prop)]
         #[test]
         fn proptest_check_postconditions_nft_maybe_sent_variety(
             checked_id in 0u16..500,

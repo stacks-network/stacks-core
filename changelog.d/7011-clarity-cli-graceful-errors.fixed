@@ -1,0 +1,1 @@
+Fixed `clarity-cli` to print errors to stderr and exit gracefully instead of panicking with a backtrace on invalid inputs.

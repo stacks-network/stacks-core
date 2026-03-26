@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod http;
+mod libsigner;
 mod signer_state;
 
 use std::io::{Read, Write};
