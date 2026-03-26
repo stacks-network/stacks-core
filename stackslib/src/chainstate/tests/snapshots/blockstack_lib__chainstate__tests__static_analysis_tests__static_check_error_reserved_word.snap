@@ -274,4 +274,154 @@ snapshot_kind: text
       runtime: 1315,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9a936f508d21fb0cc51329e52e77dcea7cc3a3b3ab1e6ccc95dd00ca0fb23e08",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: reserved-word-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(NameAlreadyUsed(\"block-height\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 43,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8876,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 43,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 8876,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "38c6d396f83b12893f836dec8c4c9f3870582069d61d4934936ce9aa68a44522",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: reserved-word-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(NameAlreadyUsed(\"block-height\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 43,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8876,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 43,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 8876,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "19b5081e10a141ffeb395db299bb63ca2e6acc34055908301e2e8cf226c13922",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: reserved-word-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: block-height is a reserved word) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1315,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1315,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4d75faf4aad976b73bb76d965d4ab1c0e13e0dbe4ef624cbaef279650cd32a6a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: reserved-word-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: block-height is a reserved word) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1315,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1315,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "69d93148f5de8774c0795b206fb699605c200f38dca376e201c418957e369a39",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: reserved-word-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: block-height is a reserved word) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 6,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1315,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 6,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1315,
+    ),
+  )),
 ]

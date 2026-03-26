@@ -274,4 +274,154 @@ snapshot_kind: text
       runtime: 1379,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8133f584609f81fd04532e4cc82044766d98dc36aef5407a0caeb93c2134ccc9",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead.) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1379,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1379,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d8994778d8c3f78f79f683402d79034ac268f122fac36aad55a363767a97f468",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead.) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1379,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1379,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2b09419fb716557bdba392d4ae3e74b6ee5b0f98c116eccc0eec5eca4dadac9a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead.) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1379,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1379,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0c00fe314dd074492649d78be6f3a707056e8eb86b237a33654ab15ad2da86ed",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead.) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1379,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1379,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bd5aa4e1c37b2d2c12ea17db2e4a5e94ddb4a2772f3408e2dd461f7c890447eb",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead.) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1379,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1379,
+    ),
+  )),
 ]
