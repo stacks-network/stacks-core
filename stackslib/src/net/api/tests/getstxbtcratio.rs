@@ -125,3 +125,32 @@ fn test_try_make_response() {
     assert_eq!(ratio_response.stx_btc_ratio, None);
     assert_eq!(ratio_response.smoothed_stx_btc_ratio, None);
 }
+
+#[test]
+fn test_cold_cache_rejects_without_auth() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let test_observer = TestEventObserver::new();
+    let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+
+    // Request a cycle that hasn't been cached — no auth header.
+    let future_cycle = 1_000_000;
+    let nakamoto_chain_tip = rpc_test.canonical_tip.clone();
+
+    let req = StacksHttpRequest::new_get_stx_btc_ratio(
+        addr.into(),
+        future_cycle,
+        TipRequest::SpecificTip(nakamoto_chain_tip),
+    );
+    // Intentionally no auth header.
+
+    let mut responses = rpc_test.run(vec![req]);
+    let response = responses.remove(0);
+
+    // Should get a 401 Unauthorized since the cache is cold and no auth was provided.
+    let (preamble, _body) = response.destruct();
+    assert_eq!(
+        preamble.status_code, 401,
+        "Cold cache without auth should return 401"
+    );
+}
