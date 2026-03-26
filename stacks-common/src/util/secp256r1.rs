@@ -18,7 +18,6 @@ use p256::ecdsa::signature::{Signer, Verifier};
 use p256::ecdsa::{
     Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
 };
-use p256::elliptic_curve::generic_array::GenericArray;
 use p256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 use p256::{EncodedPoint, PublicKey as P256PublicKey, SecretKey as P256SecretKey};
 use thiserror::Error;
@@ -268,7 +267,7 @@ impl Secp256r1PrivateKey {
         let mut key_bytes = [0u8; 32];
         key_bytes.copy_from_slice(&data[0..32]);
 
-        let secret_key = P256SecretKey::from_bytes(&GenericArray::from(key_bytes))
+        let secret_key = P256SecretKey::from_slice(&key_bytes)
             .map_err(|_| "Invalid private key: failed to load")?;
         let signing_key = P256SigningKey::from(secret_key);
 
