@@ -17,6 +17,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem::size_of;
 use std::sync::Arc;
 
+#[cfg(feature = "developer-mode")]
+use crate::representations::Span;
 use crate::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
 };
@@ -30,38 +32,92 @@ use crate::types::{
     TraitIdentifier, TupleData, UTF8Data, Value,
 };
 
-// Rust's BTreeMap uses B=6 (hardcoded): each node holds up to CAPACITY = 2*B-1 = 11 entries:
-// * LeafNode layout: parent ptr (8) + parent_idx (2) + len (2) + padding (~4) + keys:
-//   [MaybeUninit<K>; 11] + vals: [MaybeUninit<V>; 11].
-// * Allocator header adds ~16 bytes per node.
-// * Total per-node overhead (metadata + allocator): ~32 bytes. Average fill factor ~2/3 → ~7
-// entries per node.
-
-/// Maximum entries per BTree node (B=6 in Rust's implementation → 2*B-1 = 11).
-const BTREE_NODE_CAPACITY: usize = 11;
-/// Estimated average entries per node in a steady-state B-tree (~2/3 fill).
-const BTREE_AVERAGE_FILL: usize = 7;
-/// Per-node overhead: metadata (parent ptr + idx + len + padding) + allocator header.
-const BTREE_NODE_OVERHEAD: usize = 32;
-/// Estimated overhead for Arc<T>: strong + weak counts + allocation header.
+/// Estimated overhead for `Arc<T>`: `strong + weak counts + allocation header`.
 const ARC_OVERHEAD: usize = 16;
+
+// The `btree` and `hashmap` modules below contain heuristic constants derived from std's internal
+// implementations (as of Rust 1.94 / hashbrown 0.15). They provide reasonable estimates of
+// structural overhead, not exact byte counts.
+
+/// Layout constants for `std::collections::BTreeMap` / `BTreeSet`.
+///
+/// Rust's BTreeMap uses `B=6` (hardcoded). Each node holds up to `CAPACITY = 2*B-1 = 11` entries:
+/// * **LeafNode** layout: parent ptr (8) + parent_idx (2) + len (2) + padding (~4) + keys:
+///   `[MaybeUninit<K>; 11]` + vals: `[MaybeUninit<V>; 11]`.
+/// * **InternalNode** layout: LeafNode fields + edges: `[MaybeUninit<NonNull<LeafNode>>; 12]`.
+/// * Allocator header adds ~16 bytes per node.
+/// * Total per-node overhead (metadata + allocator): ~32 bytes. Average fill factor ~2/3 → ~7
+///   entries per node. Internal nodes at average fill have ~8 children.
+mod btree {
+    use std::mem::size_of;
+
+    /// Maximum entries per node (`B=6` → `2*B-1 = 11`).
+    pub const NODE_CAPACITY: usize = 11;
+    /// Estimated average entries per node in a steady-state B-tree (~2/3 fill).
+    pub const AVERAGE_FILL: usize = 7;
+    /// Average children per internal node at ~2/3 fill.
+    pub const AVG_FANOUT: usize = AVERAGE_FILL + 1;
+    /// Per-node overhead: `(parent ptr + idx + len + padding) + allocator header`.
+    pub const NODE_OVERHEAD: usize = 32;
+    /// Additional per-node size for internal nodes: `[MaybeUninit<NonNull<LeafNode>>; CAPACITY + 1]`.
+    pub const EDGE_ARRAY_SIZE: usize = (NODE_CAPACITY + 1) * size_of::<usize>();
+
+    /// Estimate total BTree node count (leaves + internal) and how many are internal.
+    pub fn node_counts(len: usize) -> (usize, usize) {
+        let leaves = len.div_ceil(AVERAGE_FILL);
+        let mut internal = 0;
+        let mut children_at_level = leaves;
+        while children_at_level > 1 {
+            let parents = children_at_level.div_ceil(AVG_FANOUT);
+            internal += parents;
+            children_at_level = parents;
+        }
+        (leaves + internal, internal)
+    }
+}
+
+/// Layout constants for `std::collections::HashMap` / `HashSet`.
+///
+/// std's HashMap has been backed by hashbrown since Rust 1.36. These constants reflect hashbrown
+/// internals that are not exposed through any std API.
+///
+/// * `hashbrown` targets a 7/8 max load factor: it allocates more buckets than `capacity()`
+///   reports. `capacity()` returns the number of insertions before reallocation, not the bucket
+///   count. Actual buckets ~= `ceil(capacity * LOAD_FACTOR_INV_NUM / LOAD_FACTOR_INV_DEN)`.
+/// * Each bucket has a 1-byte control tag. The control array is padded by `Group::WIDTH` bytes (16
+///   on platforms with 128-bit SIMD, 8 otherwise) for SIMD probing at the end of the table.
+/// * `hashbrown` also aligns `buckets * entry_size` up to `ctrl_align` (max of entry alignment and
+///   Group alignment) before placing control bytes. We don't model this padding — for the types
+///   used in Clarity, bucket counts are powers of 2 and entry alignments are <=8, so the gap is
+///   typically zero.
+mod hashmap {
+    /// Inverse of hashbrown's max load factor (7/8), as a fraction: `buckets ~= (capacity * 8/7)`.
+    pub const LOAD_FACTOR_INV_NUM: usize = 8;
+    pub const LOAD_FACTOR_INV_DEN: usize = 7;
+    /// Conservative upper bound for SIMD group width padding appended to the control byte array.
+    /// hashbrown's actual `Group::WIDTH` varies by target (4, 8, or 16 bytes); 16 is the max
+    /// (SSE2 path on x86_64) and overestimates by at most 12 bytes on other platforms.
+    pub const CONTROL_GROUP_PADDING: usize = 16;
+
+    // NOTE:
+}
 
 /// Reports the approximate in-memory footprint of an instance, in bytes.
 ///
 /// See module-level documentation for the two-method design.
 pub trait ResidentBytes {
-    /// Total in-memory footprint: inline `size_of` + heap allocations.
+    /// Total in-memory footprint: inline [`size_of()`](size_of) + heap allocations.
     ///
-    /// This is the method callers should use. It has a provided default
-    /// implementation; implementors only need to implement [`heap_bytes`].
+    /// This is the method callers should use. It has a provided default implementation;
+    /// implementors only need to implement [`heap_bytes()`](Self::heap_bytes).
     fn resident_bytes(&self) -> usize {
         std::mem::size_of_val(self) + self.heap_bytes()
     }
 
-    /// Heap allocations only, beyond the inline `size_of`.
+    /// Heap allocations only, beyond the inline [`size_of()`](size_of).
     ///
-    /// Container types call this on their children to avoid double-counting
-    /// inline sizes that are already part of the container's backing allocation.
+    /// Container types call this on their children to avoid double-counting inline sizes that are
+    /// already part of the container's backing allocation.
     fn heap_bytes(&self) -> usize;
 }
 
@@ -75,8 +131,11 @@ impl<T: ResidentBytes> ResidentBytes for Vec<T> {
     fn heap_bytes(&self) -> usize {
         // Backing array: capacity slots (inline size per slot)
         let backing = self.capacity() * size_of::<T>();
+
         // Children's heap allocations
         let children: usize = self.iter().map(|v| v.heap_bytes()).sum();
+
+        // Total heap
         backing + children
     }
 }
@@ -107,13 +166,22 @@ impl<T: ResidentBytes> ResidentBytes for Arc<T> {
 
 impl<K: ResidentBytes, V: ResidentBytes> ResidentBytes for HashMap<K, V> {
     fn heap_bytes(&self) -> usize {
-        // Backing array: capacity * (entry inline size + ~1 byte control metadata)
-        let backing = self.capacity() * (size_of::<(K, V)>() + 1);
+        let cap = self.capacity();
+        if cap == 0 {
+            // HashMap::new() does not allocate until first insert.
+            return 0;
+        }
+
+        let buckets =
+            (cap * hashmap::LOAD_FACTOR_INV_NUM).div_ceil(hashmap::LOAD_FACTOR_INV_DEN);
+        let backing = buckets * size_of::<(K, V)>() + buckets + hashmap::CONTROL_GROUP_PADDING;
+
         // Children's heap allocations (only for occupied entries)
         let children: usize = self
             .iter()
             .map(|(k, v)| k.heap_bytes() + v.heap_bytes())
             .sum();
+
         backing + children
     }
 }
@@ -124,18 +192,21 @@ impl<K: ResidentBytes, V: ResidentBytes> ResidentBytes for BTreeMap<K, V> {
             return 0; // Empty BTreeMaps do not allocate on the heap.
         }
 
-        // Node count from average fill, not max capacity
-        let nodes = self.len().div_ceil(BTREE_AVERAGE_FILL);
-        // Keys and values are separate arrays in the node, not (K, V) tuples
-        let node_size = BTREE_NODE_OVERHEAD
-            + (BTREE_NODE_CAPACITY * size_of::<K>())
-            + (BTREE_NODE_CAPACITY * size_of::<V>());
-        let structural = nodes * node_size;
+        let (total_nodes, internal_nodes) = btree::node_counts(self.len());
 
+        // Base node size (shared by leaf and internal): overhead + key/value arrays
+        let leaf_size = btree::NODE_OVERHEAD
+            + (btree::NODE_CAPACITY * size_of::<K>())
+            + (btree::NODE_CAPACITY * size_of::<V>());
+        // Internal nodes additionally carry an edge pointer array
+        let structural = total_nodes * leaf_size + internal_nodes * btree::EDGE_ARRAY_SIZE;
+
+        // Children's heap allocations (only for occupied entries)
         let children: usize = self
             .iter()
             .map(|(k, v)| k.heap_bytes() + v.heap_bytes())
             .sum();
+
         structural + children
     }
 }
@@ -146,10 +217,11 @@ impl<T: ResidentBytes> ResidentBytes for BTreeSet<T> {
             return 0;
         }
 
+        let (total_nodes, internal_nodes) = btree::node_counts(self.len());
+
         // BTreeSet is backed by BTreeMap<T, ()> — vals array is zero-size
-        let nodes = self.len().div_ceil(BTREE_AVERAGE_FILL);
-        let node_size = BTREE_NODE_OVERHEAD + (BTREE_NODE_CAPACITY * size_of::<T>());
-        let structural = nodes * node_size;
+        let leaf_size = btree::NODE_OVERHEAD + (btree::NODE_CAPACITY * size_of::<T>());
+        let structural = total_nodes * leaf_size + internal_nodes * btree::EDGE_ARRAY_SIZE;
         let children: usize = self.iter().map(|v| v.heap_bytes()).sum();
         structural + children
     }
@@ -157,7 +229,14 @@ impl<T: ResidentBytes> ResidentBytes for BTreeSet<T> {
 
 impl<T: ResidentBytes> ResidentBytes for HashSet<T> {
     fn heap_bytes(&self) -> usize {
-        let backing = self.capacity() * (size_of::<T>() + 1);
+        let cap = self.capacity();
+        if cap == 0 {
+            return 0;
+        }
+
+        let buckets =
+            (cap * hashmap::LOAD_FACTOR_INV_NUM).div_ceil(hashmap::LOAD_FACTOR_INV_DEN);
+        let backing = buckets * size_of::<T>() + buckets + hashmap::CONTROL_GROUP_PADDING;
         let children: usize = self.iter().map(|v| v.heap_bytes()).sum();
         backing + children
     }
@@ -169,7 +248,8 @@ impl<A: ResidentBytes, B: ResidentBytes> ResidentBytes for (A, B) {
     }
 }
 
-// Primitive types: no heap allocation
+// Primitive types: no heap allocation (stack-only)
+
 impl ResidentBytes for bool {
     fn heap_bytes(&self) -> usize {
         0
@@ -402,13 +482,29 @@ impl ResidentBytes for CallableSubtype {
     }
 }
 
+#[cfg(feature = "developer-mode")]
+impl ResidentBytes for Span {
+    fn heap_bytes(&self) -> usize {
+        0 // 4 × u32, all inline
+    }
+}
+
 impl ResidentBytes for SymbolicExpression {
     fn heap_bytes(&self) -> usize {
-        // Only production fields: expr + id.
-        // developer-mode fields (span, pre_comments, end_line_comment, post_comments)
-        // are excluded for deterministic sizing between dev and prod builds.
-        self.expr.heap_bytes()
+        #[allow(unused_mut)]
+        let mut total = self.expr.heap_bytes();
         // id is u64 — no heap allocation
+
+        #[cfg(feature = "developer-mode")]
+        {
+            // span is inline (no heap), but pre_comments, end_line_comment, and
+            // post_comments have heap allocations via Vec/String.
+            total += self.pre_comments.heap_bytes();
+            total += self.end_line_comment.heap_bytes();
+            total += self.post_comments.heap_bytes();
+        }
+
+        total
     }
 }
 
@@ -537,6 +633,7 @@ mod tests {
 
     #[test]
     fn test_type_signature_scalar_heap_is_zero() {
+        // Heap bytes for scalar types should be zero
         assert_eq!(TypeSignature::IntType.heap_bytes(), 0);
         assert_eq!(TypeSignature::BoolType.heap_bytes(), 0);
         // But resident_bytes includes size_of::<TypeSignature>()
