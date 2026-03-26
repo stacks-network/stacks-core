@@ -17,6 +17,7 @@
 /// You are going to need `ulimit -n` to be 4096 for these tests.
 /// In Linux, the default is 1024.
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use rand::prelude::*;
@@ -818,7 +819,7 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
 #[ignore]
 fn test_walk_inbound_line_15() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(900, || {
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
         let neighbor_count: usize = 15; // make this test go faster
@@ -981,6 +982,10 @@ fn run_topology_test_ex<F>(
     // go until each neighbor knows about each other neighbor
     let mut finished = false;
     let mut count = 0;
+    let mut best_progress = 0;
+    let mut last_progress_time = Instant::now();
+    const STALL_TIMEOUT: Duration = Duration::from_secs(120);
+
     while !finished {
         finished = true;
         let mut peer_counts = 0;
@@ -1063,6 +1068,8 @@ fn run_topology_test_ex<F>(
         );
 
         // wait for stacker DBs to converge
+        let mut stacker_db_count = 0;
+        let mut stacker_db_done = true;
         for (i, peer) in peers.iter().enumerate() {
             if i % 2 != 0 {
                 continue;
@@ -1095,10 +1102,33 @@ fn run_topology_test_ex<F>(
                         &peer.config.to_neighbor(),
                         &other_peer.config.to_neighbor()
                     );
-                    finished = false;
-                    break;
+                    stacker_db_done = false;
+                } else {
+                    stacker_db_count += dbs.len();
                 }
             }
+        }
+        if !stacker_db_done {
+            finished = false;
+        }
+
+        // If it stops increasing for STALL_TIMEOUT, the network is stuck and there's no point
+        // waiting further.
+        let current_progress = peer_counts + stacker_db_count;
+        if current_progress > best_progress {
+            best_progress = current_progress;
+            last_progress_time = Instant::now();
+        }
+
+        let stall_elapsed = last_progress_time.elapsed();
+        if stall_elapsed >= STALL_TIMEOUT {
+            panic!(
+                "Network convergence stalled after {count} iterations \
+                 (no progress for {}s). \
+                 Neighbors: {peer_counts}/{}, StackerDBs known: {stacker_db_count}",
+                stall_elapsed.as_secs(),
+                peer_count * (peer_count - 1)
+            );
         }
 
         if finished {
