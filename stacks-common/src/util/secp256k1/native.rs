@@ -14,15 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use ::secp256k1;
 use ::secp256k1::ecdsa::{
     RecoverableSignature as LibSecp256k1RecoverableSignature, RecoveryId as LibSecp256k1RecoveryID,
     Signature as LibSecp256k1Signature,
 };
 pub use ::secp256k1::Error;
 use ::secp256k1::{
-    self, constants as LibSecp256k1Constants, Error as LibSecp256k1Error,
-    Message as LibSecp256k1Message, PublicKey as LibSecp256k1PublicKey, Secp256k1,
-    SecretKey as LibSecp256k1PrivateKey,
+    constants as LibSecp256k1Constants, Error as LibSecp256k1Error, Message as LibSecp256k1Message,
+    PublicKey as LibSecp256k1PublicKey, Secp256k1, SecretKey as LibSecp256k1PrivateKey,
 };
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
@@ -441,7 +441,8 @@ pub fn secp256k1_verify(
 #[cfg(test)]
 mod tests {
     use rand::RngCore as _;
-    use secp256k1::{self, PublicKey as LibSecp256k1PublicKey, Secp256k1};
+    use secp256k1;
+    use secp256k1::{PublicKey as LibSecp256k1PublicKey, Secp256k1};
 
     use super::*;
     use crate::util::get_epoch_time_ms;
