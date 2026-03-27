@@ -171,6 +171,7 @@ fn fix_to_pox_contract() {
         epoch_2_2 as u32 + 1,
         u32::MAX,
         pox_3_activation_height as u32,
+        u32::MAX, // PLACEHOLDER (rob-stacks)
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -800,6 +801,7 @@ fn verify_auto_unlock_behavior() {
         epoch_2_2 as u32 + 1,
         u32::MAX,
         pox_3_activation_height as u32,
+        u32::MAX, // PLACEHOLDER (rob-stacks)
     );
     burnchain_config.pox_constants = pox_constants.clone();
 

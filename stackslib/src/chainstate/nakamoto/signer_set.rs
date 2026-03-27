@@ -135,6 +135,92 @@ impl RawRewardSetEntry {
             signer: Some(pk_bytes),
         })
     }
+
+    pub fn from_pox_5_tuple(is_mainnet: bool, tuple: TupleData) -> Result<Self, ChainstateError> {
+        // PLACEHOLDER (rob-stacks)
+        let mut tuple_data = tuple.data_map;
+
+        let pox_addr_tuple = tuple_data.remove("pox-addr").ok_or_else(|| {
+            ChainstateError::Expects(
+                "no `pox-addr` in return value from (get-reward-set-pox-address)".into(),
+            )
+        })?;
+
+        let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
+            .ok_or_else(|| {
+                ChainstateError::Expects(format!("not a valid PoX address: {pox_addr_tuple}"))
+            })?;
+
+        let total_ustx = tuple_data
+            .remove("total-ustx")
+            .ok_or_else(|| {
+                ChainstateError::Expects(
+                    "no 'total-ustx' in return value from (pox-4.get-reward-set-pox-address)"
+                        .into(),
+                )
+            })?
+            .expect_u128().map_err(|_| {
+                ChainstateError::Expects(
+                    "'total-ustx' in return value from (pox-4.get-reward-set-pox-address) is not a u128".into(),
+                )
+            })?.try_into().map_err(|_| ChainstateError::Expects("'total-ustx' value out of range for u64".into()))?;
+
+        let stacker = tuple_data
+            .remove("stacker")
+            .ok_or_else(|| {
+                ChainstateError::Expects(
+                    "no 'stacker' in return value from (pox-4.get-reward-set-pox-address)".into(),
+                )
+            })?
+            .expect_optional().map_err(|_| {
+                ChainstateError::Expects(
+                    "'stacker' in return value from (pox-4.get-reward-set-pox-address) is not optional".into(),
+                )
+            })?
+            .map(|value| value.expect_principal())
+            .transpose().map_err(|_| {
+                ChainstateError::Expects(
+                    "'stacker' in return value from (pox-4.get-reward-set-pox-address) is not a principal".into(),
+                )
+            })?;
+
+        let signer = tuple_data
+            .remove("signer")
+            .ok_or_else(|| {
+                ChainstateError::Expects(
+                    "no 'signer' in return value from (pox-4.get-reward-set-pox-address)".into(),
+                )
+            })?
+            .expect_buff(SIGNERS_PK_LEN).map_err(|_| {
+                ChainstateError::Expects(
+                    format!("'signer' in return value from (pox-4.get-reward-set-pox-address) is not a buff of length {SIGNERS_PK_LEN}"),
+                )
+            })?;
+
+        // (buff 33) only enforces max size, not min size, so we need to do a len check
+        let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
+            let mut bytes = [0; SIGNERS_PK_LEN];
+            bytes.copy_from_slice(signer.as_slice());
+            bytes
+        } else {
+            [0; SIGNERS_PK_LEN]
+        };
+
+        debug!(
+            "Parsed PoX reward address";
+            "stacked_ustx" => total_ustx,
+            "reward_address" => %reward_address,
+            "stacker" => ?stacker,
+            "signer" => to_hex(&signer),
+        );
+
+        Ok(Self {
+            reward_address,
+            amount_stacked: total_ustx,
+            stacker,
+            signer: Some(pk_bytes),
+        })
+    }
 }
 
 impl NakamotoSigners {
@@ -144,13 +230,17 @@ impl NakamotoSigners {
         pox_contract: &str,
     ) -> Result<Vec<RawRewardSetEntry>, ChainstateError> {
         let is_mainnet = clarity.is_mainnet();
-        if !matches!(
-            PoxVersions::lookup_by_name(pox_contract),
-            Some(PoxVersions::Pox4)
-        ) {
-            error!("Invoked Nakamoto reward-set fetch on non-pox-4 contract");
+        let pox_version = if let Some(pox_version) = PoxVersions::lookup_by_name(pox_contract) {
+            if pox_version < PoxVersions::Pox4 {
+                error!("Invoked Nakamoto reward-set fetch on lower than pox-4 contract");
+                return Err(ChainstateError::DefunctPoxContract);
+            }
+            pox_version
+        } else {
+            error!("Invalid pox contract");
             return Err(ChainstateError::DefunctPoxContract);
-        }
+        };
+
         let pox_contract = &boot_code_id(pox_contract, is_mainnet);
 
         let list_length = clarity
@@ -187,8 +277,11 @@ impl NakamotoSigners {
                     ChainstateError::Expects(format!("PoX address in slot {index} out of {list_length} in reward cycle {reward_cycle} is not a tuple"))
                 })?;
 
-            let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple)?;
-
+            let entry = match pox_version {
+                PoxVersions::Pox4 => RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple)?,
+                PoxVersions::Pox5 => RawRewardSetEntry::from_pox_5_tuple(is_mainnet, tuple)?,
+                _ => return Err(ChainstateError::DefunctPoxContract),
+            };
             slots.push(entry)
         }
 
@@ -215,6 +308,7 @@ impl NakamotoSigners {
             &reward_slots[..],
             liquid_ustx,
         );
+
         let reward_set =
             StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
 
@@ -375,10 +469,15 @@ impl NakamotoSigners {
         };
 
         let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height);
-        if !matches!(
-            PoxVersions::lookup_by_name(active_pox_contract),
-            Some(PoxVersions::Pox4)
-        ) {
+
+        if let Some(current_pox_version) = PoxVersions::lookup_by_name(active_pox_contract) {
+            if current_pox_version < PoxVersions::Pox4 {
+                debug!(
+                "Active PoX contract is lower than PoX-4, skipping .signers updates until PoX-4 is active"
+            );
+                return Ok(None);
+            }
+        } else {
             debug!(
                 "Active PoX contract is not PoX-4, skipping .signers updates until PoX-4 is active"
             );

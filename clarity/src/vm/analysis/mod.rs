@@ -149,7 +149,8 @@ pub fn run_analysis(
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => {
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => {
                 TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db, build_type_map)
             }
             StacksEpochId::Epoch10 => {

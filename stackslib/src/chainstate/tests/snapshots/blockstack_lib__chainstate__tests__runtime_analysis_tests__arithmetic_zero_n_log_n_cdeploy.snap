@@ -542,4 +542,122 @@ snapshot_kind: text
       runtime: 10632,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a86ed593b538c83a349cc9b79550ad79232c5feaa5227d30fe2f60be2e842aa9",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 65,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10231,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 65,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10231,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "fadb93b787dac757b966a6fc63aafe3f4bae6fb00548de5fd784a80dc88be7a4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 65,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10231,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 65,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10231,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "00489038b45d9eeb2ed87be1677bcd4dafd4f194f47580c5c1fc45e4d4101ad3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(CostComputationFailed(\"Error evaluating result of cost function ST000000000000000000002AMW42H.costs-4.cost_from_consensus_buff: Arithmetic(\\\"log2 must be passed a positive integer\\\")\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 65,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10231,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 65,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10231,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f768119fff3bb560d780e600d9dafc5ddd3a6d8de2717beda25726f0024f054d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 65,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10632,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 65,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10632,
+    ),
+  )),
 ]

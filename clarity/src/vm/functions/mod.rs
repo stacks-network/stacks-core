@@ -65,6 +65,8 @@ macro_rules! switch_on_global_epoch {
                 StacksEpochId::Epoch33 => $Epoch205Version(args, exec_state, invoke_ctx, context),
                 // Note: We reuse 2.05 for 3.4.
                 StacksEpochId::Epoch34 => $Epoch205Version(args, exec_state, invoke_ctx, context),
+                // Note: We reuse 2.05 for 3.5.
+                StacksEpochId::Epoch35 => $Epoch205Version(args, exec_state, invoke_ctx, context),
             }
         }
     };

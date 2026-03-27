@@ -3169,6 +3169,7 @@ impl SortitionDB {
             StacksEpochId::Epoch32 => version >= 3,
             StacksEpochId::Epoch33 => version >= 3,
             StacksEpochId::Epoch34 => version >= 3,
+            StacksEpochId::Epoch35 => version >= 3,
         }
     }
 
@@ -10777,6 +10778,7 @@ pub mod tests {
             5,
             u64::MAX,
             u64::MAX,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,

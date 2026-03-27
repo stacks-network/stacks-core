@@ -2494,4 +2494,1194 @@ snapshot_kind: text
       runtime: 133,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "471acb11f1725bcb86bf6e4ff5ac42a917decd74e8cddebfde9d67c62ccf20bf",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: undef-fn-call-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 62,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9762,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 62,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9762,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "acb12815c55d0207739c5d8ac0e7fbbb42e1e745e702e5854829f028098badd4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: undef-fn-call-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 62,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9762,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 62,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9762,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "084c48fcabd898522332f6c4bf2fee972cac3fa5e5d7cb451af5acaf57cecc24",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: undef-fn-call-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 62,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9762,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 62,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9762,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "04205a6dcdd9cad34e763d60a223d2c1b724439deb3db358b7726e328085ae10",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: undef-fn-call-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 62,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9762,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 62,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9762,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4c57223945b4ab778ac7aa727a04e7b60aa14e99fdf745248a4796c350d5dd34",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: undef-fn-call-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 62,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9762,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 62,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9762,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "575a7a8a98a3f9316ff8dcaab13184fef21a2444ce995fb3bec6cb4f986f1841",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_0-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f84293bcc4d3c77a84caa05f829b55dd49b02fb1cdf844107c92c07cdcb069d0",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_05-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b09c164e1a9865299a945de579ccdc65a1745b7c21585ee01657a4f6d9520b7b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_1-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a768432d9ce13b552c0e597009ade99cae3aadc7a2fde68e94194c00c54a543e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_1-Clarity2, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "cef2a5b1248ed98d292eb74d26df0591fda9bf715b06445c28cd2a8c1775f81d",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_2-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e8a4cb4f40c48fa8f262daf5fe9e4191fb3a71b53fe6608e09ea631d49ca3e12",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_2-Clarity2, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b72928c95ef760f182ad388ffad3c5d8dd486cc7167ab0381c9b9f3b8178369b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_3-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5c632a04491ff76ed0b1bed97f4edb461beec233d39b1529015bad987f066c5e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_3-Clarity2, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a43782d6bfbc0ddceddf6a423512639cfaaadeff9a44b48c595b8f41f1a5a086",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_4-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "cebb3e8a8966bd381f525c0bd80c6d3e611299231f3684ad1b2c42fd49d5d4c2",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_4-Clarity2, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8631b069417a8137feb5b68b4a6f2c762569e86aff3583725b9c40ce392e4eae",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_5-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bcec28cf1a5f86482ef3bed8eb2c7ea7c33668ed4214f8fa9d069179a188796f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch2_5-Clarity2, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6ed5483d3a3a06280c0cbacbf2dcd74f3edd86381186dec230a4b37b3c295139",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_0-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9f0f57c386f3282e3e3fb36d4d20ebdba933bce94ac4ee7b9364dd5b19d5f25a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_0-Clarity2, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8ab0c4914ba7c079317d64ebf52c2af1515d831621f527b3a0dc4eb58242defb",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_0-Clarity3, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8e69988eab679787faf490a1ad1cedc730dd86e8e0deb534b13acceda969399f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_1-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bfa11e1590756a80441cff3fac5c9fc3f36a74d9da01ca1968eca9a7ec333a69",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_1-Clarity2, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "218958bbc40c0f38cee9504d5dc7ed61783dcc495cac01ddb48e029645eca7d4",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_1-Clarity3, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e9956aa965b1420e1143a5370100992c79801b0f2dfb1fafcd0706952f65fdf7",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_2-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "caf399e3eb11189885ec80e5e4a9f1764b8eb46c0448e95de7dc7fdac20d7a55",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_2-Clarity2, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b52095dad8b3606144daa46bd53ee569fbe8692b0062a38091502be70722eb00",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_2-Clarity3, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f293b9ea0107d0f7e9c82e917bae9afa1e1c325ade15cb17ce17f3f71523afe3",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_3-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9acdefd4cc44f9363f3160cf6b90a8a47d52695cb6a8db000b2ea9694770dfaf",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_3-Clarity2, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "11ec01680ec3b96d130029891fb3eed6d076a3a8506342c27c232fac2ea61432",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_3-Clarity3, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a7ae9f2902cd5ef09e0683a44f9b0f41cca427697bd887be013f340007ce18de",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_3-Clarity4, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e99a35036afb7d6ddd862247a9b003d58bb33eb4e216189ced5025818941057a",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_4-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2db703e04f047c0e1babd40b194a130426a436ba7d9dc18b1f23bc69ff274a9f",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_4-Clarity2, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "eb44b84c8cfeba4c32e991b7889da9612f33bad31130bc63a3d9c0ef78a87784",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_4-Clarity3, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2f1fc3327cb7e14120e52ac81c130f6c23ed2279696411e2457d757034f5c270",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_4-Clarity4, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0c967f4f7885f61e256037ff9cd6735205e2d35fc86f46897cdd844d2cbde2e5",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_4-Clarity5, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "aee6bacb537d5f6f05db9124e4b9f9725c313a06cd2461aa6472840adc8e5f8b",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_5-Clarity1, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1f113b9e0e592f984fce054d78db4f2ab83b08c23e5b75832f97f71073ccb4df",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_5-Clarity2, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d9e6f815dcffb8c422f36d5de03276437b55deaf3a3fd520d8cac20f39cba1c8",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_5-Clarity3, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "787ad8311d68fdf2026f4853b1e586265970c6793445846f5dc3330f781ffcb2",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_5-Clarity4, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "51bc07aa99288052d4f79e5b4d21363f7addd3bc0d95b45a9878411aa1ed267e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: undef-fn-call-Epoch3_5-Clarity5, function_name: missing-func, function_args: [[]])",
+        vm_error: "Some(UndefinedFunction(\"missing-func\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 54,
+          read_count: 3,
+          runtime: 133,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 54,
+      read_count: 3,
+      runtime: 133,
+    ),
+  )),
 ]

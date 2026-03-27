@@ -274,4 +274,154 @@ snapshot_kind: text
       runtime: 5648,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "350d25626d6973705d4ecdad15df5a9a26e8d54c0b0bf6315e7097d14dfe9d8e",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: trait-method-unknown-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: method \'get-2\' unspecified in trait <trait-1>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 25,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 5648,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 25,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 5648,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d44a2d3235f97c8519d14ff3cce66e30254ebacc00905b677e10339139c39ebd",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: trait-method-unknown-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: method \'get-2\' unspecified in trait <trait-1>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 25,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 5648,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 25,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 5648,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3af0fd4ebb2ca78469fa341c97c356da10626f6dc85beaecc28f59943af15c67",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: trait-method-unknown-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: method \'get-2\' unspecified in trait <trait-1>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 25,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 5648,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 25,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 5648,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4da57683bfa19a2cb3877af39da6e04f1639927cba4241d32cfb15e98e585e35",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: trait-method-unknown-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: method \'get-2\' unspecified in trait <trait-1>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 25,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 5648,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 25,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 5648,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7d284919d239eced158edee62c8a1cb445e77cf3d2bc74eacd2b3ccec4fc5f37",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: trait-method-unknown-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: method \'get-2\' unspecified in trait <trait-1>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 25,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 5648,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 25,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 5648,
+    ),
+  )),
 ]

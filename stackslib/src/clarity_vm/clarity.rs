@@ -42,8 +42,8 @@ use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
     BOOT_CODE_POX_TESTNET, COSTS_2_NAME, COSTS_3_NAME, COSTS_4_NAME, POX_2_MAINNET_CODE,
     POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE,
-    POX_4_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME,
-    SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_NAME,
+    POX_4_NAME, POX_5_CODE, POX_5_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY,
+    SIGNERS_NAME, SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1945,6 +1945,82 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             info!("Epoch 3.4 initialized");
             (old_cost_tracker, Ok(vec![]))
+        })
+    }
+
+    pub fn initialize_epoch_3_5(&mut self) -> Result<Vec<StacksTransactionReceipt>, ClarityError> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+            self.epoch = StacksEpochId::Epoch35;
+            self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch35)?;
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 3.5 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch35;
+            });
+
+            let boot_code_account = self
+                .get_boot_code_account()
+                .expect("FATAL: did not get boot account");
+
+            let mainnet = self.mainnet;
+            let tx_version = if mainnet {
+                TransactionVersion::Mainnet
+            } else {
+                TransactionVersion::Testnet
+            };
+
+            let boot_code_address = boot_code_addr(mainnet);
+            let boot_code_auth = boot_code_tx_auth(boot_code_address);
+
+            // POX-5 contract setup
+            let pox_5_contract_id = boot_code_id(POX_5_NAME, mainnet);
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(POX_5_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(&*POX_5_CODE)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                Some(ClarityVersion::Clarity5),
+            );
+
+            let pox_5_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
+
+            let pox_5_initialization_receipt = self.as_transaction(|tx_conn| {
+                // initialize with a synthetic transaction
+                info!("Instantiate {} contract", &pox_5_contract_id);
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &pox_5_contract_tx,
+                    &boot_code_account,
+                    None,
+                )
+                .expect("FATAL: Failed to process .pox-5 contract initialization");
+                receipt
+            });
+
+            if pox_5_initialization_receipt.result != Value::okay_true()
+                || pox_5_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing pox-5 contract initialization: {:#?}",
+                    &pox_5_initialization_receipt
+                );
+            }
+
+            debug!("Epoch 3.5 initialized");
+            (old_cost_tracker, Ok(vec![pox_5_initialization_receipt]))
         })
     }
 

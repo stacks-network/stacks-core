@@ -43,7 +43,7 @@ use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
 use crate::chainstate::stacks::address::{pox_addr_b58_serde, PoxAddress};
-use crate::chainstate::stacks::boot::{POX_3_NAME, POX_4_NAME};
+use crate::chainstate::stacks::boot::{POX_3_NAME, POX_4_NAME, POX_5_NAME};
 use crate::chainstate::stacks::db::accounts::MinerReward;
 #[cfg(test)]
 use crate::chainstate::stacks::db::ChainStateBootData;
@@ -411,13 +411,13 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => {
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => {
                 // Epoch 2.5 and up compute reward sets, but *only* if PoX-4 is active
-                if burnchain
+                let active_pox_contract = burnchain
                     .pox_constants
-                    .active_pox_contract(current_burn_height)
-                    != POX_4_NAME
-                {
+                    .active_pox_contract(current_burn_height);
+                if active_pox_contract != POX_4_NAME && active_pox_contract != POX_5_NAME {
                     // Note: this should not happen in mainnet or testnet, because the no reward cycle start height
                     //        exists between Epoch 2.5's instantiation height and the pox-4 activation height.
                     //  However, this *will* happen in testing if Epoch 2.5's instantiation height is set == a reward cycle
@@ -427,6 +427,11 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                     );
                     return Ok(RewardSet::empty());
                 }
+
+                // TODO [Pox5]: Enable Pox5 support
+                // if active_pox_contract == POX_5_NAME {
+                //     pox_version = PoxVersions::Pox5;
+                // }
             }
         };
 
