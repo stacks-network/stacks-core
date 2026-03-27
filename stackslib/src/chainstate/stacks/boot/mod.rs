@@ -65,6 +65,7 @@ pub const POX_1_NAME: &str = "pox";
 pub const POX_2_NAME: &str = "pox-2";
 pub const POX_3_NAME: &str = "pox-3";
 pub const POX_4_NAME: &str = "pox-4";
+pub const POX_5_NAME: &str = "pox-5";
 pub const SIGNERS_NAME: &str = "signers";
 pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
@@ -78,6 +79,7 @@ pub const SIGNERS_PK_LEN: usize = 33;
 const POX_2_BODY: &str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &str = std::include_str!("pox-4.clar");
+const POX_5_BODY: &str = std::include_str!("pox-5.clar");
 pub const SIGNERS_BODY: &str = std::include_str!("signers.clar");
 pub const SIGNERS_DB_0_BODY: &str = std::include_str!("signers-0-xxx.clar");
 pub const SIGNERS_DB_1_BODY: &str = std::include_str!("signers-1-xxx.clar");
@@ -127,6 +129,7 @@ lazy_static! {
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{BOOT_CODE_POX_TESTNET_CONSTS}\n{POX_3_BODY}");
     pub static ref POX_4_CODE: String = POX_4_BODY.to_string();
+    pub static ref POX_5_CODE: String = POX_5_BODY.to_string();
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -221,6 +224,7 @@ define_named_enum!(PoxVersions {
     Pox2("pox-2"),
     Pox3("pox-3"),
     Pox4("pox-4"),
+    Pox5("pox-5"),
 });
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -767,6 +771,13 @@ impl StacksChainState {
         })
     }
 
+    pub fn make_signer_set_pox_5(
+        _threshold: u128,
+        _entries: &[RawRewardSetEntry],
+    ) -> Option<Vec<NakamotoSignerEntry>> {
+        None
+    }
+
     pub fn make_signer_set(
         threshold: u128,
         entries: &[RawRewardSetEntry],
@@ -842,6 +853,8 @@ impl StacksChainState {
             addresses.sort_by_cached_key(|k| k.reward_address.to_burnchain_repr());
         }
 
+        // TODO [Pox5]: Use `Self::make_signer_set_pox_5` once Epoch 3.5 is fully working with pox-5
+        // PoxVersions::Pox5 => Self::make_signer_set_pox_5(threshold, &addresses),
         let signer_set = Self::make_signer_set(threshold, &addresses);
 
         while let Some(RawRewardSetEntry {
@@ -1501,7 +1514,7 @@ pub mod test {
             },
         ];
         assert_eq!(
-            StacksChainState::make_reward_set(threshold, addresses, StacksEpochId::Epoch2_05)
+            StacksChainState::make_reward_set(threshold, addresses, StacksEpochId::Epoch2_05,)
                 .rewarded_addresses
                 .len(),
             3
@@ -1522,6 +1535,7 @@ pub mod test {
             5,
             5000,
             10000,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,

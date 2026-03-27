@@ -71,6 +71,7 @@ impl ClarityVersion {
             StacksEpochId::Epoch32 => ClarityVersion::Clarity3,
             StacksEpochId::Epoch33 => ClarityVersion::Clarity4,
             StacksEpochId::Epoch34 => ClarityVersion::Clarity5,
+            StacksEpochId::Epoch35 => ClarityVersion::Clarity5,
         }
     }
 

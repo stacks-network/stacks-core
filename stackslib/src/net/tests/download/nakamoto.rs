@@ -1075,6 +1075,7 @@ fn test_tenure_start_end_from_inventory() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
     let first_burn_height = 100u64;
 

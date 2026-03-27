@@ -272,7 +272,20 @@ fn open_nakamoto_chainstate_dbs(
         "naka3" => (
             false,
             0x80000000,
-            PoxConstants::new(20, 5, 3, 100, 0, u64::MAX, u64::MAX, 104, 105, 106, 107),
+            PoxConstants::new(
+                20,
+                5,
+                3,
+                100,
+                0,
+                u64::MAX,
+                u64::MAX,
+                104,
+                105,
+                106,
+                107,
+                108,
+            ),
             "nakamoto-neon",
         ),
         _ => {

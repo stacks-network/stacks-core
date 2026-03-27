@@ -94,4 +94,64 @@ snapshot_kind: text
       runtime: 51150,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b7c3c6de457168376f622d8db6067037595f60709b6ca5f3752e760fcbfe2d78",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: too-many-allowances-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: too many allowances specified, the maximum is 128, found 130) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 396,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 51150,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 396,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 51150,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c4421928fe8e567036762c6223d16fa163ca96f7d8eb91dc627c935238f1c9fd",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: too-many-allowances-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: too many allowances specified, the maximum is 128, found 130) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 396,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 51150,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 396,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 51150,
+    ),
+  )),
 ]

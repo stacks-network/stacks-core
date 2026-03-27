@@ -456,7 +456,8 @@ impl TypeSignature {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => self.admits_type_v2_1(other),
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => self.admits_type_v2_1(other),
             StacksEpochId::Epoch10 => Err(ClarityTypeError::UnsupportedEpoch(*epoch)),
         }
     }
@@ -675,7 +676,7 @@ impl TypeSignature {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => self.canonicalize_v2_1(),
+            | StacksEpochId::Epoch34 | StacksEpochId::Epoch35=> self.canonicalize_v2_1(),
         }
     }
 
@@ -1015,7 +1016,8 @@ impl TypeSignature {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => Self::least_supertype_v2_1(a, b),
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => Self::least_supertype_v2_1(a, b),
             StacksEpochId::Epoch10 => Err(ClarityTypeError::UnsupportedEpoch(*epoch)),
         }
     }

@@ -170,4 +170,154 @@ snapshot_kind: text
       runtime: 12835,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f5ec60587fd5e7318db9db1ac7268cce07ccf6ea041f8d66f7f5bee647f0b195",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: invalid tuple syntax: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 146,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 146,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12835,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "66fab5a7e79c3505388b8874185dda8f044904a3b432a25a5d4cf976da5ba1b1",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: invalid tuple syntax: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 146,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 146,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12835,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b00c8555bbdd520c059a51ba6fb660957df9ab85fce7a7e8302a8cbb5291bbd7",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: invalid tuple syntax: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 146,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 146,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12835,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "39248a4e1cb4dea6250597dff74579a513677e8d9c8e42b3bc87304ecdb5207c",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: invalid tuple syntax: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 146,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 146,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12835,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "eeb883221e5f13d5e8b8d35a1fa51d61063703eaf9f5948d0e233a5347a52225",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_5-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: invalid tuple syntax: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 146,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 146,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12835,
+    ),
+  )),
 ]

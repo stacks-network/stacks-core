@@ -242,4 +242,34 @@ snapshot_kind: text
       runtime: 799,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "facb4f2be5b3c860dc9c0566bac7e2ab0dc61b143628745619e03502d2785c33",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: mixed-constant-Epoch2_3-Clarity2, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(CouldNotDetermineType) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 720,
+          read_count: 3,
+          runtime: 799,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 720,
+      read_count: 3,
+      runtime: 799,
+    ),
+  )),
 ]
