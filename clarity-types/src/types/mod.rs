@@ -336,7 +336,7 @@ pub enum SequenceData {
 }
 
 /// A helper to properly propagate errors from try_retain
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum RetainValuesError<E> {
     /// An internal error from Clarity type system operations occurred
     Internal(ClarityTypeError),
