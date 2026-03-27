@@ -14,12 +14,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::hint::black_box;
 
+use clarity::vm::ast::build_ast;
+use clarity::vm::contexts::GlobalContext;
+use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::database::MemoryBackingStore;
 use clarity::vm::types::{
-    ListData, ListTypeData, SequenceSubtype, SequencedValue, TypeSignature, Value,
+    ListData, ListTypeData, QualifiedContractIdentifier, SequenceSubtype, TypeSignature, Value,
 };
+use clarity::vm::{ClarityVersion, ContractContext, eval_all};
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::{ASCIIData, BuffData, CharType, SequenceData, UTF8Data};
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::StacksEpochId;
 
 // ---------------------------------------------------------------------------
 // Factory helpers — each returns a SequenceData ready to benchmark
@@ -75,133 +82,19 @@ fn make_utf8_string(n: usize) -> SequenceData {
 }
 
 // ---------------------------------------------------------------------------
-// Compare three strategies:
-//   1. drain+clone: old drained_items (renamed take_items) (drain().collect()) + old to_value (clone)
-//   2. take+clone:  new take_items (mem::take) + old to_value (clone)
-//   3. take+move:   new take_items (mem::take) + new into_value (move)
-//
-// Comparing 1 vs 2 isolates the drain→take improvement.
-// Comparing 2 vs 3 isolates the clone→move improvement.
-// ---------------------------------------------------------------------------
-
-/// Old behavior: drain(..).collect() + iter + to_value (clone) + SymbolicExpression wrap.
-fn drain_and_clone(sequence_data: &mut SequenceData) {
-    let result: Vec<_> = match sequence_data {
-        SequenceData::Buffer(data) => data
-            .data
-            .drain(..)
-            .collect::<Vec<_>>()
-            .iter()
-            .map(|item| SymbolicExpression::atom_value(BuffData::to_value(item).unwrap()))
-            .collect(),
-        SequenceData::List(data) => data
-            .data
-            .drain(..)
-            .collect::<Vec<_>>()
-            .iter()
-            .map(|item| SymbolicExpression::atom_value(ListData::to_value(item).unwrap()))
-            .collect(),
-        SequenceData::String(CharType::ASCII(data)) => data
-            .data
-            .drain(..)
-            .collect::<Vec<_>>()
-            .iter()
-            .map(|item| SymbolicExpression::atom_value(ASCIIData::to_value(item).unwrap()))
-            .collect(),
-        SequenceData::String(CharType::UTF8(data)) => data
-            .data
-            .drain(..)
-            .collect::<Vec<_>>()
-            .iter()
-            .map(|item| SymbolicExpression::atom_value(UTF8Data::to_value(item).unwrap()))
-            .collect(),
-    };
-    black_box(result);
-}
-
-/// Intermediate: mem::take + iter + to_value (clone) + SymbolicExpression wrap — isolates drain improvement.
-fn take_and_clone(sequence_data: &mut SequenceData) {
-    let result: Vec<_> = match sequence_data {
-        SequenceData::Buffer(data) => {
-            let items = std::mem::take(&mut data.data);
-            items
-                .iter()
-                .map(|item| SymbolicExpression::atom_value(BuffData::to_value(item).unwrap()))
-                .collect()
-        }
-        SequenceData::List(data) => {
-            let items = std::mem::take(&mut data.data);
-            items
-                .iter()
-                .map(|item| SymbolicExpression::atom_value(ListData::to_value(item).unwrap()))
-                .collect()
-        }
-        SequenceData::String(CharType::ASCII(data)) => {
-            let items = std::mem::take(&mut data.data);
-            items
-                .iter()
-                .map(|item| SymbolicExpression::atom_value(ASCIIData::to_value(item).unwrap()))
-                .collect()
-        }
-        SequenceData::String(CharType::UTF8(data)) => {
-            let items = std::mem::take(&mut data.data);
-            items
-                .iter()
-                .map(|item| SymbolicExpression::atom_value(UTF8Data::to_value(item).unwrap()))
-                .collect()
-        }
-    };
-    black_box(result);
-}
-
-/// New behavior: mem::take + into_iter + into_value (move) — current atom_values().
-fn take_and_move(sequence_data: &mut SequenceData) {
-    let result = sequence_data.atom_values().unwrap();
-    black_box(result);
-}
-
-// ---------------------------------------------------------------------------
-// Generic bench runner
-// ---------------------------------------------------------------------------
-
-fn bench_three_ways(
-    group: &mut criterion::BenchmarkGroup<criterion::measurement::WallTime>,
-    label: &str,
-    make: impl Fn() -> SequenceData,
-) {
-    group.bench_function(BenchmarkId::new("drain+clone", label), |b| {
-        b.iter_batched(
-            &make,
-            |mut seq| drain_and_clone(&mut seq),
-            criterion::BatchSize::SmallInput,
-        );
-    });
-
-    group.bench_function(BenchmarkId::new("take+clone", label), |b| {
-        b.iter_batched(
-            &make,
-            |mut seq| take_and_clone(&mut seq),
-            criterion::BatchSize::SmallInput,
-        );
-    });
-
-    group.bench_function(BenchmarkId::new("take+move", label), |b| {
-        b.iter_batched(
-            &make,
-            |mut seq| take_and_move(&mut seq),
-            criterion::BatchSize::SmallInput,
-        );
-    });
-}
-
-// ---------------------------------------------------------------------------
 // Benchmark groups
 // ---------------------------------------------------------------------------
 
 fn bench_atom_values_int_list(c: &mut Criterion) {
     let mut group = c.benchmark_group("atom_values/int_list");
     for size in [100, 1_000, 8_000] {
-        bench_three_ways(&mut group, &size.to_string(), move || make_int_list(size));
+        group.bench_function(size.to_string(), |b| {
+            b.iter_batched(
+                move || make_int_list(size),
+                |mut seq| black_box(seq.atom_values().unwrap()),
+                criterion::BatchSize::SmallInput,
+            );
+        });
     }
     group.finish();
 }
@@ -209,8 +102,12 @@ fn bench_atom_values_int_list(c: &mut Criterion) {
 fn bench_atom_values_nested_list(c: &mut Criterion) {
     let mut group = c.benchmark_group("atom_values/nested_list");
     for &(outer, inner) in &[(100, 5), (500, 5), (500, 10)] {
-        bench_three_ways(&mut group, &format!("{outer}x{inner}"), move || {
-            make_nested_list(outer, inner)
+        group.bench_function(format!("{outer}x{inner}"), |b| {
+            b.iter_batched(
+                move || make_nested_list(outer, inner),
+                |mut seq| black_box(seq.atom_values().unwrap()),
+                criterion::BatchSize::SmallInput,
+            );
         });
     }
     group.finish();
@@ -219,7 +116,13 @@ fn bench_atom_values_nested_list(c: &mut Criterion) {
 fn bench_atom_values_buffer(c: &mut Criterion) {
     let mut group = c.benchmark_group("atom_values/buffer");
     for size in [100, 1_000, 8_000] {
-        bench_three_ways(&mut group, &size.to_string(), move || make_buffer(size));
+        group.bench_function(size.to_string(), |b| {
+            b.iter_batched(
+                move || make_buffer(size),
+                |mut seq| black_box(seq.atom_values().unwrap()),
+                criterion::BatchSize::SmallInput,
+            );
+        });
     }
     group.finish();
 }
@@ -227,8 +130,12 @@ fn bench_atom_values_buffer(c: &mut Criterion) {
 fn bench_atom_values_ascii(c: &mut Criterion) {
     let mut group = c.benchmark_group("atom_values/ascii");
     for size in [100, 1_000, 8_000] {
-        bench_three_ways(&mut group, &size.to_string(), move || {
-            make_ascii_string(size)
+        group.bench_function(size.to_string(), |b| {
+            b.iter_batched(
+                move || make_ascii_string(size),
+                |mut seq| black_box(seq.atom_values().unwrap()),
+                criterion::BatchSize::SmallInput,
+            );
         });
     }
     group.finish();
@@ -237,10 +144,142 @@ fn bench_atom_values_ascii(c: &mut Criterion) {
 fn bench_atom_values_utf8(c: &mut Criterion) {
     let mut group = c.benchmark_group("atom_values/utf8");
     for size in [100, 1_000, 8_000] {
-        bench_three_ways(&mut group, &size.to_string(), move || {
-            make_utf8_string(size)
+        group.bench_function(size.to_string(), |b| {
+            b.iter_batched(
+                move || make_utf8_string(size),
+                |mut seq| black_box(seq.atom_values().unwrap()),
+                criterion::BatchSize::SmallInput,
+            );
         });
     }
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// special_map end-to-end benchmarks
+//
+// Runs `(map f seq ...)` through the full Clarity VM (MemoryBackingStore +
+// GlobalContext + eval_all).  Each benchmark variant:
+//   - Pre-parses the snippet once, outside the timed region.
+//   - Puts MemoryBackingStore::new() (SQLite schema init) in the iter_batched
+//     setup so it is NOT in the timed region.
+//   - Times: ContractContext + GlobalContext construction + eval_all.
+//
+// Variants:
+//   unary_int        — (map to-uint (list 0 1 ... n))        single sequence
+//   binary_int       — (map + (list 0..n) (list 0..n))       two equal sequences
+//   binary_int_unequal — longer sequence first               exercises take(min_args_len)
+// ---------------------------------------------------------------------------
+
+fn map_snippet_unary_int(n: usize) -> String {
+    let elems: String = (0..n).map(|i| i.to_string()).collect::<Vec<_>>().join(" ");
+    format!("(map to-uint (list {elems}))")
+}
+
+fn map_snippet_binary_int(n: usize) -> String {
+    let elems: String = (0..n).map(|i| i.to_string()).collect::<Vec<_>>().join(" ");
+    format!("(map + (list {elems}) (list {elems}))")
+}
+
+fn map_snippet_binary_unequal(long: usize, short: usize) -> String {
+    let long_elems: String = (0..long)
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let short_elems: String = (0..short)
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("(map + (list {long_elems}) (list {short_elems}))")
+}
+
+fn parse_map_snippet(
+    snippet: &str,
+    epoch: StacksEpochId,
+    version: ClarityVersion,
+) -> Vec<SymbolicExpression> {
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut cost_track = LimitedCostTracker::new_free();
+    build_ast(&contract_id, snippet, &mut cost_track, version, epoch)
+        .unwrap()
+        .expressions
+}
+
+/// Run `parsed` in a fresh execution environment, with `marf` pre-initialized
+/// (so SQLite setup is NOT in the timed region).
+fn run_parsed(
+    mut marf: MemoryBackingStore,
+    parsed: &[SymbolicExpression],
+    epoch: StacksEpochId,
+    version: ClarityVersion,
+) -> Option<Value> {
+    let conn = marf.as_clarity_db();
+    let mut contract_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+    let mut global_context = GlobalContext::new(
+        false,
+        CHAIN_ID_TESTNET,
+        conn,
+        LimitedCostTracker::new_free(),
+        epoch,
+    );
+    global_context
+        .execute(|g| eval_all(parsed, &mut contract_context, g, None))
+        .unwrap()
+}
+
+fn bench_map_variant(
+    group: &mut criterion::BenchmarkGroup<criterion::measurement::WallTime>,
+    label: &str,
+    parsed: &[SymbolicExpression],
+    epoch: StacksEpochId,
+    version: ClarityVersion,
+) {
+    group.bench_function(label, |b| {
+        b.iter_batched(
+            MemoryBackingStore::new,
+            |marf| black_box(run_parsed(marf, parsed, epoch, version)),
+            criterion::BatchSize::SmallInput,
+        );
+    });
+}
+
+fn bench_special_map(c: &mut Criterion) {
+    let epoch = StacksEpochId::latest();
+    let version = ClarityVersion::latest();
+    let mut group = c.benchmark_group("special_map");
+
+    for size in [100, 1_000, 8_000] {
+        let parsed = parse_map_snippet(&map_snippet_unary_int(size), epoch, version);
+        bench_map_variant(
+            &mut group,
+            &format!("unary_int/{size}"),
+            &parsed,
+            epoch,
+            version,
+        );
+
+        let parsed = parse_map_snippet(&map_snippet_binary_int(size), epoch, version);
+        bench_map_variant(
+            &mut group,
+            &format!("binary_int/{size}"),
+            &parsed,
+            epoch,
+            version,
+        );
+    }
+
+    for (long, short) in [(1_000usize, 100usize), (8_000, 500)] {
+        let parsed = parse_map_snippet(&map_snippet_binary_unequal(long, short), epoch, version);
+        bench_map_variant(
+            &mut group,
+            &format!("binary_int_unequal/{long}vs{short}"),
+            &parsed,
+            epoch,
+            version,
+        );
+    }
+
     group.finish();
 }
 
@@ -251,5 +290,6 @@ criterion_group!(
     bench_atom_values_buffer,
     bench_atom_values_ascii,
     bench_atom_values_utf8,
+    bench_special_map,
 );
 criterion_main!(benches);

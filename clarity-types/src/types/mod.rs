@@ -1017,6 +1017,41 @@ impl Value {
         //     this is a problem _if_ the static analyzer cannot already prevent
         //     this case. This applies to all the constructor size checks.
         let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
+        Value::finalize_list(list_data, type_sig, epoch)
+    }
+
+    /// Like [`Value::cons_list`], but accepts a pre-computed element type, avoiding
+    /// the O(n) pass in [`TypeSignature::construct_parent_list_type`]. The caller is
+    /// responsible for ensuring `element_type` is the correct least-supertype of all items.
+    pub fn cons_list_typed(
+        list_data: Vec<Value>,
+        element_type: TypeSignature,
+        epoch: &StacksEpochId,
+    ) -> Result<Value, ClarityTypeError> {
+        debug_assert!(
+            TypeSignature::construct_parent_list_type(&list_data)
+                .map(|computed| *computed.get_list_item_type() == element_type)
+                .unwrap_or(list_data.is_empty()),
+            "cons_list_typed: provided element_type does not match computed least-supertype"
+        );
+        let len = u32::try_from(list_data.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?;
+        let type_sig = ListTypeData::new_list(element_type, len)?;
+        Value::finalize_list(list_data, type_sig, epoch)
+    }
+
+    /// Helper function for sanitizing list elements if in a sanitizing epoch and constructing a list Value
+    /// with the provided list data and type signature.
+    fn finalize_list(
+        list_data: Vec<Value>,
+        type_sig: ListTypeData,
+        epoch: &StacksEpochId,
+    ) -> Result<Value, ClarityTypeError> {
+        if !epoch.value_sanitizing() {
+            return Ok(Value::Sequence(SequenceData::List(ListData {
+                data: list_data,
+                type_signature: type_sig,
+            })));
+        }
         let list_data_opt: Option<_> = list_data
             .into_iter()
             .map(|item| {
