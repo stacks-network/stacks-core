@@ -1,22 +1,48 @@
+# ============================================================
+# STACKS SIGNER NODE - MAINNET CONFIGURATION
+# ============================================================
+#
+# This configures the stacks-node to work with a signer on mainnet.
+# This is the NODE-SIDE config. For the signer binary config, see
+# signer/mainnet-signer-conf.toml.
+#
+# Key coordination points between this config and the signer binary:
+#   - [[events_observer]] endpoint must match signer's `endpoint`
+#   - [connection_options] auth_token must match signer's `auth_password`
+
 [node]
 # working_dir = "/dir/to/save/chainstate" # defaults to: /tmp/stacks-node-[0-9]*
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
-prometheus_bind = "0.0.0.0:9153" 
+prometheus_bind = "0.0.0.0:9153"
+stacker = true
 
 [burnchain]
 mode = "mainnet"
 peer_host = "127.0.0.1"
 
-# Used for sending events to a local stacks-blockchain-api service
+# Signer event observer (REQUIRED).
+# WARNING: endpoint must match your signer binary's `endpoint` config.
+[[events_observer]]
+endpoint = "127.0.0.1:30000"
+events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
+
+# Optional: API event observer for stacks-blockchain-api service
 # [[events_observer]]
 # endpoint = "localhost:3700"
 # events_keys = ["*"]
 # timeout_ms = 60_000
 
-[[events_observer]]
-endpoint = "127.0.0.1:30000"
-events_keys = ["stackerdb", "block_proposal", "burn_blocks"]
-
 [connection_options]
-auth_token = "" # fill with a unique password
+# WARNING: Must match the signer binary's `auth_password`.
+auth_token = ""
+
+# Maximum age of block proposals accepted by this node.
+# Default: 600
+# Units: seconds
+# block_proposal_max_age_secs = 600
+
+# Timeout for block proposal validation.
+# Default: 60
+# Units: seconds
+# block_proposal_validation_timeout_secs = 60

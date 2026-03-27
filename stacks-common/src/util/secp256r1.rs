@@ -94,6 +94,19 @@ impl MessageSignature {
     pub fn to_p256_signature(&self) -> Result<P256Signature, Secp256r1Error> {
         P256Signature::from_slice(&self.0).map_err(|_| Secp256r1Error::InvalidSignature)
     }
+
+    /// Returns a high-S version of this signature by negating S (s' = -s mod n).
+    /// If the signature is already high-S, it is returned unchanged.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn to_high_s(&self) -> Result<MessageSignature, Secp256r1Error> {
+        let p256_sig = self.to_p256_signature()?;
+        // Normalize to low-S first, then negate to get high-S
+        let low_sig = p256_sig.normalize_s().unwrap_or(p256_sig);
+        let (r, s) = (low_sig.r(), low_sig.s());
+        let high_sig =
+            P256Signature::from_scalars(*r, -(*s)).map_err(|_| Secp256r1Error::InvalidSignature)?;
+        Ok(MessageSignature::from_p256_signature(&high_sig))
+    }
 }
 
 impl Secp256r1PublicKey {
