@@ -27,10 +27,10 @@ on:
         required: true
         default: "2500"
         type: string
-      slack_skip:
-        description: "Skip Slack notifications"
+      slack_notify:
+        description: "Enable Slack notifications"
         required: false
-        default: true
+        default: false
         type: boolean
 
 defaults:
@@ -70,7 +70,7 @@ jobs:
           else
             branch="${{ github.ref_name }}"
             cases="${{ inputs.proptest_cases }}"
-            slack_notify="${{ inputs.slack_skip != true }}"
+            slack_notify="${{ inputs.slack_notify }}"
           fi
           artifact="proptest-nightly-${branch//\//-}"
 
@@ -181,7 +181,7 @@ jobs:
           overwrite: true
 
       ## Report failures in the GitHub Actions Job Summary.
-      - name: Report failures to Job Summary
+      - name: Report test failures to Job Summary
         if: failure() && steps.run_tests.outcome == 'failure'
         run: |
           failed_tests=$(cat /tmp/failed-prop-tests.txt 2>/dev/null || echo "(unknown)")
@@ -195,7 +195,7 @@ jobs:
           ${failed_tests}
           \`\`\`
 
-          Proptest regression seeds have been saved as a workflow artifact (see `Artifacts` section)
+          Proptest regression seeds have been saved as a workflow artifact (see **Artifacts** section)
           and will be replayed automatically on the next run.
           EOF
 
@@ -221,7 +221,7 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "One or more property tests failed during the nightly run.\nCheck the workflow run for details and failed test names."
+                    "text": "The proptest run detected test failures."
                   }
                 },
                 {
