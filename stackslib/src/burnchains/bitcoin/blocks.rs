@@ -471,7 +471,7 @@ impl BitcoinBlockParser {
     /// Uses the internal epoch id to determine whether or not to parse segwit outputs, and whether
     /// or not to decode scriptSigs.
     pub fn parse_block(
-        &mut self,
+        &self,
         block: &Block,
         block_height: u64,
         epoch_id: StacksEpochId,
@@ -583,7 +583,7 @@ impl BitcoinBlockParser {
     /// Return false if the block we got did not match the next expected block's header
     /// (in which case, we should re-start the conversation with the peer and try again).
     pub fn process_block(
-        &mut self,
+        &self,
         block: &Block,
         header: &LoneBlockHeader,
         height: u64,
@@ -1354,8 +1354,7 @@ mod tests {
             }
         ];
 
-        let mut parser =
-            BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100])); // "id"
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100])); // "id"
         for block_fixture in block_fixtures {
             let block = make_block(&block_fixture.block).unwrap();
             let header = make_block_header(&block_fixture.header).unwrap();
@@ -1375,9 +1374,8 @@ mod tests {
             .replacen("69643a666f6f2e74657374", "69645b666f6f2e74657374", 1);
         let block = make_block(&block_hex).expect("failed to decode block fixture");
         let fee_rate_sat_per_vb = 25;
-        let mut parser =
-            BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]))
-                .with_fixed_fee_rate_sat_per_vbyte(fee_rate_sat_per_vb);
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]))
+            .with_fixed_fee_rate_sat_per_vbyte(fee_rate_sat_per_vb);
         let parsed_block = parser.parse_block(&block, 32, StacksEpochId::Epoch34);
 
         assert_eq!(parsed_block.txs.len(), 1);
@@ -1445,8 +1443,7 @@ mod tests {
         let block = make_block(block_hex.trim()).expect("failed to decode real-block fixture");
 
         // Use current mainnet magic bytes ("X2") for real Bitcoin fixture validation.
-        let mut parser =
-            BitcoinBlockParser::new(BitcoinNetworkType::Mainnet, MagicBytes([0x58, 0x32]));
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Mainnet, MagicBytes([0x58, 0x32]));
 
         // Derive the expected fee rate the same way the production code does, so we can
         // cross-check the per-commit estimates below.
