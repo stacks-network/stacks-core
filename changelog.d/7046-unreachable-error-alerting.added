@@ -1,0 +1,1 @@
+Added `error!`-level logging with `UNREACHABLE_ERROR_TRIGGERED` marker and `stacks_unreachable_errors_total` Prometheus counter when unreachable errors are hit during transaction processing ([#7046](https://github.com/stacks-network/stacks-core/pull/7046))
