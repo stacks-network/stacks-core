@@ -9596,18 +9596,31 @@ fn mock_miner_replay() {
     let follower_blocks_processed_end = follower_channel.get_stacks_blocks_processed();
 
     let blocks_dir = follower_conf.node.mock_mining_output_dir.clone().unwrap();
-    let file_count = follower_conf
-        .node
-        .mock_mining_output_dir
-        .unwrap()
-        .read_dir()
-        .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
-        .count();
+    let mock_mining_output_dir = follower_conf.node.mock_mining_output_dir.unwrap();
 
     // Check that expected output files exist
     assert!(test_dir.is_dir());
     assert!(blocks_dir.is_dir());
-    assert_eq!(file_count, 12);
+
+    // Wait for all mock mining output files to be flushed to disk.
+    let expected_file_count = 12;
+    let start = std::time::Instant::now();
+    let file_count = loop {
+        let count = mock_mining_output_dir
+            .read_dir()
+            .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
+            .count();
+        if count >= expected_file_count {
+            break count;
+        }
+        if start.elapsed() > Duration::from_secs(30) {
+            panic!(
+                "Timed out waiting for mock mining output files: expected {expected_file_count}, got {count}"
+            );
+        }
+        thread::sleep(Duration::from_millis(500));
+    };
+    assert_eq!(file_count, expected_file_count);
     assert_eq!(miner_blocks_processed_end, follower_blocks_processed_end);
 
     // PART 2

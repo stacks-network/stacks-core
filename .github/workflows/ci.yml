@@ -285,6 +285,7 @@ jobs:
     env:
       REPORT_FILES_DIR: "code_coverage_files"
       REPORT_FILES_EXT: "info"
+      REPORT_MERGE_CHUNK_SIZE: 80
     steps:
       # Checkout the code (Coveralls requires source code to be available when action is called)
       - name: Checkout the latest code
@@ -301,9 +302,12 @@ jobs:
       - name: Check for at least 1 code coverage file
         shell: bash
         run: |
-          file_count=$(find -type f -wholename "./${{ env.REPORT_FILES_DIR }}/*.${{ env.REPORT_FILES_EXT }}" | wc -l)
+          EXT="${{ env.REPORT_FILES_EXT }}"
+          DIR="${{ env.REPORT_FILES_DIR }}"
+          
+          file_count=$(find -type f -wholename "./$DIR/*.$EXT" | wc -l)
           if [ "$file_count" -eq 0 ]; then
-            echo "ERROR: no code coverage files found to merge. Verify that they were correctly generated and uploaded in prior CI steps"
+            echo "ERROR: no code coverage files of type .$EXT found to merge. Verify that they were correctly generated and uploaded in prior CI steps"
             exit 1
           fi
       # Install lcov for merging the reports
@@ -315,14 +319,49 @@ jobs:
       - name: Merge code coverage files
         shell: bash
         run: |
-          cd "${{ env.REPORT_FILES_DIR }}" || exit 1
-          args=()
-          # Build the full -a <file> argument list in a single shell invocation, using NUL delimiters
-          # The use of xargs can batch operations when len of arguments exceeds ARG_MAX, which could overwrite the report file
-          while IFS= read -r -d '' file; do
-            args+=(-a "$file")
-          done < <(find . -type f -name "*.${{ env.REPORT_FILES_EXT }}" -print0)
-          lcov "${args[@]}" -o "code-coverage-report.${{ env.REPORT_FILES_EXT }}"
+          EXT="${{ env.REPORT_FILES_EXT }}"
+          DIR="${{ env.REPORT_FILES_DIR }}"
+          CHUNK_SIZE=${{ env.REPORT_MERGE_CHUNK_SIZE }}
+          INTERMEDIATE_FILES=()
+    
+          cd "$DIR" || exit 1
+    
+          # 1. Collect all files into an array
+          mapfile -d '' ALL_FILES < <(find . -type f -name "*.$EXT" -print0)
+    
+          # 2. Process in chunks
+          TOTAL_FILES=${#ALL_FILES[@]}
+          for (( i=0; i<TOTAL_FILES; i+=CHUNK_SIZE )); do
+              # Slice the array for the current chunk
+              CHUNK=("${ALL_FILES[@]:i:CHUNK_SIZE}")
+              
+              # Build the lcov arguments for this specific chunk
+              CHUNK_ARGS=()
+              for file in "${CHUNK[@]}"; do
+                  CHUNK_ARGS+=(-a "$file")
+              done
+              
+              # Define a unique name for the intermediate report
+              PART_FILE="code_coverage_part_$((i / CHUNK_SIZE)).$EXT"
+              INTERMEDIATE_FILES+=("$PART_FILE")
+              
+              # Run lcov in the background
+              echo "Processing chunk $((i / CHUNK_SIZE + 1))..."
+              lcov "${CHUNK_ARGS[@]}" -o "$PART_FILE" & 
+          done
+    
+          # 3. Wait for all background processes to finish
+          wait
+    
+          # 4. Final Merge: Combine the intermediate files into the final report
+          FINAL_ARGS=()
+          for part in "${INTERMEDIATE_FILES[@]}"; do
+              FINAL_ARGS+=(-a "$part")
+          done
+    
+          echo "Performing final merge of ${#INTERMEDIATE_FILES[@]} intermediate files..."
+          lcov "${FINAL_ARGS[@]}" -o "code-coverage-report.$EXT"
+    
           cd ..
       # Upload the merged code coverage file to Coveralls
       - name: Upload code coverage to Coveralls
