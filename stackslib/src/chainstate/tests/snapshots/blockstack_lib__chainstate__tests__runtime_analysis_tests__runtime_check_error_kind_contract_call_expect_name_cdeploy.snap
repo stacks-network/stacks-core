@@ -100,26 +100,28 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: contract-3-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
         )),
         cost: ExecutionCost(
           write_length: 273,
           write_count: 2,
-          read_length: 101,
-          read_count: 6,
-          runtime: 20295,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 273,
       write_count: 2,
-      read_length: 101,
-      read_count: 6,
-      runtime: 20295,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
     ),
   )),
   Success(ExpectedBlockOutput(
@@ -128,26 +130,28 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: contract-3-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
         )),
         cost: ExecutionCost(
           write_length: 273,
           write_count: 2,
-          read_length: 101,
-          read_count: 6,
-          runtime: 20295,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 273,
       write_count: 2,
-      read_length: 101,
-      read_count: 6,
-      runtime: 20295,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
     ),
   )),
   Success(ExpectedBlockOutput(
@@ -156,26 +160,28 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: contract-3-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
         )),
         cost: ExecutionCost(
           write_length: 273,
           write_count: 2,
-          read_length: 101,
-          read_count: 6,
-          runtime: 20295,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 273,
       write_count: 2,
-      read_length: 101,
-      read_count: 6,
-      runtime: 20295,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
     ),
   )),
   Success(ExpectedBlockOutput(
@@ -184,26 +190,28 @@ snapshot_kind: text
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: contract-3-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
         )),
         cost: ExecutionCost(
           write_length: 273,
           write_count: 2,
-          read_length: 101,
-          read_count: 6,
-          runtime: 20295,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 273,
       write_count: 2,
-      read_length: 101,
-      read_count: 6,
-      runtime: 20295,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
     ),
   )),
 ]

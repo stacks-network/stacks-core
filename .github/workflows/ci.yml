@@ -370,3 +370,6 @@ jobs:
           file: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
           compare-ref: ${{ github.base_ref }} # defaults to master if this isn't supplied
           fail-on-error: true
+          file: code_coverage_files/code-coverage-report.info
+          fail-on-error: true
+      
