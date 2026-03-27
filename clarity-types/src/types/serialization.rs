@@ -1063,39 +1063,29 @@ impl Value {
                 value.serialize_write(w)?;
             }
             Sequence(List(data)) => {
-                let len_bytes = data
-                    .len()
-                    .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?
-                    .to_be_bytes();
+                let len_bytes = data.len()?.to_be_bytes();
                 w.write_all(&len_bytes)?;
                 for item in data.data.iter() {
                     item.serialize_write(w)?;
                 }
             }
             Sequence(Buffer(value)) => {
-                let len_bytes = u32::from(
-                    value
-                        .len()
-                        .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?,
-                )
-                .to_be_bytes();
+                let len_bytes = u32::from(value.len()?).to_be_bytes();
                 w.write_all(&len_bytes)?;
                 w.write_all(&value.data)?
             }
             Sequence(SequenceData::String(UTF8(value))) => {
-                let total_len: u32 = value.data.iter().fold(0u32, |len, c| len + c.len() as u32);
-                w.write_all(&(total_len.to_be_bytes()))?;
-                for bytes in value.data.iter() {
-                    w.write_all(bytes)?
-                }
+                let bytes = value.to_utf8_bytes()?;
+                let byte_len: u32 = bytes.len().try_into().map_err(|_| {
+                    SerializationError::SerializationFailure(
+                        "UTF8 string byte length overflow".to_string(),
+                    )
+                })?;
+                w.write_all(&(byte_len.to_be_bytes()))?;
+                w.write_all(&bytes)?;
             }
             Sequence(SequenceData::String(ASCII(value))) => {
-                let len_bytes = u32::from(
-                    value
-                        .len()
-                        .map_err(|e| SerializationError::SerializationFailure(e.to_string()))?,
-                )
-                .to_be_bytes();
+                let len_bytes = u32::from(value.len()?).to_be_bytes();
                 w.write_all(&len_bytes)?;
                 w.write_all(&value.data)?
             }

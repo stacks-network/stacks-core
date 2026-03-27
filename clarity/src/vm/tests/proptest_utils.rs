@@ -807,18 +807,13 @@ pub fn value_to_clarity_literal(value: &Value) -> String {
 /// Convert UTF-8 data into a Clarity UTF-8 string literal.
 pub fn utf8_string_literal(data: &UTF8Data) -> String {
     let mut literal = String::from("u\"");
-    for bytes in &data.data {
-        if bytes.len() == 1 {
-            for escaped in std::ascii::escape_default(bytes[0]) {
+    for char_buf in &data.data {
+        if char_buf.is_ascii() {
+            for escaped in std::ascii::escape_default(*char_buf as u8) {
                 literal.push(escaped as char);
             }
         } else {
-            let ch = std::str::from_utf8(bytes)
-                .expect("UTF-8 data should decode to a scalar value")
-                .chars()
-                .next()
-                .expect("UTF-8 data should contain at least one scalar");
-            literal.push_str(&format!("\\u{{{:X}}}", ch as u32));
+            literal.push_str(&format!("\\u{{{:X}}}", *char_buf as u32));
         }
     }
     literal.push('"');

@@ -34,7 +34,7 @@ rusqlite = { workspace = true, optional = true }
 assert-json-diff = "1.0.0"
 clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false, features = ["testing"] }
 mutants = "0.0.3"
-criterion = "0.8.2"
+criterion = { workspace = true }
 pinny = { workspace = true }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rstest = { version = "0.17.0" }

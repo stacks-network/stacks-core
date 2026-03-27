@@ -18,6 +18,7 @@ pub mod signatures;
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
+use std::iter::once;
 use std::{char, fmt, mem, str};
 
 use regex::Regex;
@@ -455,9 +456,9 @@ impl SequenceData {
             }
             (
                 SequenceData::String(CharType::UTF8(mut data)),
-                Value::Sequence(SequenceData::String(CharType::UTF8(mut elem))),
+                Value::Sequence(SequenceData::String(CharType::UTF8(elem))),
             ) => {
-                data.data[index] = elem.data.swap_remove(0);
+                data.data[index] = elem.data[0];
                 SequenceData::String(CharType::UTF8(data))
             }
             (seq, element) => {
@@ -520,18 +521,13 @@ impl SequenceData {
                     ))
                 }
             }
-            SequenceData::String(CharType::UTF8(data)) => {
-                if let Value::Sequence(SequenceData::String(CharType::UTF8(to_find_vec))) = to_find
-                {
-                    if to_find_vec.data.len() != 1 {
+            SequenceData::String(CharType::UTF8(haystack)) => {
+                if let Value::Sequence(SequenceData::String(CharType::UTF8(needle))) = to_find {
+                    if needle.data.len() != 1 {
                         Ok(None)
                     } else {
-                        for (index, entry) in data.data.iter().enumerate() {
-                            if entry == &to_find_vec.data[0] {
-                                return Ok(Some(index));
-                            }
-                        }
-                        Ok(None)
+                        let needle_char = needle.data[0];
+                        Ok(haystack.data.iter().position(|c| *c == needle_char))
                     }
                 } else {
                     Err(ClarityTypeError::TypeMismatchValue(
@@ -700,24 +696,69 @@ impl fmt::Display for ASCIIData {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UTF8Data {
-    pub data: Vec<Vec<u8>>,
+    pub data: Vec<char>,
+}
+
+impl Serialize for UTF8Data {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Convert to a string, which gives us a neatly arranged sequence of UTF-8 characters.
+        // We can then simply collect references to the slices of that memory that represent
+        // individual UTF-8 encoded characters.
+        let as_string = self.to_utf8_string();
+        let as_bytes = as_string.as_bytes();
+
+        // An iterator through the "ends" of characters, in the slice sense: They're just
+        // the beginnings of the respective *next* characters. So we can easily get it
+        // by taking the iterator over the character indexes, skipping the leading 0,
+        // and appending the full byte length instead.
+        let character_end_indices = as_string
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain(once(as_string.len()))
+            .skip(1); // must be after the `chain()` call to handle empty strings correctly
+
+        // Now collect the slice references to the individual characters' UTF-8 encodings
+        let mut prev_start: usize = 0;
+        let compat: Vec<&[u8]> = character_end_indices
+            .map(|index| {
+                let result = &as_bytes[prev_start..index];
+                prev_start = index;
+                result
+            })
+            .collect();
+
+        compat.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for UTF8Data {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let compat: Vec<Vec<u8>> = Vec::deserialize(deserializer)?;
+        let data = compat
+            .into_iter()
+            .map(|bytes| {
+                let s = std::str::from_utf8(&bytes).map_err(serde::de::Error::custom)?;
+                let mut chars = s.chars();
+                let c = chars
+                    .next()
+                    .ok_or_else(|| serde::de::Error::custom("empty UTF-8 character entry"))?;
+                if chars.next().is_some() {
+                    return Err(serde::de::Error::custom(
+                        "expected a single codepoint per UTF-8 character entry",
+                    ));
+                }
+                Ok(c)
+            })
+            .collect::<Result<_, D::Error>>()?;
+        Ok(UTF8Data { data })
+    }
 }
 
 impl fmt::Display for UTF8Data {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut result = String::new();
-        for c in self.data.iter() {
-            if c.len() > 1 {
-                // We escape extended charset
-                result.push_str(&format!("\\u{{{}}}", hash::to_hex(&c[..])));
-            } else {
-                // We render an ASCII char, escaped
-                let escaped_char = format!("{}", std::ascii::escape_default(c[0]));
-                result.push_str(&escaped_char);
-            }
-        }
+        let result: String = self.to_utf8_string().escape_default().collect();
         write!(f, "u\"{result}\"")
     }
 }
@@ -819,12 +860,12 @@ impl SequencedValue<u8> for ASCIIData {
     }
 }
 
-impl SequencedValue<Vec<u8>> for UTF8Data {
-    fn items(&self) -> &Vec<Vec<u8>> {
+impl SequencedValue<char> for UTF8Data {
+    fn items(&self) -> &Vec<char> {
         &self.data
     }
 
-    fn take_items(&mut self) -> Vec<Vec<u8>> {
+    fn take_items(&mut self) -> Vec<char> {
         mem::take(&mut self.data)
     }
 
@@ -839,12 +880,14 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
         )))
     }
 
-    fn to_value(v: &Vec<u8>) -> Result<Value, ClarityTypeError> {
-        Value::string_utf8_from_bytes(v.clone())
+    fn to_value(v: &char) -> Result<Value, ClarityTypeError> {
+        Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
+            UTF8Data { data: vec![*v] },
+        ))))
     }
 
-    fn into_value(v: Vec<u8>) -> Result<Value, ClarityTypeError> {
-        Value::string_utf8_from_bytes(v)
+    fn into_value(v: char) -> Result<Value, ClarityTypeError> {
+        Self::to_value(&v)
     }
 }
 
@@ -1069,30 +1112,34 @@ impl Value {
             .map_err(|_| ClarityTypeError::InvariantViolation("Bad regex".into()))?;
         let mut window = tokenized_str.as_str();
         let mut cursor = 0;
-        let mut data: Vec<Vec<u8>> = vec![];
+        let mut data: Vec<char> = vec![];
         while !window.is_empty() {
             if let Some(captures) = wrapped_codepoints_matcher.captures(window) {
                 let matched = captures.name("value").ok_or_else(|| {
                     ClarityTypeError::InvariantViolation("Expected capture".into())
                 })?;
                 let scalar_value = window[matched.start()..matched.end()].to_string();
-                let unicode_char = {
+                let encoded_char = {
                     // This first InvalidUTF8Encoding is logically unreachable: the escape regex rejects non-hex digits,
                     // so from_str_radix only sees valid hex and never errors here.
                     let u = u32::from_str_radix(&scalar_value, 16)
                         .map_err(|_| ClarityTypeError::InvalidUtf8Encoding)?;
-                    let c =
-                        char::from_u32(u).ok_or_else(|| ClarityTypeError::InvalidUtf8Encoding)?;
-                    let mut encoded_char: Vec<u8> = vec![0; c.len_utf8()];
-                    c.encode_utf8(&mut encoded_char[..]);
-                    encoded_char
+                    char::from_u32(u).ok_or_else(|| ClarityTypeError::InvalidUtf8Encoding)?
                 };
 
-                data.push(unicode_char);
+                data.push(encoded_char);
                 cursor += scalar_value.len() + 4;
             } else {
-                let ascii_char = window[0..1].to_string().into_bytes();
-                data.push(ascii_char);
+                // unicode string literals are guaranteed by the lexer to only contain
+                // ASCII characters (anything outside that range must be escaped), so we
+                // know that this character takes a single byte and advancing the cursor
+                // by 1 is safe
+                data.push(
+                    window
+                        .chars()
+                        .next()
+                        .ok_or(ClarityTypeError::InvalidUtf8Encoding)?,
+                );
                 cursor += 1;
             }
             // check the string size
@@ -1109,14 +1156,7 @@ impl Value {
     pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value, ClarityTypeError> {
         let validated_utf8_str =
             str::from_utf8(&bytes).map_err(|_| ClarityTypeError::InvalidUtf8Encoding)?;
-        let data = validated_utf8_str
-            .chars()
-            .map(|char| {
-                let mut encoded_char = vec![0u8; char.len_utf8()];
-                char.encode_utf8(&mut encoded_char);
-                encoded_char
-            })
-            .collect::<Vec<_>>();
+        let data = validated_utf8_str.chars().collect::<Vec<_>>();
         // check the string size
         StringUTF8Length::try_from(data.len())?;
 
@@ -1431,6 +1471,15 @@ impl UTF8Data {
 
     pub fn len(&self) -> Result<BufferLength, ClarityTypeError> {
         self.data.len().try_into()
+    }
+
+    pub fn to_utf8_string(&self) -> String {
+        self.data.iter().collect()
+    }
+
+    /// Returns the raw UTF-8 bytes
+    pub fn to_utf8_bytes(&self) -> Result<Vec<u8>, ClarityTypeError> {
+        Ok(self.to_utf8_string().into())
     }
 }
 

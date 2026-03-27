@@ -56,7 +56,7 @@ impl ASCIIOps {
     }
 }
 impl UTF8Ops {
-    fn make_value(x: Vec<Vec<u8>>) -> Result<Value, VmExecutionError> {
+    fn make_value(x: Vec<char>) -> Result<Value, VmExecutionError> {
         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
             UTF8Data { data: x },
         ))))
@@ -360,7 +360,7 @@ make_arithmetic_ops!(I128Ops, i128);
 make_comparison_ops!(U128Ops, u128);
 make_comparison_ops!(I128Ops, i128);
 make_comparison_ops!(ASCIIOps, Vec<u8>);
-make_comparison_ops!(UTF8Ops, Vec<Vec<u8>>);
+make_comparison_ops!(UTF8Ops, Vec<char>);
 make_comparison_ops!(BuffOps, Vec<u8>);
 
 // Used for the `xor` function.

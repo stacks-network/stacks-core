@@ -355,12 +355,6 @@ fn test_ascii_data_to_value_returns_clarity_type_error() {
 }
 
 #[test]
-fn test_utf8_data_to_value_returns_clarity_types_error_invalid_utf8_encoding() {
-    let err = UTF8Data::to_value(&vec![0xED, 0xA0, 0x80]).unwrap_err();
-    assert_eq!(ClarityTypeError::InvalidUtf8Encoding, err);
-}
-
-#[test]
 fn test_tuple_data_from_data_typed_returns_clarity_type_error() {
     let tuple_type =
         TupleTypeSignature::try_from(vec![("a".into(), TypeSignature::IntType)]).unwrap();
@@ -587,7 +581,7 @@ fn test_ascii_data_len_returns_clarity_type_error() {
 #[test]
 fn test_utf8_data_len_returns_clarity_type_error() {
     let err = UTF8Data {
-        data: vec![vec![]; MAX_VALUE_SIZE as usize + 1],
+        data: vec!['\0'; MAX_VALUE_SIZE as usize + 1],
     }
     .len()
     .unwrap_err();
@@ -626,4 +620,108 @@ fn invalid_utf8_string_from_bytes() {
     let err = Value::string_utf8_from_bytes(bad_bytes).unwrap_err();
 
     assert!(matches!(err, ClarityTypeError::InvalidUtf8Encoding));
+}
+
+#[test]
+fn utf8data_serde_roundtrip_ascii() {
+    let data = UTF8Data {
+        data: vec!['H', 'i'],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    let deserialized: UTF8Data = serde_json::from_str(&json).unwrap();
+    assert_eq!(data, deserialized);
+}
+
+#[test]
+fn utf8data_serde_roundtrip_multibyte() {
+    // Snowman U+2603
+    let data = UTF8Data {
+        data: vec!['\u{2603}'],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    let deserialized: UTF8Data = serde_json::from_str(&json).unwrap();
+    assert_eq!(data, deserialized);
+}
+
+#[test]
+fn utf8data_serde_roundtrip_four_byte() {
+    // Grinning face U+1F600
+    let data = UTF8Data {
+        data: vec!['\u{1F600}'],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    let deserialized: UTF8Data = serde_json::from_str(&json).unwrap();
+    assert_eq!(data, deserialized);
+}
+
+#[test]
+fn utf8data_serde_roundtrip_mixed() {
+    // "A" + snowman + grinning face
+    let data = UTF8Data {
+        data: vec!['A', '\u{2603}', '\u{1F600}'],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    let deserialized: UTF8Data = serde_json::from_str(&json).unwrap();
+    assert_eq!(data, deserialized);
+}
+
+#[test]
+fn utf8data_serializes_only_significant_bytes() {
+    // ASCII 'A' should serialize as [65], not [65, 0, 0, 0]
+    let data = UTF8Data { data: vec!['A'] };
+    let json = serde_json::to_string(&data).unwrap();
+    assert_eq!(json, "[[65]]");
+}
+
+#[test]
+fn utf8data_serializes_multibyte_significant_bytes() {
+    // Snowman should serialize as [226, 152, 131], not [226, 152, 131, 0]
+    let data = UTF8Data {
+        data: vec!['\u{2603}'],
+    };
+    let json = serde_json::to_string(&data).unwrap();
+    assert_eq!(json, "[[226,152,131]]");
+}
+
+#[test]
+fn utf8data_deserializes_from_old_format() {
+    // Old format: Vec<Vec<u8>> — ensure backward compatibility
+    let old_json = "[[65],[226,152,131],[240,159,152,128]]";
+    let deserialized: UTF8Data = serde_json::from_str(old_json).unwrap();
+    assert_eq!(
+        deserialized,
+        UTF8Data {
+            data: vec!['A', '\u{2603}', '\u{1F600}',],
+        }
+    );
+}
+
+#[test]
+fn utf8data_serde_roundtrip_empty() {
+    let data = UTF8Data { data: vec![] };
+    let json = serde_json::to_string(&data).unwrap();
+    assert_eq!(json, "[]");
+    let deserialized: UTF8Data = serde_json::from_str(&json).unwrap();
+    assert_eq!(data, deserialized);
+}
+
+#[test]
+fn utf8data_deserialize_rejects_invalid_utf8() {
+    // 0xFF is not a valid UTF-8 leading byte
+    let json = "[[255]]";
+    serde_json::from_str::<UTF8Data>(json).unwrap_err();
+}
+
+#[test]
+fn utf8data_deserialize_rejects_empty_entry() {
+    // An empty byte array doesn't represent a character
+    let json = "[[]]";
+    serde_json::from_str::<UTF8Data>(json).unwrap_err();
+}
+
+#[test]
+fn utf8data_deserialize_rejects_multi_codepoint_entry() {
+    // Two ASCII chars in a single entry
+    let json = "[[65, 66]]";
+    serde_json::from_str::<UTF8Data>(json).unwrap_err();
 }

@@ -65,12 +65,11 @@ fn make_ascii_string(n: usize) -> SequenceData {
 }
 
 fn make_utf8_string(n: usize) -> SequenceData {
-    // Each UTF8 "character" is stored as a Vec<u8> (one codepoint).
-    // Use a 3-byte codepoint (e.g. U+2603 SNOWMAN = 0xE2 0x98 0x83) to make
-    // each element a heap-allocated Vec, so clone cost is visible.
-    let codepoint: Vec<u8> = vec![0xE2, 0x98, 0x83];
+    // Each UTF8 "character" is stored as a Utf8Char (one codepoint, zero-padded [u8; 4]).
+    // Use a 3-byte codepoint (e.g. U+2603 SNOWMAN).
+    let codepoint = '\u{2603}';
     SequenceData::String(CharType::UTF8(UTF8Data {
-        data: (0..n).map(|_| codepoint.clone()).collect(),
+        data: vec![codepoint; n],
     }))
 }
 
