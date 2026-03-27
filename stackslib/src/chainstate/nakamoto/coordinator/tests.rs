@@ -4666,15 +4666,14 @@ fn test_stx_btc_ratio_mid_cycle_cold_start_full_scan() {
     );
     let entry = incomplete
         .get(&new_cycle)
-        .map(|c| &c.totals)
         .or_else(|| complete.get(&new_cycle))
         .expect("Expected cache entry");
     assert!(
-        entry.tenure_count > 0,
+        entry.totals.tenure_count > 0,
         "Cache should have tenures in cycle {new_cycle}"
     );
     assert!(
-        entry.stx_earned_ustx > 0,
+        entry.totals.stx_earned_ustx > 0,
         "Cache should have STX earned in cycle {new_cycle}"
     );
 }

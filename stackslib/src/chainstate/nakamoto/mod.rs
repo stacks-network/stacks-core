@@ -4049,7 +4049,11 @@ impl NakamotoChainState {
         let Some(mut tenure_consensus_hash) =
             conn.get_parent_tenure_consensus_hash(tip_index_hash, &anchor_ch)?
         else {
-            return Ok(totals_by_cycle);
+            error!(
+                "Found anchor block {anchor_ch} for cycle {} but could not resolve its parent tenure",
+                end_reward_cycle + 1
+            );
+            return Err(ChainstateError::DBError(DBError::NotFoundError));
         };
 
         // Precompute anchor block consensus hashes for cycle boundary detection.
@@ -4227,13 +4231,11 @@ impl NakamotoChainState {
     /// Load cached cycle totals for cycles in `[start_cycle, end_cycle]`.
     ///
     /// Returns two maps:
-    /// - `complete`: Completed cycles (is_complete == 1), always valid regardless of tip.
-    /// - `incomplete`: In-progress cycles with their metadata (last_tenure_ch), which the
-    ///   caller can use for incremental updates or fork detection.
-    ///
-    /// If the tip matches `current_tip` exactly, the incomplete entry is promoted to `complete`
-    /// (no work needed). Otherwise, the incomplete entry is returned separately so the caller
-    /// can decide whether to do an incremental update or a full recompute.
+    /// - `complete`: Completed cycles (is_complete == 1) and tip-matching incomplete entries.
+    ///   Completed entries include `last_tenure_ch` so the caller can validate them against
+    ///   the current fork via `is_tenure_in_fork` — a Bitcoin reorg that invalidates any
+    ///   sortition in the cycle breaks the tenure chain, making the cached data stale.
+    /// - `incomplete`: Stale in-progress cycles with metadata for incremental updates.
     ///
     /// Returns empty maps if the cache table does not exist (pre-migration).
     fn load_cached_cycle_totals(
@@ -4243,7 +4245,7 @@ impl NakamotoChainState {
         current_tip: &StacksBlockId,
     ) -> Result<
         (
-            HashMap<u64, StxBtcCycleTotals>,
+            HashMap<u64, CachedCycleTotals>,
             HashMap<u64, CachedCycleTotals>,
         ),
         ChainstateError,
@@ -4257,7 +4259,7 @@ impl NakamotoChainState {
         let mut incomplete = HashMap::new();
         let mut stmt = match conn.prepare(sql) {
             Ok(s) => s,
-            Err(_) => return Ok((complete, incomplete)), // table may not exist yet
+            Err(_) => return Ok((complete, incomplete)),
         };
         let rows = stmt
             .query_map(params![start_cycle as i64, end_cycle as i64], |row| {
@@ -4292,20 +4294,19 @@ impl NakamotoChainState {
                 stx_earned_ustx: stx_earned,
                 btc_spent_sats: btc_spent as u64,
             };
+            let last_tenure_ch =
+                ConsensusHash::from_hex(&last_ch).unwrap_or(ConsensusHash([0u8; 20]));
+            let cached = CachedCycleTotals {
+                totals,
+                last_tenure_ch,
+            };
             if is_complete {
-                complete.insert(cycle as u64, totals);
+                complete.insert(cycle as u64, cached);
             } else if tip == tip_hex {
                 // Tip matches exactly — no new blocks, use as-is.
-                complete.insert(cycle as u64, totals);
-            } else if let Ok(last_tenure_ch) = ConsensusHash::from_hex(&last_ch) {
-                // Stale incomplete entry — return with metadata for incremental update.
-                incomplete.insert(
-                    cycle as u64,
-                    CachedCycleTotals {
-                        totals,
-                        last_tenure_ch,
-                    },
-                );
+                complete.insert(cycle as u64, cached);
+            } else {
+                incomplete.insert(cycle as u64, cached);
             }
         }
         Ok((complete, incomplete))
@@ -4586,6 +4587,19 @@ impl NakamotoChainState {
         )
         .unwrap_or_default();
 
+        // Validate the 2 most recent completed cache entries against the current fork.
+        for &check_cycle in &[reward_cycle, reward_cycle.saturating_sub(1)] {
+            if let Some(cached) = complete_cache.get(&check_cycle) {
+                if !Self::is_tenure_in_fork(conn, tip_index_hash, &cached.last_tenure_ch) {
+                    warn!(
+                        "STX/BTC cache: completed cycle {} failed fork check; discarding",
+                        check_cycle
+                    );
+                    complete_cache.remove(&check_cycle);
+                }
+            }
+        }
+
         // Pre-compute which cycles are now complete. A cycle is complete when the
         // anchor block for the *next* cycle is available. We resolve this up-front
         // to avoid mutable borrow conflicts with `conn` in the loop below.
@@ -4631,7 +4645,13 @@ impl NakamotoChainState {
                         tip_index_hash,
                         &newest_ch,
                     );
-                    complete_cache.insert(cycle, updated);
+                    complete_cache.insert(
+                        cycle,
+                        CachedCycleTotals {
+                            totals: updated,
+                            last_tenure_ch: newest_ch,
+                        },
+                    );
                 }
                 // If None, the walk didn't reach the boundary — leave it missing
                 // so it gets fully recomputed below.
@@ -4646,7 +4666,7 @@ impl NakamotoChainState {
                     tip_index_hash,
                     &cached.last_tenure_ch,
                 );
-                complete_cache.insert(cycle, cached.totals.clone());
+                complete_cache.insert(cycle, cached.clone());
             }
         }
 
@@ -4682,23 +4702,30 @@ impl NakamotoChainState {
                 }
             }
 
-            complete_cache.extend(computed.into_iter().map(|(c, (t, _))| (c, t)));
+            complete_cache.extend(computed.into_iter().map(|(c, (t, ch))| {
+                (
+                    c,
+                    CachedCycleTotals {
+                        totals: t,
+                        last_tenure_ch: ch,
+                    },
+                )
+            }));
         }
 
-        let target_cycle_totals =
-            complete_cache
-                .get(&reward_cycle)
-                .cloned()
-                .unwrap_or(StxBtcCycleTotals {
-                    reward_cycle,
-                    tenure_count: 0,
-                    stx_earned_ustx: 0,
-                    btc_spent_sats: 0,
-                });
+        let target_cycle_totals = complete_cache
+            .get(&reward_cycle)
+            .map(|c| c.totals.clone())
+            .unwrap_or(StxBtcCycleTotals {
+                reward_cycle,
+                tenure_count: 0,
+                stx_earned_ustx: 0,
+                btc_spent_sats: 0,
+            });
 
         let ratio_by_cycle: HashMap<u64, Option<u128>> = complete_cache
             .into_iter()
-            .map(|(cycle, totals)| (cycle, Self::raw_stx_btc_ratio(&totals)))
+            .map(|(cycle, cached)| (cycle, Self::raw_stx_btc_ratio(&cached.totals)))
             .collect();
         let stx_btc_ratio = ratio_by_cycle.get(&reward_cycle).copied().flatten();
         let smoothed_stx_btc_ratio = Self::weighted_smoothed_stx_btc_ratio(
@@ -6862,9 +6889,9 @@ mod stx_btc_cache_tests {
         assert_eq!(complete.len(), 1);
         assert!(incomplete.is_empty());
         let entry = complete.get(&10).unwrap();
-        assert_eq!(entry.tenure_count, 100);
-        assert_eq!(entry.stx_earned_ustx, 5_000_000);
-        assert_eq!(entry.btc_spent_sats, 50_000);
+        assert_eq!(entry.totals.tenure_count, 100);
+        assert_eq!(entry.totals.stx_earned_ustx, 5_000_000);
+        assert_eq!(entry.totals.btc_spent_sats, 50_000);
     }
 
     #[test]
@@ -6909,7 +6936,7 @@ mod stx_btc_cache_tests {
         let (complete, _) =
             NakamotoChainState::load_cached_cycle_totals(&conn, 10, 10, &tip_b).unwrap();
         assert_eq!(complete.len(), 1);
-        assert_eq!(complete.get(&10).unwrap().tenure_count, 100);
+        assert_eq!(complete.get(&10).unwrap().totals.tenure_count, 100);
     }
 
     #[test]
@@ -6931,7 +6958,7 @@ mod stx_btc_cache_tests {
         assert!(incomplete.is_empty());
         for cycle in 6..=10 {
             let entry = complete.get(&cycle).unwrap();
-            assert_eq!(entry.tenure_count, cycle * 10);
+            assert_eq!(entry.totals.tenure_count, cycle * 10);
         }
     }
 
@@ -6952,8 +6979,8 @@ mod stx_btc_cache_tests {
         let (complete, _) =
             NakamotoChainState::load_cached_cycle_totals(&conn, 10, 10, &tip).unwrap();
         let entry = complete.get(&10).unwrap();
-        assert_eq!(entry.tenure_count, 60);
-        assert_eq!(entry.stx_earned_ustx, 1_200_000);
+        assert_eq!(entry.totals.tenure_count, 60);
+        assert_eq!(entry.totals.stx_earned_ustx, 1_200_000);
     }
 
     #[test]
@@ -7152,9 +7179,9 @@ mod stx_btc_cache_tests {
             NakamotoChainState::load_cached_cycle_totals(&conn, reward_cycle, reward_cycle, &tip)
                 .unwrap();
         let entry = complete.get(&reward_cycle).unwrap();
-        assert_eq!(entry.tenure_count, 1);
-        assert_eq!(entry.stx_earned_ustx, 500_000);
-        assert_eq!(entry.btc_spent_sats, 5_000);
+        assert_eq!(entry.totals.tenure_count, 1);
+        assert_eq!(entry.totals.stx_earned_ustx, 500_000);
+        assert_eq!(entry.totals.btc_spent_sats, 5_000);
     }
 
     #[test]
@@ -7256,10 +7283,10 @@ mod stx_btc_cache_tests {
             NakamotoChainState::load_cached_cycle_totals(&conn, reward_cycle, reward_cycle, &tip2)
                 .unwrap();
         let entry = complete.get(&reward_cycle).unwrap();
-        assert_eq!(entry.tenure_count, 2);
+        assert_eq!(entry.totals.tenure_count, 2);
         // Only coinbase counts — parent_fees (2_000) is intentionally excluded.
-        assert_eq!(entry.stx_earned_ustx, 1_000_000); // 500k + 500k coinbase
-        assert_eq!(entry.btc_spent_sats, 11_000);
+        assert_eq!(entry.totals.stx_earned_ustx, 1_000_000); // 500k + 500k coinbase
+        assert_eq!(entry.totals.btc_spent_sats, 11_000);
     }
 
     #[test]
@@ -7367,9 +7394,9 @@ mod stx_btc_cache_tests {
         let (complete, _) =
             NakamotoChainState::load_cached_cycle_totals(&conn, cycle1, cycle1, &tip2).unwrap();
         let entry = complete.get(&cycle1).unwrap();
-        assert_eq!(entry.tenure_count, 2);
+        assert_eq!(entry.totals.tenure_count, 2);
         // Only coinbase counts — parent_fees (3_000) is intentionally excluded.
-        assert_eq!(entry.stx_earned_ustx, 1_000_000); // 500k + 500k coinbase
-        assert_eq!(entry.btc_spent_sats, 11_000);
+        assert_eq!(entry.totals.stx_earned_ustx, 1_000_000); // 500k + 500k coinbase
+        assert_eq!(entry.totals.btc_spent_sats, 11_000);
     }
 }
