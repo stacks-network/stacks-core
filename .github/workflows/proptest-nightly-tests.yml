@@ -10,6 +10,9 @@
 ##   1. Saves proptest regression seeds as a workflow artifact
 ##   2. Posts a failure summary to the Job Summary page
 ##   3. Replays saved seeds automatically on the next run
+##   4. Send a Slack notification
+##
+## Note: A Slack notification is also sent in case of unexpected worfklow error.
 
 name: Tests::Proptest Nightly
 
@@ -24,6 +27,11 @@ on:
         required: true
         default: "2500"
         type: string
+      slack_skip:
+        description: "Skip Slack notifications"
+        required: false
+        default: true
+        type: boolean
 
 defaults:
   run:
@@ -43,6 +51,8 @@ env:
   NIGHTLY_PROPTEST_CASES: 2500
   ## Test tag to filter for proptest tests
   TEST_TAG: t_prop
+  ## Whether to send Slack notifications on nightly (scheduled) runs.
+  NIGHTLY_SLACK_NOTIFY: true
 
 
 jobs:
@@ -56,9 +66,11 @@ jobs:
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
             branch="${NIGHTLY_BRANCH}"
             cases="${NIGHTLY_PROPTEST_CASES}"
+            slack_notify="${NIGHTLY_SLACK_NOTIFY}"
           else
             branch="${{ github.ref_name }}"
             cases="${{ inputs.proptest_cases }}"
+            slack_notify="${{ inputs.slack_skip != true }}"
           fi
           artifact="proptest-nightly-${branch//\//-}"
 
@@ -66,11 +78,13 @@ jobs:
           echo "CHECKOUT_REF=${branch}" >> "$GITHUB_ENV"
           echo "ARTIFACT_NAME=${artifact}" >> "$GITHUB_ENV"
           echo "PROPTEST_CASES=${cases}" >> "$GITHUB_ENV"
+          echo "SLACK_NOTIFY=${slack_notify}" >> "$GITHUB_ENV"
 
           # Print computed env variables
           echo "CHECKOUT_REF=${branch}"
           echo "ARTIFACT_NAME=${artifact}"
           echo "PROPTEST_CASES=${cases}"
+          echo "SLACK_NOTIFY=${slack_notify}"
 
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -184,3 +198,117 @@ jobs:
           Proptest regression seeds have been saved as a workflow artifact (see `Artifacts` section)
           and will be replayed automatically on the next run.
           EOF
+
+      ## Notify Slack when proptest tests fail.
+      - name: Slack — proptest run failure
+        if: failure() && steps.run_tests.outcome == 'failure' && env.SLACK_NOTIFY == 'true'
+        uses: slackapi/slack-github-action@e090a7a7c0b2d9b7ae32bd34f086e680ce260b06 # v3.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_CI_NIGHTLY }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": ":red_circle: Proptest Nightly - Tests Failure",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "One or more property tests failed during the nightly run.\nCheck the workflow run for details and failed test names."
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Workflow:*\n${{ github.workflow }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\n`${{ env.CHECKOUT_REF }}`"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Cases per test:*\n${{ env.PROPTEST_CASES }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Run",
+                        "emoji": true
+                      },
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+
+      ## Notify Slack when the workflow fails for reasons other than test failures
+      - name: Slack — workflow error
+        if: failure() && steps.run_tests.outcome != 'failure' && env.SLACK_NOTIFY == 'true'
+        uses: slackapi/slack-github-action@e090a7a7c0b2d9b7ae32bd34f086e680ce260b06 # v3.0.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_CI_NIGHTLY }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": ":warning: Proptest Nightly — Workflow Error",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "The workflow failed due to unexpected error."
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Workflow:*\n${{ github.workflow }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\n`${{ env.CHECKOUT_REF }}`"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Run",
+                        "emoji": true
+                      },
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
