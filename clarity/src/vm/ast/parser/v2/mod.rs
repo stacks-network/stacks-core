@@ -17,7 +17,7 @@ pub mod lexer;
 use clarity_types::representations::{ClarityName, ContractName};
 use clarity_types::types::{
     CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, TraitIdentifier, UTF8Data,
-    Value,
+    Utf8Char, Value,
 };
 use stacks_common::util::hash::hex_bytes;
 
@@ -936,14 +936,7 @@ impl<'a> Parser<'a> {
                             Some(expr)
                         }
                         Token::Utf8String(s) => {
-                            let data: Vec<Vec<u8>> = s
-                                .chars()
-                                .map(|ch| {
-                                    let mut bytes = vec![0; ch.len_utf8()];
-                                    ch.encode_utf8(&mut bytes);
-                                    bytes
-                                })
-                                .collect();
+                            let data: Vec<Utf8Char> = s.chars().map(Utf8Char::from_char).collect();
                             let val =
                                 Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
                                     data,

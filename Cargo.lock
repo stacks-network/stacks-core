@@ -865,6 +865,7 @@ dependencies = [
 name = "clarity-types"
 version = "0.0.1"
 dependencies = [
+ "criterion",
  "lazy_static",
  "mutants",
  "regex",
