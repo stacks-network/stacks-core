@@ -44,15 +44,18 @@ concurrency:
 env:
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
-  TEST_TIMEOUT: 60
+  ## Test timeout in minutes
+  TEST_TIMEOUT: 120
   ## Branch to check out on scheduled (nightly) runs.
   NIGHTLY_BRANCH: develop
   ## Default number of generated cases per proptest (used on scheduled runs).
   NIGHTLY_PROPTEST_CASES: 2500
-  ## Test tag to filter for proptest tests
-  TEST_TAG: t_prop
   ## Whether to send Slack notifications on nightly (scheduled) runs.
   NIGHTLY_SLACK_NOTIFY: true
+  ## Test tag to filter for proptest tests
+  TEST_TAG: t_prop
+  ## Enable `madhouse-rs` tests to work with `PROPTEST_CASES`
+  MADHOUSE: 1 
 
 
 jobs:
