@@ -22,6 +22,9 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::types::{ResponseData, TupleData};
+use clarity::vm::Value;
 use regex::{Captures, Regex};
 use serde::Deserialize;
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
@@ -35,6 +38,8 @@ use stacks_common::util::tests::TestFlag;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
+use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::PoxVersions;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
@@ -258,6 +263,74 @@ pub struct NakamotoBlockProposal {
     pub chain_id: u32,
     /// Optional transaction replay set
     pub replay_txs: Option<Vec<StacksTransaction>>,
+}
+
+fn match_result_ok(value: &Value) -> Option<&Value> {
+    let Value::Response(ResponseData { committed, data }) = value else {
+        return None;
+    };
+    if !committed {
+        return None;
+    }
+    Some(data.as_ref())
+}
+
+fn match_tuple(value: &Value) -> Option<&TupleData> {
+    if let Value::Tuple(data) = value {
+        Some(data)
+    } else {
+        None
+    }
+}
+
+pub fn is_event_pox_addr_valid(is_mainnet: bool, event: &StacksTransactionEvent) -> bool {
+    let StacksTransactionEvent::SmartContractEvent(event) = event else {
+        // only smart contract events are relevant, so everything else is "okay"
+        return true;
+    };
+    if !event.key.0.is_boot() {
+        // only boot code events are relevant, so everything else is "okay"
+        return true;
+    }
+    if event.key.0.name.as_str() != PoxVersions::Pox4.get_name_str() {
+        // only pox events are relevant
+        return true;
+    }
+    if &event.key.1 != "print" {
+        // only look at print events
+        return true;
+    }
+    let Some(pox_event_tuple) = match_result_ok(&event.value) else {
+        // only care about (okay ...) results
+        return true;
+    };
+    let Some(outer_tuple_data) = match_tuple(&pox_event_tuple) else {
+        // should be unreachable
+        return true;
+    };
+    let Ok(data_tuple) = outer_tuple_data.get("data") else {
+        // should be unreachable
+        return true;
+    };
+    let Some(data_tuple_data) = match_tuple(&data_tuple) else {
+        // should be unreachable
+        return true;
+    };
+    let Ok(pox_addr_tuple) = data_tuple_data.get("pox-addr") else {
+        // should be unreachable
+        return true;
+    };
+
+    let pox_addr_value = if let Value::Optional(data) = pox_addr_tuple {
+        match data.data {
+            None => return true,
+            Some(ref inner) => inner.as_ref(),
+        }
+    } else {
+        pox_addr_tuple
+    };
+
+    PoxAddress::try_from_pox_tuple(is_mainnet, pox_addr_value).is_some()
 }
 
 impl NakamotoBlockProposal {
@@ -646,7 +719,18 @@ impl NakamotoBlockProposal {
                 &mut receipts_total,
             );
             let err = match tx_result {
-                TransactionResult::Success(_) => Ok(()),
+                TransactionResult::Success(success_result) => {
+                    let all_events_valid = success_result
+                        .receipt
+                        .events
+                        .iter()
+                        .all(|event| is_event_pox_addr_valid(mainnet, event));
+                    if !all_events_valid {
+                        Err(format!("Found an offending transaction: {i}"))
+                    } else {
+                        Ok(())
+                    }
+                }
                 TransactionResult::Skipped(s) => Err(format!("tx {i} skipped: {}", s.error)),
                 TransactionResult::ProcessingError(e) => {
                     Err(format!("Error processing tx {i}: {}", e.error))
