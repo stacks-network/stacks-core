@@ -41,6 +41,7 @@ use stacks::chainstate::stacks::{
     TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
     TransactionVersion,
 };
+use stacks::config::ConfigFile;
 use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::net::api::poststackerdbchunk::StackerDBErrorCodes;
 use stacks::net::p2p::NetworkHandle;
@@ -481,10 +482,27 @@ impl BlockMinerThread {
     #[cfg(not(test))]
     fn fault_injection_miner_stall() {}
 
+    fn check_miner_config_hot_reload(&mut self) {
+        if self.config.miner.hot_reload {
+            if let Some(config_file) = &self.config.config_path {
+                if let Ok(config_file) = ConfigFile::from_path(config_file) {
+                    if let Ok(config) = Config::from_config_file(config_file, false) {
+                        if config.miner != self.config.miner {
+                            info!("Miner configuration change detected by hot-reload system");
+                            self.config.miner = config.miner;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn run_miner(
         mut self,
         prior_miner: Option<MinerStopHandle>,
     ) -> Result<(), NakamotoNodeError> {
+        // start by reapplying miner config (if hot-reload is enabled)
+        self.check_miner_config_hot_reload();
         // when starting a new tenure, block the mining thread if its currently running.
         // the new mining thread will join it (so that the new mining thread stalls, not the relayer)
         debug!(
@@ -540,6 +558,9 @@ impl BlockMinerThread {
 
         // now, actually run this tenure
         loop {
+            // reapply miner config (if hot-reload is enabled)
+            self.check_miner_config_hot_reload();
+
             if let Err(e) = self.attempt_mine_and_propose_block(
                 &mut coordinator,
                 &sortdb,
