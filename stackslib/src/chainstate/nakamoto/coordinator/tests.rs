@@ -28,7 +28,8 @@ use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLE
 use stacks_common::bitvec::BitVec;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
-    BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
+    StacksPublicKey,
 };
 use stacks_common::types::{Address, StacksEpoch, StacksPublicKeyBuffer};
 use stacks_common::util::hash::{to_hex, Hash160};
@@ -4675,5 +4676,140 @@ fn test_stx_btc_ratio_mid_cycle_cold_start_full_scan() {
     assert!(
         entry.totals.stx_earned_ustx > 0,
         "Cache should have STX earned in cycle {new_cycle}"
+    );
+}
+
+/// Test that a simulated Bitcoin reorg (corrupted `last_tenure_ch`) causes the
+/// completed cycle cache to be invalidated and recomputed.
+///
+/// 1. Mine tenures and query a completed cycle (populates cache).
+/// 2. Corrupt the cached `last_tenure_ch` to a non-existent consensus hash
+///    (simulates a Bitcoin reorg that invalidated that sortition).
+/// 3. Query the same cycle again — the fork check should detect the stale entry,
+///    discard it, and recompute from scratch.
+/// 4. Verify the recomputed result matches the original.
+#[test]
+fn test_stx_btc_ratio_reorg_invalidates_completed_cache() {
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+
+    let pox_constants = peer.config.chain_config.burnchain.pox_constants.clone();
+    let first_burn_height = peer.config.chain_config.burnchain.first_block_height;
+
+    // Mine enough tenures to have a completed cycle.
+    for _ in 0..12 {
+        let (burn_ops, mut tenure_change, miner_key) =
+            peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
+        let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+        let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
+        peer.make_nakamoto_tenure(
+            tenure_change_tx,
+            coinbase_tx,
+            &mut test_signers,
+            |_miner, _chainstate, _sort_dbconn, _blocks| vec![],
+        );
+    }
+
+    let (tip_id, current_cycle) = {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
+            .unwrap()
+            .unwrap();
+        let cycle = pox_constants
+            .block_height_to_reward_cycle(first_burn_height, u64::from(tip.burn_header_height))
+            .unwrap();
+        (tip.index_block_hash(), cycle)
+    };
+
+    let past_cycle = current_cycle.saturating_sub(1);
+
+    // Step 1: Query the past cycle — full scan, cached as complete.
+    let ratio_original = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &tip_id,
+            past_cycle,
+        )
+        .unwrap()
+    };
+    assert!(ratio_original.tenure_count > 0);
+
+    // Verify it's cached as complete.
+    {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let (complete, _) = NakamotoChainState::load_cached_cycle_totals(
+            chainstate.db(),
+            past_cycle,
+            past_cycle,
+            &tip_id,
+        )
+        .unwrap();
+        assert!(
+            complete.contains_key(&past_cycle),
+            "Past cycle should be cached as complete"
+        );
+    }
+
+    // Step 2: Corrupt the cache to simulate a Bitcoin reorg.
+    // Replace last_tenure_ch with a non-existent consensus hash AND set tenure_count
+    // to a bogus value so we can verify the entry was actually recomputed (not served
+    // from the corrupted cache).
+    let bogus_tenure_count = 99999;
+    {
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        let bogus_ch = ConsensusHash([0xde; 20]);
+        chainstate
+            .db()
+            .execute(
+                "UPDATE stx_btc_cycle_cache SET last_tenure_ch = ?1, tenure_count = ?2 WHERE reward_cycle = ?3",
+                rusqlite::params![bogus_ch.to_hex(), bogus_tenure_count, past_cycle],
+            )
+            .expect("Failed to corrupt cache");
+    }
+
+    // Step 3: Query again — the fork check should detect the bogus tenure and recompute.
+    let ratio_after_reorg = {
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
+        NakamotoChainState::get_stx_btc_ratio_for_cycle(
+            &mut chainstate.index_conn(),
+            sort_db,
+            &tip_id,
+            past_cycle,
+        )
+        .unwrap()
+    };
+
+    // Step 4: The result should NOT have the bogus tenure count (proving it was recomputed).
+    assert_ne!(
+        ratio_after_reorg.tenure_count, bogus_tenure_count as u64,
+        "Should not return the corrupted cache entry"
+    );
+    // The recomputed result should match the original.
+    assert_eq!(
+        ratio_original.tenure_count, ratio_after_reorg.tenure_count,
+        "Recomputed tenure count should match original"
+    );
+    assert_eq!(
+        ratio_original.stx_earned_ustx, ratio_after_reorg.stx_earned_ustx,
+        "Recomputed STX earned should match original"
+    );
+    assert_eq!(
+        ratio_original.btc_spent_sats, ratio_after_reorg.btc_spent_sats,
+        "Recomputed BTC spent should match original"
     );
 }
