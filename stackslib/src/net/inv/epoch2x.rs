@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use p2p::DropSource;
 use rand;
@@ -69,7 +69,7 @@ impl PeerBlocksInv {
             pox_inv: vec![],
             num_sortitions: 0,
             num_reward_cycles: 0,
-            last_updated_at: 0,
+            last_updated_at: get_epoch_time_secs(),
             first_block_height,
         }
     }
@@ -756,7 +756,11 @@ impl NeighborBlockStats {
         assert!(!self.done);
         assert_eq!(self.state, InvWorkState::GetPoxInvFinish);
 
-        let mut request = self.request.take().expect("BUG: no request set");
+        let Some(mut request) = self.request.take() else {
+            debug!("{:?}: no active request", &network.local_peer);
+            self.status = NodeStatus::Dead;
+            return Err(net_error::NotConnected);
+        };
         if let Err(e) = network.saturate_p2p_socket(request.get_event_id(), &mut request) {
             self.status = NodeStatus::Dead;
             return Err(e);
@@ -853,7 +857,11 @@ impl NeighborBlockStats {
         assert!(!self.done);
         assert_eq!(self.state, InvWorkState::GetBlocksInvFinish);
 
-        let mut request = self.request.take().expect("BUG: request not set");
+        let Some(mut request) = self.request.take() else {
+            debug!("{:?}: no active request", &network.local_peer);
+            self.status = NodeStatus::Dead;
+            return Err(net_error::NotConnected);
+        };
         if let Err(e) = network.saturate_p2p_socket(request.get_event_id(), &mut request) {
             self.status = NodeStatus::Dead;
             return Err(e);
@@ -1151,6 +1159,38 @@ impl InvState {
 
     pub fn get_stats_mut(&mut self, nk: &NeighborKey) -> Option<&mut NeighborBlockStats> {
         self.block_stats.get_mut(nk)
+    }
+
+    /// Remove all inventories that were last updated earlier than `min_age`,
+    /// and retain at most `max_invs` inventories.
+    pub fn garbage_collect(&mut self, min_age: u64, max_invs: usize) {
+        self.block_stats.retain(|nk, stats| {
+            if stats.inv.last_updated_at < min_age {
+                debug!(
+                    "Remove stale inventory for peer {nk:?} aged {}",
+                    stats.inv.last_updated_at
+                );
+                false
+            } else {
+                true
+            }
+        });
+
+        // priority queue of block stats by last_updated_at.
+        // break ties by NeighborKey
+        let mut pq: BTreeMap<_, _> = self
+            .block_stats
+            .iter()
+            .map(|(nk, stats)| (stats.inv.last_updated_at, nk.clone()))
+            .collect();
+
+        while pq.len() > max_invs {
+            let Some((_, nk)) = pq.pop_first() else {
+                break;
+            };
+            debug!("Remove excessive inventory for peer {nk:?}");
+            self.del_peer(&nk);
+        }
     }
 
     #[cfg(test)]
@@ -1886,10 +1926,9 @@ impl PeerNetwork {
             return Ok(true);
         }
 
-        let pox_inv = stats
-            .pox_inv
-            .take()
-            .expect("BUG: finished getpoxinv without an error but got no poxinv");
+        let Some(pox_inv) = stats.pox_inv.take() else {
+            return Err(net_error::NotConnected);
+        };
 
         debug!(
             "{:?}: got PoxInv at reward cycle {} from {:?}: {:?}",
@@ -2066,10 +2105,10 @@ impl PeerNetwork {
 
         // if we get a blocksinv, then it means the remote peer still agrees with us on PoX state
         // (otherwise we would have been NACK'ed, and the peer would not be considered online)
-        let blocks_inv = stats
-            .blocks_inv
-            .take()
-            .expect("BUG: finished getblocksinv without an error but got no blocksinv");
+        let Some(blocks_inv) = stats.blocks_inv.take() else {
+            return Err(Error::NotConnected);
+        };
+
         let target_block_height = self
             .burnchain
             .reward_cycle_to_block_height(stats.target_block_reward_cycle);
@@ -2166,10 +2205,9 @@ impl PeerNetwork {
             self.init_inv_sync_epoch2x(sortdb);
         }
 
-        let inv_state = self
-            .inv_state
-            .as_mut()
-            .expect("Unreachable: inv state not initialized");
+        let Some(inv_state) = self.inv_state.as_mut() else {
+            return Err(net_error::NotConnected);
+        };
 
         let (new_tip_sort_id, new_pox_id, reloaded) = {
             if self.burnchain_tip.sortition_id != self.tip_sort_id {
@@ -2812,10 +2850,7 @@ impl PeerNetwork {
         // hint to the downloader to start scanning at the sortition
         // height we just synchronized
         let start_download_sortition = if let Some(ref inv_state) = self.inv_state {
-            let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(
-                sortdb.conn(),
-            )
-            .expect("FATAL: failed to load canonical stacks chain tip hash from sortition DB");
+            let consensus_hash = self.stacks_tip.consensus_hash.clone();
             let stacks_tip_sortition_height =
                 SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)
                     .expect("FATAL: failed to query sortition DB")

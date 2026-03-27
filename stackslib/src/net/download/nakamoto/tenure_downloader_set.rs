@@ -27,10 +27,10 @@ use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
 use crate::net::NeighborAddress;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct CompletedTenure {
-    tenure_id: ConsensusHash,
-    start_block: StacksBlockId,
-    end_block: StacksBlockId,
+pub struct CompletedTenure {
+    pub tenure_id: ConsensusHash,
+    pub start_block: StacksBlockId,
+    pub end_block: StacksBlockId,
 }
 
 impl From<&TenureStartEnd> for CompletedTenure {
@@ -71,7 +71,7 @@ pub struct NakamotoTenureDownloaderSet {
     pub(crate) peers: HashMap<NeighborAddress, usize>,
     /// The set of tenures that have been successfully downloaded (but possibly not yet stored or
     /// processed)
-    pub(crate) completed_tenures: HashSet<CompletedTenure>,
+    pub(crate) completed_tenures: HashMap<ConsensusHash, CompletedTenure>,
     /// Number of times a tenure download was attempted
     pub(crate) attempted_tenures: HashMap<ConsensusHash, u64>,
     /// Number of times a tenure download failed
@@ -86,7 +86,7 @@ impl NakamotoTenureDownloaderSet {
         Self {
             downloaders: vec![],
             peers: HashMap::new(),
-            completed_tenures: HashSet::new(),
+            completed_tenures: HashMap::new(),
             attempted_tenures: HashMap::new(),
             attempt_failed_tenures: HashMap::new(),
             deprioritized_peers: HashMap::new(),
@@ -235,12 +235,22 @@ impl NakamotoTenureDownloaderSet {
         true
     }
 
+    /// Get the set of completely-downloaded tenures
+    pub fn get_completed_tenures(&self) -> &HashMap<ConsensusHash, CompletedTenure> {
+        &self.completed_tenures
+    }
+
+    /// Get the counts of attempted tenures
+    pub fn get_attempted_tenures(&self) -> &HashMap<ConsensusHash, u64> {
+        &self.attempted_tenures
+    }
+
     /// Try to resume processing a download state machine with a given peer.  Since a peer is
     /// detached from the machine after a single RPC call, this call is needed to re-attach it to a
     /// (potentially different, unblocked) machine for the next RPC call to this peer.
     ///
     /// Returns true if the peer gets scheduled.
-    /// Returns false if not.
+    /// Returns false if not
     pub fn try_resume_peer(&mut self, naddr: NeighborAddress) -> bool {
         debug!("Try resume {}", &naddr);
         if let Some(idx) = self.peers.get(&naddr) {
@@ -370,10 +380,33 @@ impl NakamotoTenureDownloaderSet {
 
         self.clear_finished_downloaders();
         self.clear_available_peers();
-        while self.num_scheduled_downloaders() < count {
+
+        // find set of unique peers
+        let mut all_neighbors: HashSet<NeighborAddress> = HashSet::new();
+        for (_, naddrs) in available.iter() {
+            for naddr in naddrs.iter() {
+                all_neighbors.insert(naddr.clone());
+            }
+        }
+
+        // try to resume existing downloaders on these peers before scheduling new ones
+        let mut scheduled: HashSet<NeighborAddress> = HashSet::new();
+        for naddr in all_neighbors.iter() {
+            if self.try_resume_peer((*naddr).clone()) {
+                scheduled.insert((*naddr).clone());
+            }
+        }
+
+        // schedule new downloaders
+        while self.num_scheduled_downloaders() < count && scheduled.len() < all_neighbors.len() {
             let Some(ch) = schedule.front() else {
                 break;
             };
+            if self.has_downloader_for_tenure(ch) {
+                // already downloading this tenure
+                schedule.pop_front();
+                continue;
+            }
             let Some(neighbors) = available.get_mut(ch) else {
                 // not found on any neighbors, so stop trying this tenure
                 debug!("No neighbors have tenure {ch}");
@@ -391,19 +424,15 @@ impl NakamotoTenureDownloaderSet {
                 schedule.pop_front();
                 continue;
             };
-            if get_epoch_time_secs() < *self.deprioritized_peers.get(&naddr).unwrap_or(&0) {
-                debug!(
-                    "Peer {} is deprioritized until {naddr}",
-                    self.deprioritized_peers.get(&naddr).unwrap_or(&0)
-                );
+            if scheduled.contains(&naddr) {
+                // already rescheduled
                 continue;
             }
-
-            if self.try_resume_peer(naddr.clone()) {
-                continue;
-            };
-            if self.has_downloader_for_tenure(ch) {
-                schedule.pop_front();
+            if get_epoch_time_secs() < *self.deprioritized_peers.get(&naddr).unwrap_or(&0) {
+                debug!(
+                    "Peer {naddr} is deprioritized until {}",
+                    self.deprioritized_peers.get(&naddr).unwrap_or(&0)
+                );
                 continue;
             }
 
@@ -419,15 +448,12 @@ impl NakamotoTenureDownloaderSet {
                 continue;
             };
             if tenure_info.processed {
-                // we already have this tenure
-                debug!("Already have processed tenure {ch}");
-                self.completed_tenures
-                    .remove(&CompletedTenure::from(tenure_info));
+                debug!("Already processed tenure {ch}");
                 continue;
             }
             if self
                 .completed_tenures
-                .contains(&CompletedTenure::from(tenure_info))
+                .contains_key(&tenure_info.tenure_id_consensus_hash)
             {
                 debug!(
                     "Already successfully downloaded tenure {ch} ({}-{})",
@@ -492,7 +518,8 @@ impl NakamotoTenureDownloaderSet {
             );
 
             debug!("Request tenure {ch} from neighbor {naddr}");
-            self.add_downloader(naddr, tenure_download);
+            self.add_downloader(naddr.clone(), tenure_download);
+            scheduled.insert(naddr);
             schedule.pop_front();
         }
     }
@@ -592,7 +619,8 @@ impl NakamotoTenureDownloaderSet {
             self.clear_downloader(&done_naddr);
         }
         for done_tenure in finished_tenures.drain(..) {
-            self.completed_tenures.insert(done_tenure);
+            self.completed_tenures
+                .insert(done_tenure.tenure_id.clone(), done_tenure);
         }
 
         // handle responses
@@ -670,7 +698,8 @@ impl NakamotoTenureDownloaderSet {
             self.clear_downloader(&done_naddr);
         }
         for done_tenure in finished_tenures.into_iter() {
-            self.completed_tenures.insert(done_tenure);
+            self.completed_tenures
+                .insert(done_tenure.tenure_id.clone(), done_tenure);
         }
 
         new_blocks

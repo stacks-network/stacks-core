@@ -28,6 +28,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
 
@@ -69,7 +70,8 @@ const BLOCK_HEIGHT_MAX: u64 = (1 << 63) - 1;
 pub const REWARD_WINDOW_START: u64 = 144 * 15;
 pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
 
-pub const STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH: usize = 144;
+// two reward cycles
+pub const STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH: usize = 4200;
 
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
 
@@ -4705,7 +4707,7 @@ impl SortitionDB {
         let mut cursor = tip.clone();
         for _ in 0..STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH {
             let result_at_tip : Option<(ConsensusHash, ConsensusHash, BlockHeaderHash, u64)> = conn.query_row_and_then(
-                "SELECT consensus_hash,burn_view_consensus_hash, block_hash,block_height FROM stacks_chain_tips_by_burn_view WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
+                "SELECT consensus_hash, burn_view_consensus_hash, block_hash,block_height FROM stacks_chain_tips_by_burn_view WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
                 &[&cursor.sortition_id],
                 |row| Ok((row.get_unwrap(0), row.get_unwrap(1), row.get_unwrap(2), (u64::try_from(row.get_unwrap::<_, i64>(3)).expect("FATAL: block height too high"))))
             ).optional()?;
@@ -4771,8 +4773,20 @@ impl SortitionDB {
         if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
             // nakamoto behavior -- look to the stacks_chain_tip table
             //  if the chain tip of the current sortition hasn't been set, have to iterate to parent
-            return Self::get_canonical_nakamoto_tip_hash_and_height(conn, &sn)?
+            let ts_start = get_epoch_time_ms();
+            let ret = Self::get_canonical_nakamoto_tip_hash_and_height(conn, &sn)?
                 .ok_or(db_error::NotFoundError);
+            let ts_end = get_epoch_time_ms();
+            if ts_end.saturating_sub(ts_start) > 100 {
+                info!(
+                    "Self::get_canonical_nakamoto_tip_hash_and_height(sn=({},{},{})) took {}ms",
+                    &sn.block_height,
+                    &sn.sortition_id,
+                    &sn.consensus_hash,
+                    ts_end.saturating_sub(ts_start)
+                );
+            }
+            return ret;
         }
 
         // epoch 2.x behavior -- look at the snapshot itself

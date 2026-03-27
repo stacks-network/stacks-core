@@ -52,6 +52,7 @@ use crate::net::download::nakamoto::NakamotoDownloadStateMachine;
 use crate::net::download::BlockDownloader;
 use crate::net::inv::inv2x::*;
 use crate::net::inv::nakamoto::{InvGenerator, NakamotoInvStateMachine};
+use crate::net::inv::MAX_INVENTORY_AGE;
 use crate::net::mempool::MempoolSync;
 use crate::net::neighbors::*;
 use crate::net::poll::{NetworkPollState, NetworkState};
@@ -60,6 +61,8 @@ use crate::net::server::*;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBTx, StackerDBs};
 use crate::net::{Error as net_error, Neighbor, NeighborKey, *};
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
+
+const REWARD_SET_RELOAD_INTERVAL_SECS: u64 = 5; // may reload a reward set from disk every 5 seconds if there has been no change in the chainstate
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -314,6 +317,20 @@ pub enum DropReason {
     FaultInjection,
 }
 
+impl DropReason {
+    pub fn should_clear_inventories(&self) -> bool {
+        match self {
+            Self::BannedConnection
+            | Self::BrokenConnection(..)
+            | Self::FaultInjection
+            | Self::OrgTooManyMembers
+            | Self::OrgDominatesPeerTable
+            | Self::TooManyConnections => true,
+            _ => false,
+        }
+    }
+}
+
 impl std::fmt::Display for DropReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -480,6 +497,8 @@ pub struct PeerNetwork {
     /// The reward sets of the past three reward cycles.
     /// Needed to validate blocks, which are signed by a threshold of stackers
     pub current_reward_sets: BTreeMap<u64, CurrentRewardSet>,
+    /// The last Stacks tip at which a reward set load was attempted, and the timestamp
+    pub reward_set_loaded_at: HashMap<u64, (StacksBlockId, u64)>,
 
     // information about the state of the network's anchor blocks
     pub last_anchor_block_hash: BlockHeaderHash,
@@ -697,6 +716,7 @@ impl PeerNetwork {
             parent_stacks_tip: StacksTipInfo::empty(),
             tenure_start_block_id: StacksBlockId([0x00; 32]),
             current_reward_sets: BTreeMap::new(),
+            reward_set_loaded_at: HashMap::new(),
 
             peerdb,
             atlasdb,
@@ -2126,20 +2146,22 @@ impl PeerNetwork {
                 self.relay_handles.remove(&event_id);
                 self.peers.remove(&event_id);
             }
-            // remove inventory state
-            if let Some(inv_state) = self.inv_state.as_mut() {
-                debug!(
-                    "{:?}: Remove inventory state for epoch 2.x {nk:?}",
-                    &self.local_peer
-                );
-                inv_state.del_peer(&nk);
-            }
-            if let Some(inv_state) = self.inv_state_nakamoto.as_mut() {
-                debug!(
-                    "{:?}: Remove inventory state for Nakamoto {nk:?}",
-                    &self.local_peer
-                );
-                inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk.clone(), pubkh));
+            // remove inventory state if the peer misbehaved
+            if reason.should_clear_inventories() {
+                if let Some(inv_state) = self.inv_state.as_mut() {
+                    debug!(
+                        "{:?}: Remove inventory state for epoch 2.x {nk:?}",
+                        &self.local_peer
+                    );
+                    inv_state.del_peer(&nk);
+                }
+                if let Some(inv_state) = self.inv_state_nakamoto.as_mut() {
+                    debug!(
+                        "{:?}: Remove inventory state for Nakamoto {nk:?}",
+                        &self.local_peer
+                    );
+                    inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk.clone(), pubkh));
+                }
             }
         }
     }
@@ -4580,6 +4602,12 @@ impl PeerNetwork {
                 true
             });
         }
+        self.reward_set_loaded_at
+            .retain(|tried_rc, (_tip, load_ts)| {
+                *tried_rc >= rc
+                    || self.current_reward_sets.contains_key(tried_rc)
+                    || *load_ts + REWARD_SET_RELOAD_INTERVAL_SECS >= get_epoch_time_secs()
+            });
     }
 
     /// Determine if we need to invalidate a given cached reward set.
@@ -4644,7 +4672,13 @@ impl PeerNetwork {
                         test_debug!("Cached reward cycle {rc} is still valid");
                         return Ok(false);
                     }
+                } else {
+                    test_debug!(
+                        "No anchor hash known for reward cycle start height {rc_start_height}"
+                    );
                 }
+            } else {
+                test_debug!("No reward cycle info for cycle {rc} is cached");
             }
         }
 
@@ -4673,21 +4707,36 @@ impl PeerNetwork {
         let prev_rc = cur_rc.saturating_sub(1);
         let prev_prev_rc = prev_rc.saturating_sub(1);
 
-        for rc in [cur_rc, prev_rc, prev_prev_rc] {
-            debug!("Refresh reward cycle info for cycle {}", rc);
-            if self.current_reward_sets.contains_key(&rc)
-                && !self.check_reload_cached_reward_set(
-                    sortdb,
-                    chainstate,
-                    rc,
-                    tip_sn,
-                    tip_block_id,
-                    tip_height,
-                )?
-            {
-                continue;
+        for rc in [cur_rc, prev_rc, prev_prev_rc].into_iter() {
+            let have_cached = self.current_reward_sets.contains_key(&rc);
+            let tried_stacks_tip_opt = self.reward_set_loaded_at.get(&rc);
+            let is_reorg = self.check_reload_cached_reward_set(
+                sortdb,
+                chainstate,
+                rc,
+                tip_sn,
+                tip_block_id,
+                tip_height,
+            )?;
+
+            debug!("Refresh reward cycle info for cycle {rc} (reorg? {is_reorg})");
+            if !is_reorg {
+                if have_cached {
+                    continue;
+                }
+                if let Some((stacks_tip_id, reload_ts)) = tried_stacks_tip_opt {
+                    if stacks_tip_id == tip_block_id
+                        && reload_ts + REWARD_SET_RELOAD_INTERVAL_SECS >= get_epoch_time_secs()
+                    {
+                        continue;
+                    }
+                }
             }
-            debug!("Refresh reward cycle info for cycle {rc}");
+
+            debug!("Refresh reward cycle info for cycle {rc} as of Stacks tip {tip_block_id} height {tip_height}");
+            self.reward_set_loaded_at
+                .insert(rc, (tip_block_id.clone(), get_epoch_time_secs()));
+
             let Some((reward_set_info, anchor_block_header)) = load_nakamoto_reward_set(
                 rc,
                 &tip_sn.sortition_id,
@@ -4776,11 +4825,7 @@ impl PeerNetwork {
             }
         };
 
-        let need_stackerdb_refresh = canonical_sn.canonical_stacks_tip_consensus_hash
-            != self.burnchain_tip.canonical_stacks_tip_consensus_hash
-            || burnchain_tip_changed
-            || stacks_tip_changed;
-
+        let need_stackerdb_refresh = burnchain_tip_changed || stacks_tip_changed;
         if burnchain_tip_changed || stacks_tip_changed {
             self.refresh_reward_cycles(
                 sortdb,
@@ -4981,6 +5026,27 @@ impl PeerNetwork {
         Ok(ret)
     }
 
+    /// Garbage collect stale state:
+    /// * remove stale cached inventory data from peers that disconnected from us
+    fn garbage_collect(&mut self) {
+        // clear out inventory state if it's been a while since we successfully resync'ed
+        // with this peer
+        if let Some(inv_state) = self.inv_state.as_mut() {
+            // allow some slack in case there's neighbor flapping
+            inv_state.garbage_collect(
+                get_epoch_time_secs().saturating_sub(MAX_INVENTORY_AGE),
+                usize::try_from(self.connection_opts.num_neighbors * 2).unwrap_or(usize::MAX),
+            );
+        }
+        if let Some(inv_state) = self.inv_state_nakamoto.as_mut() {
+            // allow some slack in case there's neighbor flapping
+            inv_state.garbage_collect(
+                get_epoch_time_secs().saturating_sub(MAX_INVENTORY_AGE),
+                usize::try_from(self.connection_opts.num_neighbors * 2).unwrap_or(usize::MAX),
+            );
+        }
+    }
+
     /// Update p2p networking state.
     /// -- accept new connections
     /// -- send data on ready sockets
@@ -5151,6 +5217,8 @@ impl PeerNetwork {
         let inbound_neighbors = self.peers.len() - outbound_neighbors as usize;
         update_outbound_neighbors(outbound_neighbors as i64);
         update_inbound_neighbors(inbound_neighbors as i64);
+
+        self.garbage_collect();
 
         // fault injection -- periodically disconnect from everyone
         if cfg!(test) {
@@ -5454,6 +5522,7 @@ impl PeerNetwork {
         txindex: bool,
     ) -> Result<NetworkResult, net_error> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
+        let dispatch_begin = get_epoch_time_ms();
         let mut poll_states = match self.network {
             None => {
                 debug!("{:?}: network not connected", &self.local_peer);
@@ -5558,7 +5627,9 @@ impl PeerNetwork {
         );
 
         self.log_neighbors();
-        debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+
+        let dispatch_end = get_epoch_time_ms();
+        debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch ({}ms) <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<", dispatch_end.saturating_sub(dispatch_begin));
         Ok(network_result)
     }
 }

@@ -237,14 +237,19 @@ impl P2PSession {
         let handshake = session.make_peer_message(handshake_data)?;
         session.send_peer_message(handshake)?;
 
-        let resp = session.recv_peer_message()?;
-        match resp.payload {
-            StacksMessageType::HandshakeAccept(..)
-            | StacksMessageType::StackerDBHandshakeAccept(..) => {}
-            x => {
-                return Err(format!(
-                    "Peer returned unexpected message (expected HandshakeAccept variant): {x:?}",
-                ));
+        loop {
+            let resp = session.recv_peer_message()?;
+            match resp.payload {
+                StacksMessageType::HandshakeAccept(..)
+                | StacksMessageType::StackerDBHandshakeAccept(..) => {
+                    break;
+                }
+                x => {
+                    info!(
+                        "Peer returned unexpected message (expected HandshakeAccept variant): {x:?}"
+                    );
+                    continue;
+                }
             }
         }
 
@@ -848,14 +853,20 @@ fn main() {
 
             let msg = session.make_peer_message(get_nakamoto_inv).unwrap();
             session.send_peer_message(msg).unwrap();
-            let resp = session.recv_peer_message().unwrap();
 
-            let StacksMessageType::NakamotoInv(inv) = &resp.payload else {
-                panic!("Got spurious message: {resp:?}");
-            };
-
-            println!("{inv:?}");
-            process::exit(0);
+            loop {
+                let resp = session.recv_peer_message().unwrap();
+                match resp.payload {
+                    StacksMessageType::NakamotoInv(inv) => {
+                        println!("{inv:?}");
+                        process::exit(0);
+                    }
+                    x => {
+                        info!("Got non-NakamotoInv message: {x:?}");
+                        continue;
+                    }
+                }
+            }
         }
 
         // Chain State Commands

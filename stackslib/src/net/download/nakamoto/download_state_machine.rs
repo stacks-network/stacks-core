@@ -28,7 +28,7 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::chat::ConversationP2P;
 use crate::net::connection::ConnectionOptions;
 use crate::net::download::nakamoto::{
-    AvailableTenures, NakamotoTenureDownloader, NakamotoTenureDownloaderSet,
+    AvailableTenures, CompletedTenure, NakamotoTenureDownloader, NakamotoTenureDownloaderSet,
     NakamotoUnconfirmedTenureDownloader, TenureStartEnd, WantedTenure,
 };
 use crate::net::inv::nakamoto::NakamotoTenureInv;
@@ -304,18 +304,65 @@ impl NakamotoDownloadStateMachine {
         wanted_tenures: &mut [WantedTenure],
         chainstate: &StacksChainState,
         stacks_tip: &StacksBlockId,
+        completed_tenures: &HashMap<ConsensusHash, CompletedTenure>,
+        attempted_tenures: &HashMap<ConsensusHash, u64>,
+        available_tenures: &HashMap<NeighborAddress, AvailableTenures>,
     ) -> Result<(), NetError> {
+        // merge available tenures
+        let mut all_available_tenures = HashMap::new();
+        for available_tenures in available_tenures.values() {
+            all_available_tenures.extend(available_tenures);
+        }
+
         for wt in wanted_tenures.iter_mut() {
-            debug!(
+            test_debug!(
                 "update_processed_wanted_tenures: consider {:?} off of {}",
-                &wt, stacks_tip
+                &wt,
+                stacks_tip
             );
             if wt.processed {
                 continue;
             }
             if wt.burn_height < nakamoto_start {
                 // not our problem
+                debug!(
+                    "update_processed_wanted_tenures: WantedTenure {:?} is before Nakamoto start height {}",
+                    &wt, nakamoto_start
+                );
                 wt.processed = true;
+                continue;
+            }
+            if completed_tenures.contains_key(&wt.tenure_id_consensus_hash) {
+                debug!(
+                    "Tenure {} is already downloaded",
+                    &wt.tenure_id_consensus_hash
+                );
+                wt.processed = true;
+                continue;
+            }
+            if let Some(tenure_start_end) = all_available_tenures.get(&wt.tenure_id_consensus_hash)
+            {
+                // maybe we already downloaded it?
+                // This gets reached on boot-up, before `completed_tenures` and `attempted_tenures`
+                // are populated by the tenure downloader set.
+                let staging_blocks = chainstate.nakamoto_blocks_db();
+                if staging_blocks
+                    .has_nakamoto_block_with_index_hash(&tenure_start_end.start_block_id)
+                    .unwrap_or(false)
+                    && staging_blocks
+                        .has_nakamoto_block_with_index_hash(&tenure_start_end.end_block_id)
+                        .unwrap_or(false)
+                {
+                    debug!(
+                        "Tenure {} already downloaded and stored",
+                        &wt.tenure_id_consensus_hash
+                    );
+                    wt.processed = true;
+                    continue;
+                }
+            }
+            if !attempted_tenures.contains_key(&wt.tenure_id_consensus_hash) {
+                test_debug!("Tenure {} not yet attempted", &wt.tenure_id_consensus_hash);
                 continue;
             }
             if NakamotoChainState::has_processed_nakamoto_tenure(
@@ -347,6 +394,9 @@ impl NakamotoDownloadStateMachine {
                 prev_wanted_tenures,
                 chainstate,
                 &self.nakamoto_tip,
+                self.tenure_downloads.get_completed_tenures(),
+                self.tenure_downloads.get_attempted_tenures(),
+                &self.tenure_block_ids,
             )?;
         }
         debug!("update_processed_wanted_tenures: update wanted_tenures");
@@ -355,6 +405,9 @@ impl NakamotoDownloadStateMachine {
             &mut self.wanted_tenures,
             chainstate,
             &self.nakamoto_tip,
+            self.tenure_downloads.get_completed_tenures(),
+            self.tenure_downloads.get_attempted_tenures(),
+            &self.tenure_block_ids,
         )
     }
 
@@ -565,6 +618,8 @@ impl NakamotoDownloadStateMachine {
                 debug!("Peer {} has the following inventory data: {:?}", naddr, inv);
                 continue;
             };
+
+            let mut missing_sortitions = vec![];
             for (i, wt) in wanted_tenures.iter().enumerate() {
                 if wt.processed {
                     continue;
@@ -578,9 +633,13 @@ impl NakamotoDownloadStateMachine {
                 let bit = u16::try_from(i).expect("FATAL: more sortitions than u16::MAX");
                 if !rc_inv.get(bit).unwrap_or(false) {
                     // this neighbor does not have this tenure
-                    debug!(
+                    missing_sortitions.push(bit);
+                    test_debug!(
                         "Peer {} does not have sortition #{} in reward cycle {} (wt {:?})",
-                        naddr, bit, reward_cycle, &wt
+                        naddr,
+                        bit,
+                        reward_cycle,
+                        &wt
                     );
                     continue;
                 }
@@ -590,6 +649,12 @@ impl NakamotoDownloadStateMachine {
                 } else {
                     available.insert(ch.clone(), vec![naddr.clone()]);
                 }
+            }
+            if missing_sortitions.len() > 0 {
+                debug!(
+                    "Peer {} does NOT have the following sortitions in reward cycle {}: {:?}",
+                    naddr, reward_cycle, &missing_sortitions
+                );
             }
         }
         available
@@ -710,6 +775,7 @@ impl NakamotoDownloadStateMachine {
     ) {
         if self.tenure_download_schedule.is_empty() {
             // try again
+            debug!("Download schedule is empty");
             self.available_tenures.clear();
             self.tenure_block_ids.clear();
         }
@@ -720,6 +786,7 @@ impl NakamotoDownloadStateMachine {
         }
         if self.wanted_tenures.is_empty() {
             // nothing to do
+            debug!("No wanted tenures");
             return;
         }
         if inventories.is_empty() {
@@ -727,32 +794,6 @@ impl NakamotoDownloadStateMachine {
             debug!("No inventories available");
             return;
         }
-
-        // calculate self.available
-        // get available tenures for both the current and previous reward cycles
-        let prev_available = self
-            .prev_wanted_tenures
-            .as_ref()
-            .map(|prev_wanted_tenures| {
-                debug!(
-                    "Load availability for prev_wanted_tenures ({}) at rc {}",
-                    prev_wanted_tenures.len(),
-                    self.reward_cycle.saturating_sub(1)
-                );
-                Self::find_available_tenures(
-                    self.reward_cycle.saturating_sub(1),
-                    prev_wanted_tenures,
-                    inventories.iter(),
-                )
-            })
-            .unwrap_or_default();
-
-        let mut available = Self::find_available_tenures(
-            self.reward_cycle,
-            &self.wanted_tenures,
-            inventories.iter(),
-        );
-        available.extend(prev_available);
 
         // calculate self.tenure_block_ids
         let prev_tenure_block_ids = self.prev_wanted_tenures
@@ -786,6 +827,32 @@ impl NakamotoDownloadStateMachine {
                 inventories.iter(),
             )
         };
+
+        // calculate self.available
+        // get available tenures for both the current and previous reward cycles
+        let prev_available = self
+            .prev_wanted_tenures
+            .as_ref()
+            .map(|prev_wanted_tenures| {
+                debug!(
+                    "Load availability for prev_wanted_tenures ({}) at rc {}",
+                    prev_wanted_tenures.len(),
+                    self.reward_cycle.saturating_sub(1)
+                );
+                Self::find_available_tenures(
+                    self.reward_cycle.saturating_sub(1),
+                    prev_wanted_tenures,
+                    inventories.iter(),
+                )
+            })
+            .unwrap_or_default();
+
+        let mut available = Self::find_available_tenures(
+            self.reward_cycle,
+            &self.wanted_tenures,
+            inventories.iter(),
+        );
+        available.extend(prev_available);
 
         // merge tenure block IDs
         for (naddr, prev_available) in prev_tenure_block_ids.into_iter() {
@@ -957,6 +1024,10 @@ impl NakamotoDownloadStateMachine {
         // see if we need any tenures still
         for wt in wanted_tenures.iter().chain(prev_wanted_tenures.iter()) {
             debug!("Check unconfirmed tenures: check {:?}", &wt);
+            if wt.winning_block_id == StacksBlockId([0x00; 32]) {
+                // no winning sortition
+                continue;
+            }
             let is_available_and_processed = tenure_block_ids.iter().any(|(_, available)| {
                 if let Some(tenure_start_end) = available.get(&wt.tenure_id_consensus_hash) {
                     tenure_start_end.processed
@@ -977,7 +1048,7 @@ impl NakamotoDownloadStateMachine {
 
                 if is_unconfirmed {
                     debug!(
-                        "Tenure {} is only available via the unconfirmed tenure downloader",
+                        "Non-empty tenure {} is only available via the unconfirmed tenure downloader",
                         &wt.tenure_id_consensus_hash
                     );
                     continue;
@@ -1197,7 +1268,7 @@ impl NakamotoDownloadStateMachine {
                     DropSource::NakamotoDownloadStateMachine,
                 );
                 continue;
-            };
+            }
         }
 
         // clear dead, broken, and done
@@ -1428,7 +1499,6 @@ impl NakamotoDownloadStateMachine {
         network: &mut PeerNetwork,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
-        ibd: bool,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         debug!(
             "run_downloads: burnchain_height={}, network.burnchain_tip.block_height={}, state={}",
@@ -1438,17 +1508,9 @@ impl NakamotoDownloadStateMachine {
             "timestamp_ms" => get_epoch_time_ms(),
         );
 
-        let Some(invs) = network.inv_state_nakamoto.as_ref() else {
-            // nothing to do
+        if network.inv_state_nakamoto.is_none() {
             return HashMap::new();
-        };
-
-        self.update_available_tenures(
-            &invs.inventories,
-            &sortdb.pox_constants,
-            sortdb.first_block_height,
-            ibd,
-        );
+        }
 
         // check this now, since we mutate self.available
         self.fetch_unconfirmed_tenures = if self
@@ -1564,9 +1626,75 @@ impl NakamotoDownloadStateMachine {
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         self.nakamoto_tip = network.stacks_tip.block_id();
         debug!("Downloader: Nakamoto tip is {:?}", &self.nakamoto_tip);
+
+        let Some(invs) = network.inv_state_nakamoto.as_ref() else {
+            debug!("Downloader: skipping downloader until inventory is instantiated");
+            return Ok(HashMap::new());
+        };
+
         self.update_wanted_tenures(network, sortdb)?;
+
+        let sort_rc = Self::get_confirmable_reward_cycle(
+            &sortdb.pox_constants,
+            sortdb.first_block_height,
+            network.burnchain_tip.block_height,
+        )
+        .expect("FATAL: burnchain tip is before system start");
+
+        // don't do anything if no peer knows about this reward cycle
+        if invs
+            .inventories
+            .iter()
+            .find(|(_, inv)| inv.tenures_inv.contains_key(&sort_rc))
+            .is_none()
+        {
+            debug!("Downloader: skipping downloader until we have learned at least one peer's inventory for reward cycle {sort_rc}");
+            return Ok(HashMap::new());
+        }
+
+        // don't do anything if no peer knows about the previous reward cycle
+        let prev_rc = sort_rc.saturating_sub(1);
+        if invs
+            .inventories
+            .iter()
+            .find(|(_, inv)| inv.tenures_inv.contains_key(&prev_rc))
+            .is_none()
+        {
+            debug!("Downloader: skipping downloader until we have learned at least one peer's inventory for reward cycle {prev_rc}");
+            return Ok(HashMap::new());
+        }
+
+        // don't do anything if we don't have prev_wanted_tenures
+        if self.prev_wanted_tenures.is_none() {
+            debug!("Downloader: skipping download until prev_wanted_tenures is known");
+            return Ok(HashMap::new());
+        }
+        // first pass -- figure out who has which tenure data
+        self.update_available_tenures(
+            &invs.inventories,
+            &sortdb.pox_constants,
+            sortdb.first_block_height,
+            ibd,
+        );
+
+        // second pass -- update wanted_tenures and prev_wanted_tenures to see which ones have
+        // already been downloaded
         self.update_processed_tenures(chainstate)?;
-        let new_blocks = self.run_downloads(burnchain_height, network, sortdb, chainstate, ibd);
+
+        // third pass -- recalculate tenure availability and download schedule with updated
+        // wanted tenures, but ignore available tenures that we already have.
+        self.tenure_download_schedule.clear();
+        self.tenure_block_ids.clear();
+        self.available_tenures.clear();
+
+        self.update_available_tenures(
+            &invs.inventories,
+            &sortdb.pox_constants,
+            sortdb.first_block_height,
+            ibd,
+        );
+
+        let new_blocks = self.run_downloads(burnchain_height, network, sortdb, chainstate);
         self.last_sort_tip = Some(network.burnchain_tip.clone());
         Ok(new_blocks)
     }
