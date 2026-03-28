@@ -82,6 +82,8 @@ mod tests {
     fn expected_contract_context_heap_bytes(contract: &Contract) -> usize {
         let contract_context = &contract.contract_context;
 
+        // This is a bit rigid and will break if we change ContractContext's fields, but will catch
+        // if we forget to include a field in the resident_bytes calculation.
         contract_context.contract_identifier.heap_bytes()
             + contract_context.variables.heap_bytes()
             + contract_context.functions.heap_bytes()
@@ -106,6 +108,7 @@ mod tests {
         );
     }
 
+    #[track_caller]
     fn initialize_contract_with_store(
         marf: &mut MemoryBackingStore,
         source: &str,
@@ -138,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn contract_resident_bytes_matches_empty_contract_context_exactly() {
+    fn resident_bytes_matches_empty_contract_context() {
         let contract_identifier =
             QualifiedContractIdentifier::local("resident-bytes-empty").unwrap();
         let contract = Contract {
@@ -163,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn contract_resident_bytes_matches_initialized_contract_context_exactly() {
+    fn resident_bytes_covers_all_fields_in_rich_contract() {
         let contract = initialize_contract(
             r#"
             (define-data-var counter uint u0)
@@ -206,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn contract_resident_bytes_exercises_ft_nft_and_traits() {
+    fn resident_bytes_counts_ft_nft_and_traits() {
         let contract = initialize_contract(
             r#"
             (define-fungible-token gold)
@@ -252,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn contract_resident_bytes_exercises_implemented_traits() {
+    fn resident_bytes_counts_implemented_traits() {
         let mut marf = MemoryBackingStore::new();
 
         // First contract defines the trait
@@ -280,7 +283,7 @@ mod tests {
 
         assert_contract_bytes_match_context_fields(&impl_contract);
 
-        // implemented_traits contains a TraitIdentifier — verify non-zero heap
+        // implemented_traits contains a TraitIdentifier; verify non-zero heap
         let impl_heap = impl_contract
             .contract_context
             .implemented_traits
@@ -292,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn contract_resident_bytes_grows_with_additional_initialized_content() {
+    fn resident_bytes_grows_with_additional_initialized_content() {
         let single_function = initialize_contract(
             r#"
             (define-public (echo (value uint))

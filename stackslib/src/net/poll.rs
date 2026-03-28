@@ -20,9 +20,10 @@ use std::net::{Shutdown, SocketAddr};
 use std::time::Duration;
 use std::{io, time};
 
-use mio::{self, net as mio_net, PollOpt, Ready, Token};
-use rand::{self, RngCore};
+use mio::{net as mio_net, PollOpt, Ready, Token};
+use rand::RngCore;
 use stacks_common::util::sleep_ms;
+use {mio, rand};
 
 use crate::net::Error as net_error;
 

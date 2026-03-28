@@ -18,8 +18,9 @@ use std::cmp;
 use std::collections::{HashMap, HashSet};
 
 use p2p::DropSource;
+use rand;
 use rand::seq::SliceRandom;
-use rand::{self, thread_rng};
+use rand::thread_rng;
 use stacks_common::types::chainstate::{BlockHeaderHash, PoxId};
 use stacks_common::util::get_epoch_time_secs;
 

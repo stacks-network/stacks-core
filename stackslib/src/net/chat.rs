@@ -20,7 +20,8 @@ use std::net::SocketAddr;
 use std::{cmp, mem};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use rand::{self, thread_rng, Rng};
+use rand;
+use rand::{thread_rng, Rng};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::to_hex;

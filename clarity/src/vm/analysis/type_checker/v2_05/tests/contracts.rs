@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use assert_json_diff::{self, assert_json_eq};
-use serde_json;
+use assert_json_diff::assert_json_eq;
 use stacks_common::types::StacksEpochId;
+use {assert_json_diff, serde_json};
 
 use crate::vm::ClarityVersion;
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;

@@ -21,7 +21,7 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendE
 use std::thread::JoinHandle;
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use mio::{self, net as mio_net};
+use mio::net as mio_net;
 use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
@@ -31,7 +31,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
-use url;
+use {mio, url};
 
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{Burnchain, BurnchainView};
@@ -5568,7 +5568,8 @@ mod test {
     use std::{thread, time};
 
     use clarity::util::sleep_ms;
-    use rand::{self, RngCore};
+    use rand;
+    use rand::RngCore;
     use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use super::*;

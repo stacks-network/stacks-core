@@ -15,14 +15,14 @@
 
 use clarity::types::chainstate::VRFSeed;
 use regex::{Captures, Regex};
-use serde::{self, Serialize};
-use serde_json;
+use serde::Serialize;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId,
 };
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex};
+use {serde, serde_json};
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;

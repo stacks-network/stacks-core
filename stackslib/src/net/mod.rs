@@ -23,7 +23,6 @@ use clarity::vm::errors::{ClarityTypeError, VmExecutionError};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::{Error as libstackerdb_error, StackerDBChunkData};
 use p2p::{DropReason, DropSource};
-use rusqlite;
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
@@ -35,7 +34,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-use url;
+use {rusqlite, url};
 
 use self::dns::*;
 use crate::burnchains::{Error as burnchain_error, Txid};
@@ -2251,14 +2250,14 @@ pub mod test {
     use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::types::*;
-    use mio;
-    use rand::{self, RngCore};
+    use rand::RngCore;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
     use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::*;
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::vrf::*;
+    use {mio, rand};
 
     use super::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
