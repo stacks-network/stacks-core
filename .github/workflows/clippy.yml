@@ -37,7 +37,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: clippy
-          cache: false
+          cache: true
 
       - name: Clippy
         id: clippy

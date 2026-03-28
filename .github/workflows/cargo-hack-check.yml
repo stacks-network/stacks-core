@@ -30,7 +30,7 @@ jobs:
   # Native targets (Windows/Linux)
   native-targets:
     name: All Crates (Windows/Linux)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-m
     needs: setup
     steps:
       - name: Checkout

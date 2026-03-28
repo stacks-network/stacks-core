@@ -8,9 +8,11 @@ on:
 
 ## env vars are transferred to composite action steps
 env:
-  RUSTFLAGS: "-Cinstrument-coverage -Awarnings"
+  RUSTFLAGS: "-Awarnings"
   LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
   BTC_VERSION: "0.20.0"
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
 
 ##
 ## Cache will exist longer than workflow execution so other runners have access
@@ -48,7 +50,7 @@ jobs:
   ## Cache nextest archives for tests
   nextest-archive:
     name: Test Archive
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-m
     needs:
       - cargo
     steps:
@@ -57,3 +59,14 @@ jobs:
         uses: stacks-network/actions/stacks-core/cache/build-cache@main
         with:
           genesis: true
+
+      - name: Generate constants artifact
+        run: |
+          cargo run --bin stacks-inspect -- dump-consts > constants.json
+
+      - name: Upload constants artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: constants-dump
+          path: constants.json
+          retention-days: 1
