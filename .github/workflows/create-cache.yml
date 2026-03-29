@@ -48,7 +48,7 @@ jobs:
   ## Cache nextest archives for tests
   nextest-archive:
     name: Test Archive
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-m
     needs:
       - cargo
     steps:
