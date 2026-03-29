@@ -5,6 +5,10 @@ name: Constants Check
 on:
   workflow_call:
 
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
 jobs:
   check-consts:
     name: Check the constants from stacks-inspect
@@ -28,6 +32,9 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           cache: false
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Dump constants JSON
         id: consts-dump
