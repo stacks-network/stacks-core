@@ -13,6 +13,8 @@ env:
   BTC_VERSION: "0.20.0"
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: "0"
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 ##
 ## Cache will exist longer than workflow execution so other runners have access
@@ -55,6 +57,9 @@ jobs:
     needs:
       - cargo
     steps:
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Build Nexttest Cache
         id: nextest-cache
         uses: stacks-network/actions/stacks-core/cache/build-cache@main
