@@ -18,6 +18,6 @@
 
 - [ ] Test coverage for new or modified code paths
 - [ ] For new Clarity features or consensus changes, add property tests (see [`docs/property-testing.md`](/docs/property-testing.md))
-- [ ] Changelog is updated
+- [ ] Changelog fragment(s) or "no changelog" label added (see [`changelog.d/README.md`](changelog.d/README.md))
 - [ ] Required documentation changes (e.g., [`rpc/openapi.yaml`](/docs/rpc/openapi.yaml) for RPC endpoints, [`event-dispatcher.md`](/docs/event-dispatcher.md) for new events)
 - [ ] New clarity functions have corresponding PR in `clarity-benchmarking` repo

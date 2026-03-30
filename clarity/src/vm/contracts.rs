@@ -39,6 +39,7 @@ impl Contract {
         version: ClarityVersion,
     ) -> Result<Contract, VmExecutionError> {
         let mut contract_context = ContractContext::new(contract_identifier, version);
+        contract_context.is_deploying = true;
 
         eval_all(
             &contract.expressions,
@@ -47,10 +48,11 @@ impl Contract {
             sponsor,
         )?;
 
+        contract_context.is_deploying = false;
         Ok(Contract { contract_context })
     }
 
-    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
-        self.contract_context.canonicalize_types(epoch);
+    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) -> Result<(), VmExecutionError> {
+        self.contract_context.canonicalize_types(epoch)
     }
 }
