@@ -322,27 +322,29 @@ impl SignerTest<SpawnedSigner> {
             &self.running_nodes.conf,
         );
         debug!("Waiting for signer set calculation.");
-        let mut reward_set_calculated = false;
-        let short_timeout = Duration::from_secs(60);
-        let now = std::time::Instant::now();
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
         let reward_cycle = self.get_current_reward_cycle().wrapping_add(1);
-        while !reward_set_calculated {
-            let reward_set = self
-                .stacks_client
-                .get_reward_set_signers(reward_cycle)
-                .expect("Failed to check if reward set is calculated");
-            reward_set_calculated = reward_set.is_some();
-            if reward_set_calculated {
-                debug!("Signer set: {:?}", reward_set.unwrap());
+        wait_for(60, || {
+            match self.stacks_client.get_reward_set_signers(reward_cycle) {
+                Ok(Some(reward_set)) => {
+                    debug!("Signer set: {reward_set:?}");
+                    Ok(true)
+                }
+                Ok(None) => Ok(false),
+                Err(e) => {
+                    // The node may return a 400 PoXAnchorBlockRequired while
+                    // the coordinator is still processing the prepare phase.
+                    // All prepare phase burn blocks have been mined; just wait
+                    // for the coordinator to catch up.
+                    debug!(
+                        "Reward set not yet available: {e}. Waiting for coordinator to catch up."
+                    );
+                    Ok(false)
+                }
             }
-            std::thread::sleep(Duration::from_secs(1));
-            assert!(
-                now.elapsed() < short_timeout,
-                "Timed out waiting for reward set calculation"
-            );
-        }
+        })
+        .expect("Failed to calculate reward set");
         debug!("Signer set calculated");
         // Manually consume one more block to ensure signers refresh their state
         debug!("Waiting for signers to initialize.");

@@ -17,8 +17,6 @@
 use std::collections::HashMap;
 use std::{cmp, fmt};
 
-pub use clarity_types::errors::CostErrors;
-pub use clarity_types::execution_cost::{CostOverflowingMath, ExecutionCost};
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
@@ -32,6 +30,8 @@ use super::errors::{RuntimeCheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
 use crate::vm::contexts::{ContractContext, ExecutionState, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
+pub use crate::vm::costs::errors::CostErrors;
+pub use crate::vm::costs::execution_cost::{CostOverflowingMath, ExecutionCost};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::database::clarity_store::NullBackingStore;
 use crate::vm::errors::VmExecutionError;
@@ -54,6 +54,8 @@ pub mod costs_2_testnet;
 pub mod costs_3;
 #[allow(unused_variables)]
 pub mod costs_4;
+pub mod errors;
+pub mod execution_cost;
 
 pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 

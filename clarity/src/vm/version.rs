@@ -40,7 +40,7 @@ impl fmt::Display for ClarityVersion {
 
 impl ClarityVersion {
     pub const fn latest() -> ClarityVersion {
-        ClarityVersion::Clarity4
+        ClarityVersion::Clarity5
     }
 
     pub const ALL: &'static [ClarityVersion] = &[

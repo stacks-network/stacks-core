@@ -14,10 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::errors::analysis::CommonCheckErrorKind;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::Value::CallableContract;
+use crate::vm::analysis::errors::CommonCheckErrorKind;
 use crate::vm::callables::{CallableType, NativeHandle, cost_input_sized_vararg};
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -925,11 +925,11 @@ fn special_contract_of(
 
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::RuntimeCheckErrorKind;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
     use super::ClarityVersion;
+    use crate::vm::analysis::errors::RuntimeCheckErrorKind;
     use crate::vm::contexts::{ExecutionState, InvocationContext};
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
@@ -1088,7 +1088,7 @@ mod test {
         #[case] version: ClarityVersion,
         #[case] epoch: StacksEpochId,
     ) {
-        use clarity_types::errors::RuntimeCheckErrorKind;
+        use crate::vm::analysis::errors::RuntimeCheckErrorKind;
 
         let mut marf = MemoryBackingStore::new();
         let mut global_context = GlobalContext::new(

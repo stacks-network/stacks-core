@@ -24,11 +24,8 @@ pub use stacks_common::{
     impl_byte_array_serde, types as stacks_types, util,
 };
 
-pub mod diagnostic;
 pub mod errors;
-pub mod execution_cost;
 pub mod representations;
-pub mod token;
 pub mod types;
 
 pub use errors::{ClarityTypeError, IncomparableError};
