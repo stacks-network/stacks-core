@@ -139,7 +139,7 @@ pub struct ClarityDatabase<'a> {
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
     /// Optional parsed-contract cache shared across transactions within a block.
-    /// 
+    ///
     /// Set via [`set_contract_cache()`](Self::set_contract_cache).
     contract_cache: Option<&'a ContractCache>,
 }
