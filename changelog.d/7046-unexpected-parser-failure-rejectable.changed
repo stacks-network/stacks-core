@@ -1,1 +1,0 @@
-Made `ParseErrorKind::UnexpectedParserFailure` rejectable in all epochs — transactions triggering this error will now be rejected from blocks instead of included as error transactions ([#7046](https://github.com/stacks-network/stacks-core/pull/7046))

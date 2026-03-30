@@ -205,7 +205,7 @@ impl ParseError {
 
     pub fn rejectable_in_epoch(&self, epoch: StacksEpochId) -> bool {
         match *self.err {
-            ParseErrorKind::InterpreterFailure | ParseErrorKind::UnexpectedParserFailure => true,
+            ParseErrorKind::InterpreterFailure => true,
             ParseErrorKind::ExpressionStackDepthTooDeep { .. }
             | ParseErrorKind::VaryExpressionStackDepthTooDeep { .. } => {
                 epoch.rejects_parse_depth_errors()
