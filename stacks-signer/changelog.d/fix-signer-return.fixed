@@ -1,0 +1,1 @@
+Fixed an issue in the signer where it would return early if it detected a message from an unrecognized signer.

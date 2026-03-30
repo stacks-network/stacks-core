@@ -1,20 +1,40 @@
 import { accounts } from '../clarigen-types';
-import { assertErr, assertOk, rov, txErr, txOk } from '@clarigen/test';
+import {
+  assertErr,
+  assertOk,
+  rov,
+  rovErr,
+  rovOk,
+  txErr,
+  txOk,
+} from '@clarigen/test';
 import { test, expect, describe, beforeEach } from 'vitest';
 import {
   mineUntil,
   randomPoxAddress,
+  randomSecretKey,
   randomStacksAddress,
 } from '../test-helpers';
-import { pox5, errorCodes, testPool } from './pox-5-helpers';
+import {
+  pox5,
+  errorCodes,
+  testPool,
+  createSignerKeyGrant,
+  setupSigner,
+  registerPool,
+  signPerTransactionAuth,
+  signerAddress,
+  signSignerKeyGrant,
+} from './pox-5-helpers';
 import { randomBytes } from '@stacks/transactions';
 import { inspect } from 'node:util';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 
 const deployer = accounts.deployer.address;
 const alice = accounts.wallet_1.address;
-// const bob = accounts.wallet_2.address;
-// const charlie = accounts.wallet_3.address;
-// const dave = accounts.wallet_4.address;
+const bob = accounts.wallet_2.address;
+
+const minAmount = pox5.constants.MIN_STACKING_AMOUNT;
 
 function getAllStackers() {
   const nextCycle = rov(pox5.currentPoxRewardCycle()) + 1n;
@@ -55,16 +75,23 @@ describe('staking', () => {
   test('staking adds a stacker to the linked list', () => {
     const stacker = alice;
     const numCycles = 4;
+    const signerSk = randomSecretKey();
     const unlockBytes = randomBytes(255);
-    const signerKey = randomBytes(33);
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    createSignerKeyGrant({
+      staker: stacker,
+      signerSk: signerSk,
+      poxAddr: null,
+      authId: 0n,
+    });
     const result = txOk(
       pox5.stake({
-        amountUstx: 1000000,
+        amountUstx: minAmount,
         poxAddr: randomPoxAddress(),
         signerKey,
-        maxAmount: 1000000,
+        maxAmount: minAmount,
         authId: 0,
-        signerSig: randomBytes(65),
+        signerSig: null,
         startBurnHt: simnet.burnBlockHeight,
         numCycles,
         unlockBytes,
@@ -75,7 +102,7 @@ describe('staking', () => {
     const allStackers = getAllStackerInfos();
     expect(allStackers).toHaveLength(1);
     const info = allStackers[0];
-    expect(info.amountUstx).toBe(1000000n);
+    expect(info.amountUstx).toBe(minAmount);
     assertErr(info.poolOrSoloInfo);
     expect(info.poolOrSoloInfo.value.poxAddr.version).toStrictEqual(
       Uint8Array.from([0x01]),
@@ -97,18 +124,57 @@ describe('staking', () => {
     ).toBeNull();
   });
 
+  test('cannot stake for less than the minimum amount', () => {
+    const staker = alice;
+    const { signerKey } = setupSigner(staker);
+    const amount = minAmount - 1n;
+    const result = txErr(
+      pox5.stake({
+        amountUstx: amount,
+        poxAddr: randomPoxAddress(),
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      staker,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_INVALID_AMOUNT);
+  });
+
+  test('cannot pooled stake for less than the minimum amount', () => {
+    registerPool({ caller: deployer });
+    const staker = alice;
+    const amount = minAmount - 1n;
+    const result = txErr(
+      pox5.stakePooled({
+        amountUstx: amount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+        poolOwner: testPool.identifier,
+      }),
+      staker,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_INVALID_AMOUNT);
+  });
+
   test(`can stake for ${pox5.constants.MAX_NUM_CYCLES} cycles`, () => {
     const staker = alice;
+    const { signerKey } = setupSigner(staker);
     const maxCycles = pox5.constants.MAX_NUM_CYCLES;
     const numCycles = maxCycles;
     const result = txOk(
       pox5.stake({
-        amountUstx: 1000000,
+        amountUstx: minAmount,
         poxAddr: randomPoxAddress(),
-        signerKey: randomBytes(33),
-        maxAmount: 1000000,
+        signerKey,
+        maxAmount: minAmount,
         authId: 0,
-        signerSig: randomBytes(65),
+        signerSig: null,
         startBurnHt: simnet.burnBlockHeight,
         numCycles,
         unlockBytes: randomBytes(255),
@@ -137,15 +203,16 @@ describe('staking', () => {
 
   test(`cannot stake for ${pox5.constants.MAX_NUM_CYCLES + 1n} cycles`, () => {
     const staker = alice;
+    const { signerKey } = setupSigner(staker);
     const numCycles = pox5.constants.MAX_NUM_CYCLES + 1n;
     const result = txErr(
       pox5.stake({
-        amountUstx: 1000000,
+        amountUstx: minAmount,
         poxAddr: randomPoxAddress(),
-        signerKey: randomBytes(33),
-        maxAmount: 1000000,
+        signerKey,
+        maxAmount: minAmount,
         authId: 0,
-        signerSig: randomBytes(65),
+        signerSig: null,
         startBurnHt: simnet.burnBlockHeight,
         numCycles,
         unlockBytes: randomBytes(255),
@@ -157,15 +224,16 @@ describe('staking', () => {
 
   test('can re-stake after stake is expired', () => {
     const staker = alice;
+    const { signerKey } = setupSigner(staker);
     const numCycles = 1;
     txOk(
       pox5.stake({
-        amountUstx: 1000000,
+        amountUstx: minAmount,
         poxAddr: randomPoxAddress(),
-        signerKey: randomBytes(33),
-        maxAmount: 1000000,
+        signerKey,
+        maxAmount: minAmount,
         authId: 0,
-        signerSig: randomBytes(65),
+        signerSig: null,
         startBurnHt: simnet.burnBlockHeight,
         numCycles,
         unlockBytes: randomBytes(255),
@@ -177,12 +245,12 @@ describe('staking', () => {
 
     const result = txOk(
       pox5.stake({
-        amountUstx: 1000000,
+        amountUstx: minAmount,
         poxAddr: randomPoxAddress(),
-        signerKey: randomBytes(33),
-        maxAmount: 1000000,
+        signerKey,
+        maxAmount: minAmount,
         authId: 1,
-        signerSig: randomBytes(65),
+        signerSig: null,
         startBurnHt: simnet.burnBlockHeight,
         numCycles,
         unlockBytes: randomBytes(255),
@@ -195,21 +263,20 @@ describe('staking', () => {
   describe('extending stake', () => {
     test('can extend stake with longer unlock height', () => {
       const stacker = alice;
+      const { signerKey } = setupSigner(stacker);
       const poxAddr = randomPoxAddress();
-      const signerKey = randomBytes(33);
-      const signerSig = randomBytes(65);
       const unlockBytes = randomBytes(255);
       const firstNumCycles = 1;
       const secondNumCycles = 1;
 
       const stakeReceipt = txOk(
         pox5.stake({
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           poxAddr,
           signerKey,
-          maxAmount: 1000000,
+          maxAmount: minAmount,
           authId: 0,
-          signerSig,
+          signerSig: null,
           startBurnHt: simnet.burnBlockHeight,
           numCycles: firstNumCycles,
           unlockBytes,
@@ -222,12 +289,12 @@ describe('staking', () => {
 
       const extendReceipt = txOk(
         pox5.stakeExtend({
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           numCycles: secondNumCycles,
           poxAddr,
           signerKey,
-          signerSig,
-          maxAmount: 1000000,
+          signerSig: null,
+          maxAmount: minAmount,
           authId: 0,
           unlockBytes,
         }),
@@ -242,14 +309,15 @@ describe('staking', () => {
 
     test('cannot extend stake before the final cycle', () => {
       const stacker = alice;
+      const { signerKey } = setupSigner(stacker);
       txOk(
         pox5.stake({
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           poxAddr: randomPoxAddress(),
-          signerKey: randomBytes(33),
-          maxAmount: 1000000,
+          signerKey,
+          maxAmount: minAmount,
           authId: 0,
-          signerSig: randomBytes(65),
+          signerSig: null,
           startBurnHt: simnet.burnBlockHeight,
           numCycles: 2,
           unlockBytes: randomBytes(255),
@@ -259,12 +327,12 @@ describe('staking', () => {
 
       const result = txErr(
         pox5.stakeExtend({
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           poxAddr: randomPoxAddress(),
-          signerKey: randomBytes(33),
-          maxAmount: 1000000,
+          signerKey,
+          maxAmount: minAmount,
           authId: 1,
-          signerSig: randomBytes(65),
+          signerSig: null,
           numCycles: 1,
           unlockBytes: randomBytes(255),
         }),
@@ -274,23 +342,12 @@ describe('staking', () => {
     });
 
     test('can switch from pooled to solo via stake-extend', () => {
-      const signerKey = randomBytes(33);
-      const poxAddr = randomPoxAddress();
-      txOk(
-        pox5.registerPool({
-          poolOwner: testPool.identifier,
-          signerKey,
-          poxAddr,
-          signerSig: randomBytes(65),
-          authId: 0,
-        }),
-        deployer,
-      );
+      registerPool({ caller: deployer });
 
       const pooledStake = txOk(
         pox5.stakePooled({
           poolOwner: testPool.identifier,
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           numCycles: 1,
           unlockBytes: randomBytes(255),
           startBurnHt: simnet.burnBlockHeight,
@@ -303,14 +360,14 @@ describe('staking', () => {
       mineUntil(pooledStake.value.unlockBurnHeight);
 
       const nextPoxAddr = randomPoxAddress();
-      const nextSignerKey = randomBytes(33);
+      const { signerKey: nextSignerKey } = setupSigner(alice);
       const nextUnlockBytes = randomBytes(683);
       const extendReceipt = txOk(
         pox5.stakeExtend({
           amountUstx: 2000000,
           poxAddr: nextPoxAddr,
           signerKey: nextSignerKey,
-          signerSig: randomBytes(65),
+          signerSig: null,
           maxAmount: 2000000,
           authId: 1,
           numCycles: 2,
@@ -344,15 +401,16 @@ describe('staking', () => {
 
   describe('updating stake', () => {
     test('can update a solo stake amount and signer metadata', () => {
+      const { signerKey: initialSignerKey } = setupSigner(alice);
       const initialUnlockBytes = randomBytes(255);
       txOk(
         pox5.stake({
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           poxAddr: randomPoxAddress(),
-          signerKey: randomBytes(33),
-          maxAmount: 1000000,
+          signerKey: initialSignerKey,
+          maxAmount: minAmount,
           authId: 0,
-          signerSig: randomBytes(65),
+          signerSig: null,
           startBurnHt: simnet.burnBlockHeight,
           numCycles: 2,
           unlockBytes: initialUnlockBytes,
@@ -361,20 +419,20 @@ describe('staking', () => {
       );
 
       const nextPoxAddr = randomPoxAddress();
-      const nextSignerKey = randomBytes(33);
+      const { signerKey: nextSignerKey } = setupSigner(alice);
       const receipt = txOk(
         pox5.stakeUpdate({
           amountUstxIncrease: 250000,
           poxAddr: nextPoxAddr,
           signerKey: nextSignerKey,
-          signerSig: randomBytes(65),
+          signerSig: null,
           authId: 1,
-          maxAmount: 1000000,
+          maxAmount: minAmount,
         }),
         alice,
       );
 
-      expect(receipt.value.amountUstx).toBe(1250000n);
+      expect(receipt.value.amountUstx).toBe(minAmount + 250000n);
       assertErr(receipt.value.poolOrSoloInfo);
       expect(receipt.value.poolOrSoloInfo.value.poxAddr).toStrictEqual(
         nextPoxAddr,
@@ -384,7 +442,7 @@ describe('staking', () => {
       );
 
       const stakerInfo = rov(pox5.getStakerInfo(alice))!;
-      expect(stakerInfo.amountUstx).toBe(1250000n);
+      expect(stakerInfo.amountUstx).toBe(minAmount + 250000n);
       expect(stakerInfo.firstRewardCycle).toBe(1n);
       expect(stakerInfo.numCycles).toBe(2n);
       expect(stakerInfo.unlockBytes).toStrictEqual(initialUnlockBytes);
@@ -398,15 +456,16 @@ describe('staking', () => {
     });
 
     test('can switch from solo to pooled via stake-update-pooled', () => {
+      const { signerKey } = setupSigner(alice);
       const initialUnlockBytes = randomBytes(255);
       txOk(
         pox5.stake({
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           poxAddr: randomPoxAddress(),
-          signerKey: randomBytes(33),
-          maxAmount: 1000000,
+          signerKey,
+          maxAmount: minAmount,
           authId: 0,
-          signerSig: randomBytes(65),
+          signerSig: null,
           startBurnHt: simnet.burnBlockHeight,
           numCycles: 2,
           unlockBytes: initialUnlockBytes,
@@ -414,16 +473,7 @@ describe('staking', () => {
         alice,
       );
 
-      txOk(
-        pox5.registerPool({
-          poolOwner: testPool.identifier,
-          signerKey: randomBytes(33),
-          poxAddr: randomPoxAddress(),
-          signerSig: randomBytes(65),
-          authId: 0,
-        }),
-        deployer,
-      );
+      registerPool({ caller: deployer });
 
       const receipt = txOk(
         pox5.stakeUpdatePooled({
@@ -433,33 +483,24 @@ describe('staking', () => {
         alice,
       );
 
-      expect(receipt.value.amountUstx).toBe(1500000n);
+      expect(receipt.value.amountUstx).toBe(minAmount + 500000n);
       assertOk(receipt.value.poolOrSoloInfo);
       expect(receipt.value.poolOrSoloInfo.value).toBe(testPool.identifier);
 
       const stakerInfo = rov(pox5.getStakerInfo(alice))!;
-      expect(stakerInfo.amountUstx).toBe(1500000n);
+      expect(stakerInfo.amountUstx).toBe(minAmount + 500000n);
       expect(stakerInfo.unlockBytes).toStrictEqual(initialUnlockBytes);
       assertOk(stakerInfo.poolOrSoloInfo);
       expect(stakerInfo.poolOrSoloInfo.value).toBe(testPool.identifier);
     });
 
     test('can switch from pooled to solo via stake-update', () => {
-      txOk(
-        pox5.registerPool({
-          poolOwner: testPool.identifier,
-          signerKey: randomBytes(33),
-          poxAddr: randomPoxAddress(),
-          signerSig: randomBytes(65),
-          authId: 0,
-        }),
-        deployer,
-      );
+      registerPool({ caller: deployer });
 
       txOk(
         pox5.stakePooled({
           poolOwner: testPool.identifier,
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           numCycles: 2,
           unlockBytes: randomBytes(255),
           startBurnHt: simnet.burnBlockHeight,
@@ -468,20 +509,20 @@ describe('staking', () => {
       );
 
       const nextPoxAddr = randomPoxAddress();
-      const nextSignerKey = randomBytes(33);
+      const { signerKey: nextSignerKey } = setupSigner(alice);
       const receipt = txOk(
         pox5.stakeUpdate({
           amountUstxIncrease: 250000,
           poxAddr: nextPoxAddr,
           signerKey: nextSignerKey,
-          signerSig: randomBytes(65),
+          signerSig: null,
           authId: 1,
-          maxAmount: 1000000,
+          maxAmount: minAmount,
         }),
         alice,
       );
 
-      expect(receipt.value.amountUstx).toBe(1250000n);
+      expect(receipt.value.amountUstx).toBe(minAmount + 250000n);
       assertErr(receipt.value.poolOrSoloInfo);
       expect(receipt.value.poolOrSoloInfo.value.poxAddr).toStrictEqual(
         nextPoxAddr,
@@ -491,7 +532,7 @@ describe('staking', () => {
       );
 
       const stakerInfo = rov(pox5.getStakerInfo(alice))!;
-      expect(stakerInfo.amountUstx).toBe(1250000n);
+      expect(stakerInfo.amountUstx).toBe(minAmount + 250000n);
       assertErr(stakerInfo.poolOrSoloInfo);
       expect(stakerInfo.poolOrSoloInfo.value.poxAddr).toStrictEqual(
         nextPoxAddr,
@@ -502,14 +543,15 @@ describe('staking', () => {
     });
 
     test('cannot call stake-update with zero increase', () => {
+      const { signerKey } = setupSigner(alice);
       txOk(
         pox5.stake({
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           poxAddr: randomPoxAddress(),
-          signerKey: randomBytes(33),
-          maxAmount: 1000000,
+          signerKey,
+          maxAmount: minAmount,
           authId: 0,
-          signerSig: randomBytes(65),
+          signerSig: null,
           startBurnHt: simnet.burnBlockHeight,
           numCycles: 2,
           unlockBytes: randomBytes(255),
@@ -521,10 +563,10 @@ describe('staking', () => {
         pox5.stakeUpdate({
           amountUstxIncrease: 0,
           poxAddr: randomPoxAddress(),
-          signerKey: randomBytes(33),
-          signerSig: randomBytes(65),
+          signerKey,
+          signerSig: null,
           authId: 1,
-          maxAmount: 1000000,
+          maxAmount: minAmount,
         }),
         alice,
       );
@@ -533,14 +575,15 @@ describe('staking', () => {
     });
 
     test('cannot call stake-update-pooled with an unregistered pool', () => {
+      const { signerKey } = setupSigner(alice);
       txOk(
         pox5.stake({
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           poxAddr: randomPoxAddress(),
-          signerKey: randomBytes(33),
-          maxAmount: 1000000,
+          signerKey,
+          maxAmount: minAmount,
           authId: 0,
-          signerSig: randomBytes(65),
+          signerSig: null,
           startBurnHt: simnet.burnBlockHeight,
           numCycles: 2,
           unlockBytes: randomBytes(255),
@@ -560,14 +603,15 @@ describe('staking', () => {
     });
 
     test('stake-update should preserve the current unlock cycle', () => {
+      const { signerKey } = setupSigner(alice);
       const initialStake = txOk(
         pox5.stake({
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           poxAddr: randomPoxAddress(),
-          signerKey: randomBytes(33),
-          maxAmount: 1000000,
+          signerKey,
+          maxAmount: minAmount,
           authId: 0,
-          signerSig: randomBytes(65),
+          signerSig: null,
           startBurnHt: simnet.burnBlockHeight,
           numCycles: 1,
           unlockBytes: randomBytes(255),
@@ -575,14 +619,15 @@ describe('staking', () => {
         alice,
       );
 
+      const { signerKey: updateSignerKey } = setupSigner(alice);
       const receipt = txOk(
         pox5.stakeUpdate({
           amountUstxIncrease: 1,
           poxAddr: randomPoxAddress(),
-          signerKey: randomBytes(33),
-          signerSig: randomBytes(65),
+          signerKey: updateSignerKey,
+          signerSig: null,
           authId: 1,
-          maxAmount: 1000000,
+          maxAmount: minAmount,
         }),
         alice,
       );
@@ -599,7 +644,7 @@ describe('staking', () => {
       const result = txErr(
         pox5.stakePooled({
           poolOwner: testPool.identifier,
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           numCycles: 1,
           unlockBytes: randomBytes(255),
           startBurnHt: simnet.burnBlockHeight,
@@ -611,22 +656,7 @@ describe('staking', () => {
     });
 
     test('can register a pool', () => {
-      const owner = accounts.deployer.address;
-      const signerKey = randomBytes(33);
-      const poxAddr = randomPoxAddress();
-      const result = txOk(
-        pox5.registerPool({
-          poolOwner: testPool.identifier,
-          signerKey,
-          poxAddr,
-          signerSig: randomBytes(65),
-          authId: 0,
-        }),
-        owner,
-      );
-      expect(result.value.owner).toBe(testPool.identifier);
-      expect(result.value.signerKey).toStrictEqual(signerKey);
-      expect(result.value.poxAddr).toStrictEqual(poxAddr);
+      const { signerKey, poxAddr } = registerPool({ caller: deployer });
       const pool = rov(pox5.getPoolInfo(testPool.identifier));
       expect(pool).toBeDefined();
       expect(pool?.signerKey).toStrictEqual(signerKey);
@@ -634,26 +664,13 @@ describe('staking', () => {
     });
 
     test('can stake to a pool', () => {
-      const poxAddr = randomPoxAddress();
-      const signerKey = randomBytes(33);
-      const signerSig = randomBytes(65);
+      registerPool({ caller: deployer });
       const unlockBytes = randomBytes(255);
-      const numCycles = 1;
-      txOk(
-        pox5.registerPool({
-          poolOwner: testPool.identifier,
-          signerKey,
-          poxAddr,
-          signerSig,
-          authId: 0,
-        }),
-        deployer,
-      );
       const receipt = txOk(
         pox5.stakePooled({
           poolOwner: testPool.identifier,
-          amountUstx: 1000000,
-          numCycles,
+          amountUstx: minAmount,
+          numCycles: 1,
           unlockBytes,
           startBurnHt: simnet.burnBlockHeight,
         }),
@@ -676,14 +693,15 @@ describe('staking', () => {
     });
 
     test('can switch from solo to pooled via stake-extend-pooled', () => {
+      const { signerKey } = setupSigner(alice);
       const soloStake = txOk(
         pox5.stake({
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           poxAddr: randomPoxAddress(),
-          signerKey: randomBytes(33),
-          maxAmount: 1000000,
+          signerKey,
+          maxAmount: minAmount,
           authId: 0,
-          signerSig: randomBytes(65),
+          signerSig: null,
           startBurnHt: simnet.burnBlockHeight,
           numCycles: 1,
           unlockBytes: randomBytes(255),
@@ -691,16 +709,7 @@ describe('staking', () => {
         alice,
       );
 
-      txOk(
-        pox5.registerPool({
-          poolOwner: testPool.identifier,
-          signerKey: randomBytes(33),
-          poxAddr: randomPoxAddress(),
-          signerSig: randomBytes(65),
-          authId: 0,
-        }),
-        deployer,
-      );
+      registerPool({ caller: deployer });
 
       mineUntil(soloStake.value.unlockBurnHeight);
 
@@ -729,21 +738,12 @@ describe('staking', () => {
     });
 
     test('cannot call stake-extend-pooled before the final cycle', () => {
-      txOk(
-        pox5.registerPool({
-          poolOwner: testPool.identifier,
-          signerKey: randomBytes(33),
-          poxAddr: randomPoxAddress(),
-          signerSig: randomBytes(65),
-          authId: 0,
-        }),
-        deployer,
-      );
+      registerPool({ caller: deployer });
 
       txOk(
         pox5.stakePooled({
           poolOwner: testPool.identifier,
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           numCycles: 2,
           unlockBytes: randomBytes(255),
           startBurnHt: simnet.burnBlockHeight,
@@ -754,7 +754,7 @@ describe('staking', () => {
       const result = txErr(
         pox5.stakeExtendPooled({
           poolOwner: testPool.identifier,
-          amountUstx: 1000000,
+          amountUstx: minAmount,
           numCycles: 1,
           unlockBytes: randomBytes(255),
         }),
@@ -765,10 +765,11 @@ describe('staking', () => {
     });
 
     test('register-pool validates pox-addr', () => {
+      const { signerKey } = setupSigner(deployer);
       const result = txErr(
         pox5.registerPool({
           poolOwner: testPool.identifier,
-          signerKey: randomBytes(33),
+          signerKey,
           poxAddr: {
             version: Uint8Array.from([0x07]),
             hashbytes: randomBytes(32),
@@ -781,6 +782,704 @@ describe('staking', () => {
 
       expect(result.value).toEqual(errorCodes.ERR_INVALID_POX_ADDRESS);
     });
+  });
+});
+
+describe('signer key grants', () => {
+  test('grant with pox-addr constraint verifies matching address', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const poxAddr = randomPoxAddress();
+
+    createSignerKeyGrant({ staker: alice, signerSk, poxAddr, authId: 0n });
+
+    expect(
+      rovOk(pox5.verifySignerKeyGrant({ staker: alice, signerKey, poxAddr })),
+    ).toBe(true);
+  });
+
+  test('grant with pox-addr constraint rejects mismatched address', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const grantAddr = randomPoxAddress();
+
+    createSignerKeyGrant({
+      staker: alice,
+      signerSk,
+      poxAddr: grantAddr,
+      authId: 0n,
+    });
+
+    const differentAddr = randomPoxAddress();
+    const result = rovErr(
+      pox5.verifySignerKeyGrant({
+        staker: alice,
+        signerKey,
+        poxAddr: differentAddr,
+      }),
+    );
+    expect(result).toEqual(errorCodes.ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH);
+  });
+
+  test('grant with no pox-addr constraint (none) allows any address', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+
+    createSignerKeyGrant({
+      staker: alice,
+      signerSk,
+      poxAddr: null,
+      authId: 0n,
+    });
+
+    expect(
+      rovOk(
+        pox5.verifySignerKeyGrant({
+          staker: alice,
+          signerKey,
+          poxAddr: randomPoxAddress(),
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test('cannot replay the same auth-id', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+
+    createSignerKeyGrant({
+      staker: alice,
+      signerSk,
+      poxAddr: null,
+      authId: 0n,
+    });
+
+    const signature = signSignerKeyGrant({
+      staker: alice,
+      poxAddr: null,
+      authId: 0n,
+      signerSk,
+    });
+    const result = txErr(
+      pox5.grantSignerKey({
+        signerKey,
+        staker: alice,
+        poxAddr: null,
+        authId: 0n,
+        signerSig: signature,
+      }),
+      deployer,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_SIGNER_KEY_GRANT_USED);
+  });
+
+  test('re-granting with a new auth-id overwrites the previous grant', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const firstAddr = randomPoxAddress();
+    const secondAddr = randomPoxAddress();
+
+    createSignerKeyGrant({
+      staker: alice,
+      signerSk,
+      poxAddr: firstAddr,
+      authId: 0n,
+    });
+    createSignerKeyGrant({
+      staker: alice,
+      signerSk,
+      poxAddr: secondAddr,
+      authId: 1n,
+    });
+
+    // old address no longer works
+    rovErr(
+      pox5.verifySignerKeyGrant({
+        staker: alice,
+        signerKey,
+        poxAddr: firstAddr,
+      }),
+    );
+
+    // new address works
+    expect(
+      rovOk(
+        pox5.verifySignerKeyGrant({
+          staker: alice,
+          signerKey,
+          poxAddr: secondAddr,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test('grant with wrong signer key fails signature check', () => {
+    const signerSk = randomSecretKey();
+    const wrongKey = secp256k1.getPublicKey(randomSecretKey(), true);
+
+    const signature = signSignerKeyGrant({
+      staker: alice,
+      poxAddr: null,
+      authId: 0n,
+      signerSk,
+    });
+    const result = txErr(
+      pox5.grantSignerKey({
+        signerKey: wrongKey,
+        staker: alice,
+        poxAddr: null,
+        authId: 0n,
+        signerSig: signature,
+      }),
+      deployer,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_INVALID_SIGNATURE_PUBKEY);
+  });
+
+  test('verify-signer-key-grant fails when no grant exists', () => {
+    const signerKey = secp256k1.getPublicKey(randomSecretKey(), true);
+    const result = rovErr(
+      pox5.verifySignerKeyGrant({
+        staker: alice,
+        signerKey,
+        poxAddr: randomPoxAddress(),
+      }),
+    );
+    expect(result).toEqual(errorCodes.ERR_SIGNER_KEY_GRANT_NOT_FOUND);
+  });
+
+  describe('revoking grants', () => {
+    test('signer can revoke a grant', () => {
+      const signerSk = randomSecretKey();
+      const signerKey = secp256k1.getPublicKey(signerSk, true);
+      const addr = signerAddress(signerKey);
+
+      createSignerKeyGrant({
+        staker: alice,
+        signerSk,
+        poxAddr: null,
+        authId: 0n,
+      });
+
+      const result = txOk(
+        pox5.revokeSignerGrant({ staker: alice, signerKey }),
+        addr,
+      );
+      expect(result.value).toBe(true);
+
+      // grant no longer valid
+      const verify = rovErr(
+        pox5.verifySignerKeyGrant({
+          staker: alice,
+          signerKey,
+          poxAddr: randomPoxAddress(),
+        }),
+      );
+      expect(verify).toEqual(errorCodes.ERR_SIGNER_KEY_GRANT_NOT_FOUND);
+    });
+
+    test('revoke returns false when grant does not exist', () => {
+      const signerSk = randomSecretKey();
+      const signerKey = secp256k1.getPublicKey(signerSk, true);
+      const addr = signerAddress(signerKey);
+
+      const result = txOk(
+        pox5.revokeSignerGrant({ staker: alice, signerKey }),
+        addr,
+      );
+      expect(result.value).toBe(false);
+    });
+
+    test('non-signer cannot revoke a grant', () => {
+      const signerSk = randomSecretKey();
+      const signerKey = secp256k1.getPublicKey(signerSk, true);
+
+      createSignerKeyGrant({
+        staker: alice,
+        signerSk,
+        poxAddr: null,
+        authId: 0n,
+      });
+
+      // alice is not the signer, so she can't revoke
+      const result = txErr(
+        pox5.revokeSignerGrant({ staker: alice, signerKey }),
+        alice,
+      );
+      expect(result.value).toEqual(errorCodes.ERR_NOT_ALLOWED);
+    });
+
+    test('revoked grant cannot be used for staking', () => {
+      const signerSk = randomSecretKey();
+      const signerKey = secp256k1.getPublicKey(signerSk, true);
+      const addr = signerAddress(signerKey);
+
+      createSignerKeyGrant({
+        staker: alice,
+        signerSk,
+        poxAddr: null,
+        authId: 0n,
+      });
+
+      txOk(pox5.revokeSignerGrant({ staker: alice, signerKey }), addr);
+
+      const result = txErr(
+        pox5.stake({
+          amountUstx: minAmount,
+          poxAddr: randomPoxAddress(),
+          signerKey,
+          maxAmount: minAmount,
+          authId: 0,
+          signerSig: null,
+          startBurnHt: simnet.burnBlockHeight,
+          numCycles: 1,
+          unlockBytes: randomBytes(255),
+        }),
+        alice,
+      );
+      expect(result.value).toEqual(errorCodes.ERR_SIGNER_KEY_GRANT_NOT_FOUND);
+    });
+
+    test('can re-grant after revocation with new auth-id', () => {
+      const signerSk = randomSecretKey();
+      const signerKey = secp256k1.getPublicKey(signerSk, true);
+      const addr = signerAddress(signerKey);
+
+      createSignerKeyGrant({
+        staker: alice,
+        signerSk,
+        poxAddr: null,
+        authId: 0n,
+      });
+      txOk(pox5.revokeSignerGrant({ staker: alice, signerKey }), addr);
+
+      // re-grant with a different auth-id
+      createSignerKeyGrant({
+        staker: alice,
+        signerSk,
+        poxAddr: null,
+        authId: 1n,
+      });
+
+      expect(
+        rovOk(
+          pox5.verifySignerKeyGrant({
+            staker: alice,
+            signerKey,
+            poxAddr: randomPoxAddress(),
+          }),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe('one signer key, multiple stakers', () => {
+    test('signer can authorize multiple stakers independently', () => {
+      const signerSk = randomSecretKey();
+      const signerKey = secp256k1.getPublicKey(signerSk, true);
+
+      createSignerKeyGrant({
+        staker: alice,
+        signerSk,
+        poxAddr: null,
+        authId: 0n,
+      });
+      createSignerKeyGrant({
+        staker: bob,
+        signerSk,
+        poxAddr: null,
+        authId: 1n,
+      });
+
+      expect(
+        rovOk(
+          pox5.verifySignerKeyGrant({
+            staker: alice,
+            signerKey,
+            poxAddr: randomPoxAddress(),
+          }),
+        ),
+      ).toBe(true);
+      expect(
+        rovOk(
+          pox5.verifySignerKeyGrant({
+            staker: bob,
+            signerKey,
+            poxAddr: randomPoxAddress(),
+          }),
+        ),
+      ).toBe(true);
+    });
+  });
+});
+
+describe('per-transaction signer signatures', () => {
+  test('can stake with a per-transaction signature', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const poxAddr = randomPoxAddress();
+    const rewardCycle = rov(pox5.currentPoxRewardCycle());
+
+    const signerSig = signPerTransactionAuth({
+      signerSk,
+      poxAddr,
+      rewardCycle,
+      topic: 'stake',
+      period: 1,
+      maxAmount: minAmount,
+      authId: 0n,
+    });
+
+    const result = txOk(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(result.value.stacker).toBe(alice);
+  });
+
+  test('per-transaction sig cannot be reused', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const poxAddr = randomPoxAddress();
+    const rewardCycle = rov(pox5.currentPoxRewardCycle());
+
+    const signerSig = signPerTransactionAuth({
+      signerSk,
+      poxAddr,
+      rewardCycle,
+      topic: 'stake',
+      period: 1,
+      maxAmount: minAmount,
+      authId: 0n,
+    });
+
+    // alice uses the sig
+    txOk(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    // bob tries to reuse the same sig in the same cycle
+    const result = txErr(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      bob,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_SIGNER_AUTH_USED);
+  });
+
+  test('rejects signature with wrong topic', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const poxAddr = randomPoxAddress();
+    const rewardCycle = rov(pox5.currentPoxRewardCycle());
+
+    // sign for "stake-extend" but use for "stake"
+    const signerSig = signPerTransactionAuth({
+      signerSk,
+      poxAddr,
+      rewardCycle,
+      topic: 'stake-extend',
+      period: 1,
+      maxAmount: minAmount,
+      authId: 0n,
+    });
+
+    const result = txErr(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_INVALID_SIGNATURE_PUBKEY);
+  });
+
+  test('rejects when amount exceeds max-amount', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const poxAddr = randomPoxAddress();
+    const rewardCycle = rov(pox5.currentPoxRewardCycle());
+
+    const tooLowMax = minAmount - 1n;
+    const signerSig = signPerTransactionAuth({
+      signerSk,
+      poxAddr,
+      rewardCycle,
+      topic: 'stake',
+      period: 1,
+      maxAmount: tooLowMax,
+      authId: 0n,
+    });
+
+    const result = txErr(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: tooLowMax,
+        authId: 0,
+        signerSig,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_SIGNER_AUTH_AMOUNT_TOO_HIGH);
+  });
+
+  test('rejects signature with wrong pox-addr', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const signedAddr = randomPoxAddress();
+    const differentAddr = randomPoxAddress();
+    const rewardCycle = rov(pox5.currentPoxRewardCycle());
+
+    const signerSig = signPerTransactionAuth({
+      signerSk,
+      poxAddr: signedAddr,
+      rewardCycle,
+      topic: 'stake',
+      period: 1,
+      maxAmount: minAmount,
+      authId: 0n,
+    });
+
+    const result = txErr(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr: differentAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_INVALID_SIGNATURE_PUBKEY);
+  });
+
+  test('can use per-transaction sig for stake-extend', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const poxAddr = randomPoxAddress();
+
+    // initial stake with permanent grant
+    createSignerKeyGrant({
+      staker: alice,
+      signerSk,
+      poxAddr: null,
+      authId: 0n,
+    });
+    const stakeResult = txOk(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    mineUntil(stakeResult.value.unlockBurnHeight);
+
+    const rewardCycle = rov(pox5.currentPoxRewardCycle());
+    const signerSig = signPerTransactionAuth({
+      signerSk,
+      poxAddr,
+      rewardCycle,
+      topic: 'stake-extend',
+      period: 2,
+      maxAmount: minAmount,
+      authId: 1n,
+    });
+
+    const result = txOk(
+      pox5.stakeExtend({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        signerSig,
+        maxAmount: minAmount,
+        authId: 1,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(result.value.numCycles).toBe(2n);
+  });
+
+  test('can use per-transaction sig for stake-update', () => {
+    const { signerKey } = setupSigner(alice);
+    const poxAddr = randomPoxAddress();
+    txOk(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    const newSignerSk = randomSecretKey();
+    const newSignerKey = secp256k1.getPublicKey(newSignerSk, true);
+    const newPoxAddr = randomPoxAddress();
+    const rewardCycle = rov(pox5.currentPoxRewardCycle());
+
+    // The period for stake-update = unlock_cycle - current_cycle
+    // unlock_cycle = first_reward_cycle(1) + num_cycles(2) - 1 = 2
+    // cycles_remaining = 2 - 0 = 2
+    const signerSigCorrect = signPerTransactionAuth({
+      signerSk: newSignerSk,
+      poxAddr: newPoxAddr,
+      rewardCycle,
+      topic: 'stake-update',
+      period: 2,
+      maxAmount: minAmount,
+      authId: 1n,
+    });
+
+    const result = txOk(
+      pox5.stakeUpdate({
+        amountUstxIncrease: 1,
+        poxAddr: newPoxAddr,
+        signerKey: newSignerKey,
+        signerSig: signerSigCorrect,
+        maxAmount: minAmount,
+        authId: 1,
+      }),
+      alice,
+    );
+    expect(result.value.amountUstx).toBe(minAmount + 1n);
+  });
+
+  test('permanent grant and per-tx sig are independent paths', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const poxAddr = randomPoxAddress();
+
+    // grant exists but we use per-tx sig instead
+    createSignerKeyGrant({
+      staker: alice,
+      signerSk,
+      poxAddr: null,
+      authId: 0n,
+    });
+
+    const rewardCycle = rov(pox5.currentPoxRewardCycle());
+    const signerSig = signPerTransactionAuth({
+      signerSk,
+      poxAddr,
+      rewardCycle,
+      topic: 'stake',
+      period: 1,
+      maxAmount: minAmount,
+      authId: 1n,
+    });
+
+    const result = txOk(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 1,
+        signerSig,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(result.value.stacker).toBe(alice);
+  });
+
+  test('staking without grant or signature fails', () => {
+    const signerKey = secp256k1.getPublicKey(randomSecretKey(), true);
+
+    const result = txErr(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr: randomPoxAddress(),
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_SIGNER_KEY_GRANT_NOT_FOUND);
+  });
+
+  test('register-pool requires a permanent grant (no sig path)', () => {
+    const signerKey = secp256k1.getPublicKey(randomSecretKey(), true);
+
+    const result = txErr(
+      pox5.registerPool({
+        poolOwner: testPool.identifier,
+        signerKey,
+        poxAddr: randomPoxAddress(),
+        signerSig: new Uint8Array(65),
+        authId: 0,
+      }),
+      deployer,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_SIGNER_KEY_GRANT_NOT_FOUND);
   });
 });
 

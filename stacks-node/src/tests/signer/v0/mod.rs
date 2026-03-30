@@ -602,7 +602,7 @@ impl SignerTest<SpawnedSigner> {
                         PrincipalData::Standard(StandardPrincipalData::transient()),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env, ctxt| env.eval_read_only(ctxt, contract_identifier, program),
+                        |env, ctx| env.eval_read_only(ctx, contract_identifier, program),
                     )
                     .unwrap()
             },

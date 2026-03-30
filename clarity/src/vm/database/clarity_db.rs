@@ -201,6 +201,7 @@ pub trait BurnStateDB {
     fn get_v3_unlock_height(&self) -> u32;
     fn get_pox_3_activation_height(&self) -> u32;
     fn get_pox_4_activation_height(&self) -> u32;
+    fn get_pox_5_activation_height(&self) -> u32;
 
     /// Returns the *burnchain block height* for the `sortition_id` is associated with.
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
@@ -416,6 +417,10 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_pox_4_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_pox_5_activation_height(&self) -> u32 {
         u32::MAX
     }
 
