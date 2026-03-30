@@ -26,7 +26,7 @@ use stacks::core::test_util::make_contract_call;
 use stacks::core::StacksEpochId;
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::types::PrivateKey;
-use stacks::util::hash::{hex_bytes, to_hex};
+use stacks::util::hash::to_hex;
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox5::make_pox_5_signer_grant_signature;

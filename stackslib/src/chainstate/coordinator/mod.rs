@@ -43,7 +43,7 @@ use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
 use crate::chainstate::stacks::address::{pox_addr_b58_serde, PoxAddress};
-use crate::chainstate::stacks::boot::{POX_3_NAME, POX_4_NAME, POX_5_NAME};
+use crate::chainstate::stacks::boot::{PoxVersions, POX_3_NAME, POX_4_NAME, POX_5_NAME};
 use crate::chainstate::stacks::db::accounts::MinerReward;
 #[cfg(test)]
 use crate::chainstate::stacks::db::ChainStateBootData;
@@ -378,6 +378,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         block_id: &StacksBlockId,
         cur_epoch: StacksEpoch,
     ) -> Result<RewardSet, Error> {
+        let pox_version = PoxVersions::Pox4;
         match cur_epoch.epoch_id {
             StacksEpochId::Epoch10
             | StacksEpochId::Epoch20
@@ -469,6 +470,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
             threshold,
             registered_addrs,
             cur_epoch.epoch_id,
+            pox_version,
         ))
     }
 }
