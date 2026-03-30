@@ -3202,6 +3202,10 @@ mod test {
             u32::MAX
         }
 
+        fn get_pox_5_activation_height(&self) -> u32 {
+            u32::MAX
+        }
+
         fn get_pox_prepare_length(&self) -> u32 {
             panic!("Docs db should not return PoX info")
         }

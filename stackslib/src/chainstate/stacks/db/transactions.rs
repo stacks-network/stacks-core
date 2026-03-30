@@ -9039,6 +9039,9 @@ pub mod test {
             fn get_pox_4_activation_height(&self) -> u32 {
                 u32::MAX
             }
+            fn get_pox_5_activation_height(&self) -> u32 {
+                u32::MAX
+            }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
                 Some(sortition_id.0[0] as u32)
             }
@@ -9267,6 +9270,9 @@ pub mod test {
                 u32::MAX
             }
             fn get_pox_4_activation_height(&self) -> u32 {
+                u32::MAX
+            }
+            fn get_pox_5_activation_height(&self) -> u32 {
                 u32::MAX
             }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {

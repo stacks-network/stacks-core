@@ -994,6 +994,10 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         self.context.pox_constants.pox_4_activation_height
     }
 
+    fn get_pox_5_activation_height(&self) -> u32 {
+        self.context.pox_constants.pox_5_activation_height
+    }
+
     fn get_pox_prepare_length(&self) -> u32 {
         self.context.pox_constants.prepare_length
     }
@@ -1130,6 +1134,10 @@ impl BurnStateDB for SortitionHandleConn<'_> {
 
     fn get_pox_4_activation_height(&self) -> u32 {
         self.context.pox_constants.pox_4_activation_height
+    }
+
+    fn get_pox_5_activation_height(&self) -> u32 {
+        self.context.pox_constants.pox_5_activation_height
     }
 
     fn get_pox_prepare_length(&self) -> u32 {

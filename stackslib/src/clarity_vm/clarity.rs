@@ -1535,7 +1535,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         |_, _| None,
                         None,
                     )
-                    .expect("Failed to set burnchain parameters in PoX-3 contract");
+                    .expect("Failed to set burnchain parameters in PoX-4 contract");
 
                 receipt
             });
@@ -1973,6 +1973,18 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 .get_boot_code_account()
                 .expect("FATAL: did not get boot account");
 
+            let first_block_height = self.burn_state_db.get_burn_start_height();
+            let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
+            let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
+            let pox_5_activation_height = self.burn_state_db.get_pox_5_activation_height();
+            let pox_5_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
+                u64::from(pox_5_activation_height),
+                u64::from(first_block_height),
+                u64::from(pox_reward_cycle_length),
+            )
+            .expect("PANIC: PoX-5 first reward cycle begins *before* first burn block height")
+                + 1;
+
             let mainnet = self.mainnet;
             let tx_version = if mainnet {
                 TransactionVersion::Mainnet
@@ -2007,6 +2019,28 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     None,
                 )
                 .expect("FATAL: Failed to process .pox-5 contract initialization");
+
+                // set burnchain params
+                let consts_setter = PrincipalData::from(pox_5_contract_id.clone());
+                let params = vec![
+                    Value::UInt(u128::from(first_block_height)),
+                    Value::UInt(u128::from(pox_prepare_length)),
+                    Value::UInt(u128::from(pox_reward_cycle_length)),
+                    Value::UInt(u128::from(pox_5_first_cycle)),
+                ];
+
+                let (_, _, _burnchain_params_events) = tx_conn
+                    .run_contract_call(
+                        &consts_setter,
+                        None,
+                        &pox_5_contract_id,
+                        "set-burnchain-parameters",
+                        &params,
+                        |_, _| None,
+                        None,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX-5 contract");
+
                 receipt
             });
 
@@ -3298,6 +3332,10 @@ mod tests {
             }
 
             fn get_pox_4_activation_height(&self) -> u32 {
+                u32::MAX
+            }
+
+            fn get_pox_5_activation_height(&self) -> u32 {
                 u32::MAX
             }
 
