@@ -22,15 +22,10 @@ jobs:
         id: git_checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Define Rust Toolchain
-        id: define_rust_toolchain
-        run: echo "RUST_TOOLCHAIN=$(cat ./rust-toolchain)" >> $GITHUB_ENV
-
       - name: Setup Rust Toolchain
         id: setup_rust_toolchain
         uses: actions-rust-lang/setup-rust-toolchain@11df97af8e8102fd60b60a77dfbf58d40cd843b8 # v1.10.1
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
           cache: false
 
       - name: Setup sccache

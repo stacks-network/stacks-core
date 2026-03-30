@@ -102,14 +102,14 @@ macro_rules! panic_test {
     };
 }
 
-fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A {
+pub fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A {
     input.unwrap_or_else(|e| {
         eprintln!("{msg}\nCaused by: {e}");
         panic_test!();
     })
 }
 
-fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
+pub fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     input.unwrap_or_else(|| {
         eprintln!("{msg}");
         panic_test!();
