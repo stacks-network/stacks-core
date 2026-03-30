@@ -170,6 +170,7 @@ impl GlobalStateView {
             Self::validate_tenure_change_payload(
                 tenure_change,
                 block,
+                parent_tenure_id,
                 signer_db,
                 client,
                 &self.config,
@@ -298,10 +299,23 @@ impl GlobalStateView {
     fn validate_tenure_change_payload(
         tenure_change: &TenureChangePayload,
         block: &NakamotoBlock,
+        parent_tenure_id: &ConsensusHash,
         signer_db: &mut SignerDb,
         client: &StacksClient,
         config: &ProposalEvalConfig,
     ) -> Result<(), RejectReason> {
+        // Check that the tenure change's prev_tenure matches the signer's known parent tenure.
+        if &tenure_change.prev_tenure_consensus_hash != parent_tenure_id {
+            warn!(
+                "Block commit parent tenure mismatch: the block commit's parent_block_ptr does not correspond to the actual parent tenure";
+                "committed_parent_tenure" => %parent_tenure_id,
+                "actual_parent_tenure" => %tenure_change.prev_tenure_consensus_hash,
+                "consensus_hash" => %block.header.consensus_hash,
+                "signer_signature_hash" => %block.header.signer_signature_hash(),
+            );
+            return Err(RejectReason::InvalidParentBlock);
+        }
+
         // Ensure that the tenure change block confirms the expected parent block
         let confirms_expected_parent = SortitionData::check_tenure_change_confirms_parent(
             tenure_change,

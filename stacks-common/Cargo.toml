@@ -20,8 +20,6 @@ keywords = [
     "dapps",
     "blockchain",
 ]
-readme = "README.md"
-resolver = "2"
 edition = "2021"
 build = "build.rs"
 

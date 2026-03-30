@@ -186,7 +186,6 @@ jobs:
         uses: stacks-network/actions/stacks-core/run-tests@main
         with:
           test-name: ${{ matrix.test-name }}
-          threads: 1
 
       - name: Code Coverage
         uses: stacks-network/actions/codecov@main
@@ -219,7 +218,6 @@ jobs:
         uses: stacks-network/actions/stacks-core/run-tests@main
         with:
           test-name: ${{ matrix.test-name }}
-          threads: 1
 
       - name: Code Coverage
         uses: stacks-network/actions/codecov@main

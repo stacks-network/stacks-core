@@ -21,8 +21,7 @@ use std::io::Read;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
-use rand;
-use rand::Rng;
+use rand::{self, Rng};
 use sha2::{Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
