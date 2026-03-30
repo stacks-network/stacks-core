@@ -93,49 +93,50 @@ mod btree {
     }
 }
 
-/// Layout constants for `std::collections::HashMap` / `HashSet`.
+/// Layout constants for [`HashMap`] / [`HashSet`].
 ///
-/// std's HashMap has been backed by hashbrown since Rust 1.36. These constants reflect hashbrown
-/// internals that are not exposed through any std API.
+/// `std`'s HashMap has been backed by `hashbrown` since Rust 1.36. These constants reflect
+/// internals that are not exposed through any `std` API.
 ///
 /// * `hashbrown` targets a 7/8 max load factor: it allocates more buckets than `capacity()`
 ///   reports. `capacity()` returns the number of insertions before reallocation, not the bucket
 ///   count. Actual buckets ~= `ceil(capacity * LOAD_FACTOR_INV_NUM / LOAD_FACTOR_INV_DEN)`.
-/// * Each bucket has a 1-byte control tag. The control array is padded by `Group::WIDTH` bytes
-///   (4, 8, or 16 depending on target SIMD support) for probing at the end of the table.
-///   We use 16 as a conservative upper bound.
+/// * Each bucket has a 1-byte control tag. The control array is padded by `Group::WIDTH` bytes (4,
+///   8, or 16 depending on target SIMD support) for probing at the end of the table. We use 16 as a
+///   conservative upper bound.
 /// * `hashbrown` also aligns `buckets * entry_size` up to `ctrl_align` (max of entry alignment and
 ///   Group alignment) before placing control bytes. We don't model this padding — for the types
 ///   used in Clarity, bucket counts are powers of 2 and entry alignments are <=8, so the gap is
 ///   typically zero.
 mod hashmap {
-    /// Inverse of hashbrown's max load factor (7/8), as a fraction: `buckets ~= (capacity * 8/7)`.
+    /// Inverse of `hashbrown`'s max load factor (7/8), as a fraction: `buckets ~= (capacity * 8/7)`.
     pub const LOAD_FACTOR_INV_NUM: usize = 8;
     pub const LOAD_FACTOR_INV_DEN: usize = 7;
     /// Conservative upper bound for SIMD group width padding appended to the control byte array.
-    /// hashbrown's actual `Group::WIDTH` varies by target (4, 8, or 16 bytes); 16 is the max
-    /// (SSE2 path on x86_64) and overestimates by at most 12 bytes on other platforms.
+    /// `hashbrown`'s actual `Group::WIDTH` varies by target (4, 8, or 16 bytes); 16 is the max
+    /// (`SSE2` path on `x86_64`) and overestimates by at most 12 bytes on other platforms.
     pub const CONTROL_GROUP_PADDING: usize = 16;
-
-    // NOTE:
 }
 
 /// Reports the approximate in-memory footprint of an instance, in bytes.
 ///
-/// See module-level documentation for the two-method design.
-pub trait ResidentBytes {
-    /// Total in-memory footprint: inline [`size_of()`](size_of) + heap allocations.
+/// The trait is split into two methods to avoid double-counting when composing nested types. A
+/// container (e.g. `Vec<T>`) already accounts for the inline `size_of::<T>()` of each element in
+/// its heap allocation, so it must call [`heap_bytes()`](Self::heap_bytes) — not `resident_bytes()`
+/// — on each child. Only the outermost caller uses [`resident_bytes()`](Self::resident_bytes),
+/// which adds `size_of::<Self>()` exactly once.
+pub trait ResidentBytes: Sized {
+    /// Total approximate memory footprint of this instance.
     ///
-    /// This is the method callers should use. It has a provided default implementation;
-    /// implementors only need to implement [`heap_bytes()`](Self::heap_bytes).
+    /// Default implementation: [`size_of::<Self>()`](size_of) (inline size) +
+    /// [`heap_bytes()`](Self::heap_bytes) (additional heap allocations).
     fn resident_bytes(&self) -> usize {
-        std::mem::size_of_val(self) + self.heap_bytes()
+        // Note: if we ever need to support unsized types, we should switch to size_of_val(self)
+        // here instead of size_of::<Self>() and remove the Sized trait bound.
+        std::mem::size_of::<Self>() + self.heap_bytes()
     }
 
-    /// Heap allocations only, beyond the inline [`size_of()`](size_of).
-    ///
-    /// Container types call this on their children to avoid double-counting inline sizes that are
-    /// already part of the container's backing allocation.
+    /// Heap allocations only, beyond the inline size reported by [`size_of::<Self>()`](size_of).
     fn heap_bytes(&self) -> usize;
 }
 
@@ -168,7 +169,7 @@ impl<T: ResidentBytes> ResidentBytes for Box<T> {
 impl<T: ResidentBytes> ResidentBytes for Option<T> {
     fn heap_bytes(&self) -> usize {
         match self {
-            // For Some, the T is inline in the Option — only count T's heap
+            // For Some, the T is inline in the Option; only count T's heap
             Some(v) => v.heap_bytes(),
             None => 0,
         }
@@ -178,7 +179,7 @@ impl<T: ResidentBytes> ResidentBytes for Option<T> {
 impl<T: ResidentBytes> ResidentBytes for Arc<T> {
     fn heap_bytes(&self) -> usize {
         // Arc heap-allocates: header (strong + weak counts, ~16 bytes) + T inline + T's heap
-        16 + size_of::<T>() + (**self).heap_bytes()
+        ARC_OVERHEAD + size_of::<T>() + (**self).heap_bytes()
     }
 }
 
