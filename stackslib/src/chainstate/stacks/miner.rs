@@ -653,10 +653,33 @@ impl TransactionResult {
         let error = match error {
             Error::ClarityError(e) => match handle_clarity_runtime_error(e) {
                 ClarityRuntimeTxError::Rejectable(e) => {
-                    // Note: unreachable error alerting for runtime check errors is handled
-                    // inside handle_clarity_runtime_error() (transactions.rs) to avoid
-                    // double-counting, since that function is called both here and in
-                    // block validation.
+                    // Runtime check unreachable alerting is inside
+                    // handle_clarity_runtime_error() to avoid double-counting.
+                    // Parse and static check errors hit the catch-all there and
+                    // arrive here as Rejectable, so we alert for those here.
+                    match &e {
+                        ClarityError::Parse(parse_err) if parse_err.is_unreachable() => {
+                            error!("UNREACHABLE_ERROR_TRIGGERED: parse error that should never occur was hit";
+                                "event_name" => "unreachable_error",
+                                "error_type" => "parse",
+                                "txid" => %tx.txid(),
+                                "error" => %parse_err,
+                            );
+                            increment_unreachable_errors_counter();
+                        }
+                        ClarityError::StaticCheck(static_err)
+                            if static_err.err.is_unreachable() =>
+                        {
+                            error!("UNREACHABLE_ERROR_TRIGGERED: static check error that should never occur was hit";
+                                "event_name" => "unreachable_error",
+                                "error_type" => "static_check",
+                                "txid" => %tx.txid(),
+                                "error" => %static_err,
+                            );
+                            increment_unreachable_errors_counter();
+                        }
+                        _ => {}
+                    }
                     // this transaction would invalidate the whole block, so don't re-consider it
                     info!("Problematic transaction would invalidate the block, so dropping from mempool"; "txid" => %tx.txid(), "error" => %e);
                     return (true, Error::ClarityError(e));
@@ -666,15 +689,6 @@ impl TransactionResult {
                     if let ClarityError::Parse(ref parse_err) = error {
                         info!("Parse error: {}", parse_err; "txid" => %tx.txid());
                         if parse_err.rejectable_in_epoch(epoch_id) {
-                            if parse_err.is_unreachable() {
-                                error!("UNREACHABLE_ERROR_TRIGGERED: parse error that should never occur was hit";
-                                    "event_name" => "unreachable_error",
-                                    "error_type" => "parse",
-                                    "txid" => %tx.txid(),
-                                    "error" => %parse_err,
-                                );
-                                increment_unreachable_errors_counter();
-                            }
                             info!("Problematic transaction failed parse checks"; "txid" => %tx.txid());
                             return (true, Error::ClarityError(error));
                         }

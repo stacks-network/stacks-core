@@ -12101,4 +12101,30 @@ pub mod test {
             conn.commit_block();
         }
     }
+
+    #[test]
+    fn handle_clarity_runtime_error_routes_parse_to_rejectable() {
+        use clarity::vm::ast::errors::{ParseError, ParseErrorKind};
+
+        let error = ClarityError::Parse(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
+        let result = handle_clarity_runtime_error(error);
+        assert!(
+            matches!(result, ClarityRuntimeTxError::Rejectable(ClarityError::Parse(_))),
+            "Parse errors must route to Rejectable (via catch-all), not Acceptable"
+        );
+    }
+
+    #[test]
+    fn handle_clarity_runtime_error_routes_static_check_to_rejectable() {
+        use clarity::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
+
+        let error = ClarityError::StaticCheck(StaticCheckError::new(
+            StaticCheckErrorKind::Unreachable("test".into()),
+        ));
+        let result = handle_clarity_runtime_error(error);
+        assert!(
+            matches!(result, ClarityRuntimeTxError::Rejectable(ClarityError::StaticCheck(_))),
+            "StaticCheck errors must route to Rejectable (via catch-all), not Acceptable"
+        );
+    }
 }
