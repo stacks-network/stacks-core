@@ -35,8 +35,6 @@ impl ResidentBytes for Contract {
     }
 }
 
-// AARON: this is an increasingly useless wrapper around a ContractContext struct.
-//          will probably be removed soon.
 impl Contract {
     pub fn initialize_from_ast(
         contract_identifier: QualifiedContractIdentifier,
@@ -81,33 +79,16 @@ mod tests {
     use crate::vm::types::QualifiedContractIdentifier;
     use crate::vm::version::ClarityVersion;
 
-    fn expected_contract_context_heap_bytes(contract: &Contract) -> usize {
-        let contract_context = &contract.contract_context;
-
-        // This is a bit rigid and will break if we change ContractContext's fields, but will catch
-        // if we forget to include a field in the resident_bytes calculation.
-        contract_context.contract_identifier.heap_bytes()
-            + contract_context.variables.heap_bytes()
-            + contract_context.functions.heap_bytes()
-            + contract_context.defined_traits.heap_bytes()
-            + contract_context.implemented_traits.heap_bytes()
-            + contract_context.persisted_names.heap_bytes()
-            + contract_context.meta_data_map.heap_bytes()
-            + contract_context.meta_data_var.heap_bytes()
-            + contract_context.meta_nft.heap_bytes()
-            + contract_context.meta_ft.heap_bytes()
-    }
-
+    /// Verify that `Contract::heap_bytes` delegates cleanly to `ContractContext::heap_bytes`, and
+    /// that `resident_bytes` adds exactly `size_of::<Contract>()`.
+    ///
+    /// Field-coverage (compile-time guard against forgotten fields) is enforced by the
+    /// destructuring inside `ContractContext::heap_bytes()` itself.
     #[track_caller]
-    fn assert_contract_bytes_match_context_fields(contract: &Contract) {
-        let expected_heap = expected_contract_context_heap_bytes(contract);
-
-        assert_eq!(contract.contract_context.heap_bytes(), expected_heap);
-        assert_eq!(contract.heap_bytes(), expected_heap);
-        assert_eq!(
-            contract.resident_bytes(),
-            size_of::<Contract>() + expected_heap
-        );
+    fn assert_contract_bytes_consistent(contract: &Contract) {
+        let ctx_heap = contract.contract_context.heap_bytes();
+        assert_eq!(contract.heap_bytes(), ctx_heap);
+        assert_eq!(contract.resident_bytes(), size_of::<Contract>() + ctx_heap);
     }
 
     #[track_caller]
@@ -160,7 +141,7 @@ mod tests {
         assert!(contract.contract_context.meta_nft.is_empty());
         assert!(contract.contract_context.meta_ft.is_empty());
 
-        assert_contract_bytes_match_context_fields(&contract);
+        assert_contract_bytes_consistent(&contract);
         assert_eq!(
             contract.heap_bytes(),
             contract.contract_context.contract_identifier.heap_bytes()
@@ -199,10 +180,10 @@ mod tests {
         assert_eq!(contract.contract_context.meta_data_var.len(), 1);
         assert!(contract.contract_context.persisted_names.len() >= 2);
 
-        assert_contract_bytes_match_context_fields(&contract);
+        assert_contract_bytes_consistent(&contract);
 
-        // Magnitude check: a contract with 3 functions, a map, a var, and a constant
-        // must have substantial heap allocation beyond the bare struct size.
+        // Magnitude check: a contract with 3 functions, a map, a var, and a constant must have
+        // substantial heap allocation beyond the bare struct size.
         assert!(
             contract.resident_bytes() > size_of::<Contract>() + 1000,
             "rich contract resident_bytes ({}) should exceed struct size + 1000",
@@ -229,7 +210,7 @@ mod tests {
         assert_eq!(contract.contract_context.meta_nft.len(), 2);
         assert_eq!(contract.contract_context.defined_traits.len(), 1);
 
-        assert_contract_bytes_match_context_fields(&contract);
+        assert_contract_bytes_consistent(&contract);
 
         // meta_nft contains a tuple key type (badge) — verify it contributes heap bytes
         let nft_heap: usize = contract
@@ -283,7 +264,7 @@ mod tests {
 
         assert_eq!(impl_contract.contract_context.implemented_traits.len(), 1);
 
-        assert_contract_bytes_match_context_fields(&impl_contract);
+        assert_contract_bytes_consistent(&impl_contract);
 
         // implemented_traits contains a TraitIdentifier; verify non-zero heap
         let impl_heap = impl_contract
@@ -321,8 +302,8 @@ mod tests {
             "resident-bytes-many-fns",
         );
 
-        assert_contract_bytes_match_context_fields(&single_function);
-        assert_contract_bytes_match_context_fields(&many_functions);
+        assert_contract_bytes_consistent(&single_function);
+        assert_contract_bytes_consistent(&many_functions);
         assert!(
             many_functions.contract_context.functions.len()
                 > single_function.contract_context.functions.len()

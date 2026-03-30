@@ -333,17 +333,35 @@ pub struct ContractContext {
 
 impl ResidentBytes for ContractContext {
     fn heap_bytes(&self) -> usize {
-        self.contract_identifier.heap_bytes()
-            + self.variables.heap_bytes()
-            + self.functions.heap_bytes()
-            + self.defined_traits.heap_bytes()
-            + self.implemented_traits.heap_bytes()
-            + self.persisted_names.heap_bytes()
-            + self.meta_data_map.heap_bytes()
-            + self.meta_data_var.heap_bytes()
-            + self.meta_nft.heap_bytes()
-            + self.meta_ft.heap_bytes()
-        // data_size: u64, clarity_version: enum — inline, covered by size_of::<Self>()
+        // Destructure to get a compile error when a field is added without accounting for it.
+        let ContractContext {
+            // Heap-allocated fields: accounted for by heap_bytes() calls below
+            contract_identifier,
+            variables,
+            functions,
+            defined_traits,
+            implemented_traits,
+            persisted_names,
+            meta_data_map,
+            meta_data_var,
+            meta_nft,
+            meta_ft,
+            // Inline-only fields: covered by size_of::<Self>()
+            data_size: _,
+            clarity_version: _,
+            is_deploying: _,
+        } = self;
+
+        contract_identifier.heap_bytes()
+            + variables.heap_bytes()
+            + functions.heap_bytes()
+            + defined_traits.heap_bytes()
+            + implemented_traits.heap_bytes()
+            + persisted_names.heap_bytes()
+            + meta_data_map.heap_bytes()
+            + meta_data_var.heap_bytes()
+            + meta_nft.heap_bytes()
+            + meta_ft.heap_bytes()
     }
 }
 

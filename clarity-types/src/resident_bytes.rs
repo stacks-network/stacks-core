@@ -178,7 +178,8 @@ impl<T: ResidentBytes> ResidentBytes for Option<T> {
 
 impl<T: ResidentBytes> ResidentBytes for Arc<T> {
     fn heap_bytes(&self) -> usize {
-        // Arc heap-allocates: header (strong + weak counts, ~16 bytes) + T inline + T's heap
+        // Counts the Arc allocation (header + pointee). Shared backing may be overcounted if
+        // multiple Arc handles to the same allocation are reachable in one measured graph.
         ARC_OVERHEAD + size_of::<T>() + (**self).heap_bytes()
     }
 }
