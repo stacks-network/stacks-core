@@ -190,3 +190,43 @@ fn test_migrate_existing_trie_blobs() {
         }
     }
 }
+
+#[test]
+fn test_bulk_read_block_entries_rejects_negative_external_offset() {
+    let mut db = setup_db("test_bulk_read_block_entries_rejects_negative_external_offset");
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db, false).unwrap();
+
+    let block_hash = BlockHeaderHash([0x11; 32]);
+    db.execute(
+        "INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) \
+         VALUES (?1, ?2, 0, ?3, ?4)",
+        rusqlite::params![block_hash.to_string(), Vec::<u8>::new(), -1i64, 0i64],
+    )
+    .unwrap();
+
+    let err = trie_sql::bulk_read_block_entries::<BlockHeaderHash>(&db).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            crate::chainstate::stacks::index::Error::CorruptionError(ref msg)
+                if msg.contains("Invalid external blob offset")
+        ),
+        "instead got: {err:?}"
+    );
+}
+
+#[test]
+fn test_update_squash_root_node_hash_requires_existing_row() {
+    let db = setup_db("test_update_squash_root_node_hash_requires_existing_row");
+    let hash = TrieHash::from_data(b"squash-root");
+
+    let err = trie_sql::update_squash_root_node_hash(&db, &hash).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            crate::chainstate::stacks::index::Error::CorruptionError(ref msg)
+                if msg.contains("Invalid marf_squash_info row count")
+        ),
+        "instead got: {err:?}"
+    );
+}

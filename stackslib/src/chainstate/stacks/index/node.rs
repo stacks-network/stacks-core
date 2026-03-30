@@ -53,10 +53,11 @@ impl error::Error for CursorError {
 }
 
 // All numeric values of a Trie node when encoded.
-// They are all 5-bit numbers (values 0-6)
+// They are all 4-bit numbers (values 0-6)
 // * the 8th bit (0x80) indicates a back-pointer to be followed
 // * the 7th bit (0x40) indicates the ptrs are compressed. Cleared on read.
 // * the 6th bit (0x20) indicates the ptr offset is encoded as u64, instead of u32. Cleared on read.
+// * the 5th bit (0x10) indicates a compressed inline pointer contains a back_block payload. Cleared on read.
 define_u8_enum!(TrieNodeID {
     Empty = 0,
     Leaf = 1,
@@ -97,6 +98,28 @@ pub fn clear_compressed(id: u8) -> u8 {
     id & 0xbf
 }
 
+/// Is this compressed inline pointer flagged to carry `back_block` payload bytes?
+/// This bit is wire-format-only metadata and is cleared after decoding.
+pub fn has_inline_back_block(id: u8) -> bool {
+    id & 0x10 != 0
+}
+
+/// Set the compressed inline `back_block` payload bit.
+pub fn set_inline_back_block(id: u8) -> u8 {
+    id | 0x10
+}
+
+/// Clear the compressed inline `back_block` payload bit.
+pub fn clear_inline_back_block(id: u8) -> u8 {
+    id & 0xef
+}
+
+/// True if a compressed pointer with this encoded id includes a back_block payload.
+#[inline]
+fn has_back_block_payload_bytes(id: u8) -> bool {
+    is_backptr(id) || has_inline_back_block(id)
+}
+
 /// Is this pointer encoded with a u64 offset?
 pub const fn is_u64_ptr(id: u8) -> bool {
     id & 0x20 != 0
@@ -112,9 +135,9 @@ pub const fn clear_u64_ptr(id: u8) -> u8 {
     id & 0xdf
 }
 
-/// Clear all control bits (backptr, compressed, and u64-pointer)
+/// Clear all control bits (backptr, compressed, u64-pointer, annotation)
 pub fn clear_ctrl_bits(id: u8) -> u8 {
-    id & 0x1f
+    id & 0x0f
 }
 
 // Byte writing operations for pointer lists, paths.
@@ -384,13 +407,28 @@ impl<T: TrieNode, M: BlockMap> ConsensusSerializable<M> for T {
     }
 }
 
-/// Child pointer
+/// Child pointer within a MARF trie node.
+///
+/// `back_block` has two modes depending on the backptr flag in `id`:
+///
+/// * Back-pointer (`id & 0x80 != 0`): the child lives in a different block's trie.
+///   `back_block` is the `marf_data` row ID of that block, and `ptr` is the byte offset
+///   within that block's trie storage.
+///
+/// * Inline (`id & 0x80 == 0`): the child lives in the same trie storage.
+///   `back_block` is normally 0. In a squashed MARF, a non-zero `back_block` is a
+///   squash annotation: it records the original archival block ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TriePtr {
-    pub id: u8, // ID of the child.  Will have bit 0x80 set if the child is a back-pointer (in which case, back_block will be nonzero)
-    pub chr: u8, // Path character at which this child resides
-    pub ptr: u64, // Storage-specific pointer to where the child's encoded bytes can be found
-    pub back_block: u32, // Pointer back to the block that contains the child, if it's not in this trie
+    /// Node type ID of the child (see [`TrieNodeID`]). Bit 0x80 marks a back-pointer.
+    pub id: u8,
+    /// Path character at which this child resides.
+    pub chr: u8,
+    /// Byte offset of the child's encoded data within the trie storage.
+    pub ptr: u64,
+    /// Block ID of the trie containing the child. Zero for same-block inline children
+    /// (unless carrying a squash annotation).
+    pub back_block: u32,
 }
 
 pub fn ptrs_fmt(ptrs: &[TriePtr]) -> String {
@@ -545,15 +583,20 @@ impl TriePtr {
 
     #[inline]
     pub fn write_bytes_compressed<W: Write>(&self, w: &mut W) -> Result<(), Error> {
-        let encoded_id = self.encoded_id();
-        w.write_all(&[set_compressed(encoded_id), self.chr()])?;
+        // Preserve squash annotation payload on disk for inline pointers that
+        // carry a non-zero back_block, without changing backptr semantics.
+        let mut encoded_id = set_compressed(self.encoded_id());
+        if !is_backptr(self.id()) && self.back_block() != 0 {
+            encoded_id = set_inline_back_block(encoded_id);
+        }
+        w.write_all(&[encoded_id, self.chr()])?;
         if is_u64_ptr(encoded_id) {
             w.write_all(&self.ptr().to_be_bytes())?;
         } else {
             let ptr32 = u32::try_from(self.ptr()).map_err(|_| Error::OverflowError)?;
             w.write_all(&ptr32.to_be_bytes())?;
         }
-        if is_backptr(self.id()) {
+        if has_back_block_payload_bytes(encoded_id) {
             w.write_all(&self.back_block().to_be_bytes())?;
         }
         Ok(())
@@ -612,14 +655,20 @@ impl TriePtr {
     }
 
     /// Load up this TriePtr from a slice of bytes, assuming that they represent a compressed
-    /// TriePtr.  A TriePtr that is compressed will not have a stored `back_block` field if the
-    /// node ID does not have the backptr bit set.
+    /// TriePtr.
+    ///
+    /// A compressed TriePtr stores `back_block` bytes if either:
+    /// * it is a back-pointer (`is_backptr(id)`), or
+    /// * it is an inline pointer with back_block payload
+    ///   (`has_inline_back_block(id)`).
+    ///
+    /// The annotation bit is wire metadata and is cleared on read.
     #[inline]
     #[allow(clippy::indexing_slicing)]
     pub fn from_bytes_compressed(bytes: &[u8]) -> TriePtr {
         let encoded_id = clear_compressed(bytes[0]);
-        assert!(bytes.len() >= TriePtr::encoded_size_compressed_for_id(encoded_id));
-        let id = clear_u64_ptr(encoded_id);
+        assert!(bytes.len() >= TriePtr::compressed_size_for_id(encoded_id));
+        let id = clear_u64_ptr(clear_inline_back_block(encoded_id));
         let chr = bytes[1];
         let ptr = if is_u64_ptr(encoded_id) {
             u64::from_be_bytes([
@@ -629,9 +678,9 @@ impl TriePtr {
             u64::from(u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]))
         };
 
-        let back_block = if is_backptr(id) {
+        let back_block = if has_back_block_payload_bytes(encoded_id) {
+            // Backpointers and squash annotations append a 4-byte `back_block` after the compressed ptr payload.
             let back_block_offset = TriePtr::encoded_size_compressed_for_id(encoded_id);
-            // Backpointers append a 4-byte `back_block` after the compressed ptr payload.
             assert!(bytes.len() >= back_block_offset + 4);
             u32::from_be_bytes([
                 bytes[back_block_offset],
@@ -658,7 +707,7 @@ impl TriePtr {
     pub fn read_bytes_compressed<R: Read>(fd: &mut R) -> Result<TriePtr, codec_error> {
         let id_bits: u8 = read_next(fd)?;
         let encoded_id = clear_compressed(id_bits);
-        let id = clear_u64_ptr(encoded_id);
+        let id = clear_u64_ptr(clear_inline_back_block(encoded_id));
         let chr: u8 = read_next(fd)?;
         let ptr = if is_u64_ptr(encoded_id) {
             let hi: [u8; 4] = read_next(fd)?;
@@ -668,7 +717,7 @@ impl TriePtr {
             let ptr_be_bytes: [u8; 4] = read_next(fd)?;
             u64::from(u32::from_be_bytes(ptr_be_bytes))
         };
-        let back_block = if is_backptr(id) {
+        let back_block = if has_back_block_payload_bytes(encoded_id) {
             let bytes: [u8; 4] = read_next(fd)?;
             u32::from_be_bytes(bytes)
         } else {
@@ -692,13 +741,20 @@ impl TriePtr {
     /// Size of this TriePtr on disk, if compression is to be used.
     #[inline]
     pub fn compressed_size(&self) -> usize {
-        Self::compressed_size_for_id(self.encoded_id())
+        let encoded_id = self.encoded_id();
+        if !is_backptr(self.id) && self.back_block != 0 {
+            Self::encoded_size_for_id(encoded_id)
+        } else {
+            Self::compressed_size_for_id(encoded_id)
+        }
     }
+
     /// Returns the size, in bytes, that a node occupies on disk, taking compression into account.
-    /// Non-backpointer nodes omit the `back_block`, while backpointer nodes store it.
+    /// Pointers without a `back_block` payload omit it, while backpointers and
+    /// inline-annotation pointers store it.
     #[inline]
     pub fn compressed_size_for_id(node_id: u8) -> usize {
-        if !is_backptr(node_id) {
+        if !has_back_block_payload_bytes(node_id) {
             Self::encoded_size_compressed_for_id(node_id)
         } else {
             Self::encoded_size_for_id(node_id)
@@ -1095,7 +1151,7 @@ impl TrieNode16 {
 #[derive(Clone)]
 pub struct TrieNode48 {
     pub path: Vec<u8>,
-    indexes: [i8; 256], // indexes[i], if non-negative, is an index into ptrs.
+    pub(crate) indexes: [i8; 256], // indexes[i], if non-negative, is an index into ptrs.
     pub ptrs: [TriePtr; 48],
     /// If this node was created by copy-on-write, then this points to the node it was copied from.
     pub cowptr: Option<TrieCowPtr>,
@@ -1342,17 +1398,19 @@ impl StacksMessageCodec for TrieNodePatch {
     }
 }
 
-/// Turn each non-empty, non-backptr in `ptrs` into a backptr pointing at `child_block_id`
+/// Turn each non-empty, non-backptr in `ptrs` into a backptr.
+/// If `back_block` is already non-zero (squash annotation), it is preserved;
+/// otherwise it is set to `child_block_id`.
 pub(crate) fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) {
     for pointer in ptrs.iter_mut() {
         // if the node is empty, do nothing, if it's a back pointer,
         if pointer.id() == TrieNodeID::Empty as u8 || is_backptr(pointer.id()) {
             continue;
-        } else {
-            // make backptr
-            pointer.back_block = child_block_id;
-            pointer.id = set_backptr(pointer.id());
         }
+        if pointer.back_block == 0 {
+            pointer.back_block = child_block_id;
+        }
+        pointer.id = set_backptr(pointer.id());
     }
 }
 
