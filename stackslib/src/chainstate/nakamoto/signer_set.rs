@@ -546,23 +546,20 @@ impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
 
         // errors below this point just continue the iterator, while errors above should
         //  cancel the calculation.
-        let staker_entry_clar = self.clarity
-            .eval_method_read_only(
-                &self.pox_contract,
-                "get-staker-set-item-for-cycle",
-                &[lookup_staker, self.reward_cycle_clar.clone()]
-            )
-            .map_err(|e| {
-                PoxEntryParsingError::Skip(e.to_string())
-            })?
+        let staker_entry_clar = self
+            .clarity
+            .eval_method_read_only(&self.pox_contract, "get-staker-info", &[lookup_staker])
+            .map_err(|e| PoxEntryParsingError::Skip(e.to_string()))?
             .expect_optional()
             .map_err(|_| {
-                PoxEntryParsingError::Skip("get-staker-set-item-for-cycle did not return optional".into())
+                PoxEntryParsingError::Skip("get-staker-info did not return optional".into())
             })?
             .ok_or_else(|| {
                 PoxEntryParsingError::Skip(format!(
-                    "get-staker-set-item-for-cycle did not return Some for a link-list entry: {cur_staker}"))
+                    "get-staker-info did not return Some: {cur_staker}"
+                ))
             })?;
+
         let staker_entry = RawPox5Entry::try_parse(
             cur_staker,
             staker_entry_clar,
@@ -857,14 +854,8 @@ impl NakamotoSigners {
             liquid_ustx,
         );
 
-        let pox_version: PoxVersions =
-            PoxVersions::lookup_by_name(pox_contract).ok_or(ChainstateError::DefunctPoxContract)?;
-        let reward_set = StacksChainState::make_reward_set(
-            threshold,
-            reward_slots,
-            StacksEpochId::Epoch30,
-            pox_version,
-        );
+        let reward_set =
+            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
 
         test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
 
@@ -1176,6 +1167,7 @@ impl NakamotoSigners {
             // before Epoch-2.5, no need for special handling
             return Ok(None);
         }
+
         // now, determine if we are in a prepare phase, and we are the first
         //  block in this prepare phase in our fork
         if !pox_constants.is_in_prepare_phase(first_block_height, burn_tip_height.into()) {
