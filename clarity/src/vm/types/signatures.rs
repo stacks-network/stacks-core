@@ -18,7 +18,6 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use clarity_types::ClarityTypeError;
-use clarity_types::errors::analysis::{CommonCheckErrorKind, StaticCheckErrorKind};
 use clarity_types::resident_bytes::ResidentBytes;
 pub use clarity_types::types::Value;
 pub use clarity_types::types::signatures::{
@@ -28,6 +27,7 @@ pub use clarity_types::types::signatures::{
 use stacks_common::types::StacksEpochId;
 
 use self::TypeSignature::SequenceType;
+use crate::vm::analysis::errors::{CommonCheckErrorKind, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::costs::{CostOverflowingMath, runtime_cost};
 use crate::vm::errors::{SyntaxBindingError, SyntaxBindingErrorType};
@@ -654,15 +654,14 @@ impl fmt::Display for FunctionArg {
 
 #[cfg(test)]
 mod test {
-    use clarity_types::errors::RuntimeCheckErrorKind::*;
-    use clarity_types::errors::{ClarityTypeError, RuntimeCheckErrorKind};
-    #[cfg(test)]
+    use clarity_types::errors::ClarityTypeError;
     use rstest::rstest;
-    #[cfg(test)]
     use rstest_reuse::{self, *};
     use stacks_common::types::StacksEpochId;
 
     use super::*;
+    use crate::vm::analysis::errors::RuntimeCheckErrorKind;
+    use crate::vm::analysis::errors::RuntimeCheckErrorKind::*;
     use crate::vm::tests::test_clarity_versions;
     use crate::vm::types::QualifiedContractIdentifier;
     use crate::vm::{ClarityVersion, execute};
