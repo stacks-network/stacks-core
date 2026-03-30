@@ -206,11 +206,7 @@ fn test_bulk_read_block_entries_rejects_negative_external_offset() {
 
     let err = trie_sql::bulk_read_block_entries::<BlockHeaderHash>(&db).unwrap_err();
     assert!(
-        matches!(
-            err,
-            crate::chainstate::stacks::index::Error::CorruptionError(ref msg)
-                if msg.contains("Invalid external blob offset")
-        ),
+        matches!(err, crate::chainstate::stacks::index::Error::OverflowError),
         "instead got: {err:?}"
     );
 }
@@ -225,7 +221,7 @@ fn test_update_squash_root_node_hash_requires_existing_row() {
         matches!(
             err,
             crate::chainstate::stacks::index::Error::CorruptionError(ref msg)
-                if msg.contains("Invalid marf_squash_info row count")
+                if msg.contains("no marf_squash_info row exists")
         ),
         "instead got: {err:?}"
     );

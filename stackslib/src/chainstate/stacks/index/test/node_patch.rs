@@ -157,6 +157,28 @@ fn trie_node_patch_u64_ptr_roundtrip_ok() {
 }
 
 #[test]
+fn trie_node_patch_apply_node4_preserves_inline_payload_pointer_identity() {
+    let mut old_node = TrieNode4::new(&[]);
+    let mut inline_with_payload = TriePtr::new(TrieNodeID::Node16 as u8, 0x10, 1234);
+    inline_with_payload.back_block = 55;
+    assert!(old_node.insert(&inline_with_payload));
+
+    let patch = TrieNodePatch {
+        ptr: TriePtr::new_backptr(TrieNodeID::Node4 as u8, 0x00, 1, 7),
+        ptr_diff: vec![TriePtr::new(TrieNodeID::Node16 as u8, 0x20, 2345)],
+    };
+
+    let patched = patch
+        .apply_node4(old_node, 8, 99)
+        .expect("patch application should succeed");
+    let patched_ptr = patched
+        .walk(0x10)
+        .expect("inline child with payload should still exist");
+    assert!(is_backptr(patched_ptr.id()));
+    assert_eq!(patched_ptr.back_block(), 55);
+}
+
+#[test]
 fn trie_node_patch_u64_ptr_serialize_fails_with_ptr_diffs_len_0() {
     let patch_node = TrieNodePatch {
         ptr: TriePtr::new(TrieNodeID::Node4 as u8, 1, 77),

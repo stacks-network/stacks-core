@@ -184,11 +184,17 @@ pub fn read_squash_info(
 }
 
 /// Update the squash_root_node_hash in the squash info table (computed after blob commit).
+/// Fails if no squash info row exists.
 pub fn update_squash_root_node_hash(conn: &Connection, hash: &TrieHash) -> Result<(), Error> {
-    conn.execute(
+    let updated = conn.execute(
         "UPDATE marf_squash_info SET squash_root_node_hash = ?1 WHERE id = 1",
         params![hash.as_bytes().to_vec()],
     )?;
+    if updated == 0 {
+        return Err(Error::CorruptionError(
+            "update_squash_root_node_hash: no marf_squash_info row exists".to_string(),
+        ));
+    }
     Ok(())
 }
 

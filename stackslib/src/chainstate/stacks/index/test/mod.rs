@@ -38,6 +38,7 @@ pub mod marf_perfs;
 pub mod node;
 pub mod node_patch;
 pub mod proofs;
+pub mod squash;
 pub mod storage;
 pub mod trie;
 
