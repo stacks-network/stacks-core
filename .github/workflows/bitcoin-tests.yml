@@ -28,15 +28,6 @@ jobs:
       matrix1: ${{ steps.set-matrix.outputs.matrix1 }}
       matrix2: ${{ steps.set-matrix.outputs.matrix2 }}
     steps:
-      - name: Checkout workflow scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          sparse-checkout: .github/workflows/scripts
-          sparse-checkout-cone-mode: false
-          fetch-depth: 1
-          persist-credentials: false
-          path: __ci
-
       ## Setup test environment
       - name: Setup Test Environment
         id: setup_tests
@@ -117,7 +108,7 @@ jobs:
           EOF
 
           # Exclude tests tagged with a skip tag
-          ci_skip_regex="$(__ci/.github/workflows/scripts/test-tag-regex.sh "$TEST_TAG_CI_SKIP")"
+          ci_skip_regex="$(.github/workflows/scripts/test-tag-regex.sh "$TEST_TAG_CI_SKIP")"
           jq -r '.[]' ignored_tests.json | grep -P "$ci_skip_regex" >> raw_exclude.txt || true
 
           # Clean: remove empty lines and comments
