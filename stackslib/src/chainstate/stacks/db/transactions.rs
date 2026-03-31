@@ -1335,16 +1335,16 @@ impl StacksChainState {
                             }
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {
+                                    if err.is_unreachable() {
+                                        error!("UNREACHABLE_ERROR_TRIGGERED: parse error that should never occur was hit";
+                                            "event_name" => "unreachable_error",
+                                            "error_type" => "parse",
+                                            "txid" => %tx.txid(),
+                                            "error" => %err,
+                                        );
+                                        increment_unreachable_errors_counter();
+                                    }
                                     if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                        if err.is_unreachable() {
-                                            error!("UNREACHABLE_ERROR_TRIGGERED: parse error that should never occur was hit";
-                                                "event_name" => "unreachable_error",
-                                                "error_type" => "parse",
-                                                "txid" => %tx.txid(),
-                                                "error" => %err,
-                                            );
-                                            increment_unreachable_errors_counter();
-                                        }
                                         info!(
                                             "Transaction {} is problematic and should have prevented this block from being relayed",
                                             tx.txid()
@@ -1353,16 +1353,16 @@ impl StacksChainState {
                                     }
                                 }
                                 if let ClarityError::StaticCheck(err) = &other_error {
+                                    if err.err.is_unreachable() {
+                                        error!("UNREACHABLE_ERROR_TRIGGERED: static check error that should never occur was hit";
+                                            "event_name" => "unreachable_error",
+                                            "error_type" => "static_check",
+                                            "txid" => %tx.txid(),
+                                            "error" => %err,
+                                        );
+                                        increment_unreachable_errors_counter();
+                                    }
                                     if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                        if err.err.is_unreachable() {
-                                            error!("UNREACHABLE_ERROR_TRIGGERED: static check error that should never occur was hit";
-                                                "event_name" => "unreachable_error",
-                                                "error_type" => "static_check",
-                                                "txid" => %tx.txid(),
-                                                "error" => %err,
-                                            );
-                                            increment_unreachable_errors_counter();
-                                        }
                                         info!(
                                             "Transaction {} is problematic and should have prevented this block from being relayed",
                                             tx.txid()
@@ -12109,7 +12109,10 @@ pub mod test {
         let error = ClarityError::Parse(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
         let result = handle_clarity_runtime_error(error);
         assert!(
-            matches!(result, ClarityRuntimeTxError::Rejectable(ClarityError::Parse(_))),
+            matches!(
+                result,
+                ClarityRuntimeTxError::Rejectable(ClarityError::Parse(_))
+            ),
             "Parse errors must route to Rejectable (via catch-all), not Acceptable"
         );
     }
@@ -12123,7 +12126,10 @@ pub mod test {
         ));
         let result = handle_clarity_runtime_error(error);
         assert!(
-            matches!(result, ClarityRuntimeTxError::Rejectable(ClarityError::StaticCheck(_))),
+            matches!(
+                result,
+                ClarityRuntimeTxError::Rejectable(ClarityError::StaticCheck(_))
+            ),
             "StaticCheck errors must route to Rejectable (via catch-all), not Acceptable"
         );
     }
