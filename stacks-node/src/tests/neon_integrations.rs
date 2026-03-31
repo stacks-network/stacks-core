@@ -287,8 +287,8 @@ pub mod test_observer {
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
     use stacks::util::hash::hex_bytes;
     use stacks_common::types::chainstate::StacksBlockId;
-    use warp::Filter;
-    use {tokio, warp};
+    use tokio;
+    use warp::{self, Filter};
 
     use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
     use crate::Config;
@@ -2409,16 +2409,16 @@ fn stx_delegate_btc_integration_test() {
 
                 // Ensure that the function name is as expected
                 // This verifies that there were print events for delegate-stack-stx and delegate-stx
-                let name_field =
-                    &contract_event["value"]["Response"]["data"]["Tuple"]["data_map"]["name"];
-                let name_data = name_field["Sequence"]["String"]["ASCII"]["data"]
-                    .as_array()
+                let raw_hex = contract_event["raw_value"].as_str().unwrap();
+                let clarity_bytes = hex_bytes(&raw_hex[2..]).unwrap();
+                let clarity_value =
+                    Value::deserialize_read(&mut &clarity_bytes[..], None, false).unwrap();
+                let pair = clarity_value
+                    .expect_result_ok()
+                    .unwrap()
+                    .expect_tuple()
                     .unwrap();
-                let ascii_vec = name_data
-                    .iter()
-                    .map(|num| num.as_u64().unwrap() as u8)
-                    .collect();
-                let name = String::from_utf8(ascii_vec).unwrap();
+                let name = pair.get_owned("name").unwrap().expect_ascii().unwrap();
                 if name == "delegate-stack-stx" {
                     delegate_stack_stx_found = true;
                 } else if name == "delegate-stx" {
@@ -9596,18 +9596,31 @@ fn mock_miner_replay() {
     let follower_blocks_processed_end = follower_channel.get_stacks_blocks_processed();
 
     let blocks_dir = follower_conf.node.mock_mining_output_dir.clone().unwrap();
-    let file_count = follower_conf
-        .node
-        .mock_mining_output_dir
-        .unwrap()
-        .read_dir()
-        .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
-        .count();
+    let mock_mining_output_dir = follower_conf.node.mock_mining_output_dir.unwrap();
 
     // Check that expected output files exist
     assert!(test_dir.is_dir());
     assert!(blocks_dir.is_dir());
-    assert_eq!(file_count, 12);
+
+    // Wait for all mock mining output files to be flushed to disk.
+    let expected_file_count = 12;
+    let start = std::time::Instant::now();
+    let file_count = loop {
+        let count = mock_mining_output_dir
+            .read_dir()
+            .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
+            .count();
+        if count >= expected_file_count {
+            break count;
+        }
+        if start.elapsed() > Duration::from_secs(30) {
+            panic!(
+                "Timed out waiting for mock mining output files: expected {expected_file_count}, got {count}"
+            );
+        }
+        thread::sleep(Duration::from_millis(500));
+    };
+    assert_eq!(file_count, expected_file_count);
     assert_eq!(miner_blocks_processed_end, follower_blocks_processed_end);
 
     // PART 2

@@ -611,16 +611,6 @@ impl TypeSignature {
     }
 
     fn admits_type_v2_1(&self, other: &TypeSignature) -> Result<bool, ClarityTypeError> {
-        // Callable principal types are runtime-carried in epoch 3.4+, and should
-        // admit an identical callable principal type directly (before concretization).
-        if let (
-            CallableType(CallableSubtype::Principal(self_contract)),
-            CallableType(CallableSubtype::Principal(other_contract)),
-        ) = (self, other)
-        {
-            return Ok(self_contract == other_contract);
-        }
-
         let other = match other.concretize() {
             Ok(other) => other,
             Err(_) => {
