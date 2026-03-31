@@ -19,7 +19,6 @@
 
 use std::convert::TryFrom;
 
-use clarity_types::errors::RuntimeCheckErrorKind;
 use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
@@ -30,6 +29,7 @@ use proptest::test_runner::{TestCaseError, TestCaseResult};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
+use crate::vm::analysis::errors::RuntimeCheckErrorKind;
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
 use crate::vm::errors::{ClarityEvalError, EarlyReturnError, VmExecutionError, VmInternalError};
