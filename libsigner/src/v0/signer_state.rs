@@ -98,9 +98,6 @@ impl GlobalStateEvaluator {
     }
 
     /// Check if there is an agreed upon global state
-    // CachedSize in TupleTypeSignature uses AtomicU32 for lazy size caching.
-    // This is invisible to Hash/Eq but clippy sees it as interior mutability.
-    #[allow(clippy::mutable_key_type)]
     pub fn determine_global_state(&self) -> Option<SignerStateMachine> {
         let active_signer_protocol_version =
             self.determine_latest_supported_signer_protocol_version()?;
@@ -185,7 +182,6 @@ impl GlobalStateEvaluator {
     /// This implements the longest common prefix (LCP) strategy where if one signer's replay set
     /// is [A,B,C] and another is [A,B], we should use [A,B] as the replay set.
     /// Order matters for transaction replay - [A,B] and [B,A] have no common prefix.
-    #[allow(clippy::mutable_key_type)]
     fn find_majority_prefix_replay_set(
         &self,
         tx_replay_sets: &HashMap<ReplayTransactionSet, u32>,
