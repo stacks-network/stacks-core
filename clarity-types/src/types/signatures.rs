@@ -67,12 +67,7 @@ impl AssetIdentifier {
     }
 }
 
-/// `size` is not serialized — it is recomputed from the `type_map` on
-/// deserialization via `TryFrom<TupleTypeSignatureRaw>`. This avoids
-/// trusting an untrusted value for a field used in `MAX_VALUE_SIZE`
-/// enforcement.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "TupleTypeSignatureRaw")]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct TupleTypeSignature {
     #[serde(serialize_with = "tuple_type_map_serde::serialize")]
     type_map: Arc<BTreeMap<ClarityName, TypeSignature>>,
@@ -80,21 +75,25 @@ pub struct TupleTypeSignature {
     size: u32,
 }
 
-/// Deserialization-only mirror of `TupleTypeSignature` (no `size` field).
-#[derive(Deserialize)]
-struct TupleTypeSignatureRaw {
-    type_map: BTreeMap<ClarityName, TypeSignature>,
-}
-
-impl TryFrom<TupleTypeSignatureRaw> for TupleTypeSignature {
-    type Error = String;
-    fn try_from(raw: TupleTypeSignatureRaw) -> Result<Self, Self::Error> {
+/// Custom deserializer for [`TupleTypeSignature`].
+///
+/// [`TupleTypeSignature::size`] is not serialized.
+/// It is recomputed from [`TupleTypeSignature::type_map`] on deserialization.
+/// This avoids trusting an untrusted value for a field that
+/// is used in [`MAX_VALUE_SIZE`] enforcement.
+impl<'de> serde::Deserialize<'de> for TupleTypeSignature {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            type_map: BTreeMap<ClarityName, TypeSignature>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
         let type_map = Arc::new(raw.type_map);
         let tmp = TupleTypeSignature { type_map, size: 0 };
         let size = tmp
             .inner_size()
-            .map_err(|e| format!("{e}"))?
-            .ok_or("tuple type too large")?;
+            .map_err(serde::de::Error::custom)?
+            .ok_or_else(|| serde::de::Error::custom("tuple type too large"))?;
         Ok(TupleTypeSignature {
             type_map: tmp.type_map,
             size,
@@ -365,9 +364,12 @@ pub struct ListTypeData {
     size: u32,
 }
 
-/// `size` is not serialized — it is recomputed from `max_len` and `entry_type`
+/// Custom deserializer for [`ListTypeData`].
+///
+/// [`ListTypeData::size`] is not serialized.
+/// it is recomputed from [`ListTypeData::max_len`] and [`ListTypeData::entry_type`]
 /// on deserialization. This avoids trusting an untrusted value for a field that
-/// is used in `MAX_VALUE_SIZE` enforcement.
+/// is used in [`MAX_VALUE_SIZE`] enforcement.
 impl<'de> Deserialize<'de> for ListTypeData {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
