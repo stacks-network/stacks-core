@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 
+use clarity::util::uint::{BitArray as _, Uint256, Uint512};
 use clarity::vm::clarity::ClarityError;
 use clarity::vm::database::DataVariableMetadata;
 use clarity::vm::events::StacksTransactionEvent;
@@ -36,9 +37,9 @@ use crate::chainstate::burn::db::sortdb::{
 };
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
-    PoxVersions, RawRewardSetEntry, RewardSet, SIGNERS_LAST_UPDATED_BTC_HEIGHT,
-    SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN, SIGNERS_UPDATE_STATE,
-    SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    NakamotoSignerEntry, PoxStartCycleInfo, PoxVersions, RawRewardSetEntry, RewardSet,
+    SIGNERS_LAST_UPDATED_BTC_HEIGHT, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
+    SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TransactionPayload};
@@ -244,6 +245,73 @@ pub enum RawPox5EntryInfo {
     },
 }
 
+/// Provides pool information (PoX address and signer key) for PoX-5 pool principals.
+pub trait Pox5PoolInfoProvider {
+    /// Query pool information for a given pool principal.
+    /// Returns `Ok(Some(...))` if pool exists, `Ok(None)` if pool not found,
+    /// or `Err(...)` for query/parsing failures.
+    fn get_pool_info(
+        &mut self,
+        pool_principal: &PrincipalData,
+    ) -> Result<Option<([u8; 33], PoxAddress)>, PoxEntryParsingError>;
+}
+
+/// Concrete implementation that queries pool info from Clarity contract.
+pub struct ClarityPox5PoolInfoProvider<'a, 'b, 'c> {
+    clarity: &'a mut ClarityTransactionConnection<'b, 'c>,
+    pox_contract: &'a QualifiedContractIdentifier,
+    is_mainnet: bool,
+}
+
+impl<'a, 'b, 'c> ClarityPox5PoolInfoProvider<'a, 'b, 'c> {
+    pub fn new(
+        clarity: &'a mut ClarityTransactionConnection<'b, 'c>,
+        pox_contract: &'a QualifiedContractIdentifier,
+    ) -> Self {
+        let is_mainnet = clarity.is_mainnet();
+        Self {
+            clarity,
+            pox_contract,
+            is_mainnet,
+        }
+    }
+}
+
+impl<'a, 'b, 'c> Pox5PoolInfoProvider for ClarityPox5PoolInfoProvider<'a, 'b, 'c> {
+    fn get_pool_info(
+        &mut self,
+        pool_principal: &PrincipalData,
+    ) -> Result<Option<([u8; 33], PoxAddress)>, PoxEntryParsingError> {
+        let pool_entry_opt = self
+            .clarity
+            .eval_method_read_only(
+                self.pox_contract,
+                "get-pool-info",
+                &[SymbolicExpression::atom_value(Value::from(
+                    pool_principal.clone(),
+                ))],
+            )
+            .map_err(|e| {
+                PoxEntryParsingError::Abort(format!("Error executing get-pool-info: {e}"))
+            })?
+            .expect_optional()
+            .map_err(|_| {
+                PoxEntryParsingError::Abort("get-pool-info did not return optional".into())
+            })?;
+
+        match pool_entry_opt {
+            Some(entry) => {
+                let parsed =
+                    RawPox5Entry::parse_pox_entry(entry, self.is_mainnet).map_err(|e| {
+                        PoxEntryParsingError::Skip(format!("Failed to parse pool info: {e}"))
+                    })?;
+                Ok(Some(parsed))
+            }
+            None => Ok(None),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct RawPox5Entry {
     user: StandardPrincipalData,
@@ -307,6 +375,35 @@ impl RawPox5Entry {
         WitnessScriptHash::from(hasher)
     }
 
+    /// Parse a Clarity value from `get-pool-info` or the self-staked entry
+    /// into signer key and PoX address.
+    fn parse_pox_entry(entry: Value, is_mainnet: bool) -> Result<([u8; 33], PoxAddress), String> {
+        let entry_map = entry
+            .expect_tuple()
+            .map_err(|_| "Staking entry info should be tuple")?;
+
+        let pox_addr_tuple = entry_map
+            .get("pox-addr")
+            .map_err(|_| "Staking entry info should have pox-addr")?;
+
+        let pox_addr = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
+            .ok_or_else(|| format!("not a valid PoX address: {pox_addr_tuple}"))?;
+
+        let Value::Sequence(SequenceData::Buffer(signer)) = entry_map
+            .get("signer-key")
+            .map_err(|_| "Staking entry info should have signer-key")?
+        else {
+            return Err("signer-key should be a buff".into());
+        };
+
+        let signer_key: [u8; SIGNERS_PK_LEN] = signer
+            .as_slice()
+            .try_into()
+            .unwrap_or_else(|_| [0; SIGNERS_PK_LEN]);
+
+        Ok((signer_key, pox_addr))
+    }
+
     /// Try parsing a value from PoX-5 into a `RawPox5Entry`, if any step of the parsing
     /// (or validation) fails, return a string error.
     fn try_parse(
@@ -365,25 +462,7 @@ impl RawPox5Entry {
                     .map_err(|_| "Staking entry should be principal")?,
             ),
             Err(solo_info) => {
-                let solo_info_map = solo_info
-                    .expect_tuple()
-                    .map_err(|_| "Staking entry info should be tuple")?;
-                let pox_addr_tuple = solo_info_map
-                    .get("pox-addr")
-                    .map_err(|_| "Staking entry info should have pox-addr")?;
-                let pox_addr = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
-                    .ok_or_else(|| format!("not a valid PoX address: {pox_addr_tuple}"))?;
-                let Value::Sequence(SequenceData::Buffer(signer)) = solo_info_map
-                    .get("signer-key")
-                    .map_err(|_| "Staking entry info should have signer-key")?
-                else {
-                    return Err("signer-key should be a buff".into());
-                };
-
-                let signer_key: [u8; SIGNERS_PK_LEN] = signer
-                    .as_slice()
-                    .try_into()
-                    .unwrap_or_else(|_| [0; SIGNERS_PK_LEN]);
+                let (signer_key, pox_addr) = Self::parse_pox_entry(solo_info, is_mainnet)?;
                 RawPox5EntryInfo::Solo {
                     signer_key,
                     pox_addr,
@@ -822,7 +901,6 @@ impl NakamotoSigners {
         let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
 
         let first_burn_ht = sortition_dbconn.get_burn_start_height();
-        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
         let mut entries = Self::pox_5_stake_entries(
             clarity,
             reward_cycle,
@@ -855,7 +933,9 @@ impl NakamotoSigners {
         })?;
 
         // compute the reward set, and then update the signers db
-        let reward_set = Self::pox_5_make_reward_set(entries, liquid_ustx)?;
+        let pox_contract_id = boot_code_id(pox_contract, is_mainnet);
+        let mut pool_provider = ClarityPox5PoolInfoProvider::new(clarity, &pox_contract_id);
+        let reward_set = Self::pox_5_make_reward_set(entries, pox_constants, &mut pool_provider)?;
         let events = Self::update_signers(
             clarity,
             reward_cycle,
@@ -872,13 +952,210 @@ impl NakamotoSigners {
         Ok(SignerCalculation { reward_set, events })
     }
 
-    fn pox_5_make_reward_set(
-        _entries: HashMap<RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>>,
-        _liquid_ustx: u128,
+    fn pox_5_make_reward_set<P: Pox5PoolInfoProvider>(
+        entries: Vec<(RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>)>,
+        pox_constants: &PoxConstants,
+        pool_info_provider: &mut P,
         // will probably need other arguments here to get the windowed averages for
         //  STX/BTC price ratio, STX/BTC 95th percentile ratios
     ) -> Result<RewardSet, ChainstateError> {
-        todo!("Implement PoX-5 reward set calculations")
+        let SCALING_FACTOR = Uint512::from_u128(u128::MAX) + Uint512::one();
+
+        // f_min := minimum amount of STX which can be staked for a given BTC stake
+        let max_supported_lock_cycles = 12;
+        let f_min_denominator = 100;
+        let price_ratio = Uint512::from_u64(1);
+        // d_min_t := minimum allowed stx / btc ratio scaled by SCALING_FACTOR
+        let d_min_t = (price_ratio * SCALING_FACTOR) / Uint512::from_u64(f_min_denominator);
+        // p := BTC-weighted Percentile to Define D
+        let p = 95;
+        // Maximum Ratio Multiplier
+        let M_ratio_max = 10;
+        // (Maximum Time - 1) numerator
+        let M_time_max = 1;
+        // (Maximum Time - 1) denominator
+        let M_time_max_denominator = 2;
+
+        struct SummedPox5Entry {
+            entry: RawPox5Entry,
+            sats_locked: u64,
+        }
+
+        // transform our vec into one with summed entries
+        let entries: Vec<_> = entries
+            .into_iter()
+            .map(|(entry, output)| {
+                let sats_locked = output
+                    .iter()
+                    .fold(0, |acc, output| output.output.amount.saturating_add(acc));
+                SummedPox5Entry { entry, sats_locked }
+            })
+            .collect();
+
+        // Step 1: calculate d_i
+        //
+        // d_i_vec: d_i is a Uint256 with fixed scaling of 128 bits
+        //  for ratio of stx/btc.
+        // the vec is initially in the same order as entries
+        let mut d_i_vec = Vec::new();
+        let mut total_btc_locked = 0;
+        let mut total_ustx_locked = 0;
+        for entry in entries.iter() {
+            total_btc_locked = entry.sats_locked.saturating_add(total_btc_locked);
+            total_ustx_locked = entry.entry.amount_ustx.saturating_add(total_ustx_locked);
+            let ustx_locked = Uint512::from_u128(entry.entry.amount_ustx) * SCALING_FACTOR;
+            let sats_locked = Uint512::from_u64(entry.sats_locked);
+            let d_i = ustx_locked / sats_locked;
+            if d_i < d_min_t {
+                warn!(
+                    "PoX entry had STX/BTC ratio less than the minimum";
+                    "d_i_scaled" => %d_i,
+                    "d_min" => %d_min_t
+                );
+                continue;
+            }
+            d_i_vec.push((d_i, entry));
+        }
+
+        // make copy for use in computing w_i later
+        let mut w_i_vec = d_i_vec.clone();
+        // Step 2: compute D_t -- the BTC weighted pth-percentile of d in this cycle
+        d_i_vec.sort_by_key(|(d_i, _)| *d_i);
+        let total_target_btc_locked = (total_btc_locked / 100) * p;
+        let mut total_locked_so_far = 0;
+        let mut D_t = Uint512::from_u64(0);
+        for (d_i, entry) in d_i_vec {
+            total_locked_so_far = entry.sats_locked.saturating_add(total_locked_so_far);
+            D_t = d_i;
+            if total_locked_so_far >= total_target_btc_locked {
+                break;
+            }
+        }
+
+        // Step 2.5: todo, compute the GeoWeightedAvg for D
+
+        // Step 3: Compute w_i scaled by SCALING_FACTOR
+        let mut W = Uint512::zero();
+        for (d_i, entry) in w_i_vec.iter_mut() {
+            let r_i = if *d_i > D_t {
+                SCALING_FACTOR // 1
+            } else {
+                *d_i * SCALING_FACTOR / D_t
+            };
+
+            // r_i should be less than 1 (this prevents overflow)
+            let s_i_numer = r_i * r_i * SCALING_FACTOR; // SCALING_FACTOR^3
+            let s_i_denom = (r_i * r_i) + ((SCALING_FACTOR - r_i) * (SCALING_FACTOR - r_i)); // SCALING_FACTOR^2
+                                                                                             // s_i is the sigmoid output, scaled by SCALING_FACTOR
+            let s_i = s_i_numer / s_i_denom;
+
+            // s_i should be less than 1!
+
+            // ratio_multiplier is M_ratio_i scaled by SCALING_FACTOR
+            let ratio_multiplier = SCALING_FACTOR + (Uint512::from_u64(M_ratio_max - 1) * s_i);
+            let time_multiplier_user = SCALING_FACTOR
+                * Uint512::from_u128(
+                    entry
+                        .entry
+                        .num_cycles
+                        .min(max_supported_lock_cycles)
+                        .saturating_sub(1),
+                )
+                / Uint512::from_u128(max_supported_lock_cycles.saturating_sub(1));
+            // scaled by SCALING_FACTOR
+            let time_multiplier = SCALING_FACTOR
+                + (Uint512::from_u64(M_time_max) * time_multiplier_user
+                    / Uint512::from_u64(M_time_max_denominator));
+
+            // SCALING_FACTOR ^ 2
+            let w_i = time_multiplier * ratio_multiplier * Uint512::from_u64(entry.sats_locked);
+            W = W + w_i;
+            *d_i = w_i;
+        }
+
+        // Step 4: accumulate pools
+        let mut totaled_entries = vec![];
+        let mut pooled_entries = HashMap::new();
+        for (w_i, entry) in w_i_vec.into_iter() {
+            match &entry.entry.pox_info {
+                RawPox5EntryInfo::Pool(principal_data) => {
+                    let (cur_w, cur_stx_amt) = pooled_entries
+                        .entry(principal_data)
+                        .or_insert((Uint512::zero(), 0u128));
+                    *cur_w = *cur_w + w_i;
+                    *cur_stx_amt += entry.entry.amount_ustx;
+                }
+                RawPox5EntryInfo::Solo {
+                    pox_addr,
+                    signer_key,
+                } => {
+                    totaled_entries.push((
+                        pox_addr.clone(),
+                        signer_key.clone(),
+                        w_i,
+                        entry.entry.amount_ustx,
+                    ));
+                }
+            }
+        }
+        // translate pooled_entries into totaled_entries
+        for (pool_principal, (w_i, stx_locked)) in pooled_entries.into_iter() {
+            match pool_info_provider.get_pool_info(pool_principal) {
+                Ok(Some((signer_key, pox_addr))) => {
+                    totaled_entries.push((pox_addr, signer_key, w_i, stx_locked));
+                }
+                Ok(None) => {
+                    warn!("No pool entry found, dropping from reward set"; "pool" => %pool_principal);
+                }
+                Err(PoxEntryParsingError::Skip(e)) => {
+                    warn!("Failed to parse pool entry, dropping from reward set"; "pool" => %pool_principal, "err" => %e);
+                }
+                Err(PoxEntryParsingError::Abort(e)) => {
+                    error!("Unexpected error while fetching pool entry, aborting calculation"; "err" => %e);
+                    return Err(ChainstateError::Expects(e));
+                }
+            }
+        }
+
+        // Step 5: assign slots
+        let reward_slots = pox_constants.reward_slots();
+        let mut rewarded_addresses = Vec::with_capacity(reward_slots as usize);
+        // same scaling as W and w_i
+        let reward_slot_threshold = W / Uint512::from_u64(reward_slots.into());
+        for (pox_addr, _, w_i, _) in totaled_entries.iter() {
+            // reward_slot_threshold has same scaling as w_i,
+            //  so, this result is unscaled
+            let slots_assigned = *w_i / reward_slot_threshold;
+            let slots_assigned = slots_assigned.low_u32();
+            for _ in 0..slots_assigned {
+                rewarded_addresses.push((*pox_addr).clone());
+            }
+        }
+
+        // Step 6: assign signer weights
+        // TODO: should we have a minimum threshold for participation, and then re-weight?
+        let signer_weight_scaling = Uint256::from_u64(u32::MAX as u64 + 1);
+        let total_ustx_locked = Uint256::from_u128(total_ustx_locked);
+        let mut signers = vec![];
+        for (_, signer, _, amount_ustx) in totaled_entries.iter() {
+            let amount_ustx_scaled = Uint256::from_u128(*amount_ustx) * signer_weight_scaling;
+            let signer_weight = amount_ustx_scaled / total_ustx_locked;
+            signers.push(NakamotoSignerEntry {
+                signing_key: (*signer).clone(),
+                stacked_amt: *amount_ustx,
+                weight: signer_weight.low_u32(),
+            });
+        }
+
+        Ok(RewardSet {
+            rewarded_addresses,
+            start_cycle_state: PoxStartCycleInfo {
+                missed_reward_slots: vec![],
+            },
+            signers: Some(signers),
+            // TODO: we'll have to investigate what to do about this field
+            pox_ustx_threshold: None,
+        })
     }
 
     /// If this block is mined in the prepare phase, based on its tenure's `burn_tip_height`.  If
@@ -1190,5 +1467,315 @@ impl NakamotoSigners {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use clarity::vm::types::{PrincipalData, StandardPrincipalData};
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::util::hash::Hash160;
+
+    use super::*;
+    use crate::burnchains::bitcoin::WatchedP2WSHOutput;
+    use crate::burnchains::PoxConstants;
+    use crate::chainstate::burn::db::sortdb::WatchedP2WSHOutputMetadata;
+    use crate::chainstate::burn::ConsensusHash;
+    use crate::chainstate::stacks::address::PoxAddress;
+
+    /// Mock implementation of Pox5PoolInfoProvider for testing
+    struct MockPox5PoolInfoProvider {
+        pools: HashMap<PrincipalData, ([u8; 33], PoxAddress)>,
+    }
+
+    impl MockPox5PoolInfoProvider {
+        fn new() -> Self {
+            Self {
+                pools: HashMap::new(),
+            }
+        }
+
+        fn add_pool(&mut self, principal: PrincipalData, key: [u8; 33], addr: PoxAddress) {
+            self.pools.insert(principal, (key, addr));
+        }
+    }
+
+    impl Pox5PoolInfoProvider for MockPox5PoolInfoProvider {
+        fn get_pool_info(
+            &mut self,
+            pool_principal: &PrincipalData,
+        ) -> Result<Option<([u8; 33], PoxAddress)>, PoxEntryParsingError> {
+            Ok(self.pools.get(pool_principal).cloned())
+        }
+    }
+
+    fn make_test_watched_output(sats: u64) -> WatchedP2WSHOutputMetadata {
+        use crate::burnchains::Txid;
+
+        // Create a minimal watched output for testing
+        WatchedP2WSHOutputMetadata {
+            output: WatchedP2WSHOutput {
+                witness_script_hash: WitnessScriptHash([0u8; 32]),
+                amount: sats,
+                txid: Txid([0u8; 32]),
+                vout: 0,
+            },
+            at_block_ch: ConsensusHash([0u8; 20]),
+            at_block_ht: 100,
+        }
+    }
+
+    fn make_test_pox_constants() -> PoxConstants {
+        PoxConstants::new(
+            5,    // reward_cycle_length
+            3,    // prepare_length
+            3,    // anchor_threshold
+            10,   // pox_rejection_fraction
+            10,   // pox_participation_threshold_pct
+            5000, // sunset_start
+            5100, // sunset_end
+            1000, // v1_unlock_height
+            2000, // v2_unlock_height
+            3000, // v3_unlock_height
+            2000, // pox_3_activation_height
+            4000, // v4_unlock_height
+        )
+    }
+
+    #[test]
+    fn test_pox_5_make_reward_set_solo_only() {
+        let mut provider = MockPox5PoolInfoProvider::new();
+        let pox_constants = make_test_pox_constants();
+
+        // Create solo staker entries
+        let pox_addr1 =
+            PoxAddress::Standard(StacksAddress::new(0, Hash160([1u8; 20])).unwrap(), None);
+        let signer_key1 = [11u8; 33];
+
+        let pox_addr2 =
+            PoxAddress::Standard(StacksAddress::new(0, Hash160([2u8; 20])).unwrap(), None);
+        let signer_key2 = [22u8; 33];
+
+        let entry1 = RawPox5Entry {
+            user: StandardPrincipalData::transient(),
+            num_cycles: 1,
+            unlock_bytes: vec![],
+            amount_ustx: 1000000,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr: pox_addr1.clone(),
+                signer_key: signer_key1,
+            },
+        };
+
+        let entry2 = RawPox5Entry {
+            user: StandardPrincipalData::transient(),
+            num_cycles: 1,
+            unlock_bytes: vec![],
+            amount_ustx: 2000000,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr: pox_addr2.clone(),
+                signer_key: signer_key2,
+            },
+        };
+
+        let entries = vec![
+            (entry1, vec![make_test_watched_output(1000000)]),
+            (entry2, vec![make_test_watched_output(1000000)]),
+        ];
+
+        let result = NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider);
+
+        assert!(result.is_ok());
+        let reward_set = result.unwrap();
+
+        // Verify signers were created
+        assert!(reward_set.signers.is_some());
+        let signers = reward_set.signers.unwrap();
+        assert_eq!(signers.len(), 2);
+
+        // Verify both signers are present
+        assert!(signers.iter().any(|s| s.signing_key == signer_key1));
+        assert!(signers.iter().any(|s| s.signing_key == signer_key2));
+
+        // Verify stacked amounts
+        let signer1 = signers
+            .iter()
+            .find(|s| s.signing_key == signer_key1)
+            .unwrap();
+        let signer2 = signers
+            .iter()
+            .find(|s| s.signing_key == signer_key2)
+            .unwrap();
+        assert_eq!(signer1.stacked_amt, 1000000);
+        assert_eq!(signer2.stacked_amt, 2000000);
+    }
+
+    #[test]
+    fn test_pox_5_make_reward_set_pool_only() {
+        let mut provider = MockPox5PoolInfoProvider::new();
+        let pox_constants = make_test_pox_constants();
+
+        // Set up pool info
+        let pool_principal = PrincipalData::from(StandardPrincipalData::transient());
+        let pool_signer_key = [99u8; 33];
+        let pool_pox_addr =
+            PoxAddress::Standard(StacksAddress::new(0, Hash160([99u8; 20])).unwrap(), None);
+        provider.add_pool(
+            pool_principal.clone(),
+            pool_signer_key,
+            pool_pox_addr.clone(),
+        );
+
+        // Create pool staker entries
+        let entry1 = RawPox5Entry {
+            user: StandardPrincipalData::transient(),
+            num_cycles: 1,
+            unlock_bytes: vec![],
+            amount_ustx: 1500000,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Pool(pool_principal.clone()),
+        };
+
+        let entry2 = RawPox5Entry {
+            user: StandardPrincipalData::transient(),
+            num_cycles: 1,
+            unlock_bytes: vec![],
+            amount_ustx: 2500000,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Pool(pool_principal),
+        };
+
+        let entries = vec![
+            (entry1, vec![make_test_watched_output(1000000)]),
+            (entry2, vec![make_test_watched_output(1000000)]),
+        ];
+
+        let result = NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider);
+
+        assert!(result.is_ok());
+        let reward_set = result.unwrap();
+
+        // Verify signers - pool entries should be aggregated into one signer
+        assert!(reward_set.signers.is_some());
+        let signers = reward_set.signers.unwrap();
+        assert_eq!(
+            signers.len(),
+            1,
+            "Pool entries should be aggregated into one signer"
+        );
+
+        let pool_signer = &signers[0];
+        assert_eq!(pool_signer.signing_key, pool_signer_key);
+        assert_eq!(
+            pool_signer.stacked_amt, 4000000,
+            "Pool amounts should be summed"
+        );
+    }
+
+    #[test]
+    fn test_pox_5_make_reward_set_mixed_solo_and_pool() {
+        let mut provider = MockPox5PoolInfoProvider::new();
+        let pox_constants = make_test_pox_constants();
+
+        // Set up pool info
+        let pool_principal = PrincipalData::from(StandardPrincipalData::transient());
+        let pool_signer_key = [88u8; 33];
+        let pool_pox_addr =
+            PoxAddress::Standard(StacksAddress::new(0, Hash160([88u8; 20])).unwrap(), None);
+        provider.add_pool(
+            pool_principal.clone(),
+            pool_signer_key,
+            pool_pox_addr.clone(),
+        );
+
+        // Create mixed entries
+        let solo_pox_addr =
+            PoxAddress::Standard(StacksAddress::new(0, Hash160([10u8; 20])).unwrap(), None);
+        let solo_signer_key = [10u8; 33];
+
+        let solo_entry = RawPox5Entry {
+            user: StandardPrincipalData::transient(),
+            num_cycles: 1,
+            unlock_bytes: vec![],
+            amount_ustx: 3000000,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr: solo_pox_addr.clone(),
+                signer_key: solo_signer_key,
+            },
+        };
+
+        let pool_entry = RawPox5Entry {
+            user: StandardPrincipalData::transient(),
+            num_cycles: 1,
+            unlock_bytes: vec![],
+            amount_ustx: 7000000,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Pool(pool_principal),
+        };
+
+        let entries = vec![
+            (solo_entry, vec![make_test_watched_output(1000000)]),
+            (pool_entry, vec![make_test_watched_output(1000000)]),
+        ];
+
+        let result = NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider);
+
+        assert!(result.is_ok());
+        let reward_set = result.unwrap();
+
+        // Verify both solo and pool signers are present
+        assert!(reward_set.signers.is_some());
+        let signers = reward_set.signers.unwrap();
+        assert_eq!(signers.len(), 2);
+
+        assert!(signers
+            .iter()
+            .any(|s| s.signing_key == solo_signer_key && s.stacked_amt == 3000000));
+        assert!(signers
+            .iter()
+            .any(|s| s.signing_key == pool_signer_key && s.stacked_amt == 7000000));
+    }
+
+    #[test]
+    fn test_pox_5_make_reward_set_missing_pool_info() {
+        let mut provider = MockPox5PoolInfoProvider::new();
+        let pox_constants = make_test_pox_constants();
+
+        // Create pool entry but DON'T add pool info to provider
+        let missing_pool_principal = PrincipalData::from(StandardPrincipalData::transient());
+
+        let pool_entry = RawPox5Entry {
+            user: StandardPrincipalData::transient(),
+            num_cycles: 1,
+            unlock_bytes: vec![],
+            amount_ustx: 5000000,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Pool(missing_pool_principal),
+        };
+
+        let entries = vec![(pool_entry, vec![make_test_watched_output(1000000)])];
+
+        let result = NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider);
+
+        // Should succeed but skip the missing pool entry
+        assert!(result.is_ok());
+        let reward_set = result.unwrap();
+
+        // No signers should be created since the only entry was skipped
+        assert!(reward_set.signers.is_some());
+        let signers = reward_set.signers.unwrap();
+        assert_eq!(signers.len(), 0, "Missing pool entries should be skipped");
     }
 }

@@ -1690,7 +1690,7 @@ pub fn validate_pox_p2wsh_outputs<S, I>(
     sortdb_handle: &mut S,
     entries: &mut I,
     last_cycle_calculation_height: u32,
-) -> Result<HashMap<RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>>, db_error>
+) -> Result<Vec<(RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>)>, db_error>
 where
     S: SortitionHandle,
     I: Iterator<Item = Result<RawPox5Entry, PoxEntryParsingError>>,
@@ -1703,8 +1703,7 @@ where
     let mut used_outputs: HashSet<(Txid, u32)> = HashSet::new();
     let mut invalid_scripts = Vec::new();
     let mut missed_scripts = Vec::new();
-    let mut validated_scripts: HashMap<RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>> =
-        HashMap::new();
+    let mut validated_scripts: Vec<(RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>)> = Vec::new();
 
     for staking_entry_res in entries {
         let staking_entry = match staking_entry_res {
@@ -1748,7 +1747,7 @@ where
             continue;
         }
 
-        validated_scripts.insert(staking_entry, outputs_consumed);
+        validated_scripts.push((staking_entry, outputs_consumed));
     }
 
     if !invalid_scripts.is_empty() {
@@ -5670,11 +5669,11 @@ impl SortitionDB {
 /// `WatchedP2WSHOutput` and associated metadata
 pub struct WatchedP2WSHOutputMetadata {
     /// The watched output
-    output: WatchedP2WSHOutput,
+    pub output: WatchedP2WSHOutput,
     /// The consensus hash of the bitcoin block including this output
-    at_block_ch: ConsensusHash,
+    pub at_block_ch: ConsensusHash,
     /// The block height of the bitcoin block including this output
-    at_block_ht: u32,
+    pub at_block_ht: u32,
 }
 
 impl FromRow<WatchedP2WSHOutputMetadata> for WatchedP2WSHOutputMetadata {
@@ -12220,7 +12219,8 @@ pub mod tests {
         let validated = result.unwrap();
         assert_eq!(validated.len(), 1);
 
-        let outputs = validated.get(&entry).unwrap();
+        let (out_entry, outputs) = &validated[0];
+        assert_eq!(out_entry, &entry);
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0].output.txid, Txid([0xaau8; 32]));
         assert_eq!(outputs[0].output.amount, 500000);
@@ -12382,7 +12382,8 @@ pub mod tests {
         assert_eq!(validated.len(), 1);
 
         // The first entry gets both outputs
-        let outputs = validated.values().next().unwrap();
+        let (out_entry, outputs) = &validated[0];
+        assert_eq!(out_entry, &entry);
         assert_eq!(outputs.len(), 2); // Both outputs consumed by first entry
         assert_eq!(outputs[0].output.amount, 500000);
         assert_eq!(outputs[1].output.amount, 600000)
@@ -12448,12 +12449,14 @@ pub mod tests {
         assert_eq!(validated.len(), 2);
 
         // Check first entry
-        let outputs_1 = validated.get(&entry_1).unwrap();
+        let (out_entry_1, outputs_1) = validated.iter().find(|(e, _)| e == &entry_1).unwrap();
+        assert_eq!(out_entry_1, &entry_1);
         assert_eq!(outputs_1.len(), 1);
         assert_eq!(outputs_1[0].output.amount, 500000);
 
         // Check second entry
-        let outputs_2 = validated.get(&entry_2).unwrap();
+        let (out_entry_2, outputs_2) = validated.iter().find(|(e, _)| e == &entry_2).unwrap();
+        assert_eq!(out_entry_2, &entry_2);
         assert_eq!(outputs_2.len(), 1);
         assert_eq!(outputs_2[0].output.amount, 750000);
     }
@@ -12521,7 +12524,8 @@ pub mod tests {
         assert!(result.is_ok());
         let validated = result.unwrap();
         assert_eq!(validated.len(), 1); // Output found in snapshot_1's fork
-        let outputs = validated.get(&entry).unwrap();
+        let (out_entry, outputs) = &validated[0];
+        assert_eq!(out_entry, &entry);
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0].output.amount, 500000);
 
