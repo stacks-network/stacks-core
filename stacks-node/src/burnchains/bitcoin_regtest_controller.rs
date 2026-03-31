@@ -2398,11 +2398,10 @@ impl BurnchainController for BitcoinRegtestController {
     ) -> Result<Txid, BurnchainControllerError> {
         let is_block_commit = matches!(operation, BlockstackOperationType::LeaderBlockCommit(_));
         let transaction = self.make_operation_tx(epoch_id, operation, op_signer)?;
-        self.send_transaction(&transaction).map_err(|e| {
+        self.send_transaction(&transaction).inspect_err(|_| {
             if is_block_commit {
                 self.ongoing_block_commit = None;
             }
-            e
         })
     }
 
