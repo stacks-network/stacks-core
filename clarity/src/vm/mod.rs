@@ -52,7 +52,6 @@ pub mod clarity;
 use std::collections::BTreeMap;
 
 pub use clarity_types::max_call_stack_depth_for_epoch;
-use costs::CostErrors;
 use stacks_common::types::StacksEpochId;
 
 use self::analysis::ContractAnalysis;
@@ -64,7 +63,7 @@ pub use crate::vm::contexts::{CallStack, ContractContext, LocalContext, MAX_CONT
 use crate::vm::contexts::{ExecutionState, ExecutionTimeTracker, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
+    CostErrors, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
 };
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;

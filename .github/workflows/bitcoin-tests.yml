@@ -8,6 +8,8 @@ on:
 ## env vars are transferred to composite action steps
 env:
   BITCOIND_TEST: 1
+  # Docker tag for the Bitcoin Core image used when spinning up container with `testcontainers` crate.
+  BITCOIN_IMAGE_TAG: "25"
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
   TEST_TIMEOUT: 30
@@ -184,7 +186,6 @@ jobs:
         uses: stacks-network/actions/stacks-core/run-tests@main
         with:
           test-name: ${{ matrix.test-name }}
-          threads: 1
 
       - name: Code Coverage
         uses: stacks-network/actions/codecov@main
@@ -217,7 +218,6 @@ jobs:
         uses: stacks-network/actions/stacks-core/run-tests@main
         with:
           test-name: ${{ matrix.test-name }}
-          threads: 1
 
       - name: Code Coverage
         uses: stacks-network/actions/codecov@main

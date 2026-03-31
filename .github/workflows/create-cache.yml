@@ -14,8 +14,7 @@ env:
 
 ##
 ## Cache will exist longer than workflow execution so other runners have access
-##   ex: a failed job should have access to the cache for however long `cleanup.yml` is set to delete old caches
-##       however, this is only relevant if the commit sha does not change between runs
+##   however, this is only relevant if the commit sha does not change between runs
 concurrency:
   group: create-cache-${{ github.head_ref || github.ref || github.run_id}}
   ## Only cancel in progress if this is for a PR

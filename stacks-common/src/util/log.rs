@@ -280,7 +280,7 @@ macro_rules! trace {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
         if slog::Level::Trace.is_at_least(cur_level) {
-            slog::slog_trace!($crate::util::log::LOGGER, $($arg)*)
+            slog::trace!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }
@@ -290,7 +290,7 @@ macro_rules! error {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
         if slog::Level::Error.is_at_least(cur_level) {
-            slog::slog_error!($crate::util::log::LOGGER, $($arg)*)
+            slog::error!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }
@@ -300,7 +300,7 @@ macro_rules! warn {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
         if slog::Level::Warning.is_at_least(cur_level) {
-            slog::slog_warn!($crate::util::log::LOGGER, $($arg)*)
+            slog::warn!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }
@@ -310,7 +310,7 @@ macro_rules! info {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
         if slog::Level::Info.is_at_least(cur_level) {
-            slog::slog_info!($crate::util::log::LOGGER, $($arg)*)
+            slog::info!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }
@@ -320,7 +320,7 @@ macro_rules! debug {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
         if slog::Level::Debug.is_at_least(cur_level) {
-            slog::slog_debug!($crate::util::log::LOGGER, $($arg)*)
+            slog::debug!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }
