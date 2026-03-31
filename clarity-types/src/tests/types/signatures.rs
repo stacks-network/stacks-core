@@ -20,7 +20,7 @@ use crate::Value;
 use crate::errors::ClarityTypeError;
 use crate::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
-use crate::types::signatures::{CallableSubtype, TypeSignature};
+use crate::types::signatures::{CallableSubtype, ListTypeData, TypeSignature};
 use crate::types::{
     BufferLength, CallableData, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
     MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype,
@@ -1026,4 +1026,184 @@ fn test_least_supertype() {
             ClarityTypeError::TypeMismatch(..)
         );
     }
+}
+
+#[test]
+fn test_tuple_type_signature_serde_roundtrip_flat() {
+    use std::collections::BTreeMap;
+    let mut fields = BTreeMap::new();
+    fields.insert("a".into(), TypeSignature::IntType);
+    fields.insert("b".into(), TypeSignature::BoolType);
+    fields.insert("c".into(), TypeSignature::UIntType);
+    let original = TupleTypeSignature::try_from(fields).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    // Pin the wire format: only `type_map` is serialized, `size` is excluded.
+    let expected_json = serde_json::json!({
+        "type_map": {
+            "a": "IntType",
+            "b": "BoolType",
+            "c": "UIntType"
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: TupleTypeSignature = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size(), deserialized.size());
+}
+
+#[test]
+fn test_tuple_type_signature_serde_roundtrip_nested() {
+    use std::collections::BTreeMap;
+    let mut inner_fields = BTreeMap::new();
+    inner_fields.insert("x".into(), TypeSignature::IntType);
+    let inner = TupleTypeSignature::try_from(inner_fields).unwrap();
+
+    let mut outer_fields = BTreeMap::new();
+    outer_fields.insert("nested".into(), TypeSignature::TupleType(inner));
+    outer_fields.insert("flag".into(), TypeSignature::BoolType);
+    let original = TupleTypeSignature::try_from(outer_fields).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    let expected_json = serde_json::json!({
+        "type_map": {
+            "flag": "BoolType",
+            "nested": {
+                "TupleType": {
+                    "type_map": {
+                        "x": "IntType"
+                    }
+                }
+            }
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: TupleTypeSignature = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size(), deserialized.size());
+}
+
+#[test]
+fn test_list_type_data_serde_roundtrip_ints() {
+    let original = ListTypeData::new_list(TypeSignature::IntType, 10).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    // Pin the wire format: `max_len` + `entry_type`, no `size`.
+    let expected_json = serde_json::json!({
+        "max_len": 10,
+        "entry_type": "IntType"
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: ListTypeData = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size(), deserialized.size());
+}
+
+#[test]
+fn test_list_type_data_serde_roundtrip_tuples() {
+    use std::collections::BTreeMap;
+    let mut fields = BTreeMap::new();
+    fields.insert("a".into(), TypeSignature::IntType);
+    fields.insert("b".into(), TypeSignature::BoolType);
+    let tuple_type = TupleTypeSignature::try_from(fields).unwrap();
+
+    let original = ListTypeData::new_list(TypeSignature::TupleType(tuple_type), 5).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    let expected_json = serde_json::json!({
+        "max_len": 5,
+        "entry_type": {
+            "TupleType": {
+                "type_map": {
+                    "a": "IntType",
+                    "b": "BoolType"
+                }
+            }
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: ListTypeData = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size(), deserialized.size());
+}
+
+#[test]
+fn test_type_signature_serde_roundtrip_tuple() {
+    use std::collections::BTreeMap;
+    let mut fields = BTreeMap::new();
+    fields.insert("a".into(), TypeSignature::IntType);
+    fields.insert("b".into(), TypeSignature::PrincipalType);
+    let original = TypeSignature::TupleType(TupleTypeSignature::try_from(fields).unwrap());
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    let expected_json = serde_json::json!({
+        "TupleType": {
+            "type_map": {
+                "a": "IntType",
+                "b": "PrincipalType"
+            }
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: TypeSignature = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size().unwrap(), deserialized.size().unwrap());
+}
+
+#[test]
+fn test_type_signature_serde_roundtrip_list() {
+    let original = TypeSignature::list_of(TypeSignature::UIntType, 20).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    let expected_json = serde_json::json!({
+        "SequenceType": {
+            "ListType": {
+                "max_len": 20,
+                "entry_type": "UIntType"
+            }
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: TypeSignature = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size().unwrap(), deserialized.size().unwrap());
+}
+
+#[test]
+fn test_type_signature_serde_roundtrip_list_of_tuples() {
+    use std::collections::BTreeMap;
+    let mut fields = BTreeMap::new();
+    fields.insert("id".into(), TypeSignature::UIntType);
+    fields.insert("active".into(), TypeSignature::BoolType);
+    let tuple_type = TupleTypeSignature::try_from(fields).unwrap();
+
+    let original = TypeSignature::list_of(TypeSignature::TupleType(tuple_type), 10).unwrap();
+
+    let json: serde_json::Value = serde_json::to_value(&original).unwrap();
+    let expected_json = serde_json::json!({
+        "SequenceType": {
+            "ListType": {
+                "max_len": 10,
+                "entry_type": {
+                    "TupleType": {
+                        "type_map": {
+                            "active": "BoolType",
+                            "id": "UIntType"
+                        }
+                    }
+                }
+            }
+        }
+    });
+    assert_eq!(expected_json, json);
+
+    let deserialized: TypeSignature = serde_json::from_value(json).unwrap();
+    assert_eq!(original, deserialized);
+    assert_eq!(original.size().unwrap(), deserialized.size().unwrap());
 }
