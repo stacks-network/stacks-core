@@ -1062,7 +1062,11 @@ impl<
         // `sortitions_to_process`.  So, we can proceed to process all outstanding sortitions until
         // we come across a PoX anchor block that we don't have yet.
         for unprocessed_block in sortitions_to_process.into_iter() {
-            let BurnchainBlockData { header, ops } = unprocessed_block;
+            let BurnchainBlockData {
+                header,
+                ops,
+                p2wsh_outputs,
+            } = unprocessed_block;
             let reward_cycle = self
                 .burnchain
                 .block_height_to_reward_cycle(header.block_height)
@@ -1154,6 +1158,7 @@ impl<
                     self.chain_state_db.mainnet,
                     &header,
                     ops,
+                    p2wsh_outputs,
                     &self.burnchain,
                     &last_processed_ancestor,
                     reward_cycle_info,

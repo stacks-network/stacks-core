@@ -4028,7 +4028,11 @@ impl StacksChainState {
                         current_epoch = StacksEpochId::Epoch34;
                     }
                     StacksEpochId::Epoch34 => {
-                        panic!("No defined transition from Epoch34 forward")
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_3_5()?);
+                        current_epoch = StacksEpochId::Epoch35;
+                    }
+                    StacksEpochId::Epoch35 => {
+                        panic!("No defined transition from Epoch35 forward")
                     }
                 }
 
@@ -4875,7 +4879,8 @@ impl StacksChainState {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => {
+            | StacksEpochId::Epoch34
+            | StacksEpochId::Epoch35 => {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -4970,7 +4975,8 @@ impl StacksChainState {
                 | StacksEpochId::Epoch31
                 | StacksEpochId::Epoch32
                 | StacksEpochId::Epoch33
-                | StacksEpochId::Epoch34 => Self::handle_pox_cycle_start_pox_4(
+                | StacksEpochId::Epoch34
+                | StacksEpochId::Epoch35 => Self::handle_pox_cycle_start_pox_4(
                     clarity_tx,
                     pox_reward_cycle,
                     pox_start_cycle_info,
@@ -5172,6 +5178,7 @@ impl StacksChainState {
         if evaluated_epoch >= StacksEpochId::Epoch25 {
             signer_set_calc = NakamotoSigners::check_and_handle_prepare_phase_start(
                 &mut clarity_tx,
+                sortition_dbconn,
                 first_block_height.into(),
                 pox_constants,
                 burn_tip_height.into(),

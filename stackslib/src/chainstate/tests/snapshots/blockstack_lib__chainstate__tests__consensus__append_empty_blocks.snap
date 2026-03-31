@@ -1,6 +1,7 @@
 ---
 source: stackslib/src/chainstate/tests/consensus.rs
 expression: result
+snapshot_kind: text
 ---
 [
   Failure(ExpectedFailureOutput(
@@ -9,6 +10,10 @@ expression: result
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch34,
+    error: "Invalid Nakamoto block: failed static transaction checks",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch35,
     error: "Invalid Nakamoto block: failed static transaction checks",
   )),
 ]

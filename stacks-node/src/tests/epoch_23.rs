@@ -131,6 +131,7 @@ fn trait_invocation_behavior() {
         epoch_2_2 as u32 + 1,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants;
 

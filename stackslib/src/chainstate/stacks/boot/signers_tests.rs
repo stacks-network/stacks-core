@@ -526,3 +526,8 @@ pub fn get_signer_index(
         })
         .expect("signer not found") as u128
 }
+
+#[test]
+fn make_signer_set_pox_5_units() {
+    assert_eq!(StacksChainState::make_signer_set_pox_5(100, &[]), None);
+}

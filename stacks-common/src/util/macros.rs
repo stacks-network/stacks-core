@@ -50,7 +50,7 @@ macro_rules! define_named_enum {
         }
     ) => {
         $(#[$enum_meta])*
-        #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Clone)]
+        #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, PartialOrd, Eq, Clone)]
         pub enum $Name {
             $(
                 $(#[$variant_meta])*
@@ -593,6 +593,11 @@ macro_rules! impl_byte_array_newtype {
         impl std::fmt::LowerHex for $thing {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 f.write_str(&self.to_hex())
+            }
+        }
+        impl $crate::util::HexSer for $thing {
+            fn fmt_hex(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                std::fmt::LowerHex::fmt(self, f)
             }
         }
         impl std::fmt::Display for $thing {

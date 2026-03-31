@@ -1752,6 +1752,9 @@ pub mod test {
     pub const TestBurnStateDB_34: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch34,
     };
+    pub const TestBurnStateDB_35: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch35,
+    };
 
     pub const ALL_BURN_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_20 as &dyn BurnStateDB,
@@ -1888,6 +1891,9 @@ pub mod test {
         if epoch_id >= StacksEpochId::Epoch34 {
             genesis.initialize_epoch_3_4().unwrap();
         }
+        if epoch_id >= StacksEpochId::Epoch35 {
+            genesis.initialize_epoch_3_5().unwrap();
+        }
         genesis.commit_block();
 
         let burn_db = match epoch_id {
@@ -1896,6 +1902,7 @@ pub mod test {
             StacksEpochId::Epoch32 => &TestBurnStateDB_32 as &dyn BurnStateDB,
             StacksEpochId::Epoch33 => &TestBurnStateDB_33 as &dyn BurnStateDB,
             StacksEpochId::Epoch34 => &TestBurnStateDB_34 as &dyn BurnStateDB,
+            StacksEpochId::Epoch35 => &TestBurnStateDB_35 as &dyn BurnStateDB,
             _ => panic!("Unsupported epoch in test helper: {epoch_id}"),
         };
 
@@ -1929,6 +1936,7 @@ pub mod test {
     #[case(StacksEpochId::Epoch32, false)]
     #[case(StacksEpochId::Epoch33, false)]
     #[case(StacksEpochId::Epoch34, true)]
+    #[case(StacksEpochId::Epoch35, true)]
     fn process_transaction_payload_originator_mode_epoch_gate(
         #[case] epoch_id: StacksEpochId,
         #[case] should_succeed: bool,
@@ -1977,6 +1985,7 @@ pub mod test {
     #[case(StacksEpochId::Epoch32, false)]
     #[case(StacksEpochId::Epoch33, false)]
     #[case(StacksEpochId::Epoch34, true)]
+    #[case(StacksEpochId::Epoch35, true)]
     fn process_transaction_payload_nft_maybe_sent_epoch_gate(
         #[case] epoch_id: StacksEpochId,
         #[case] should_succeed: bool,
@@ -9030,6 +9039,9 @@ pub mod test {
             fn get_pox_4_activation_height(&self) -> u32 {
                 u32::MAX
             }
+            fn get_pox_5_activation_height(&self) -> u32 {
+                u32::MAX
+            }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
                 Some(sortition_id.0[0] as u32)
             }
@@ -9100,6 +9112,7 @@ pub mod test {
                     StacksEpochId::Epoch32 => self.get_stacks_epoch(9),
                     StacksEpochId::Epoch33 => self.get_stacks_epoch(10),
                     StacksEpochId::Epoch34 => self.get_stacks_epoch(11),
+                    StacksEpochId::Epoch35 => self.get_stacks_epoch(12),
                 }
             }
             fn get_pox_payout_addrs(
@@ -9257,6 +9270,9 @@ pub mod test {
                 u32::MAX
             }
             fn get_pox_4_activation_height(&self) -> u32 {
+                u32::MAX
+            }
+            fn get_pox_5_activation_height(&self) -> u32 {
                 u32::MAX
             }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {

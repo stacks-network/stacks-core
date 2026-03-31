@@ -123,7 +123,7 @@ impl StandardPrincipalData {
         (version, bytes)
     }
 
-    pub fn is_mainnet(self) -> bool {
+    pub fn is_mainnet(&self) -> bool {
         self.0 == C32_ADDRESS_VERSION_MAINNET_MULTISIG
             || self.0 == C32_ADDRESS_VERSION_MAINNET_SINGLESIG
     }
@@ -312,7 +312,7 @@ impl TraitIdentifier {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Value {
     Int(i128),
     UInt(u128),
