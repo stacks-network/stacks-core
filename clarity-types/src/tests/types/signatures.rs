@@ -12,11 +12,10 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use stacks_common::types::StacksEpochId;
 
-use crate::Value;
 use crate::errors::ClarityTypeError;
 use crate::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
@@ -27,6 +26,7 @@ use crate::types::{
     StandardPrincipalData, StringSubtype, StringUTF8Length, TraitIdentifier, TupleData,
     TupleTypeSignature, WRAPPER_VALUE_SIZE,
 };
+use crate::{ClarityName, Value};
 
 #[test]
 fn test_core_constants() {
@@ -1030,7 +1030,6 @@ fn test_least_supertype() {
 
 #[test]
 fn test_tuple_type_signature_serde_roundtrip_flat() {
-    use std::collections::BTreeMap;
     let mut fields = BTreeMap::new();
     fields.insert("a".into(), TypeSignature::IntType);
     fields.insert("b".into(), TypeSignature::BoolType);
@@ -1055,7 +1054,6 @@ fn test_tuple_type_signature_serde_roundtrip_flat() {
 
 #[test]
 fn test_tuple_type_signature_serde_roundtrip_nested() {
-    use std::collections::BTreeMap;
     let mut inner_fields = BTreeMap::new();
     inner_fields.insert("x".into(), TypeSignature::IntType);
     let inner = TupleTypeSignature::try_from(inner_fields).unwrap();
@@ -1086,6 +1084,107 @@ fn test_tuple_type_signature_serde_roundtrip_nested() {
 }
 
 #[test]
+fn test_tuple_type_signature_serde_deserialize_empty_fails() {
+    let json = serde_json::json!({
+        "type_map": {}
+    });
+
+    let err = serde_json::from_value::<TupleTypeSignature>(json).unwrap_err();
+    assert_eq!("EmptyTuplesNotAllowed", err.to_string());
+}
+
+#[test]
+fn test_tuple_type_signature_serde_deserialize_too_deep_fails() {
+    // Create a deeply nested type that exceeds max type depth
+    let json = {
+        let mut value = serde_json::Value::String("IntType".to_string());
+        for _ in 0..(MAX_TYPE_DEPTH as usize) {
+            value = serde_json::json!({
+                "TupleType": {
+                    "type_map": {
+                        "field": value
+                    }
+                }
+            });
+        }
+        serde_json::json!({
+            "type_map": {
+                "field": value
+            }
+        })
+    };
+
+    let err = serde_json::from_value::<TupleTypeSignature>(json).unwrap_err();
+    assert_eq!("TypeSignatureTooDeep", err.to_string());
+}
+
+#[test]
+fn test_tuple_type_signature_serde_deserialize_too_large_fails() {
+    // Add enough fields to exceed max value size limit.
+    let json = {
+        let mut json_map = serde_json::Map::new();
+        let num_fields = (MAX_VALUE_SIZE / 16) + 1;
+        for i in 0..num_fields {
+            json_map.insert(
+                format!("a{}", i),
+                serde_json::Value::String("BoolType".to_string()),
+            );
+        }
+        serde_json::json!({
+            "type_map": json_map
+        })
+    };
+
+    let err = serde_json::from_value::<TupleTypeSignature>(json).unwrap_err();
+    assert_eq!("ValueTooLarge", err.to_string());
+}
+
+#[test]
+fn test_tuple_type_signature_try_from_ok() {
+    let mut map = BTreeMap::new();
+    map.insert("a".into(), TypeSignature::BoolType);
+    map.insert("b".into(), TypeSignature::IntType);
+    let result = TupleTypeSignature::try_from(map);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_tuple_type_signature_try_from_empty_fails() {
+    let map = BTreeMap::new();
+    let result = TupleTypeSignature::try_from(map);
+    assert_eq!(ClarityTypeError::EmptyTuplesNotAllowed, result.unwrap_err());
+}
+
+#[test]
+fn test_tuple_type_signature_try_from_too_deep_fails() {
+    // Create a deeply nested type that exceeds max type depth
+    let mut nested = TypeSignature::BoolType;
+    for _ in 0..(MAX_TYPE_DEPTH - 1) {
+        let mut map = BTreeMap::new();
+        map.insert("field".into(), nested);
+        nested = TypeSignature::TupleType(TupleTypeSignature::try_from(map).unwrap());
+    }
+    let mut map = BTreeMap::new();
+    map.insert("field".into(), nested);
+    let result = TupleTypeSignature::try_from(map);
+    assert_eq!(ClarityTypeError::TypeSignatureTooDeep, result.unwrap_err());
+}
+
+#[test]
+fn test_tuple_type_signature_try_from_too_large_fails() {
+    let mut map = BTreeMap::new();
+    let num_fields = (MAX_VALUE_SIZE / 16) + 1;
+    for i in 0..num_fields {
+        map.insert(
+            ClarityName::from(format!("a{}", i).as_str()),
+            TypeSignature::BoolType,
+        );
+    }
+    let result = TupleTypeSignature::try_from(map);
+    assert_eq!(ClarityTypeError::ValueTooLarge, result.unwrap_err());
+}
+
+#[test]
 fn test_list_type_data_serde_roundtrip_ints() {
     let original = ListTypeData::new_list(TypeSignature::IntType, 10).unwrap();
 
@@ -1104,7 +1203,6 @@ fn test_list_type_data_serde_roundtrip_ints() {
 
 #[test]
 fn test_list_type_data_serde_roundtrip_tuples() {
-    use std::collections::BTreeMap;
     let mut fields = BTreeMap::new();
     fields.insert("a".into(), TypeSignature::IntType);
     fields.insert("b".into(), TypeSignature::BoolType);
@@ -1133,7 +1231,6 @@ fn test_list_type_data_serde_roundtrip_tuples() {
 
 #[test]
 fn test_type_signature_serde_roundtrip_tuple() {
-    use std::collections::BTreeMap;
     let mut fields = BTreeMap::new();
     fields.insert("a".into(), TypeSignature::IntType);
     fields.insert("b".into(), TypeSignature::PrincipalType);
@@ -1177,7 +1274,6 @@ fn test_type_signature_serde_roundtrip_list() {
 
 #[test]
 fn test_type_signature_serde_roundtrip_list_of_tuples() {
-    use std::collections::BTreeMap;
     let mut fields = BTreeMap::new();
     fields.insert("id".into(), TypeSignature::UIntType);
     fields.insert("active".into(), TypeSignature::BoolType);

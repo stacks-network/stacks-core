@@ -88,16 +88,7 @@ impl<'de> serde::Deserialize<'de> for TupleTypeSignature {
             type_map: BTreeMap<ClarityName, TypeSignature>,
         }
         let raw = Raw::deserialize(deserializer)?;
-        let type_map = Arc::new(raw.type_map);
-        let tmp = TupleTypeSignature { type_map, size: 0 };
-        let size = tmp
-            .inner_size()
-            .map_err(serde::de::Error::custom)?
-            .ok_or_else(|| serde::de::Error::custom("tuple type too large"))?;
-        Ok(TupleTypeSignature {
-            type_map: tmp.type_map,
-            size,
-        })
+        TupleTypeSignature::try_from(raw.type_map).map_err(serde::de::Error::custom)
     }
 }
 
@@ -838,19 +829,13 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
                 return Err(ClarityTypeError::TypeSignatureTooDeep);
             }
         }
-        let type_map = Arc::new(type_map.into_iter().collect());
-        let tmp = TupleTypeSignature { type_map, size: 0 };
-        let would_be_size = tmp
-            .inner_size()?
+        let type_map: BTreeMap<ClarityName, TypeSignature> = type_map.into_iter().collect();
+        let would_be_size = TupleTypeSignature::compute_inner_size(&type_map)?
             .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
-        if would_be_size > MAX_VALUE_SIZE {
-            Err(ClarityTypeError::ValueTooLarge)
-        } else {
-            Ok(TupleTypeSignature {
-                type_map: tmp.type_map,
-                size: would_be_size,
-            })
-        }
+        Ok(TupleTypeSignature {
+            type_map: Arc::new(type_map),
+            size: would_be_size,
+        })
     }
 }
 
@@ -1613,12 +1598,14 @@ impl ListTypeData {
 }
 
 impl TupleTypeSignature {
+    /// Compute the type size of a tuple from a type map
+    //
     /// Tuple Size:
     ///    size( btreemap<name, type> ) = 2*map.len() + sum(names) + sum(values)
-    pub fn type_size(&self) -> Option<u32> {
-        let mut type_map_size = u32::try_from(self.type_map.len()).ok()?.checked_mul(2)?;
+    fn compute_type_size(type_map: &BTreeMap<ClarityName, TypeSignature>) -> Option<u32> {
+        let mut type_map_size = u32::try_from(type_map.len()).ok()?.checked_mul(2)?;
 
-        for (name, type_signature) in self.type_map.iter() {
+        for (name, type_signature) in type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
             type_map_size = type_map_size
                 .checked_add(type_signature.inner_type_size()?)?
@@ -1633,6 +1620,11 @@ impl TupleTypeSignature {
         }
     }
 
+    /// Compute the type size of a tuple instance
+    pub fn type_size(&self) -> Option<u32> {
+        Self::compute_type_size(&self.type_map)
+    }
+
     pub fn size(&self) -> u32 {
         self.size
     }
@@ -1645,19 +1637,28 @@ impl TupleTypeSignature {
         max
     }
 
+    /// Compute the size of a tuple instance
+    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
+        Self::compute_inner_size(&self.type_map)
+    }
+
+    /// Compute the size of a tuple from a type map
+    ///
     /// Tuple Size:
     ///    size( btreemap<name, value> ) + type_size
     ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)
-    fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let Some(mut total_size) = u32::try_from(self.type_map.len())
+    fn compute_inner_size(
+        type_map: &BTreeMap<ClarityName, TypeSignature>,
+    ) -> Result<Option<u32>, ClarityTypeError> {
+        let Some(mut total_size) = u32::try_from(type_map.len())
             .ok()
             .and_then(|x| x.checked_mul(2))
-            .and_then(|x| x.checked_add(self.type_size()?))
+            .and_then(|x| x.checked_add(Self::compute_type_size(type_map)?))
         else {
             return Ok(None);
         };
 
-        for (name, type_signature) in self.type_map.iter() {
+        for (name, type_signature) in type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
             total_size = if let Some(new_size) = total_size.checked_add(type_signature.size()?) {
                 new_size
