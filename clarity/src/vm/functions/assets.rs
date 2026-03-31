@@ -257,6 +257,7 @@ pub fn special_stx_account(
     let v1_unlock_ht = exec_state.global_context.database.get_v1_unlock_height();
     let v2_unlock_ht = exec_state.global_context.database.get_v2_unlock_height()?;
     let v3_unlock_ht = exec_state.global_context.database.get_v3_unlock_height()?;
+    let v4_unlock_ht = exec_state.global_context.database.get_v4_unlock_height()?;
 
     Ok(TupleData::from_data(vec![
         (
@@ -279,6 +280,7 @@ pub fn special_stx_account(
                 v1_unlock_ht,
                 v2_unlock_ht,
                 v3_unlock_ht,
+                v4_unlock_ht,
             ))),
         ),
     ])
