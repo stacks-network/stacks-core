@@ -35,13 +35,7 @@ fn get_stacker(sender: &PrincipalData, function_name: &str, args: &[Value]) -> V
         | "stack-increase"
         | "stack-extend"
         | "delegate-stx"
-        | "revoke-delegate-stx"
-        | "stake"
-        | "stake-extend"
-        | "stake-update"
-        | "stake-pooled"
-        | "stake-extend-pooled"
-        | "stake-update-pooled" => Value::Principal(sender.clone()),
+        | "revoke-delegate-stx" => Value::Principal(sender.clone()),
         _ => args[0].clone(),
     }
 }
