@@ -6667,7 +6667,7 @@ impl StacksChainState {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) =
+        let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height, v4_unlock_height) =
             clarity_connection.with_clarity_db_readonly::<_, Result<_, VmExecutionError>>(
                 |ref mut db| {
                     Ok((
@@ -6675,6 +6675,7 @@ impl StacksChainState {
                         db.get_v1_unlock_height(),
                         db.get_v2_unlock_height()?,
                         db.get_v3_unlock_height()?,
+                        db.get_v4_unlock_height()?,
                     ))
                 },
             )?;
@@ -6686,6 +6687,7 @@ impl StacksChainState {
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
+            v4_unlock_height,
         )? {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
@@ -6699,6 +6701,7 @@ impl StacksChainState {
                             v1_unlock_height,
                             v2_unlock_height,
                             v3_unlock_height,
+                            v4_unlock_height,
                         )?,
                     ));
                 }
@@ -6725,6 +6728,7 @@ impl StacksChainState {
                     v1_unlock_height,
                     v2_unlock_height,
                     v3_unlock_height,
+                    v4_unlock_height,
                 )? {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         total_spent,
@@ -6733,6 +6737,7 @@ impl StacksChainState {
                             v1_unlock_height,
                             v2_unlock_height,
                             v3_unlock_height,
+                            v4_unlock_height,
                         )?,
                     ));
                 }
@@ -6745,6 +6750,7 @@ impl StacksChainState {
                         v1_unlock_height,
                         v2_unlock_height,
                         v3_unlock_height,
+                        v4_unlock_height,
                     )?
                 {
                     return Err(MemPoolRejection::NotEnoughFunds(
@@ -6754,6 +6760,7 @@ impl StacksChainState {
                             v1_unlock_height,
                             v2_unlock_height,
                             v3_unlock_height,
+                            v4_unlock_height,
                         )?,
                     ));
                 }

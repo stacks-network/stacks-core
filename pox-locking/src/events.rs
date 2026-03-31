@@ -35,7 +35,13 @@ fn get_stacker(sender: &PrincipalData, function_name: &str, args: &[Value]) -> V
         | "stack-increase"
         | "stack-extend"
         | "delegate-stx"
-        | "revoke-delegate-stx" => Value::Principal(sender.clone()),
+        | "revoke-delegate-stx"
+        | "stake"
+        | "stake-extend"
+        | "stake-update"
+        | "stake-pooled"
+        | "stake-extend-pooled"
+        | "stake-update-pooled" => Value::Principal(sender.clone()),
         _ => args[0].clone(),
     }
 }
@@ -70,6 +76,35 @@ fn create_event_info_stack_or_delegate_code(
         )
         "#,
         stacker = get_stacker(sender, function_name, args),
+        func_name = function_name
+    )
+}
+
+/// Craft the code snippet to evaluate an event-info for a stake* function
+fn create_event_info_stake_code(sender: &PrincipalData, function_name: &str) -> String {
+    format!(
+        r#"
+        (let (
+            (staker '{staker})
+            (func-name "{func_name}")
+            (staker-info (stx-account staker))
+            (total-balance (stx-get-balance staker))
+        )
+            {{
+                ;; Function name
+                name: func-name,
+                ;; The principal of the staker
+                staker: staker,
+                ;; The current available balance
+                balance: total-balance,
+                ;; The amount of locked STX
+                locked: (get locked staker-info),
+                ;; The burnchain block height of when the tokens unlock. Zero if no tokens are locked.
+                burnchain-unlock-height: (get unlock-height staker-info),
+            }}
+        )
+        "#,
+        staker = sender,
         func_name = function_name
     )
 }
@@ -143,7 +178,7 @@ fn create_event_info_data_code(
                         ;; start of lock-up.
                         ;; equal to args[2]
                         start-burn-height: {start_burn_height},
-                        ;; how long to lock, in burn blocks
+                        ;; how long to lock, in cycles
                         ;; equal to args[3]
                         lock-period: {lock_period},
                         ;; equal to args[4]
@@ -551,6 +586,279 @@ fn create_event_info_data_code(
                 "{data: {unimplemented: true}}".into()
             }
         }
+        "stake" => {
+            format!(
+                r#"
+                (let (
+                    (unlock-burn-height (reward-cycle-to-burn-height (+ (current-pox-reward-cycle) u1 {lock_period})))
+                    {pox_set_offset}
+                )
+                {{
+                    data: {{
+                        ;; amount of ustx to lock.
+                        ;; equal to args[0]
+                        lock-amount: {lock_amount},
+                        ;; burnchain height when the unlock finishes.
+                        ;; derived from args[7]
+                        unlock-burn-height: unlock-burn-height,
+                        ;; PoX address tuple.
+                        ;; equal to args[1].
+                        pox-addr: {pox_addr},
+                        ;; start of lock-up.
+                        ;; equal to args[2]
+                        start-burn-height: {start_burn_height},
+                        ;; equal to args[3]
+                        signer-sig: {signer_sig},
+                        ;; equal to args[4]
+                        signer-key: {signer_key},
+                        ;; equal to args[5]
+                        max-amount: {max_amount},
+                        ;; equal to args[6]
+                        auth-id: {auth_id},
+                        ;; how long to lock, in cycles
+                        ;; equal to args[7]
+                        lock-period: {lock_period},
+                        ;; unlock bytes on Bitcoin
+                        ;; equal to args[8]
+                        unlock-bytes: {unlock_bytes},
+                        ;; Get end cycle ID
+                        end-cycle-id: (some (burn-height-to-reward-cycle unlock-burn-height)),
+                        ;; Get start cycle ID
+                        start-cycle-id: (+ (current-pox-reward-cycle) u1 pox-set-offset),
+                    }}
+                }})
+                "#,
+                lock_amount = args.first().unwrap_or(&Value::none()),
+                lock_period = args.get(7).unwrap_or(&Value::none()),
+                pox_addr = args.get(1).unwrap_or(&Value::none()),
+                start_burn_height = args.get(2).unwrap_or(&Value::none()),
+                signer_sig = args.get(3).unwrap_or(&Value::none()),
+                signer_key = args.get(4).unwrap_or(&Value::none()),
+                max_amount = args.get(5).unwrap_or(&Value::none()),
+                auth_id = args.get(6).unwrap_or(&Value::none()),
+                unlock_bytes = args.get(8).unwrap_or(&Value::none()),
+                pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
+            )
+        }
+        "stake-extend" => {
+            format!(
+                r#"
+                (let (
+                    (cur-cycle (current-pox-reward-cycle))
+                    (unlock-height (get unlock-height (stx-account tx-sender)))
+                    (unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
+                    (first-extend-cycle
+                        (if (> (+ cur-cycle u1) unlock-in-cycle)
+                            (+ cur-cycle u1)
+                            unlock-in-cycle))
+                    (last-extend-cycle  (- (+ first-extend-cycle {num_cycles}) u1))
+                    (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle)))
+                    {pox_set_offset}
+                )
+                {{
+                    data: {{
+                        ;; amount of ustx
+                        ;; equal to args[0]
+                        amount-ustx: {amount_ustx},
+                        ;; PoX address
+                        ;; equal to args[1]
+                        pox-addr: {pox_addr},
+                        ;; equal to args[2]
+                        signer-sig: {signer_sig},
+                        ;; equal to args[3]
+                        signer-key: {signer_key},
+                        ;; equal to args[4]
+                        max-amount: {max_amount},
+                        ;; equal to args[5]
+                        auth-id: {auth_id},
+                        ;; number of cycles extended
+                        ;; equal to args[6]
+                        extend-count: {num_cycles},
+                        ;; unlock bytes on Bitcoin
+                        ;; equal to args[7]
+                        unlock-bytes: {unlock_bytes},
+                        ;; new unlock burnchain block height
+                        unlock-burn-height: new-unlock-ht,
+                        ;; Get end cycle ID
+                        end-cycle-id: (some (burn-height-to-reward-cycle new-unlock-ht)),
+                        ;; Get start cycle ID
+                        start-cycle-id: (+ (current-pox-reward-cycle) u1 pox-set-offset),
+                    }}
+                }})
+                "#,
+                amount_ustx = args.first().unwrap_or(&Value::none()),
+                pox_addr = args.get(1).unwrap_or(&Value::none()),
+                signer_sig = args.get(2).unwrap_or(&Value::none()),
+                signer_key = args.get(3).map_or("none".to_string(), |v| v.to_string()),
+                max_amount = args.get(4).unwrap_or(&Value::none()),
+                auth_id = args.get(5).unwrap_or(&Value::none()),
+                num_cycles = args.get(6).unwrap_or(&Value::none()),
+                unlock_bytes = args.get(7).unwrap_or(&Value::none()),
+                pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
+            )
+        }
+        "stake-update" => {
+            format!(
+                r#"
+                (let (
+                    (unlock-height (get unlock-height (stx-account tx-sender)))
+                    {pox_set_offset}
+                )
+                {{
+                    data: {{
+                        ;; amount to increase by
+                        ;; equal to args[0]
+                        increase-by: {increase_by},
+                        ;; new amount locked
+                        total-locked: (+ {increase_by} (get locked (stx-account tx-sender))),
+                        ;; pox addr
+                        ;; equal to args[1]
+                        pox-addr: {pox_addr},
+                        ;; signer key (args[2])
+                        signer-key: {signer_key},
+                        ;; signer sig (args[3])
+                        signer-sig: {signer_sig},
+                        ;; equal to args[4]
+                        max-amount: {max_amount},
+                        ;; equal to args[5]
+                        auth-id: {auth_id},
+                        ;; Get end cycle ID
+                        end-cycle-id: (some (burn-height-to-reward-cycle unlock-height)),
+                        ;; Get start cycle ID
+                        start-cycle-id: (+ (current-pox-reward-cycle) u1 pox-set-offset),
+                    }}
+                }})
+                "#,
+                increase_by = args.first().unwrap_or(&Value::none()),
+                pox_addr = args.get(1).unwrap_or(&Value::none()),
+                signer_key = args.get(2).unwrap_or(&Value::none()),
+                signer_sig = args.get(3).unwrap_or(&Value::none()),
+                max_amount = args.get(4).unwrap_or(&Value::none()),
+                auth_id = args.get(5).unwrap_or(&Value::none()),
+                pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
+            )
+        }
+        "stake-pooled" => {
+            format!(
+                r#"
+                (let (
+                    (unlock-burn-height (reward-cycle-to-burn-height (+ (current-pox-reward-cycle) u1 {num_cycles})))
+                    {pox_set_offset}
+                )
+                {{
+                    data: {{
+                        ;; pool owner
+                        ;; equal to args[0]
+                        pool-owner: '{pool_owner},
+                        ;; amount of ustx to lock.
+                        ;; equal to args[1]
+                        lock-amount: {lock_amount},
+                        ;; how long to lock, in cycles
+                        ;; equal to args[2]
+                        lock-period: {num_cycles},
+                        ;; unlock bytes on Bitcoin
+                        ;; equal to args[3]
+                        unlock-bytes: {unlock_bytes},
+                        ;; start of lock-up
+                        ;; equal to args[4]
+                        start-burn-height: {start_burn_height},
+                        ;; burnchain height when the unlock finishes.
+                        unlock-burn-height: unlock-burn-height,
+                        ;; staker
+                        staker: tx-sender,
+                        ;; Get end cycle ID
+                        end-cycle-id: (some (burn-height-to-reward-cycle unlock-burn-height)),
+                        ;; Get start cycle ID
+                        start-cycle-id: (+ (current-pox-reward-cycle) u1 pox-set-offset),
+                    }}
+                }})
+                "#,
+                pool_owner = args.first().unwrap_or(&Value::none()),
+                lock_amount = args.get(1).unwrap_or(&Value::none()),
+                num_cycles = args.get(2).unwrap_or(&Value::none()),
+                unlock_bytes = args.get(3).unwrap_or(&Value::none()),
+                start_burn_height = args.get(4).unwrap_or(&Value::none()),
+                pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
+            )
+        }
+        "stake-extend-pooled" => {
+            format!(
+                r#"
+                (let (
+                    (unlock-height (get unlock-height (stx-account tx-sender)))
+                    (unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
+                    (cur-cycle (current-pox-reward-cycle))
+                    (first-extend-cycle
+                        (if (> (+ cur-cycle u1) unlock-in-cycle)
+                            (+ cur-cycle u1)
+                            unlock-in-cycle))
+                    (last-extend-cycle  (- (+ first-extend-cycle {num_cycles}) u1))
+                    (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle)))
+                    {pox_set_offset}
+                )
+                {{
+                    data: {{
+                        ;; pool owner
+                        ;; equal to args[0]
+                        pool-owner: '{pool_owner},
+                        ;; amount of ustx
+                        ;; equal to args[1]
+                        amount-ustx: {amount_ustx},
+                        ;; number of cycles extended
+                        ;; equal to args[2]
+                        extend-count: {num_cycles},
+                        ;; unlock bytes on Bitcoin
+                        ;; equal to args[3]
+                        unlock-bytes: {unlock_bytes},
+                        ;; new unlock burnchain block height
+                        unlock-burn-height: new-unlock-ht,
+                        ;; staker
+                        staker: tx-sender,
+                        ;; Get end cycle ID
+                        end-cycle-id: (some (burn-height-to-reward-cycle new-unlock-ht)),
+                        ;; Get start cycle ID
+                        start-cycle-id: (+ (current-pox-reward-cycle) u1 pox-set-offset),
+                    }}
+                }})
+                "#,
+                pool_owner = args.first().unwrap_or(&Value::none()),
+                amount_ustx = args.get(1).unwrap_or(&Value::none()),
+                num_cycles = args.get(2).unwrap_or(&Value::none()),
+                unlock_bytes = args.get(3).unwrap_or(&Value::none()),
+                pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
+            )
+        }
+        "stake-update-pooled" => {
+            format!(
+                r#"
+                (let (
+                    (unlock-height (get unlock-height (stx-account tx-sender)))
+                    {pox_set_offset}
+                )
+                {{
+                    data: {{
+                        ;; pool owner
+                        ;; equal to args[0]
+                        pool-owner: '{pool_owner},
+                        ;; amount to increase by
+                        ;; equal to args[1]
+                        increase-by: {increase_by},
+                        ;; new amount locked
+                        total-locked: (+ {increase_by} (get locked (stx-account tx-sender))),
+                        ;; staker
+                        staker: tx-sender,
+                        ;; Get end cycle ID
+                        end-cycle-id: (some (burn-height-to-reward-cycle unlock-height)),
+                        ;; Get start cycle ID
+                        start-cycle-id: (+ (current-pox-reward-cycle) u1 pox-set-offset),
+                    }}
+                }})
+                "#,
+                pool_owner = args.first().unwrap_or(&Value::none()),
+                increase_by = args.get(1).unwrap_or(&Value::none()),
+                pox_set_offset = pox_set_offset.replace("%height%", "burn-block-height"),
+            )
+        }
         _ => "{data: {unimplemented: true}}".into(),
     }
 }
@@ -633,6 +941,12 @@ fn inner_synthesize_pox_event_info(
         "stack-aggregation-commit"
         | "stack-aggregation-commit-indexed"
         | "stack-aggregation-increase" => Some(create_event_info_aggregation_code(function_name)),
+        "stake"
+        | "stake-extend"
+        | "stake-update"
+        | "stake-pooled"
+        | "stake-extend-pooled"
+        | "stake-update-pooled" => Some(create_event_info_stake_code(sender, function_name)),
         _ => None,
     };
     let code_snippet = match code_snippet_template_opt {
