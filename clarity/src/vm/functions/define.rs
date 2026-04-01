@@ -27,8 +27,7 @@ use crate::vm::representations::SymbolicExpressionType::Field;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
-    CallableData, PrincipalData, TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value,
-    parse_name_type_pairs,
+    TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value, parse_name_type_pairs,
 };
 
 define_named_enum!(DefineFunctions {
@@ -141,26 +140,7 @@ fn handle_define_variable(
     // is the variable name legal?
     check_legal_define(variable, invoke_ctx.contract_context)?;
     let context = LocalContext::new();
-    let raw_value =
-        eval(expression, exec_state, invoke_ctx, &context)?.clone_with_cost(exec_state)?;
-    let value = if invoke_ctx
-        .contract_context
-        .get_clarity_version()
-        .supports_callables()
-        && exec_state.epoch().supports_call_with_constant()
-    {
-        match raw_value {
-            Value::Principal(PrincipalData::Contract(contract_identifier)) => {
-                Value::CallableContract(CallableData {
-                    contract_identifier,
-                    trait_identifier: None,
-                })
-            }
-            v => v,
-        }
-    } else {
-        raw_value
-    };
+    let value = eval(expression, exec_state, invoke_ctx, &context)?.clone_with_cost(exec_state)?;
     Ok(DefineResult::Variable(variable.clone(), value))
 }
 
@@ -531,12 +511,12 @@ pub fn evaluate_define(
 #[cfg(test)]
 mod test {
     use clarity_types::Value;
-    use clarity_types::errors::RuntimeCheckErrorKind;
     use clarity_types::representations::SymbolicExpression;
     use clarity_types::types::QualifiedContractIdentifier;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
+    use crate::vm::analysis::errors::RuntimeCheckErrorKind;
     use crate::vm::analysis::type_checker::v2_1::MAX_FUNCTION_PARAMETERS;
     use crate::vm::callables::DefineType;
     use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
