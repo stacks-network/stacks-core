@@ -358,6 +358,29 @@ impl RawPox5Entry {
         }
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_for_signer_test(
+        stacks_addr: StandardPrincipalData,
+        unlock_height: u32,
+        amount_ustx: u128,
+        unlock_bytes: Vec<u8>,
+        signer_key: [u8; 33],
+    ) -> Self {
+        let pox_addr = PoxAddress::Standard(StacksAddress::from(stacks_addr.clone()), None);
+        Self {
+            user: stacks_addr,
+            num_cycles: 1,
+            unlock_bytes,
+            amount_ustx,
+            first_reward_cycle: 0,
+            unlock_height,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr,
+                signer_key,
+            },
+        }
+    }
+
     pub fn script_hash(&self) -> WitnessScriptHash {
         let mut hasher = Sha256::new();
         hasher.update(&[
@@ -475,10 +498,13 @@ impl RawPox5Entry {
             .saturating_add(num_cycles)
             .try_into()
             .map_err(|_| "Staking entry must have a u64 cycle number")?;
+        let cycle_length = pox_constants.reward_cycle_length;
         let unlock_height: u32 = pox_constants
             .reward_cycle_to_block_height(first_block_ht, last_cycle)
             .try_into()
             .map_err(|_| "Staking entry must have a u32 unlock height")?;
+
+        let unlock_height = unlock_height.saturating_add(cycle_length / 2);
         if unlock_height > u32::from_le_bytes([0xff, 0xff, 0xff, 0x00]) {
             return Err("Unlock height must be <= 0x00ffffff".into());
         }

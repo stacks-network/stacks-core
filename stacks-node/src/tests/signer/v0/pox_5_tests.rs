@@ -16,12 +16,12 @@ use std::collections::HashMap;
 use std::env;
 use std::time::Duration;
 
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use stacks::address::AddressHashMode;
 use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::chainstate::nakamoto::signer_set::RawPox5Entry;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::codec::StacksMessageCodec;
 use stacks::core::test_util::make_contract_call;
 use stacks::core::StacksEpochId;
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
@@ -172,13 +172,13 @@ fn submit_btc_timelocks(signer_test: &SignerTest<SpawnedSigner>) {
     // The unlock height for a given timelock is halfway through the reward
     // cycle where the STX are unlocked.
     let current_cycle = signer_test.get_current_reward_cycle();
-    let unlock_cycle = current_cycle + lock_period;
+    let unlock_cycle = current_cycle + lock_period + 1;
     let pox_constants = signer_test
         .running_nodes
         .btc_regtest_controller
         .get_burnchain()
         .pox_constants;
-    let cycle_length = pox_constants.reward_cycle_length + pox_constants.prepare_length;
+    let cycle_length = pox_constants.reward_cycle_length;
     let unlock_height = signer_test
         .running_nodes
         .btc_regtest_controller
@@ -190,20 +190,34 @@ fn submit_btc_timelocks(signer_test: &SignerTest<SpawnedSigner>) {
             "stacker" => %stacker_sk.to_hex(),
         );
         let stacker_addr = tests::to_addr(stacker_sk);
-        let stacker_cv = PrincipalData::from(stacker_addr.clone());
-        let mut stacker_cv_bytes = vec![];
-        stacker_cv
-            .consensus_serialize(&mut stacker_cv_bytes)
-            .unwrap();
+        let principal_data = StandardPrincipalData::from(stacker_addr.clone());
+        let mut principal_data = vec![0x05, principal_data.version()];
+        principal_data.extend_from_slice(stacker_addr.bytes().as_bytes());
+        let unlock_height_bytes = &unlock_height.to_le_bytes()[0..3];
+        let entry = RawPox5Entry::new_for_signer_test(
+            StandardPrincipalData::from(stacker_addr.clone()),
+            unlock_height.try_into().unwrap(),
+            1000,
+            vec![],
+            [0u8; 33],
+        );
+        let entry_script = entry.script_hash();
         let script = Builder::new()
-            .push_slice(&stacker_cv_bytes)
+            .push_slice(&principal_data)
             .push_opcode(opcodes::All::OP_DROP)
-            .push_scriptint(unlock_height.try_into().unwrap())
+            .push_slice(unlock_height_bytes)
             .push_opcode(OP_CLTV)
             .push_opcode(opcodes::All::OP_DROP)
-            .push_slice(&[0x00, 0x00])
             .into_script()
             .to_v0_p2wsh();
+        assert_eq!(
+            Builder::new()
+                .push_int(0)
+                .push_slice(&entry_script.0)
+                .into_script()
+                .as_bytes(),
+            script.as_bytes()
+        );
         let addr =
             BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Regtest, script.as_bytes())
                 .expect("Failed to convert script to segwit p2wpkh address");
@@ -214,6 +228,7 @@ fn submit_btc_timelocks(signer_test: &SignerTest<SpawnedSigner>) {
             .expect("Failed to send to address");
         info!("Sent BTC to timelock";
             "timelock_addr" => addr_str,
+            "unlock_height" => unlock_height,
             "timelock_script" => to_hex(script.as_bytes()),
             "txid" => txid.to_hex(),
             "amount" => lock_amount,
@@ -352,6 +367,25 @@ fn test_pox_5_activation() {
 
     info!("---- Staker info ----";
         "staker_info" => ?staker_info,
+    );
+
+    info!("---- Mining until next cycle ----");
+    for _i in 0..(pox_5_info.next_reward_cycle_in + 1) {
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+        info!("---- Mined block ----";
+            "block_height" => signer_test.get_peer_info().burn_block_height,
+        );
+    }
+
+    info!("---- Mining in the next cycle ----");
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let signers = signer_test
+        .stacks_client
+        .get_reward_set_signers(reward_cycle)
+        .expect("Failed to get reward set signers")
+        .expect("FATAL: expected signers to exist");
+    info!("---- Signers ----";
+        "signers" => ?signers,
     );
 
     info!("---- Shutdown ----");
