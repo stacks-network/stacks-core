@@ -26,12 +26,10 @@ use stacks::core::test_util::make_contract_call;
 use stacks::core::StacksEpochId;
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::types::PrivateKey;
-use stacks::util::hash::to_hex;
+use stacks::util::hash::{hex_bytes, to_hex};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox5::make_pox_5_signer_grant_signature;
-use stacks_common::deps_common::bitcoin::blockdata::opcodes::{self, OP_CLTV};
-use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -190,10 +188,6 @@ fn submit_btc_timelocks(signer_test: &SignerTest<SpawnedSigner>) {
             "stacker" => %stacker_sk.to_hex(),
         );
         let stacker_addr = tests::to_addr(stacker_sk);
-        let principal_data = StandardPrincipalData::from(stacker_addr.clone());
-        let mut principal_data = vec![0x05, principal_data.version()];
-        principal_data.extend_from_slice(stacker_addr.bytes().as_bytes());
-        let unlock_height_bytes = &unlock_height.to_le_bytes()[0..3];
         let entry = RawPox5Entry::new_for_signer_test(
             StandardPrincipalData::from(stacker_addr.clone()),
             unlock_height.try_into().unwrap(),
@@ -201,26 +195,11 @@ fn submit_btc_timelocks(signer_test: &SignerTest<SpawnedSigner>) {
             vec![],
             [0u8; 33],
         );
-        let entry_script = entry.script_hash();
-        let script = Builder::new()
-            .push_slice(&principal_data)
-            .push_opcode(opcodes::All::OP_DROP)
-            .push_slice(unlock_height_bytes)
-            .push_opcode(OP_CLTV)
-            .push_opcode(opcodes::All::OP_DROP)
-            .into_script()
-            .to_v0_p2wsh();
-        assert_eq!(
-            Builder::new()
-                .push_int(0)
-                .push_slice(&entry_script.0)
-                .into_script()
-                .as_bytes(),
-            script.as_bytes()
-        );
-        let addr =
-            BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Regtest, script.as_bytes())
-                .expect("Failed to convert script to segwit p2wpkh address");
+        let addr = BitcoinAddress::from_scriptpubkey(
+            BitcoinNetworkType::Regtest,
+            entry.to_p2wsh().as_bytes(),
+        )
+        .expect("Failed to convert script to segwit p2wpkh address");
         let addr_str = addr.to_string();
         let lock_amount = 0.001;
         let txid = rpc_client
@@ -229,11 +208,36 @@ fn submit_btc_timelocks(signer_test: &SignerTest<SpawnedSigner>) {
         info!("Sent BTC to timelock";
             "timelock_addr" => addr_str,
             "unlock_height" => unlock_height,
-            "timelock_script" => to_hex(script.as_bytes()),
+            "timelock_script" => to_hex(entry.to_redeem_script().as_bytes()),
+            "p2wsh_script" => to_hex(entry.to_p2wsh().as_bytes()),
             "txid" => txid.to_hex(),
             "amount" => lock_amount,
         );
     }
+}
+
+#[test]
+/// Generate a fixture for testing again the TypeScript implementation of the timelock output script
+fn timelock_output_script() {
+    let stacker_sk = Secp256k1PrivateKey::from_seed("stacker".as_bytes());
+    let stacker_addr = tests::to_addr(&stacker_sk);
+    let unlock_height = 1000u32;
+
+    let entry = RawPox5Entry::new_for_signer_test(
+        StandardPrincipalData::from(stacker_addr.clone()),
+        unlock_height.try_into().unwrap(),
+        1000,
+        hex_bytes("deadbeef").unwrap(),
+        [0u8; 33],
+    );
+
+    info!("---- Timelock output script ----";
+        "script" => to_hex(entry.to_p2wsh().as_bytes()),
+        "redeem_script" => to_hex(entry.to_redeem_script().as_bytes()),
+        "stacker_sk" => stacker_sk.to_hex(),
+        "stacker_addr" => stacker_addr.to_string(),
+        "unlock_height" => unlock_height,
+    );
 }
 
 #[test]

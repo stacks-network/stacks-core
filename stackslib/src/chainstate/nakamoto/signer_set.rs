@@ -26,6 +26,7 @@ use clarity::vm::types::{
 use clarity::vm::{SymbolicExpression, Value};
 use sha2::{Digest, Sha256};
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{to_hex, Hash160};
@@ -381,22 +382,32 @@ impl RawPox5Entry {
         }
     }
 
+    /// Compute the full redeem script for the timelock
+    pub fn to_redeem_script(&self) -> Script {
+        let mut principal_data = vec![0x05, self.user.version()];
+        principal_data.extend_from_slice(&self.user.1);
+        Builder::new()
+            .push_slice(&principal_data)
+            .push_opcode(opcodes::All::OP_DROP)
+            .push_scriptint(self.unlock_height.try_into().unwrap())
+            .push_opcode(opcodes::OP_CLTV)
+            .push_opcode(opcodes::All::OP_DROP)
+            .push_slice(&self.unlock_bytes)
+            .into_script()
+    }
+
+    /// Compute the sha256 hash of the timelock output script
     pub fn script_hash(&self) -> WitnessScriptHash {
+        let output = self.to_redeem_script();
         let mut hasher = Sha256::new();
-        hasher.update(&[
-            opcodes::All::OP_PUSHBYTES_22 as u8,
-            0x05,
-            self.user.version(),
-        ]);
-        hasher.update(&self.user.1);
-        hasher.update(&[
-            opcodes::All::OP_DROP as u8,
-            opcodes::All::OP_PUSHBYTES_3 as u8,
-        ]);
-        hasher.update(&self.unlock_height.to_le_bytes()[0..3]);
-        hasher.update(&[opcodes::OP_CLTV as u8, opcodes::All::OP_DROP as u8]);
-        hasher.update(&self.unlock_bytes);
+        hasher.update(output.as_bytes());
         WitnessScriptHash::from(hasher)
+    }
+
+    /// Compute the P2WSH output corresponding to this witnessScript (aka the "witness redeem
+    /// script")
+    pub fn to_p2wsh(&self) -> Script {
+        self.to_redeem_script().to_v0_p2wsh()
     }
 
     /// Parse a Clarity value from `get-pool-info` or the self-staked entry
