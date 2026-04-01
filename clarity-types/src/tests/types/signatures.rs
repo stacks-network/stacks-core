@@ -1303,3 +1303,61 @@ fn test_type_signature_serde_roundtrip_list_of_tuples() {
     assert_eq!(original, deserialized);
     assert_eq!(original.size().unwrap(), deserialized.size().unwrap());
 }
+
+#[test]
+fn test_list_type_data_serde_deserialize_too_large_fails() {
+    // IntType + max_len exceed max value size limit.
+    let json = serde_json::json!({
+        "max_len": MAX_VALUE_SIZE,
+        "entry_type": "IntType"
+    });
+    let err = serde_json::from_value::<ListTypeData>(json).unwrap_err();
+    assert_eq!("ValueTooLarge", err.to_string());
+}
+
+#[test]
+fn test_list_type_data_serde_deserialize_too_deep_fails() {
+    // Create a deeply nested type that exceeds max type depth.
+    let json = {
+        let mut entry_type = serde_json::json!("IntType");
+        for _ in 0..MAX_TYPE_DEPTH - 1 {
+            entry_type = serde_json::json!({
+                "SequenceType": { "ListType": { "max_len": 1, "entry_type": entry_type } }
+            });
+        }
+        // list obj adds the final level that exceeds the limit.
+        serde_json::json!({
+            "max_len": 1,
+            "entry_type": entry_type
+        })
+    };
+    let err = serde_json::from_value::<ListTypeData>(json).unwrap_err();
+    assert_eq!("TypeSignatureTooDeep", err.to_string());
+}
+
+#[test]
+fn test_list_type_data_new_list_ok() {
+    let list = ListTypeData::new_list(TypeSignature::IntType, 5).unwrap();
+    assert_eq!(list.get_max_len(), 5);
+    assert_eq!(list.get_list_item_type(), &TypeSignature::IntType);
+    assert!(list.size() > 0);
+}
+
+#[test]
+fn test_list_type_data_new_list_rejects_too_large() {
+    // IntType + max_len exceed max value size limit.
+    let err = ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE).unwrap_err();
+    assert_eq!(ClarityTypeError::ValueTooLarge, err);
+}
+
+#[test]
+fn test_list_type_data_new_list_rejects_too_deep() {
+    // Create a deeply nested type ready to exceeds max type depth.
+    let mut entry_type = TypeSignature::IntType;
+    for _ in 0..MAX_TYPE_DEPTH - 1 {
+        entry_type = TypeSignature::list_of(entry_type, 1).unwrap();
+    }
+    // new_list adds the final level that exceeds the limit.
+    let err = ListTypeData::new_list(entry_type, 1).unwrap_err();
+    assert_eq!(ClarityTypeError::TypeSignatureTooDeep, err);
+}

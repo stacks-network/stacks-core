@@ -369,16 +369,7 @@ impl<'de> Deserialize<'de> for ListTypeData {
             entry_type: Box<TypeSignature>,
         }
         let raw = Raw::deserialize(deserializer)?;
-        let tmp = ListTypeData {
-            max_len: raw.max_len,
-            entry_type: raw.entry_type,
-            size: 0,
-        };
-        let size = tmp
-            .inner_size()
-            .map_err(serde::de::Error::custom)?
-            .ok_or_else(|| serde::de::Error::custom("list type too large"))?;
-        Ok(ListTypeData { size, ..tmp })
+        Self::new_list(*raw.entry_type, raw.max_len).map_err(serde::de::Error::custom)
     }
 }
 
@@ -404,22 +395,13 @@ impl ListTypeData {
             return Err(ClarityTypeError::TypeSignatureTooDeep);
         }
 
-        let list_data = ListTypeData {
+        let size = Self::compute_inner_size(&entry_type, max_len)?
+            .ok_or(ClarityTypeError::ValueTooLarge)?;
+        Ok(ListTypeData {
             entry_type: Box::new(entry_type),
             max_len,
-            size: 0,
-        };
-        let would_be_size = list_data
-            .inner_size()?
-            .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
-        if would_be_size > MAX_VALUE_SIZE {
-            Err(ClarityTypeError::ValueTooLarge)
-        } else {
-            Ok(ListTypeData {
-                size: would_be_size,
-                ..list_data
-            })
-        }
+            size,
+        })
     }
 
     pub fn destruct(self) -> (TypeSignature, u32) {
@@ -1564,17 +1546,32 @@ impl TypeSignature {
 }
 
 impl ListTypeData {
+    // Returns the cached list size.
     pub fn size(&self) -> u32 {
         self.size
     }
 
-    /// List Size: type_signature_size + max_len * entry_type.size()
+    /// Compute the size of a list instance
     fn inner_size(&self) -> Result<Option<u32>, ClarityTypeError> {
-        let total_size = self
-            .entry_type
+        Self::compute_inner_size(&self.entry_type, self.max_len)
+    }
+
+    /// Compute the type size of a list instance
+    fn type_size(&self) -> Option<u32> {
+        Self::compute_type_size(&self.entry_type)
+    }
+
+    /// Compute the size of a list from an entry type and a max len.
+    ///
+    /// List Size: type_signature_size + max_len * entry_type.size()
+    fn compute_inner_size(
+        entry_type: &TypeSignature,
+        max_len: u32,
+    ) -> Result<Option<u32>, ClarityTypeError> {
+        let total_size = entry_type
             .size()?
-            .checked_mul(self.max_len)
-            .and_then(|x| x.checked_add(self.type_size()?));
+            .checked_mul(max_len)
+            .and_then(|x| x.checked_add(Self::compute_type_size(entry_type)?));
         match total_size {
             Some(total_size) => {
                 if total_size > MAX_VALUE_SIZE {
@@ -1587,8 +1584,9 @@ impl ListTypeData {
         }
     }
 
-    fn type_size(&self) -> Option<u32> {
-        let total_size = self.entry_type.inner_type_size()?.checked_add(4 + 1)?; // 1 byte for Type enum, 4 for max_len.
+    /// Compute the type size of a list from an entry type
+    fn compute_type_size(entry_type: &TypeSignature) -> Option<u32> {
+        let total_size = entry_type.inner_type_size()?.checked_add(4 + 1)?; // 1 byte for Type enum, 4 for max_len.
         if total_size > MAX_VALUE_SIZE {
             None
         } else {
@@ -1625,6 +1623,7 @@ impl TupleTypeSignature {
         Self::compute_type_size(&self.type_map)
     }
 
+    // Returns the cached tuple size.
     pub fn size(&self) -> u32 {
         self.size
     }
