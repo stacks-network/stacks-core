@@ -330,6 +330,12 @@ fn test_pox_5_activation() {
 
     stake_pox_5(&signer_test);
 
+    info!("---- Getting pox-5 info ----");
+    let pox_5_info = signer_test.get_pox_data();
+    info!("---- Pox-5 info ----";
+        "pox_5_info" => ?pox_5_info,
+    );
+
     let signer_addr = tests::to_addr(&signer_test.signer_stacks_private_keys[0]);
 
     let staker_info = signer_test

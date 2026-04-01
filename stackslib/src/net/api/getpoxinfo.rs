@@ -616,6 +616,7 @@ impl RPCRequestHandler for RPCPoxInfoRequestHandler {
         let pox_info = match pox_info_res {
             Ok(pox_info) => pox_info,
             Err(NetError::NotFoundError) | Err(NetError::DBError(DBError::NotFoundError)) => {
+                warn!("Error when loading PoX info: NotFoundError"; "error" => ?pox_info_res,);
                 return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpNotFound::new("No such chain tip".into()),
