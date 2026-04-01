@@ -369,11 +369,38 @@ fn test_pox_5_activation() {
         "staker_info" => ?staker_info,
     );
 
-    info!("---- Mining until next cycle ----");
-    for _i in 0..(pox_5_info.next_reward_cycle_in + 1) {
+    let pox_5_info = signer_test.get_pox_data();
+    for _i in 0..(pox_5_info.next_cycle.blocks_until_prepare_phase + 1) {
         signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
         info!("---- Mined block ----";
             "block_height" => signer_test.get_peer_info().burn_block_height,
+            "prepare_phase_start_block_height" => pox_5_info.next_cycle.prepare_phase_start_block_height,
+        );
+    }
+    let signers = signer_test
+        .stacks_client
+        .get_reward_set_signers(pox_5_info.next_cycle.id)
+        .expect("Failed to get reward set signers")
+        .expect("FATAL: expected signers to exist");
+    let total_weight = signers.iter().fold(0, |acc, signer| acc + signer.weight);
+
+    info!("---- Signers ----";
+        "signers" => ?signers,
+        "total_weight" => total_weight,
+    );
+    let majority_weight = total_weight * 7 / 10;
+    info!("---- Majority weight ----";
+        "majority_weight" => majority_weight,
+    );
+
+    info!("---- Mining until next cycle ----");
+    let pox_5_info = signer_test.get_pox_data();
+    for i in 0..(pox_5_info.clone().next_reward_cycle_in + 1) {
+        signer_test.mine_nakamoto_block(Duration::from_secs(15), true);
+        info!("---- Mined block ----";
+            "block_height" => signer_test.get_peer_info().burn_block_height,
+            "next_reward_cycle_in" => pox_5_info.next_reward_cycle_in,
+            "i" => i,
         );
     }
 
