@@ -238,6 +238,12 @@
     (map-get? pools owner)
 )
 
+;; TODO
+;; #[allow(unused_binding)]
+(define-read-only (get-total-ustx-stacked (reward-cycle uint))
+    u0
+)
+
 (define-read-only (get-pox-info)
     (ok {
         min-amount-ustx: MIN_STACKING_AMOUNT,

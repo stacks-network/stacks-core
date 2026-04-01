@@ -418,6 +418,10 @@ fn test_pox_5_activation() {
     info!("---- Signers ----";
         "signers" => ?signers,
     );
+    let pox_5_info = signer_test.get_pox_data();
+    info!("---- Pox-5 info ----";
+        "pox_5_info" => ?pox_5_info,
+    );
 
     info!("---- Shutdown ----");
     signer_test.shutdown();
