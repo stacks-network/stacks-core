@@ -76,6 +76,9 @@ pub const SIGNERS_UPDATE_STATE: &str = "last-set-cycle";
 /// This is the name of an internal variable in the `.signers` contract which tracks the BTC height
 /// when the most recent reward cycle was updated
 pub const SIGNERS_LAST_UPDATED_BTC_HEIGHT: &str = "last-set-cycle-btc-height";
+/// This is the name of an internal variable in the `.signers` contract which tracks the last 4
+/// (or fewer) percentile ratios for STX/BTC stakes
+pub const SIGNERS_LAST_RATIO_PERCENTILES: &str = "last-cycle-ratio-percentiles";
 pub const SIGNERS_MAX_LIST_SIZE: usize = 4000;
 pub const SIGNERS_PK_LEN: usize = 33;
 
