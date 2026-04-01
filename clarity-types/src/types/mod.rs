@@ -612,8 +612,8 @@ impl SequenceData {
             ($data:expr, $seq_type:ident) => {{
                 let mut write = 0;
                 for read in 0..$data.data.len() {
-                    let value =
-                        $seq_type::to_value(&$data.data[read]).map_err(RetainValuesError::Internal)?;
+                    let value = $seq_type::to_value(&$data.data[read])
+                        .map_err(RetainValuesError::Internal)?;
                     let keep = predicate(value).map_err(RetainValuesError::Predicate)?;
                     if keep {
                         if write != read {

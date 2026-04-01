@@ -88,21 +88,19 @@ pub fn special_filter(
         Value::Sequence(sequence_data) => {
             sequence = Value::Sequence(
                 sequence_data
-                    .try_retain(
-                        &mut |value: Value| -> Result<bool, VmExecutionError> {
-                            let filter_eval =
-                                apply_evaluated(&function, vec![value], exec_state, invoke_ctx)?;
-                            if let Value::Bool(include) = filter_eval {
-                                Ok(include)
-                            } else {
-                                Err(RuntimeCheckErrorKind::TypeValueError(
-                                    Box::new(BoolType),
-                                    filter_eval.to_error_string(),
-                                )
-                                .into())
-                            }
-                        },
-                    )
+                    .try_retain(&mut |value: Value| -> Result<bool, VmExecutionError> {
+                        let filter_eval =
+                            apply_evaluated(&function, vec![value], exec_state, invoke_ctx)?;
+                        if let Value::Bool(include) = filter_eval {
+                            Ok(include)
+                        } else {
+                            Err(RuntimeCheckErrorKind::TypeValueError(
+                                Box::new(BoolType),
+                                filter_eval.to_error_string(),
+                            )
+                            .into())
+                        }
+                    })
                     .map_err(|e| match e {
                         RetainValuesError::Internal(err) => {
                             VmExecutionError::Internal(VmInternalError::Expect(format!(
