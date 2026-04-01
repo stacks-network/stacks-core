@@ -21,10 +21,41 @@ use stacks_common::types::StacksEpochId;
 use crate::errors::ClarityTypeError;
 use crate::types::{
     ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
-    QualifiedContractIdentifier, SequenceData, SequenceSubtype, SequencedValue as _,
-    StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature, UTF8Data,
-    Value,
+    QualifiedContractIdentifier, RetainValuesError, SequenceData, SequenceSubtype,
+    SequencedValue as _, StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature,
+    TypeSignature, UTF8Data, Value,
 };
+
+mod utils {
+    use super::*;
+
+    /// build a list SequenceData from integer values.
+    pub fn make_int_sequence(values: &[i128]) -> SequenceData {
+        let vals: Vec<Value> = values.iter().map(|&v| Value::Int(v)).collect();
+        match Value::list_from(vals).unwrap() {
+            Value::Sequence(sd) => sd,
+            _ => unreachable!(),
+        }
+    }
+
+    /// always-true predicate (keep everything).
+    pub fn keep_all(_: Value) -> Result<bool, ()> {
+        Ok(true)
+    }
+
+    /// always-false predicate (discard everything).
+    pub fn keep_none(_: Value) -> Result<bool, ()> {
+        Ok(false)
+    }
+
+    /// Extract the inner Vec<Value> from a list SequenceData.
+    pub fn to_value_list(sd: &SequenceData) -> &[Value] {
+        match sd {
+            SequenceData::List(ld) => &ld.data,
+            _ => panic!("expected List variant"),
+        }
+    }
+}
 
 #[test]
 fn test_constructors() {
@@ -626,4 +657,241 @@ fn invalid_utf8_string_from_bytes() {
     let err = Value::string_utf8_from_bytes(bad_bytes).unwrap_err();
 
     assert!(matches!(err, ClarityTypeError::InvalidUtf8Encoding));
+}
+
+#[test]
+fn test_sequence_try_retain_list_empty() {
+    let seq = utils::make_int_sequence(&[]);
+    let result = seq.try_retain::<(), _>(utils::keep_all).unwrap();
+    assert!(utils::to_value_list(&result).is_empty());
+}
+
+#[test]
+fn test_sequence_try_retain_list_keep_all() {
+    let seq = utils::make_int_sequence(&[1, 2, 3]);
+    let result = seq.try_retain::<(), _>(utils::keep_all).unwrap();
+    assert_eq!(
+        &[Value::Int(1), Value::Int(2), Value::Int(3)],
+        utils::to_value_list(&result)
+    );
+}
+
+#[test]
+fn test_sequence_try_retain_list_keep_none() {
+    let seq = utils::make_int_sequence(&[1, 2, 3]);
+    let result = seq.try_retain::<(), _>(utils::keep_none).unwrap();
+    assert!(utils::to_value_list(&result).is_empty());
+}
+
+#[test]
+fn test_sequence_try_retain_list_single_kept() {
+    let seq = utils::make_int_sequence(&[42]);
+    let result = seq.try_retain::<(), _>(utils::keep_all).unwrap();
+    assert_eq!(&[Value::Int(42)], utils::to_value_list(&result));
+}
+
+#[test]
+fn test_sequence_try_retain_list_single_removed() {
+    let seq = utils::make_int_sequence(&[42]);
+    let result = seq.try_retain::<(), _>(utils::keep_none).unwrap();
+    assert!(utils::to_value_list(&result).is_empty());
+}
+
+#[test]
+fn test_sequence_try_retain_list_keep_even_indices() {
+    // Keep elements at even indices (0, 2, 4) to exercise the swap logic.
+    let seq = utils::make_int_sequence(&[10, 20, 30, 40, 50]);
+    let mut idx = 0usize;
+    let result = seq
+        .try_retain::<(), _>(|_| {
+            let keep = idx.is_multiple_of(2);
+            idx += 1;
+            Ok(keep)
+        })
+        .unwrap();
+    assert_eq!(
+        &[Value::Int(10), Value::Int(30), Value::Int(50)],
+        utils::to_value_list(&result)
+    );
+}
+
+#[test]
+fn test_sequence_try_retain_list_keep_only_first() {
+    let seq = utils::make_int_sequence(&[1, 2, 3, 4]);
+    let mut first = true;
+    let result = seq
+        .try_retain::<(), _>(|_| {
+            let keep = first;
+            first = false;
+            Ok(keep)
+        })
+        .unwrap();
+    assert_eq!(&[Value::Int(1)], utils::to_value_list(&result));
+}
+
+#[test]
+fn test_sequence_try_retain_list_keep_only_last() {
+    let seq = utils::make_int_sequence(&[1, 2, 3, 4]);
+    let mut count = 0usize;
+    let result = seq
+        .try_retain::<(), _>(|_| {
+            count += 1;
+            Ok(count == 4)
+        })
+        .unwrap();
+    assert_eq!(&[Value::Int(4)], utils::to_value_list(&result));
+}
+
+#[test]
+fn test_sequence_try_retain_buffer_empty() {
+    let seq = SequenceData::Buffer(BuffData { data: vec![] });
+    let result = seq.try_retain::<(), _>(utils::keep_all).unwrap();
+    assert_eq!(SequenceData::Buffer(BuffData { data: vec![] }), result);
+}
+
+#[test]
+fn test_sequence_try_retain_buffer_keep_all() {
+    let seq = SequenceData::Buffer(BuffData {
+        data: vec![0xAA, 0xBB, 0xCC],
+    });
+    let result = seq.try_retain::<(), _>(utils::keep_all).unwrap();
+    assert_eq!(
+        SequenceData::Buffer(BuffData {
+            data: vec![0xAA, 0xBB, 0xCC]
+        }),
+        result
+    );
+}
+
+#[test]
+fn test_sequence_try_retain_buffer_keep_none() {
+    let seq = SequenceData::Buffer(BuffData {
+        data: vec![0xAA, 0xBB, 0xCC],
+    });
+    let result = seq.try_retain::<(), _>(utils::keep_none).unwrap();
+    assert_eq!(SequenceData::Buffer(BuffData { data: vec![] }), result);
+}
+
+#[test]
+fn test_sequence_try_retain_ascii_empty() {
+    let seq = SequenceData::String(CharType::ASCII(ASCIIData { data: vec![] }));
+    let result = seq.try_retain::<(), _>(utils::keep_all).unwrap();
+    assert_eq!(
+        SequenceData::String(CharType::ASCII(ASCIIData { data: vec![] })),
+        result
+    );
+}
+
+#[test]
+fn test_sequence_try_retain_ascii_keep_all() {
+    let seq = SequenceData::String(CharType::ASCII(ASCIIData {
+        data: b"hello".to_vec(),
+    }));
+    let result = seq.try_retain::<(), _>(utils::keep_all).unwrap();
+    assert_eq!(
+        SequenceData::String(CharType::ASCII(ASCIIData {
+            data: b"hello".to_vec()
+        })),
+        result
+    );
+}
+
+#[test]
+fn test_sequence_try_retain_ascii_keep_none() {
+    let seq = SequenceData::String(CharType::ASCII(ASCIIData {
+        data: b"hello".to_vec(),
+    }));
+    let result = seq.try_retain::<(), _>(utils::keep_none).unwrap();
+    assert_eq!(
+        SequenceData::String(CharType::ASCII(ASCIIData { data: vec![] })),
+        result
+    );
+}
+
+#[test]
+fn test_sequence_try_retain_utf8_empty() {
+    let seq = SequenceData::String(CharType::UTF8(UTF8Data { data: vec![] }));
+    let result = seq.try_retain::<(), _>(utils::keep_all).unwrap();
+    assert_eq!(
+        SequenceData::String(CharType::UTF8(UTF8Data { data: vec![] })),
+        result
+    );
+}
+
+#[test]
+fn test_sequence_try_retain_utf8_keep_all() {
+    // "abc" as individual UTF-8 codepoints
+    let abc = vec![vec![0x61], vec![0x62], vec![0x63]];
+    let seq = SequenceData::String(CharType::UTF8(UTF8Data { data: abc.clone() }));
+    let result = seq.try_retain::<(), _>(utils::keep_all).unwrap();
+    assert_eq!(
+        SequenceData::String(CharType::UTF8(UTF8Data { data: abc })),
+        result
+    );
+}
+
+#[test]
+fn test_sequence_try_retain_utf8_keep_none() {
+    // "abc" as individual UTF-8 codepoints
+    let abc = vec![vec![0x61], vec![0x62], vec![0x63]];
+    let seq = SequenceData::String(CharType::UTF8(UTF8Data { data: abc }));
+    let result = seq.try_retain::<(), _>(utils::keep_none).unwrap();
+    assert_eq!(
+        SequenceData::String(CharType::UTF8(UTF8Data { data: vec![] })),
+        result
+    );
+}
+
+#[test]
+fn test_sequence_try_retain_utf8_multibyte_filter() {
+    let dog = vec![0xF0, 0x9F, 0x90, 0xB6]; // 🐶 
+    let cat = vec![0xF0, 0x9F, 0x90, 0xB1]; // 🐱
+    let seq = SequenceData::String(CharType::UTF8(UTF8Data {
+        data: vec![dog.clone(), cat.clone(), dog.clone()],
+    }));
+    // Keep only even-indexed characters (the dogs)
+    let mut idx = 0usize;
+    let result = seq
+        .try_retain::<(), _>(|_| {
+            let keep = idx.is_multiple_of(2);
+            idx += 1;
+            Ok(keep)
+        })
+        .unwrap();
+    assert_eq!(
+        SequenceData::String(CharType::UTF8(UTF8Data {
+            data: vec![dog.clone(), dog]
+        })),
+        result
+    );
+}
+
+#[test]
+fn test_sequence_try_retain_predicate_error() {
+    let seq = utils::make_int_sequence(&[1, 2, 3, 4, 5]);
+    let mut count = 0usize;
+    let err = seq
+        .try_retain(|_| {
+            count += 1;
+            if count == 3 {
+                Err("my-error")
+            } else {
+                Ok(true)
+            }
+        })
+        .unwrap_err();
+    assert_eq!(
+        RetainValuesError::Predicate("my-error"),
+        err,
+        "error should be predicate"
+    );
+    assert_eq!(3, count, "predicate evaluation should stop at error");
+}
+
+#[test]
+fn test_sequence_try_retain_internal_error() {
+    // Forcing an internal error using an invalid ASCII sequence
+    let seq = SequenceData::String(CharType::ASCII(ASCIIData { data: vec![0xFF] }));
+    let err = seq.try_retain::<(), _>(utils::keep_all).unwrap_err();
+    assert!(matches!(err, RetainValuesError::Internal(_)));
 }
