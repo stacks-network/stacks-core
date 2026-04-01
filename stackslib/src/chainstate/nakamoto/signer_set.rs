@@ -1373,7 +1373,7 @@ impl NakamotoSigners {
         //
         // We need to set a threshold amount for signing participation,
         //  so we set a threshold based on total_ustx_locked / reward_slots
-        let signer_weight_scaling = Uint256::from_u64(u32::MAX as u64);
+        let signer_weight_scaling = Uint256::from_u64(reward_slots.into());
         let signer_threshold_ustx = total_ustx_locked / u128::from(reward_slots);
         let total_ustx_locked_256 = Uint256::from_u128(total_ustx_locked);
         let mut signers = vec![];
