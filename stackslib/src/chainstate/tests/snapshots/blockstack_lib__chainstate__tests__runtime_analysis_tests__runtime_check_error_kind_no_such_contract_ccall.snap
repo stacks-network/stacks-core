@@ -1,7 +1,6 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a16a715e758bad8840c660b1c35ca7561f7a7e8f1fc364a8cea0fb9b6d93af49",
+    marf_hash: "d3845838c017cc8a8e1b4df1990bf1ce11d167679d058837b6b3c5777ab26716",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
