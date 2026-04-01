@@ -209,7 +209,7 @@ pub fn make_contract_publish_tx(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    contract_name: &str,
+    contract_name: &'static str,
     contract_content: &str,
     version: Option<ClarityVersion>,
 ) -> StacksTransaction {
@@ -227,7 +227,7 @@ pub fn make_contract_publish_versioned(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    contract_name: &str,
+    contract_name: &'static str,
     contract_content: &str,
     version: Option<ClarityVersion>,
 ) -> Vec<u8> {
@@ -248,7 +248,7 @@ pub fn make_contract_publish(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    contract_name: &str,
+    contract_name: &'static str,
     contract_content: &str,
 ) -> Vec<u8> {
     make_contract_publish_versioned(
@@ -267,7 +267,7 @@ pub fn make_contract_publish_microblock_only_versioned(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    contract_name: &str,
+    contract_name: &'static str,
     contract_content: &str,
     version: Option<ClarityVersion>,
 ) -> Vec<u8> {
@@ -295,7 +295,7 @@ pub fn make_contract_publish_microblock_only(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    contract_name: &str,
+    contract_name: &'static str,
     contract_content: &str,
 ) -> Vec<u8> {
     make_contract_publish_microblock_only_versioned(
@@ -431,8 +431,8 @@ pub fn make_contract_call_tx(
     tx_fee: u64,
     chain_id: u32,
     contract_addr: &StacksAddress,
-    contract_name: &str,
-    function_name: &str,
+    contract_name: &'static str,
+    function_name: &'static str,
     function_args: &[Value],
 ) -> StacksTransaction {
     let contract_name = ContractName::from(contract_name);
@@ -455,8 +455,8 @@ pub fn make_contract_call(
     tx_fee: u64,
     chain_id: u32,
     contract_addr: &StacksAddress,
-    contract_name: &str,
-    function_name: &str,
+    contract_name: &'static str,
+    function_name: &'static str,
     function_args: &[Value],
 ) -> Vec<u8> {
     make_contract_call_tx(
@@ -479,8 +479,8 @@ pub fn make_contract_call_mblock_only(
     tx_fee: u64,
     chain_id: u32,
     contract_addr: &StacksAddress,
-    contract_name: &str,
-    function_name: &str,
+    contract_name: &'static str,
+    function_name: &'static str,
     function_args: &[Value],
 ) -> Vec<u8> {
     let contract_name = ContractName::from(contract_name);

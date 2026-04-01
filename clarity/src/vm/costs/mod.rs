@@ -1120,7 +1120,12 @@ pub fn compute_cost(
         )))?;
 
     let mut program = vec![SymbolicExpression::atom(
-        cost_function_reference.function_name[..].into(),
+        cost_function_reference.function_name[..]
+            .to_string()
+            .try_into()
+            .map_err(|_| {
+                CostErrors::Expect("Cost function should be a valid Clarity name".to_string())
+            })?,
     )];
 
     for input_size in input_sizes.iter() {

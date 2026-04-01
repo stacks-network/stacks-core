@@ -254,7 +254,16 @@ macro_rules! guarded_string {
             }
         }
 
-        impl From<&'_ str> for $Name {
+        // Arguably this implementation shouldn't exist, because this conversion isn't
+        // perfect, and thus "some-string".into() could fail for guarded strings. Even
+        // more dangerously, because `TryFrom` is automatically implementeted for `From`,
+        // the call `ClarityName::try_from("foo")` looks like it's safe, but it would
+        // actually panic on invalid arguments.
+        //
+        // The reason we're keeping it around is that it's used *a lot* for hardcoded
+        // strings, and for those, you could argue that it's fine. That's why we're
+        // requiring static lifetime, to limit it to constant strings.
+        impl From<&'static str> for $Name {
             fn from(value: &str) -> Self {
                 Self::try_from(value.to_string()).unwrap()
             }

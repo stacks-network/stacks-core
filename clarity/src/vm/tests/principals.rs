@@ -830,7 +830,7 @@ fn create_principal_from_strings(
         // contract principal requested
         Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
             StandardPrincipalData::new(version_array[0], principal_array).unwrap(),
-            name.into(),
+            name.to_string().try_into().unwrap(),
         )))
     } else {
         // standard principal requested

@@ -745,7 +745,7 @@ mod test {
     }
 
     fn make_atom(
-        x: &str,
+        x: &'static str,
         start_line: u32,
         start_column: u32,
         end_line: u32,

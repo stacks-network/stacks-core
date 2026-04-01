@@ -178,7 +178,7 @@ mod test {
     use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 
     fn make_pre_atom(
-        x: &str,
+        x: &'static str,
         start_line: u32,
         start_column: u32,
         end_line: u32,
@@ -250,7 +250,7 @@ mod test {
     }
 
     fn make_atom(
-        x: &str,
+        x: &'static str,
         start_line: u32,
         start_column: u32,
         end_line: u32,

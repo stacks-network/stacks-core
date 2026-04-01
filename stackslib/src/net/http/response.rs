@@ -18,6 +18,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::io::{Read, Write};
 
+use serde;
+use serde_json;
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::deps_common::httparse;
 use stacks_common::util::chunked_encoding::{
@@ -25,7 +27,6 @@ use stacks_common::util::chunked_encoding::{
 };
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::pipe::PipeWrite;
-use {serde, serde_json};
 
 use crate::net::http::common::{
     HttpReservedHeader, HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS,
