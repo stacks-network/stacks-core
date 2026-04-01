@@ -82,7 +82,8 @@ build_stacks_inspect() {
 configure_validation_slices() {
     # LOCAL_CHAINSTATE is defined, check if the disk for the chainstate folder has reflink enabled
     if [[ -n "${LOCAL_CHAINSTATE}" ]]; then
-        local LOCAL_CHAINSTATE_ROOT=$(dirname $LOCAL_CHAINSTATE)
+        local LOCAL_CHAINSTATE_ROOT
+        LOCAL_CHAINSTATE_ROOT=$(dirname "$LOCAL_CHAINSTATE")
         echo "${COLYELLOW}Using local chainstate. Overriding scratch dir to: ${LOCAL_CHAINSTATE_ROOT}/scratch${COLRESET}"
         # reset SCRATCH_DIR and SLICE_DIR global variables
         SCRATCH_DIR="${LOCAL_CHAINSTATE_ROOT}/scratch"
@@ -128,10 +129,10 @@ configure_validation_slices() {
        }
     fi
     # Check if reflink is enabled for the filesystem by copying a test file
-    touch ${SCRATCH_DIR}/reflink_test
-    cp --reflink=always ${SCRATCH_DIR}/reflink_test ${SCRATCH_DIR}/reflink_test_copy 2>/dev/null && REFLINK=1 || echo "${COLYELLOW}Warning${COLRESET}: reflink is not enabled for this filesystem, chainstate copy will be slower"
+    touch "${SCRATCH_DIR}/reflink_test"
+    cp --reflink=always "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy" 2>/dev/null && REFLINK=1 || echo "${COLYELLOW}Warning${COLRESET}: reflink is not enabled for this filesystem, chainstate copy will be slower"
     # Remove the test files, silently failing if the file(s) don't exist
-    rm ${SCRATCH_DIR}/reflink_test ${SCRATCH_DIR}/reflink_test_copy  2>/dev/null
+    rm "${SCRATCH_DIR}/reflink_test" "${SCRATCH_DIR}/reflink_test_copy"  2>/dev/null
 
     # If reflink is not enabled for the filesystem, we'll need to copy and link the MARF database to save a little space for the chainstate copy
     if [[ ${REFLINK} -ne "1" ]]; then
@@ -160,7 +161,7 @@ configure_validation_slices() {
         if [[ ${REFLINK} -eq "1" ]]; then
             local cp_arg="--reflink=always"
         fi
-        cp -r ${cp_arg} "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
+        cp -r "${cp_arg}" "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
             echo "${COLRED}Error${COLRESET} copying ${SLICE_DIR}0 -> ${SLICE_DIR}${i}"
             exit 1
         }
