@@ -23,7 +23,6 @@ use clarity::vm::errors::{ClarityTypeError, VmExecutionError};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::{Error as libstackerdb_error, StackerDBChunkData};
 use p2p::{DropReason, DropSource};
-use rusqlite;
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
