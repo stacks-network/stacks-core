@@ -261,10 +261,11 @@ lazy_static! {
         &["reason"]
     ).unwrap();
 
-    pub static ref UNREACHABLE_ERRORS_COUNTER: IntCounter = register_int_counter!(opts!(
+    pub static ref UNREACHABLE_ERRORS_COUNTER: IntCounterVec = register_int_counter_vec!(
         "stacks_unreachable_errors_total",
-        "Number of unreachable Clarity VM errors triggered (indicates potential bugs)"
-    )).unwrap();
+        "Number of unreachable Clarity VM errors triggered (indicates potential bugs)",
+        &["error_type"]
+    ).unwrap();
 }
 
 pub fn new_rpc_call_timer(path: &str) -> HistogramTimer {

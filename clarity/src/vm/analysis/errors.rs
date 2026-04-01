@@ -662,6 +662,8 @@ pub struct StaticCheckError {
 
 impl RuntimeCheckErrorKind {
     /// This check indicates that the transaction should be rejected.
+    /// Currently identical to `is_unreachable()` since `Unreachable` is the only
+    /// rejectable variant, but they answer different questions and may diverge.
     pub fn rejectable(&self) -> bool {
         matches!(self, RuntimeCheckErrorKind::Unreachable(_))
     }

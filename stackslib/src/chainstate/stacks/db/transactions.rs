@@ -388,14 +388,6 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
         }
         ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_check_err)) => {
             if runtime_check_err.rejectable() {
-                if runtime_check_err.is_unreachable() {
-                    error!("UNREACHABLE_ERROR_TRIGGERED: runtime check error that should never occur was hit";
-                        "event_name" => "unreachable_error",
-                        "error_type" => "runtime_check",
-                        "error" => %runtime_check_err,
-                    );
-                    increment_unreachable_errors_counter();
-                }
                 ClarityRuntimeTxError::Rejectable(ClarityError::Interpreter(
                     VmExecutionError::RuntimeCheck(runtime_check_err),
                 ))
@@ -1256,6 +1248,40 @@ impl StacksChainState {
                             }
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
+                            match &e {
+                                ClarityError::Parse(parse_err) if parse_err.is_unreachable() => {
+                                    error!("UNREACHABLE_ERROR_TRIGGERED: parse error that should never occur was hit";
+                                        "event_name" => "unreachable_error",
+                                        "error_type" => "parse",
+                                        "txid" => %tx.txid(),
+                                        "error" => %parse_err,
+                                    );
+                                    increment_unreachable_errors_counter("parse");
+                                }
+                                ClarityError::StaticCheck(static_err)
+                                    if static_err.err.is_unreachable() =>
+                                {
+                                    error!("UNREACHABLE_ERROR_TRIGGERED: static check error that should never occur was hit";
+                                        "event_name" => "unreachable_error",
+                                        "error_type" => "static_check",
+                                        "txid" => %tx.txid(),
+                                        "error" => %static_err,
+                                    );
+                                    increment_unreachable_errors_counter("static_check");
+                                }
+                                ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
+                                    runtime_check_err,
+                                )) if runtime_check_err.is_unreachable() => {
+                                    error!("UNREACHABLE_ERROR_TRIGGERED: runtime check error that should never occur was hit";
+                                        "event_name" => "unreachable_error",
+                                        "error_type" => "runtime_check",
+                                        "txid" => %tx.txid(),
+                                        "error" => %runtime_check_err,
+                                    );
+                                    increment_unreachable_errors_counter("runtime_check");
+                                }
+                                _ => {}
+                            }
                             error!("Unexpected error in validating transaction: if included, this will invalidate a block";
                                        "txid" => %tx.txid(),
                                        "origin" => %origin_account.principal,
@@ -1342,7 +1368,7 @@ impl StacksChainState {
                                             "txid" => %tx.txid(),
                                             "error" => %err,
                                         );
-                                        increment_unreachable_errors_counter();
+                                        increment_unreachable_errors_counter("parse");
                                     }
                                     if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
                                         info!(
@@ -1360,7 +1386,7 @@ impl StacksChainState {
                                             "txid" => %tx.txid(),
                                             "error" => %err,
                                         );
-                                        increment_unreachable_errors_counter();
+                                        increment_unreachable_errors_counter("static_check");
                                     }
                                     if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
                                         info!(
@@ -1510,6 +1536,40 @@ impl StacksChainState {
                             }
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
+                            match &e {
+                                ClarityError::Parse(parse_err) if parse_err.is_unreachable() => {
+                                    error!("UNREACHABLE_ERROR_TRIGGERED: parse error that should never occur was hit";
+                                        "event_name" => "unreachable_error",
+                                        "error_type" => "parse",
+                                        "txid" => %tx.txid(),
+                                        "error" => %parse_err,
+                                    );
+                                    increment_unreachable_errors_counter("parse");
+                                }
+                                ClarityError::StaticCheck(static_err)
+                                    if static_err.err.is_unreachable() =>
+                                {
+                                    error!("UNREACHABLE_ERROR_TRIGGERED: static check error that should never occur was hit";
+                                        "event_name" => "unreachable_error",
+                                        "error_type" => "static_check",
+                                        "txid" => %tx.txid(),
+                                        "error" => %static_err,
+                                    );
+                                    increment_unreachable_errors_counter("static_check");
+                                }
+                                ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
+                                    runtime_check_err,
+                                )) if runtime_check_err.is_unreachable() => {
+                                    error!("UNREACHABLE_ERROR_TRIGGERED: runtime check error that should never occur was hit";
+                                        "event_name" => "unreachable_error",
+                                        "error_type" => "runtime_check",
+                                        "txid" => %tx.txid(),
+                                        "error" => %runtime_check_err,
+                                    );
+                                    increment_unreachable_errors_counter("runtime_check");
+                                }
+                                _ => {}
+                            }
                             error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
                                        "txid" => %tx.txid(),
                                        "contract_name" => %contract_id,
