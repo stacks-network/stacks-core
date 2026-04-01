@@ -87,7 +87,7 @@ impl EventDispatcherResult {
 ///
 /// Call `EventDispatcherWorker::new()` to create.
 ///
-/// Call `initiate_send()` with the id of the payload (in the event oberserver DB) to enqueue.
+/// Call `initiate_send()` with the id of the payload (in the event observer DB) to enqueue.
 ///
 /// Cloning the `EventDispatcherWorker` does *not* create a new thread -- both the original and
 /// the clone will share a single queue and worker thread.
