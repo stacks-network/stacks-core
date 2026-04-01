@@ -562,7 +562,7 @@
 ;; * The Stacker will receive rewards in the reward cycle following `start-burn-ht`.
 ;; Importantly, `start-burn-ht` may not be further into the future than the next reward cycle,
 ;; and in most cases should be set to the current burn block height.
-;;
+;; 
 ;; To ensure that the Stacker is authorized to use the provided `signer-key`, the stacker
 ;; must provide either a signature have an authorization already saved. Refer to
 ;; `verify-signer-key-sig` for more information.
@@ -716,7 +716,7 @@
 ;; the lock period are inflexible, which means that the stacker must confirm their transaction
 ;; during the exact reward cycle and with the exact period that the signature or authorization was
 ;; generated for.
-;;
+;; 
 ;; The `amount` field is checked to ensure it is not larger than `max-amount`, which is
 ;; a field in the authorization. `auth-id` is a random uint to prevent authorization
 ;; replays.
@@ -728,7 +728,7 @@
 ;; When `signer-sig` is present, the public key is recovered from the signature
 ;; and compared to `signer-key`. If `signer-sig` is `none`, the function verifies that an authorization was previously
 ;; added for this key.
-;;
+;; 
 ;; This function checks to ensure that the authorization hasn't been used yet, but it
 ;; does _not_ store the authorization as used. The function `consume-signer-key-authorization`
 ;; handles that, and this read-only function is exposed for client-side verification.
@@ -1082,10 +1082,10 @@
 ;; *New in Stacks 2.1*
 ;; This method locks up an additional amount of STX from `tx-sender`'s, indicated
 ;; by `increase-by`.  The `tx-sender` must already be Stacking & must not be
-;; straddling more than one signer-key for the cycles effected.
+;; straddling more than one signer-key for the cycles effected. 
 ;; Refer to `verify-signer-key-sig` for more information on the authorization parameters
 ;; included here.
-(define-public (stack-increase
+(define-public (stack-increase 
   (increase-by uint)
   (signer-sig (optional (buff 65)))
   (signer-key (buff 33))
@@ -1144,7 +1144,7 @@
 ;; This method extends the `tx-sender`'s current lockup for an additional `extend-count`
 ;;    and associates `pox-addr` with the rewards, The `signer-key` will be the key
 ;;    used for signing. The `tx-sender` can thus decide to change the key when extending.
-;;
+;; 
 ;; Because no additional STX are locked in this function, the `amount` field used
 ;; to verify the signer key authorization is zero. Refer to `verify-signer-key-sig` for more information.
 (define-public (stack-extend (extend-count uint)
