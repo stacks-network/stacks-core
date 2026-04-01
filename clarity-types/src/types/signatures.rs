@@ -811,7 +811,6 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
                 return Err(ClarityTypeError::TypeSignatureTooDeep);
             }
         }
-        let type_map: BTreeMap<ClarityName, TypeSignature> = type_map.into_iter().collect();
         let would_be_size = TupleTypeSignature::compute_inner_size(&type_map)?
             .ok_or_else(|| ClarityTypeError::ValueTooLarge)?;
         Ok(TupleTypeSignature {
