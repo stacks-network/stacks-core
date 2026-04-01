@@ -1,7 +1,6 @@
 ---
 source: stackslib/src/chainstate/tests/consensus.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
@@ -122,6 +121,6 @@ snapshot_kind: text
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch35,
-    error: "Invalid Stacks block c30a0c12600328e12751ba99763da6068c0c235f51f23de06ae8c9dcce158961: InvalidFee",
+    error: "Invalid Stacks block 0b5eaac6ab930cc81edfc1269fac0d22bd76ec2dbb70b4a0bcdab4867dbb42b4: InvalidFee",
   )),
 ]
