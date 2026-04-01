@@ -1361,3 +1361,11 @@ fn test_list_type_data_new_list_rejects_too_deep() {
     let err = ListTypeData::new_list(entry_type, 1).unwrap_err();
     assert_eq!(ClarityTypeError::TypeSignatureTooDeep, err);
 }
+
+#[test]
+fn test_type_signature_empty_list_type_data() {
+    let result = TypeSignature::empty_list();
+    assert_eq!(&TypeSignature::NoType, result.get_list_item_type());
+    assert_eq!(0, result.get_max_len());
+    assert_eq!(6, result.size());
+}
