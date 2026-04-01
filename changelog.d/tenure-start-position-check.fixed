@@ -1,0 +1,1 @@
+Fixed logical operator in tenure-start block validation to correctly reject blocks where either the coinbase or tenure-change transaction is in the wrong position, not only when both are wrong

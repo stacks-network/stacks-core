@@ -13,12 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::errors::analysis::StaticCheckErrorKind;
 use clarity_types::representations::MAX_STRING_LEN;
 use clarity_types::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
+use crate::vm::analysis::errors::StaticCheckErrorKind;
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
     MAX_ALLOWANCES, MAX_NFT_IDENTIFIERS,
 };
