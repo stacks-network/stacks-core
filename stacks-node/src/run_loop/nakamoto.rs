@@ -99,7 +99,7 @@ impl RunLoop {
         let event_dispatcher = event_dispatcher.unwrap_or_else(|| {
             let mut event_dispatcher = EventDispatcher::new_with_custom_queue_size(
                 config.get_working_dir(),
-                config.node.event_dispatcher_queue_size,
+                config.node.effective_event_dispatcher_queue_size(),
             );
             for observer in config.events_observers.iter() {
                 event_dispatcher.register_observer(observer);
