@@ -43,6 +43,7 @@ pub struct SummaryLine {
     pub total_ms: f64,
     pub alloc_count: u64,
     pub alloc_bytes: u64,
+    pub realloc_count: u64,
 }
 
 /// Grouped summary output for one benchmark subcommand.
@@ -68,12 +69,14 @@ impl Summary {
         total_ms: f64,
         alloc_count: u64,
         alloc_bytes: u64,
+        realloc_count: u64,
     ) {
         self.lines.push(SummaryLine {
             name: name.into(),
             total_ms,
             alloc_count,
             alloc_bytes,
+            realloc_count,
         });
     }
 }
@@ -88,11 +91,16 @@ pub fn parse_output_mode() -> OutputMode {
 
 /// Print unified summary lines in tab-separated format.
 pub fn print_summary(summary: &Summary) {
-    println!("summary\tbenchmark\tname\ttotal_ms\talloc_count\talloc_bytes");
+    println!("summary\tbenchmark\tname\ttotal_ms\talloc_count\talloc_bytes\trealloc_count");
     for line in &summary.lines {
         println!(
-            "summary\t{}\t{}\t{:.3}\t{}\t{}",
-            summary.title, line.name, line.total_ms, line.alloc_count, line.alloc_bytes
+            "summary\t{}\t{}\t{:.3}\t{}\t{}\t{}",
+            summary.title,
+            line.name,
+            line.total_ms,
+            line.alloc_count,
+            line.alloc_bytes,
+            line.realloc_count,
         );
     }
 }
@@ -254,6 +262,7 @@ pub fn record_case_with_rounds<F>(
     let mut total_ms = 0.0;
     let mut total_alloc_calls = 0u64;
     let mut total_alloc_bytes = 0u64;
+    let mut total_realloc_calls = 0u64;
 
     for round in 0..rounds {
         let round_name;
@@ -268,7 +277,15 @@ pub fn record_case_with_rounds<F>(
         total_ms += measurement.elapsed_ms;
         total_alloc_calls = total_alloc_calls.saturating_add(measurement.snapshot.alloc_calls);
         total_alloc_bytes = total_alloc_bytes.saturating_add(measurement.snapshot.alloc_bytes);
+        total_realloc_calls =
+            total_realloc_calls.saturating_add(measurement.snapshot.realloc_calls);
     }
 
-    summary.push_line(name, total_ms, total_alloc_calls, total_alloc_bytes);
+    summary.push_line(
+        name,
+        total_ms,
+        total_alloc_calls,
+        total_alloc_bytes,
+        total_realloc_calls,
+    );
 }

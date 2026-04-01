@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod allocator;
+mod block_commit;
 mod common;
 mod patch;
 mod primitives;
@@ -36,6 +37,7 @@ fn print_usage() {
     println!("  read          Read-heavy MARF::get profile");
     println!("  write         Write workflow profile");
     println!("  patch         TrieNodePatch construction/application profile");
+    println!("  block-commit  Production-scale block commit profile");
     println!();
     println!("Environment variables:");
     println!("  OUTPUT_FORMAT");
@@ -67,6 +69,7 @@ fn main() {
         "read" => read::run(sub_args, output_mode),
         "write" => write::run(sub_args, output_mode),
         "patch" => patch::run(sub_args, output_mode),
+        "block-commit" => block_commit::run(sub_args, output_mode),
         "-h" | "--help" | "help" => {
             print_usage();
             None

@@ -42,12 +42,6 @@ pub fn parse_csv_usize_env(name: &str, default: &[usize]) -> Vec<usize> {
     parse_csv_env(name, default, "integer")
 }
 
-/// Parse comma-separated string values from env or return defaults.
-pub fn parse_csv_string_env(name: &str, default: &[&str]) -> Vec<String> {
-    let defaults: Vec<String> = default.iter().map(|s| (*s).to_string()).collect();
-    parse_csv_env(name, &defaults, "string")
-}
-
 /// Parse comma-separated string tokens, lowercasing and trimming each entry.
 pub fn parse_csv_lowercase_tokens_env(name: &str) -> Option<Vec<String>> {
     let raw = std::env::var(name).ok()?;

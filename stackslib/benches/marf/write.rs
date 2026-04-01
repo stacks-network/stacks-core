@@ -51,6 +51,7 @@ struct StepAggregate {
     total_ms: f64,
     alloc_calls: u64,
     alloc_bytes: u64,
+    realloc_calls: u64,
 }
 
 /// Half-open key range belonging to one insertion workflow step.
@@ -303,9 +304,17 @@ fn build_insert_steps(total_keys: usize) -> Vec<InsertStep> {
 }
 
 /// Build full workflow step order for summary output.
-fn build_step_order(insert_steps: &[InsertStep]) -> Vec<&'static str> {
+///
+/// At `depth == 1` all individual insert steps are preserved; at `depth > 1` they are collapsed
+/// into a single `insert_phase` row because the per-step durations are too short to measure
+/// stably when each insert also requires reading parent trie nodes from SQLite.
+fn build_step_order(insert_steps: &[InsertStep], write_depth: usize) -> Vec<&'static str> {
     let mut step_order = vec!["begin_block"];
-    step_order.extend(insert_steps.iter().map(|s| s.name));
+    if write_depth == 1 {
+        step_order.extend(insert_steps.iter().map(|s| s.name));
+    } else {
+        step_order.push("insert_phase");
+    }
     step_order.push("seal");
     step_order.push("commit_flush");
     step_order
@@ -361,8 +370,6 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
     }
 
     let insert_steps = build_insert_steps(iters);
-    let step_order = build_step_order(&insert_steps);
-
     let compression_modes = parse_write_compression_modes();
 
     if output_mode.is_raw() {
@@ -453,6 +460,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                     write_depth,
                     compress_label,
                     "begin_block",
+                    "begin_block",
                     1,
                     begin_measurement,
                     output_mode,
@@ -464,6 +472,14 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                     let values = make_values(value_cursor, keys.len());
                     value_cursor = value_cursor.wrapping_add(keys.len() as u32);
 
+                    // At depth > 1 each insert carries parent-path SQLite reads, making the tiny
+                    // per-step durations too noisy to measure independently, so weollapse all
+                    // insert steps into a single summary key.
+                    let agg_key = if write_depth == 1 {
+                        step.name
+                    } else {
+                        "insert_phase"
+                    };
                     let measurement = measure_step_with_allocs(|| tx.insert_batch(keys, values))?;
                     emit_result_and_store(
                         &mut results,
@@ -471,6 +487,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                         write_depth,
                         compress_label,
                         step.name,
+                        agg_key,
                         keys.len(),
                         measurement,
                         output_mode,
@@ -484,6 +501,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                     write_depth,
                     compress_label,
                     "seal",
+                    "seal",
                     1,
                     seal_measurement,
                     output_mode,
@@ -496,6 +514,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                     write_depth,
                     compress_label,
                     "commit_flush",
+                    "commit_flush",
                     1,
                     commit_measurement,
                     output_mode,
@@ -504,11 +523,14 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
         }
     }
 
-    let mut summary = Summary::new(
-        "write",
-        compression_modes.len() * step_order.len() * write_depths.len(),
-    );
+    let summary_row_count = compression_modes.len()
+        * write_depths
+            .iter()
+            .map(|&d| build_step_order(&insert_steps, d).len())
+            .sum::<usize>();
+    let mut summary = Summary::new("write", summary_row_count);
     for &write_depth in &write_depths {
+        let step_order = build_step_order(&insert_steps, write_depth);
         for &compress in &compression_modes {
             let compress_label = if compress {
                 "compressed"
@@ -525,6 +547,7 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
                     agg.total_ms,
                     agg.alloc_calls,
                     agg.alloc_bytes,
+                    agg.realloc_calls,
                 );
             }
         }
@@ -534,12 +557,16 @@ fn run_workflow(output_mode: OutputMode) -> Result<Summary, IndexError> {
 }
 
 /// Emit one raw result line and fold metrics into summary aggregate.
+///
+/// `step` is used in raw output (always the specific step name).
+/// `agg_key` is used as the HashMap key; at depth > 1 all insert steps share `"insert_phase"`.
 fn emit_result_and_store(
     results: &mut HashMap<(String, usize, String), StepAggregate>,
     round: usize,
     write_depth: usize,
     strategy: &str,
     step: &str,
+    agg_key: &str,
     items: usize,
     measurement: BenchMeasurement,
     output_mode: OutputMode,
@@ -561,11 +588,12 @@ fn emit_result_and_store(
     }
 
     let agg = results
-        .entry((strategy.to_string(), write_depth, step.to_string()))
+        .entry((strategy.to_string(), write_depth, agg_key.to_string()))
         .or_default();
     agg.total_ms += elapsed_ms;
     agg.alloc_calls += measurement.snapshot.alloc_calls;
     agg.alloc_bytes += measurement.snapshot.alloc_bytes;
+    agg.realloc_calls += measurement.snapshot.realloc_calls;
 }
 
 /// Run the write benchmark subcommand.

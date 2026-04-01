@@ -21,7 +21,7 @@
 use std::collections::BTreeSet;
 
 use crate::table::{Align, Column, Table};
-use crate::util::{f3, f4, log, median_min_max, pct, sort_rows, to_row_map};
+use crate::util::{f3, f4, fmt_pct, log, median_min_max, pct, sort_rows, to_row_map};
 use crate::{OutputFormat, tsv};
 /// Parsed benchmark summary metrics for one benchmark/name pair.
 #[derive(Debug, Clone)]
@@ -31,6 +31,7 @@ pub struct SummaryRow {
     total_ms: f64,
     alloc_count: u64,
     alloc_bytes: u64,
+    realloc_count: u64,
 }
 
 /// Canonical key type used to join benchmark rows across repeated runs.
@@ -59,6 +60,9 @@ struct RepeatComputedRow {
     bytes_median: f64,
     bytes_min: f64,
     bytes_max: f64,
+    realloc_median: f64,
+    realloc_min: f64,
+    realloc_max: f64,
 }
 
 struct ConfidenceRenderContext<'a> {
@@ -93,6 +97,7 @@ impl RepeatStatsMode {
                 Column::new("total Δ max", Align::Right),
                 Column::new("count Δ med", Align::Right),
                 Column::new("bytes Δ med", Align::Right),
+                Column::new("realloc Δ med", Align::Right),
                 Column::new("repeats", Align::Right),
             ],
             Self::RunAbsolute => vec![
@@ -103,6 +108,7 @@ impl RepeatStatsMode {
                 Column::new("total max", Align::Right),
                 Column::new("count med", Align::Right),
                 Column::new("bytes med", Align::Right),
+                Column::new("realloc med", Align::Right),
                 Column::new("repeats", Align::Right),
             ],
         }
@@ -110,28 +116,35 @@ impl RepeatStatsMode {
 
     fn format_total(self, value: f64) -> String {
         match self {
-            Self::ComparisonDelta => format!("{:+.1}%", value),
+            Self::ComparisonDelta => fmt_pct(value),
             Self::RunAbsolute => format!("{:.3}", value),
         }
     }
 
     fn format_count_median(self, value: f64) -> String {
         match self {
-            Self::ComparisonDelta => format!("{:+.1}%", value),
+            Self::ComparisonDelta => fmt_pct(value),
             Self::RunAbsolute => format!("{:.0}", value),
         }
     }
 
     fn format_bytes_median(self, value: f64) -> String {
         match self {
-            Self::ComparisonDelta => format!("{:+.1}%", value),
+            Self::ComparisonDelta => fmt_pct(value),
+            Self::RunAbsolute => format!("{:.0}", value),
+        }
+    }
+
+    fn format_realloc_median(self, value: f64) -> String {
+        match self {
+            Self::ComparisonDelta => fmt_pct(value),
             Self::RunAbsolute => format!("{:.0}", value),
         }
     }
 }
 
-/// Print three TSV metric lines (total/count/bytes) for one benchmark key.
-fn print_tsv_three_metrics(prefix: &str, row: &RepeatComputedRow, repeats: usize) {
+/// Print four TSV metric lines (total/count/bytes/realloc) for one benchmark key.
+fn print_tsv_four_metrics(prefix: &str, row: &RepeatComputedRow, repeats: usize) {
     crate::tsv_line!(
         prefix,
         row.benchmark,
@@ -160,6 +173,16 @@ fn print_tsv_three_metrics(prefix: &str, row: &RepeatComputedRow, repeats: usize
         f4(row.bytes_median),
         f4(row.bytes_min),
         f4(row.bytes_max),
+        repeats,
+    );
+    crate::tsv_line!(
+        prefix,
+        row.benchmark,
+        row.name,
+        "realloc_count",
+        f4(row.realloc_median),
+        f4(row.realloc_min),
+        f4(row.realloc_max),
         repeats,
     );
 }
@@ -250,10 +273,11 @@ fn collect_delta_series_for_key(
     repeated_rows: &[(Vec<SummaryRow>, Vec<SummaryRow>)],
     benchmark: &str,
     name: &str,
-) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
     let mut total_deltas = Vec::with_capacity(repeated_rows.len());
     let mut count_deltas = Vec::with_capacity(repeated_rows.len());
     let mut bytes_deltas = Vec::with_capacity(repeated_rows.len());
+    let mut realloc_deltas = Vec::with_capacity(repeated_rows.len());
 
     for (base_rows, target_rows) in repeated_rows {
         let base_map = to_row_map(base_rows);
@@ -265,9 +289,10 @@ fn collect_delta_series_for_key(
         total_deltas.push(pct(base.total_ms, target.total_ms));
         count_deltas.push(pct(base.alloc_count as f64, target.alloc_count as f64));
         bytes_deltas.push(pct(base.alloc_bytes as f64, target.alloc_bytes as f64));
+        realloc_deltas.push(pct(base.realloc_count as f64, target.realloc_count as f64));
     }
 
-    (total_deltas, count_deltas, bytes_deltas)
+    (total_deltas, count_deltas, bytes_deltas, realloc_deltas)
 }
 
 /// Collect absolute metric series for one key across repeated single-tree runs.
@@ -275,10 +300,11 @@ fn collect_absolute_series_for_key(
     repeated_rows: &[Vec<SummaryRow>],
     benchmark: &str,
     name: &str,
-) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
     let mut totals = Vec::with_capacity(repeated_rows.len());
     let mut counts = Vec::with_capacity(repeated_rows.len());
     let mut bytes = Vec::with_capacity(repeated_rows.len());
+    let mut reallocs = Vec::with_capacity(repeated_rows.len());
 
     for rows in repeated_rows {
         let row_map = to_row_map(rows);
@@ -287,9 +313,10 @@ fn collect_absolute_series_for_key(
         totals.push(row.total_ms);
         counts.push(row.alloc_count as f64);
         bytes.push(row.alloc_bytes as f64);
+        reallocs.push(row.realloc_count as f64);
     }
 
-    (totals, counts, bytes)
+    (totals, counts, bytes, reallocs)
 }
 
 /// Classify high-jitter rows for comparison repeats using `%delta` spread semantics.
@@ -302,7 +329,7 @@ fn classify_comparison_jitter_rows(
     let mut stable_rows = 0usize;
 
     for (benchmark, name) in keys {
-        let (total_deltas, _, _) = collect_delta_series_for_key(repeated_rows, benchmark, name);
+        let (total_deltas, _, _, _) = collect_delta_series_for_key(repeated_rows, benchmark, name);
         let (median, min, max) = median_min_max(&total_deltas);
         let spread = max - min;
         let straddles_zero = min < 0.0 && max > 0.0;
@@ -336,7 +363,7 @@ fn classify_run_jitter_rows(
     let mut stable_rows = 0usize;
 
     for (benchmark, name) in keys {
-        let (totals, _, _) = collect_absolute_series_for_key(repeated_rows, benchmark, name);
+        let (totals, _, _, _) = collect_absolute_series_for_key(repeated_rows, benchmark, name);
         let (median, min, max) = median_min_max(&totals);
         let spread = max - min;
         let spread_pct = if median.abs() <= f64::EPSILON {
@@ -375,12 +402,13 @@ fn compute_repeat_rows_for_comparison(
     let mut rows = Vec::with_capacity(keys.len());
 
     for (benchmark, name) in keys {
-        let (total_deltas, count_deltas, bytes_deltas) =
+        let (total_deltas, count_deltas, bytes_deltas, realloc_deltas) =
             collect_delta_series_for_key(repeated_rows, benchmark, name);
 
         let (total_median, total_min, total_max) = median_min_max(&total_deltas);
         let (count_median, count_min, count_max) = median_min_max(&count_deltas);
         let (bytes_median, bytes_min, bytes_max) = median_min_max(&bytes_deltas);
+        let (realloc_median, realloc_min, realloc_max) = median_min_max(&realloc_deltas);
 
         rows.push(RepeatComputedRow {
             benchmark: benchmark.to_string(),
@@ -394,6 +422,9 @@ fn compute_repeat_rows_for_comparison(
             bytes_median,
             bytes_min,
             bytes_max,
+            realloc_median,
+            realloc_min,
+            realloc_max,
         });
     }
 
@@ -408,12 +439,13 @@ fn compute_repeat_rows_for_run(
     let mut rows = Vec::with_capacity(keys.len());
 
     for (benchmark, name) in keys {
-        let (totals, counts, bytes) =
+        let (totals, counts, bytes, reallocs) =
             collect_absolute_series_for_key(repeated_rows, benchmark, name);
 
         let (total_median, total_min, total_max) = median_min_max(&totals);
         let (count_median, count_min, count_max) = median_min_max(&counts);
         let (bytes_median, bytes_min, bytes_max) = median_min_max(&bytes);
+        let (realloc_median, realloc_min, realloc_max) = median_min_max(&reallocs);
 
         rows.push(RepeatComputedRow {
             benchmark: benchmark.to_string(),
@@ -427,6 +459,9 @@ fn compute_repeat_rows_for_run(
             bytes_median,
             bytes_min,
             bytes_max,
+            realloc_median,
+            realloc_min,
+            realloc_max,
         });
     }
 
@@ -442,7 +477,7 @@ fn print_repeat_rows_tsv(
 ) {
     println!("{}", mode.tsv_header(prefix));
     for row in rows {
-        print_tsv_three_metrics(prefix, row, repeats);
+        print_tsv_four_metrics(prefix, row, repeats);
     }
 }
 
@@ -484,6 +519,7 @@ fn print_repeat_rows_table_with_confidence_split(
                 mode.format_total(row.total_max),
                 mode.format_count_median(row.count_median),
                 mode.format_bytes_median(row.bytes_median),
+                mode.format_realloc_median(row.realloc_median),
                 repeats.to_string(),
             ]);
         }
@@ -505,6 +541,7 @@ fn print_repeat_rows_table_with_confidence_split(
                 mode.format_total(row.total_max),
                 mode.format_count_median(row.count_median),
                 mode.format_bytes_median(row.bytes_median),
+                mode.format_realloc_median(row.realloc_median),
                 repeats.to_string(),
             ]);
         }
@@ -621,6 +658,7 @@ impl SummaryRow {
         total_ms: f64,
         alloc_count: u64,
         alloc_bytes: u64,
+        realloc_count: u64,
     ) -> Self {
         Self {
             benchmark: benchmark.into(),
@@ -628,6 +666,7 @@ impl SummaryRow {
             total_ms,
             alloc_count,
             alloc_bytes,
+            realloc_count,
         }
     }
 
@@ -654,6 +693,7 @@ pub fn print_single_run(output_format: OutputFormat, rows: &[SummaryRow]) {
                     f3(row.total_ms),
                     row.alloc_count,
                     row.alloc_bytes,
+                    row.realloc_count,
                 );
             }
         }
@@ -678,21 +718,23 @@ pub fn print_single_run(output_format: OutputFormat, rows: &[SummaryRow]) {
             println!();
             log("Run summary");
             println!(
-                "{benchmark_header:<benchmark_w$}{name_header:<name_w$}{:>12}  {:>12}  {:>12}",
+                "{benchmark_header:<benchmark_w$}{name_header:<name_w$}{:>12}  {:>12}  {:>12}  {:>14}",
                 "total_ms",
                 "alloc_count",
                 "alloc_bytes",
+                "realloc_count",
                 benchmark_w = benchmark_w,
                 name_w = name_w,
             );
             for row in sorted {
                 println!(
-                    "{:<benchmark_w$}{:<name_w$}{:>12.3}  {:>12}  {:>12}",
+                    "{:<benchmark_w$}{:<name_w$}{:>12.3}  {:>12}  {:>12}  {:>14}",
                     row.benchmark,
                     row.name,
                     row.total_ms,
                     row.alloc_count,
                     row.alloc_bytes,
+                    row.realloc_count,
                     benchmark_w = benchmark_w,
                     name_w = name_w,
                 );
@@ -738,6 +780,10 @@ pub fn print_comparison(
                 target.alloc_bytes,
                 target.alloc_bytes as i128 - base.alloc_bytes as i128,
                 f4(pct(base.alloc_bytes as f64, target.alloc_bytes as f64)),
+                base.realloc_count,
+                target.realloc_count,
+                target.realloc_count as i128 - base.realloc_count as i128,
+                f4(pct(base.realloc_count as f64, target.realloc_count as f64)),
             );
         }
         return;
@@ -752,6 +798,8 @@ pub fn print_comparison(
         Column::new("Δ", Align::Right),
         Column::new("alloc_bytes b/t", Align::Right),
         Column::new("Δ", Align::Right),
+        Column::new("realloc_count b/t", Align::Right),
+        Column::new("Δ", Align::Right),
     ]);
 
     for (benchmark, name) in keys {
@@ -759,17 +807,13 @@ pub fn print_comparison(
         let target = &target_map[&(benchmark.clone(), name.clone())];
 
         let total = format!("{:.3}/{:.3}", base.total_ms, target.total_ms);
-        let total_delta = format!("{:+.1}%", pct(base.total_ms, target.total_ms));
+        let total_delta = fmt_pct(pct(base.total_ms, target.total_ms));
         let count = format!("{}/{}", base.alloc_count, target.alloc_count);
-        let count_delta = format!(
-            "{:+.1}%",
-            pct(base.alloc_count as f64, target.alloc_count as f64)
-        );
+        let count_delta = fmt_pct(pct(base.alloc_count as f64, target.alloc_count as f64));
         let bytes = format!("{}/{}", base.alloc_bytes, target.alloc_bytes);
-        let bytes_delta = format!(
-            "{:+.1}%",
-            pct(base.alloc_bytes as f64, target.alloc_bytes as f64)
-        );
+        let bytes_delta = fmt_pct(pct(base.alloc_bytes as f64, target.alloc_bytes as f64));
+        let realloc = format!("{}/{}", base.realloc_count, target.realloc_count);
+        let realloc_delta = fmt_pct(pct(base.realloc_count as f64, target.realloc_count as f64));
 
         table.push_row(vec![
             benchmark,
@@ -780,6 +824,8 @@ pub fn print_comparison(
             count_delta,
             bytes,
             bytes_delta,
+            realloc,
+            realloc_delta,
         ]);
     }
 

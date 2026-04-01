@@ -23,6 +23,9 @@ cargo marf-bench run write
 # Run patch-node compression benchmarks
 cargo marf-bench run patch
 
+# Run production-scale block commit benchmarks
+cargo marf-bench run block-commit
+
 # Repeat a single-tree patch run and emit repeat statistics
 cargo marf-bench run --repeats 5 patch --iters 100000 --rounds 10
 ```
@@ -52,6 +55,9 @@ cargo marf-bench bench --base staged --output-format tsv primitives
 # Patch-node benchmark across revisions
 cargo marf-bench bench --base merge-base:upstream/develop patch
 
+# Production-scale block-commit benchmark across revisions
+cargo marf-bench bench --base upstream/develop block-commit
+
 # Repeated comparisons with confidence stats
 cargo marf-bench bench --base merge-base:upstream/develop --repeats 5 write
 
@@ -79,6 +85,9 @@ cargo marf-bench bench --base merge-base:upstream/develop --repeats 5 --repeat-j
 
 # Override loop controls from CLI
 cargo marf-bench bench --base staged read --iters 400000 --rounds 4
+
+# Sweep a block-commit matrix from one command
+cargo marf-bench bench --base upstream/develop --keep-worktrees block-commit --block-keys 512,2048 --block-depth 256,1024 --key-updates 0,25,50 --compression true --rounds 5
 ```
 
 ### `clean` (temporary state cleanup)
@@ -95,8 +104,8 @@ cargo marf-bench clean --dry-run
 
 ## Command shape
 
-- `run`: `cargo marf-bench run [--output-format <summary|raw|tsv>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] <primitives|read|write|patch> [bench-specific options]`
-- `bench`: `cargo marf-bench bench [--base <rev|staged|merge-base:<upstream-ref>>] [--target <rev>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] [--keep-worktrees] [--output-format <summary|raw|tsv>] <primitives|read|write|patch> [bench-specific options]`
+- `run`: `cargo marf-bench run [--output-format <summary|raw|tsv>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] <primitives|read|write|patch|block-commit> [bench-specific options]`
+- `bench`: `cargo marf-bench bench [--base <rev|staged|merge-base:<upstream-ref>>] [--target <rev>] [--repeats <N>] [--repeat-jitter-threshold <PCT>] [--keep-worktrees] [--output-format <summary|raw|tsv>] <primitives|read|write|patch|block-commit> [bench-specific options]`
 - `clean`: `cargo marf-bench clean [--dry-run]`
 
 Notes:
@@ -118,7 +127,7 @@ Notes:
 Bench-specific options are accepted on the benchmark target subcommands and are forwarded to benchmark subprocess env vars:
 
 - `--iters <N>` sets `ITERS`
-- `--rounds <N>` sets `ROUNDS` (primitives/read/write/patch)
+- `--rounds <N>` sets `ROUNDS` (primitives/read/write/patch/block-commit)
 - `--chain-len <N>` sets `CHAIN_LEN`
 - `--proofs` sets `READ_PROOFS=1` (uses `MARF::get_with_proof`)
 - `--keys-per-block <N>` sets `KEYS_PER_BLOCK` (additional noise/bulk keys per fixture block)
@@ -126,8 +135,11 @@ Bench-specific options are accepted on the benchmark target subcommands and are 
 - `--cache-strategies <CSV>` sets `CACHE_STRATEGIES`
 - `--write-depths <CSV>` sets `WRITE_DEPTHS` (write parent-chain depth distribution)
 - `--key-updates <N>` sets `KEY_UPDATES` (write update share in percent, `0..=100`)
+- `--block-keys <CSV>` sets `BLOCK_KEYS` (block-commit keys per block matrix, for example `512,2048,4096`)
+- `--block-depth <CSV>` sets `BLOCK_DEPTH` (block-commit parent-chain depth matrix, for example `256,1024,2048`)
+- `--key-updates <CSV>` sets `KEY_UPDATES` for block-commit update-share matrix (percent values, for example `0,25,50,75`)
 - `--sqlite-wal-autocheckpoint <N>` sets `SQLITE_WAL_AUTOCHECKPOINT` (read/write benchmarks; page threshold for SQLite WAL auto-checkpoint, `0` disables auto-checkpoint)
-- `--sqlite-wal-checkpoint-mode <MODE>` sets `SQLITE_WAL_CHECKPOINT_MODE` (read/write benchmarks; used for explicit post-setup checkpoint only when `SQLITE_WAL_AUTOCHECKPOINT=0`; allowed: `PASSIVE|FULL|RESTART|TRUNCATE`; default mode is `PASSIVE`)
+- `--sqlite-wal-checkpoint-mode <MODE>` sets `SQLITE_WAL_CHECKPOINT_MODE` (read/write/block-commit benchmarks; used for explicit post-setup checkpoint only when `SQLITE_WAL_AUTOCHECKPOINT=0`; allowed: `PASSIVE|FULL|RESTART|TRUNCATE`; default mode is `PASSIVE`)
 - `--key-search-max-tries <N>` sets `KEY_SEARCH_MAX_TRIES`
 - `--patch-diffs <CSV>` sets `PATCH_DIFFS` (patch benchmark diff-count cases, for example `1,4,16,64`)
 - `--node-types <CSV>` sets `NODE_TYPES` (patch benchmark node types, for example `node4,node16,node48,node256` or `all`)
@@ -144,6 +156,13 @@ Read fixture semantics:
 - `KEYS_PER_BLOCK` controls additional non-measured noise/bulk keys inserted alongside it.
 - Total fixture keys per block = `1 + KEYS_PER_BLOCK`.
 
+Block-commit semantics:
+
+- `block-commit` measures four top-level phases: `begin_block`, `insert_phase`, `seal`, and `commit_flush`.
+- `BLOCK_KEYS`, `BLOCK_DEPTH`, `KEY_UPDATES`, and `COMPRESSION` all accept comma-separated values, and the benchmark expands the Cartesian product into a matrix of summary rows.
+- Summary row names encode the full matrix coordinates, for example `compressed/block_keys=2048/block_depth=1024/key_updates=25/insert_phase`.
+- Parent-chain setup is unmeasured; only the measured block phases contribute to reported timings.
+
 These flags are useful for automation since callers can avoid command-specific env var conditionals.
 
 ## Raw output notes
@@ -156,11 +175,18 @@ bench `result` lines include:
 
 This allows direct side-by-side comparison of plain reads and proofed reads within the same depth/strategy case.
 
-In `raw` mode, read/write `config` lines also include WAL-control fields useful for parsers:
+In `raw` mode, read/write/block-commit `config` lines also include WAL-control fields useful for parsers:
 
 - `sqlite_wal_autocheckpoint`
 - `sqlite_wal_checkpoint_mode`
 - `sqlite_post_setup_checkpoint_ran`
+
+In `raw` mode, block-commit `result` lines also include matrix coordinates useful for parsers:
+
+- `compression`
+- `block_keys`
+- `block_depth`
+- `key_updates`
 
 ## High-level lifecycle
 

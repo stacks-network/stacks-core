@@ -85,11 +85,25 @@ pub fn sort_rows(rows: &[SummaryRow]) -> Vec<SummaryRow> {
 }
 
 /// Compute percentage delta from base to target.
+/// Returns `f64::INFINITY` when base is zero but target is not (metric appeared from nothing).
+/// Returns `0.0` when both are zero (no change).
 pub fn pct(base: f64, target: f64) -> f64 {
     if base == 0.0 {
-        return 0.0;
+        return if target == 0.0 { 0.0 } else { f64::INFINITY };
     }
     ((target - base) * 100.0) / base
+}
+
+/// Format a percentage delta for human display.
+/// Renders `0.0` as `"=="` (no change), `f64::INFINITY` (base=0, target>0) as `"+++"`.
+pub fn fmt_pct(value: f64) -> String {
+    if value.is_infinite() {
+        return "+++".to_string();
+    }
+    if value == 0.0 {
+        return "==".to_string();
+    }
+    format!("{value:+.1}%")
 }
 
 /// Parse `summary` TSV lines emitted by the marf benchmark harness into typed rows.
@@ -97,7 +111,7 @@ pub fn extract_summary_lines(text: &str) -> Vec<SummaryRow> {
     let mut rows = Vec::new();
     for line in text.lines() {
         let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() < 6 || parts[0] != "summary" || parts[1] == "benchmark" {
+        if parts.len() < 7 || parts[0] != "summary" || parts[1] == "benchmark" {
             continue;
         }
 
@@ -113,6 +127,10 @@ pub fn extract_summary_lines(text: &str) -> Vec<SummaryRow> {
             Ok(value) => value,
             Err(_) => continue,
         };
+        let realloc_count = match parts[6].parse::<u64>() {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
 
         rows.push(SummaryRow::new(
             parts[1],
@@ -120,6 +138,7 @@ pub fn extract_summary_lines(text: &str) -> Vec<SummaryRow> {
             total_ms,
             alloc_count,
             alloc_bytes,
+            realloc_count,
         ));
     }
     rows

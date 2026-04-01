@@ -30,6 +30,9 @@ pub enum BenchTarget {
     Write(WriteArgs),
     /// Run MARF patch-node compression benchmarks.
     Patch(PatchArgs),
+    /// Run production-scale MARF block commit benchmarks.
+    #[command(name = "block-commit")]
+    BlockCommit(BlockCommitArgs),
 }
 
 impl BenchTarget {
@@ -81,6 +84,19 @@ impl BenchTarget {
                     node_types: args.node_types,
                     ptr_states: args.ptr_states,
                     patch_diffs: args.patch_diffs,
+                    ..Default::default()
+                },
+            )],
+            Self::BlockCommit(args) => vec![BenchRunRequest::new(
+                BenchKind::BlockCommit,
+                BenchEnvOverrides {
+                    block_keys: args.block_keys,
+                    block_depth: args.block_depth,
+                    block_key_updates: args.key_updates,
+                    rounds: args.rounds,
+                    compression: args.compression,
+                    sqlite_wal_autocheckpoint: args.sqlite_wal_autocheckpoint,
+                    sqlite_wal_checkpoint_mode: args.sqlite_wal_checkpoint_mode,
                     ..Default::default()
                 },
             )],
@@ -198,4 +214,40 @@ pub struct PatchArgs {
     /// Set PATCH_DIFFS as comma-separated diff sizes (for example: 1,4,16,64).
     #[arg(long)]
     patch_diffs: Option<String>,
+}
+
+/// Arguments for the `block-commit` benchmark target.
+#[derive(Debug, Args)]
+pub struct BlockCommitArgs {
+    /// Set BLOCK_KEYS as comma-separated values for matrix runs.
+    /// Example: 512,2048,4096
+    #[arg(long)]
+    block_keys: Option<String>,
+
+    /// Set BLOCK_DEPTH as comma-separated values for matrix runs.
+    /// Example: 256,1024,2048
+    #[arg(long)]
+    block_depth: Option<String>,
+
+    /// Set KEY_UPDATES percent values (0-100) as comma-separated values for matrix runs.
+    /// Example: 0,25,50,75
+    #[arg(long)]
+    key_updates: Option<String>,
+
+    /// Set ROUNDS for independent measurement rounds.
+    #[arg(long)]
+    rounds: Option<usize>,
+
+    /// Set COMPRESSION modes as comma-separated values (for example: true,false).
+    #[arg(long)]
+    compression: Option<String>,
+
+    /// Set SQLITE_WAL_AUTOCHECKPOINT page threshold (0 = disabled).
+    #[arg(long)]
+    sqlite_wal_autocheckpoint: Option<usize>,
+
+    /// Set SQLITE_WAL_CHECKPOINT_MODE for post-setup checkpoint when SQLITE_WAL_AUTOCHECKPOINT=0
+    /// (PASSIVE|FULL|RESTART|TRUNCATE).
+    #[arg(long)]
+    sqlite_wal_checkpoint_mode: Option<String>,
 }

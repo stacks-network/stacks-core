@@ -48,13 +48,14 @@ enum BenchKind {
     Read,
     Write,
     Patch,
+    BlockCommit,
 }
 
 impl BenchKind {
     /// Return Cargo bench target name for this benchmark kind.
     fn bench_name(self) -> &'static str {
         match self {
-            Self::Primitives | Self::Read | Self::Write | Self::Patch => "marf",
+            Self::Primitives | Self::Read | Self::Write | Self::Patch | Self::BlockCommit => "marf",
         }
     }
 
@@ -65,6 +66,7 @@ impl BenchKind {
             Self::Read => Some("read"),
             Self::Write => Some("write"),
             Self::Patch => Some("patch"),
+            Self::BlockCommit => Some("block-commit"),
         }
     }
 
@@ -77,6 +79,7 @@ impl BenchKind {
             Self::Read => &["read.rs"],
             Self::Write => &["write.rs"],
             Self::Patch => &["patch.rs"],
+            Self::BlockCommit => &["block_commit.rs"],
         }
     }
 
@@ -87,6 +90,7 @@ impl BenchKind {
             Self::Read => "read",
             Self::Write => "write",
             Self::Patch => "patch",
+            Self::BlockCommit => "block_commit",
         }
     }
 }

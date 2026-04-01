@@ -72,6 +72,7 @@ struct CaseAggregate {
     total_ms: f64,
     alloc_calls: u64,
     alloc_bytes: u64,
+    realloc_calls: u64,
 }
 
 /// Backed MARF fixture used by read-case execution.
@@ -394,6 +395,7 @@ fn run_with_variants(
                         agg.total_ms += elapsed_ms;
                         agg.alloc_calls += measurement.snapshot.alloc_calls;
                         agg.alloc_bytes += measurement.snapshot.alloc_bytes;
+                        agg.realloc_calls += measurement.snapshot.realloc_calls;
                     }
                 }
             }
@@ -425,6 +427,7 @@ fn run_with_variants(
                         case.total_ms,
                         case.alloc_calls,
                         case.alloc_bytes,
+                        case.realloc_calls,
                     );
                 }
             }

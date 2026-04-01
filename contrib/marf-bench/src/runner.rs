@@ -34,7 +34,13 @@ use crate::{BenchKind, OutputFormat, TempBuilder};
 const MARF_BENCH_SHARED_FILES: [&str; 3] = ["allocator.rs", "common.rs", "utils.rs"];
 
 /// All possible per-benchmark source files (used for source-dir validation).
-const MARF_BENCH_BENCH_FILES: [&str; 4] = ["primitives.rs", "read.rs", "write.rs", "patch.rs"];
+const MARF_BENCH_BENCH_FILES: [&str; 5] = [
+    "primitives.rs",
+    "read.rs",
+    "write.rs",
+    "patch.rs",
+    "block_commit.rs",
+];
 const SRC_BENCH_DIR: &str = "stackslib/benches/marf";
 const STACKSLIB_CARGO_TOML: &str = "stackslib/Cargo.toml";
 const PATCH_SUPPORT_INTRO_COMMIT: &str = "0317850e7f042de98e7bc6a1f26f6183e7d20f98";
@@ -49,6 +55,7 @@ pub struct BenchEnvOverrides {
     pub chain_len: Option<u32>,
     pub write_depths: Option<String>,
     pub key_updates: Option<usize>,
+    pub block_key_updates: Option<String>,
     pub sqlite_wal_autocheckpoint: Option<usize>,
     pub sqlite_wal_checkpoint_mode: Option<String>,
     pub read_proofs: Option<bool>,
@@ -59,6 +66,8 @@ pub struct BenchEnvOverrides {
     pub node_types: Option<String>,
     pub ptr_states: Option<String>,
     pub patch_diffs: Option<String>,
+    pub block_keys: Option<String>,
+    pub block_depth: Option<String>,
 }
 
 /// A single benchmark invocation request.
@@ -569,6 +578,7 @@ fn write_bench_main_rs(dest: &Path, kinds: &HashSet<BenchKind>) -> Result<bool> 
         BenchKind::Read,
         BenchKind::Write,
         BenchKind::Patch,
+        BenchKind::BlockCommit,
     ] {
         if kinds.contains(&kind) {
             let name = kind.module_name();
@@ -909,6 +919,8 @@ fn apply_bench_env_overrides(cmd: &mut Command, env: &BenchEnvOverrides) {
     }
     if let Some(key_updates) = env.key_updates {
         cmd.env("KEY_UPDATES", key_updates.to_string());
+    } else if let Some(block_key_updates) = &env.block_key_updates {
+        cmd.env("KEY_UPDATES", block_key_updates);
     }
     if let Some(sqlite_wal_autocheckpoint) = env.sqlite_wal_autocheckpoint {
         cmd.env(
@@ -942,6 +954,12 @@ fn apply_bench_env_overrides(cmd: &mut Command, env: &BenchEnvOverrides) {
     }
     if let Some(patch_diffs) = &env.patch_diffs {
         cmd.env("PATCH_DIFFS", patch_diffs);
+    }
+    if let Some(block_keys) = &env.block_keys {
+        cmd.env("BLOCK_KEYS", block_keys);
+    }
+    if let Some(block_depth) = &env.block_depth {
+        cmd.env("BLOCK_DEPTH", block_depth);
     }
 }
 
