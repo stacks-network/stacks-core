@@ -1213,17 +1213,19 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 // exact same forward children in the same order. Compare the
                 // chr() sequence of forward pointers in the full node against
                 // the patch diff to guarantee this.
-                let node_forward = node
-                    .ptrs()
-                    .iter()
-                    .filter(|p| !p.is_empty() && !is_backptr(p.id))
-                    .map(|p| p.chr());
-                let diff_forward = patch_node
-                    .ptr_diff
-                    .iter()
-                    .filter(|p| !p.is_empty() && !is_backptr(p.id))
-                    .map(|p| p.chr());
-                assert!(node_forward.eq(diff_forward));
+                debug_assert!({
+                    let node_forward = node
+                        .ptrs()
+                        .iter()
+                        .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                        .map(|p| p.chr());
+                    let diff_forward = patch_node
+                        .ptr_diff
+                        .iter()
+                        .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                        .map(|p| p.chr());
+                    node_forward.eq(diff_forward)
+                });
             }
 
             // queue each child
