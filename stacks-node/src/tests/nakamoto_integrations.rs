@@ -10531,7 +10531,21 @@ fn test_shadow_recovery() {
         return;
     }
 
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(1, vec![]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        1,
+        vec![],
+        |_| {},
+        |config| {
+            config
+                .burnchain
+                .epochs
+                .as_mut()
+                .unwrap()
+                .truncate_after(StacksEpochId::Epoch34);
+        },
+        None,
+        None,
+    );
     signer_test.boot_to_epoch_3();
 
     let naka_conf = signer_test.running_nodes.conf.clone();
