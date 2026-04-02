@@ -23,6 +23,7 @@ use clarity::vm::errors::{ClarityTypeError, VmExecutionError};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::{Error as libstackerdb_error, StackerDBChunkData};
 use p2p::{DropReason, DropSource};
+use rusqlite;
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
@@ -34,7 +35,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
-use {rusqlite, url};
+use url;
 
 use self::dns::*;
 use crate::burnchains::{Error as burnchain_error, Txid};
