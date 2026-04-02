@@ -80,7 +80,7 @@ jobs:
                   ;;
               esac
               # install dependencies for the x86-64 architecture, and set the rust target for the build step
-              sudo apt-get update && sudo apt-get install -y git libclang-dev llvm || exit 1
+              sudo apt-get update && sudo apt-get install -y git libclang-dev llvm lld || exit 1
               TARGET="x86_64-unknown-linux-gnu"
               ;;
             arm64)
@@ -128,9 +128,9 @@ jobs:
               ;;
             # linux glibc x64
             x86_64-unknown-linux-gnu)
-              # use the default linker
-              echo "$CMD --target $TARGET --config build.rustflags=\"\\\"-C target-cpu=${TARGET_CPU}\\\"\" "
-              ${{ env.CMD }} --target $TARGET --config build.rustflags="\"-C target-cpu=${TARGET_CPU}\"" || exit 1
+              # use lld linker for faster linking (especially with LTO)
+              echo "$CMD --target $TARGET --config build.rustflags=\"\\\"-C target-cpu=${TARGET_CPU} -Clink-arg=-fuse-ld=lld\\\"\" "
+              ${{ env.CMD }} --target $TARGET --config build.rustflags="\"-C target-cpu=${TARGET_CPU} -Clink-arg=-fuse-ld=lld\"" || exit 1
               ;;
             *)
               echo "No matrix match for build target ($TARGET). using defaults"

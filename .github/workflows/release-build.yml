@@ -103,7 +103,7 @@ jobs:
                   TARGET="x86_64-unknown-linux-musl"
                   ;;
                 linux-glibc)
-                  sudo apt-get update && sudo apt-get install -y git libclang-dev llvm || exit 1
+                  sudo apt-get update && sudo apt-get install -y git libclang-dev llvm lld || exit 1
                   TARGET="x86_64-unknown-linux-gnu"
                   ;;
                 windows)
@@ -181,9 +181,9 @@ jobs:
               ;;
             # linux glibc x64
             x86_64-unknown-linux-gnu)
-              # use the default linker
-              echo "${CMD} ${BINS} --target $TARGET --config build.rustflags=\"\\\"-C target-cpu=${TARGET_CPU}\\\"\" "
-              ${{ env.CMD }} ${BINS} --target $TARGET --config build.rustflags="\"-C target-cpu=${TARGET_CPU}\"" || exit 1
+              # use lld linker for faster linking (especially with LTO)
+              echo "${CMD} ${BINS} --target $TARGET --config build.rustflags=\"\\\"-C target-cpu=${TARGET_CPU} -Clink-arg=-fuse-ld=lld\\\"\" "
+              ${{ env.CMD }} ${BINS} --target $TARGET --config build.rustflags="\"-C target-cpu=${TARGET_CPU} -Clink-arg=-fuse-ld=lld\"" || exit 1
               ;;
             # windows glibc x64
             x86_64-pc-windows-gnu)
