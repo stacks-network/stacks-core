@@ -252,6 +252,7 @@ jobs:
         with:
           name: ${{ github.sha }}-stacks-core-${{ env.ZIPFILE_NAME }}
           path: ${{ env.ZIPFILE_NAME }}.zip
+          compression-level: 0
 
       ## Attest the binary archive
       - name: Attest Artifact (stacks-core)
@@ -288,6 +289,7 @@ jobs:
         with:
           name: ${{ github.sha }}-stacks-signer-${{ env.ZIPFILE_NAME }}
           path: ${{ env.ZIPFILE_NAME }}.zip
+          compression-level: 0
 
       ## Attest the binary archive
       - name: Attest Artifact (stacks-signer)
