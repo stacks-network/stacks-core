@@ -186,6 +186,28 @@ impl NakamotoBootPlan {
         chainstate_config.test_stackers = Some(self.test_stackers.clone());
         chainstate_config.burnchain.pox_constants = self.pox_constants.clone();
 
+        // Override pox activation heights to match epoch start heights,
+        // mirroring what the production config does in config/mod.rs.
+        if let Some(epochs) = chainstate_config.epochs.as_ref() {
+            let pox = &mut chainstate_config.burnchain.pox_constants;
+            if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch21) {
+                pox.v1_unlock_height = epoch.start_height as u32 + 1;
+            }
+            if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch22) {
+                pox.v2_unlock_height = epoch.start_height as u32 + 1;
+            }
+            if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch24) {
+                pox.pox_3_activation_height = epoch.start_height as u32;
+            }
+            if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch25) {
+                pox.pox_4_activation_height = epoch.start_height as u32;
+                pox.v3_unlock_height = epoch.start_height as u32 + 1;
+            }
+            if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch35) {
+                pox.pox_5_activation_height = epoch.start_height as u32;
+            }
+        }
+
         if let Some(epochs) = chainstate_config.epochs.as_ref() {
             StacksEpoch::validate_nakamoto_transition_schedule(
                 epochs,
