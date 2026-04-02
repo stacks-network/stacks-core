@@ -26,7 +26,9 @@ use std::{env, thread};
 use clarity::boot_util::boot_code_addr;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::representations::ContractName;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
+};
 use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
@@ -17455,7 +17457,47 @@ fn check_with_stacking_allowances_stake() {
     // The unlock bytes don't matter for this test, since we're just testing the allowance logic, so we can just use an empty buffer
     let unlock_bytes = Value::buff_from(vec![]).unwrap();
 
-    // Map txid to expected result, `true` for ok, `false` for error
+    // Compute unlock cycle and burn height for expected return values
+    let burnchain = btc_regtest_controller.get_burnchain();
+    let num_cycles: u128 = 12;
+    let unlock_cycle = reward_cycle as u128 + num_cycles;
+    let first_block_height = burnchain.first_block_height as u128;
+    let cycle_length = burnchain.pox_constants.reward_cycle_length as u128;
+    let unlock_burn_height = first_block_height + unlock_cycle * cycle_length + cycle_length / 2;
+
+    // Helper to construct expected ok return value from pox-5 stake
+    let signer_key_val = Value::buff_from(signer_pk.to_bytes_compressed()).unwrap();
+    let make_expected_stake_ok = |stacker: PrincipalData, pox_addr: &PoxAddress| -> Value {
+        let pox_addr_tuple: clarity::vm::Value =
+            pox_addr.clone().as_clarity_tuple().unwrap().into();
+        let pool_or_solo = Value::error(Value::Tuple(
+            TupleData::from_data(vec![
+                ("pox-addr".into(), pox_addr_tuple),
+                ("signer-key".into(), signer_key_val.clone()),
+            ])
+            .unwrap(),
+        ))
+        .unwrap();
+
+        Value::okay(Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "amount-ustx".into(),
+                    Value::UInt(POX_DEFAULT_STACKER_STX_AMT),
+                ),
+                ("num-cycles".into(), Value::UInt(num_cycles)),
+                ("pool-or-solo-info".into(), pool_or_solo),
+                ("stacker".into(), Value::Principal(stacker)),
+                ("unlock-burn-height".into(), Value::UInt(unlock_burn_height)),
+                ("unlock-bytes".into(), Value::buff_from(vec![]).unwrap()),
+                ("unlock-cycle".into(), Value::UInt(unlock_cycle)),
+            ])
+            .unwrap(),
+        ))
+        .unwrap()
+    };
+
+    // Map txid to expected result
     let mut expected_results = HashMap::new();
     let mut wait_for_nonce = HashMap::new();
 
@@ -17503,7 +17545,10 @@ fn check_with_stacking_allowances_stake() {
     stacker_nonce += 1;
     let stack_ok_txid = submit_tx(&http_origin, &stack_ok_tx);
     info!("Submitted stake_ok txid: {stack_ok_txid}");
-    expected_results.insert(stack_ok_txid, Value::okay_true());
+    expected_results.insert(
+        stack_ok_txid,
+        make_expected_stake_ok(stacker_addr.clone().into(), &pox_addr),
+    );
     wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
 
     // ***** Fail to stack with stackers[1]
@@ -17578,7 +17623,10 @@ fn check_with_stacking_allowances_stake() {
     stacker_nonce += 1;
     let stack_2_ok_txid = submit_tx(&http_origin, &stack_2_ok_tx);
     info!("Submitted stake_2_ok_txid txid: {stack_2_ok_txid}");
-    expected_results.insert(stack_2_ok_txid, Value::okay_true());
+    expected_results.insert(
+        stack_2_ok_txid,
+        make_expected_stake_ok(stacker_addr.clone().into(), &pox_addr),
+    );
     wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
 
     // ***** Fail to stack with stackers[2] with two allowances (both too small)
@@ -17740,7 +17788,15 @@ fn check_with_stacking_allowances_stake() {
     let stack_all_txid = submit_tx(&http_origin, &stack_all_tx);
     info!("Submitted stack_all txid: {stack_all_txid}");
     // FIXME: This will pass for now, until pox-5 is updated to disallow staking from a contract
-    expected_results.insert(stack_all_txid, Value::err_uint(24));
+    // expected_results.insert(stack_all_txid, Value::err_uint(24));
+    let contract_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
+        sender_addr.into(),
+        contract_name.into(),
+    ));
+    expected_results.insert(
+        stack_all_txid,
+        make_expected_stake_ok(contract_principal, &pox_addr),
+    );
     wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
 
     wait_for(60, || {
