@@ -253,10 +253,10 @@ impl<T: MarfTrieId> UncommittedState<T> {
     }
 
     /// Write a node and its hash to a particular slot in the TrieRAM.
-    /// Panics of the UncommittedState is sealed already.
+    /// Panics if the UncommittedState is sealed already.
     pub fn write_nodetype(
         &mut self,
-        node_array_ptr: u64,
+        node_array_ptr: u32,
         node: &TrieNodeType,
         hash: TrieHash,
     ) -> Result<(), Error> {
@@ -284,7 +284,7 @@ impl<T: MarfTrieId> UncommittedState<T> {
     }
 
     /// Get the last pointer (i.e. last slot) of the TrieRAM
-    pub fn last_ptr(&mut self) -> Result<u64, Error> {
+    pub fn last_ptr(&mut self) -> Result<u32, Error> {
         self.trie_ram_mut().last_ptr()
     }
 
@@ -1532,7 +1532,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     /// Store a node and its hash to the TrieRAM at the given slot.
     pub fn write_nodetype(
         &mut self,
-        node_array_ptr: u64,
+        node_array_ptr: u32,
         node: &TrieNodeType,
         hash: TrieHash,
     ) -> Result<(), Error> {
@@ -1564,7 +1564,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             *existing_node = (node.clone(), hash);
             Ok(())
         } else if node_array_ptr
-            == u64::try_from(self.data.len()).map_err(|_| Error::OverflowError)?
+            == u32::try_from(self.data.len()).map_err(|_| Error::OverflowError)?
         {
             self.data.push((node.clone(), hash));
             self.total_bytes += get_node_byte_len(node);
@@ -1601,8 +1601,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
     }
 
     /// Get the next ptr value for a node to store.
-    pub fn last_ptr(&mut self) -> Result<u64, Error> {
-        u64::try_from(self.data.len()).map_err(|_| Error::OverflowError)
+    pub fn last_ptr(&mut self) -> Result<u32, Error> {
+        u32::try_from(self.data.len()).map_err(|_| Error::OverflowError)
     }
 
     #[cfg(test)]
@@ -3293,11 +3293,14 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         }
     }
 
-    /// Store a node and its hash to the uncommitted state.
-    /// If the uncommitted state is not instantiated, then this panics.
+    /// Store a node and its hash to the uncommitted state at the given
+    /// in-memory node index.
+    ///
+    /// Panics if the uncommitted state is not instantiated or if the
+    /// current block does not match the uncommitted block.
     pub fn write_nodetype(
         &mut self,
-        disk_ptr: u64,
+        node_array_ptr: u32,
         node: &TrieNodeType,
         hash: TrieHash,
     ) -> Result<(), Error> {
@@ -3308,7 +3311,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         trace!(
             "write_nodetype({:?}): at {}: {:?} {:?}",
             &self.data.cur_block,
-            disk_ptr,
+            node_array_ptr,
             &hash,
             node
         );
@@ -3327,17 +3330,18 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         if let Some((ref uncommitted_bhh, ref mut uncommitted_trie)) = self.data.uncommitted_writes
         {
             if &self.data.cur_block == uncommitted_bhh {
-                return uncommitted_trie.write_nodetype(disk_ptr, node, hash);
+                return uncommitted_trie.write_nodetype(node_array_ptr, node, hash);
             }
         }
 
         panic!("Tried to write to another Trie besides the currently-buffered one.  This should never happen -- only flush() can write to disk!");
     }
 
-    /// Store a node and its hash to uncommitted state.
+    /// Store a node and its hash to uncommitted state at the given
+    /// in-memory node index.
     pub fn write_node<N: TrieNode + std::fmt::Debug>(
         &mut self,
-        ptr: u64,
+        node_array_ptr: u32,
         node: &N,
         hash: TrieHash,
     ) -> Result<(), Error> {
@@ -3346,12 +3350,14 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         }
 
         let node_type = node.as_trie_node_type();
-        self.write_nodetype(ptr, &node_type, hash)
+        self.write_nodetype(node_array_ptr, &node_type, hash)
     }
 
-    /// Get the last slot into which a node will be inserted in the uncommitted state.
-    /// Panics if there is no uncommmitted state instantiated.
-    pub fn last_ptr(&mut self) -> Result<u64, Error> {
+    /// Get the next node index into which a node will be inserted in the
+    /// uncommitted state.
+    ///
+    /// Panics if there is no uncommitted state instantiated.
+    pub fn last_ptr(&mut self) -> Result<u32, Error> {
         if let Some((_, ref mut uncommitted_trie)) = self.data.uncommitted_writes {
             uncommitted_trie.last_ptr()
         } else {

@@ -358,11 +358,12 @@ fn fill_linear_node256_trie(
     hash: TrieHash,
 ) {
     for i in 0..required_nodes {
+        let slot = u32::try_from(i).expect("RAM index fits in u32");
         let mut node = TrieNode256::new(&[]);
         if i + 1 < required_nodes {
             assert!(node.insert(&TriePtr::new(TrieNodeID::Node256 as u8, 0x00, i + 1)));
         }
-        trie.write_nodetype(i, &TrieNodeType::Node256(Box::new(node)), hash)
+        trie.write_nodetype(slot, &TrieNodeType::Node256(Box::new(node)), hash)
             .expect("write trie node");
     }
 }
