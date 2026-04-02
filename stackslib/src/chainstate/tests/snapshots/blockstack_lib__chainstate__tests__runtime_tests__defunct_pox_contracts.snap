@@ -99,26 +99,56 @@ expression: results
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-4, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1), Optional(OptionalData { data: Some(Sequence(Buffer(0c275bdb023a1f8de3d1c99e821268f36e16cbf82d8747f19abee8bd454459ca34aca028eff0ad9ddb6b742ef5b065f2db0b40d93f63b82cde2024cb00ac67cb01))) }), Sequence(Buffer(02b37b7f1553fa17fe0ad71c57538f4a93bfada632947c04e1ca6fcdad65e8106d)), UInt(340282366920938463463374607431768211455), UInt(1)]])",
+        vm_error: "Some(DefunctPoxContract) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 77048,
+          read_count: 8,
+          runtime: 82886,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 77048,
+      read_count: 8,
+      runtime: 82886,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6111ed5625bc1a3f2a71da623566076563d0b5ebb36d07d8d0250952e2d814cd",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-5, function_name: stake, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), Optional(OptionalData { data: Some(Sequence(Buffer(211ae3adae009b93a6f3ce8963ea692151c0538edfa134cc3744ea44e30b24b84c178dc911aa9e983a4d4a3606e7813506e855dd697c372c0dbce2000441d4c600))) }), Sequence(Buffer(02b37b7f1553fa17fe0ad71c57538f4a93bfada632947c04e1ca6fcdad65e8106d)), UInt(340282366920938463463374607431768211455), UInt(1), UInt(1), Sequence(Buffer())]])",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
-          data: Int(24),
+          data: UInt(17),
         )),
         cost: ExecutionCost(
           write_length: 1,
           write_count: 1,
-          read_length: 77049,
-          read_count: 9,
-          runtime: 87526,
+          read_length: 36030,
+          read_count: 8,
+          runtime: 81476,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 1,
       write_count: 1,
-      read_length: 77049,
-      read_count: 9,
-      runtime: 87526,
+      read_length: 36030,
+      read_count: 8,
+      runtime: 81476,
     ),
   )),
 ]
