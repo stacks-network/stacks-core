@@ -428,6 +428,18 @@ fn test_variadic_map_list() {
     ])
     .unwrap();
     assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // 3 sequences: last is the longest, result contains 2 elements.
+    let test = "(map + (list 1 2) (list 10 20 30) (list 100 200 300 400))";
+
+    let expected = Value::list_from(vec![Value::Int(111), Value::Int(222)]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
+
+    // 3 sequences: last is the shortest, result contains 1 element.
+    let test = "(map + (list 1 2) (list 10 20 30) (list 100))";
+
+    let expected = Value::list_from(vec![Value::Int(111)]).unwrap();
+    assert_eq!(expected, execute(test).unwrap().unwrap());
 }
 
 #[test]
