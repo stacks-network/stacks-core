@@ -13,12 +13,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Setup job to prepare common dependencies
-  setup:
-    name: Setup
+  # Linux targets - runs in parallel with windows-targets
+  linux-targets:
+    name: All Crates (Linux)
     runs-on: ubuntu-latest
-    outputs:
-      rust-toolchain: ${{ steps.toolchain.outputs.rust-toolchain }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -29,22 +27,46 @@ jobs:
         id: toolchain
         run: echo "rust-toolchain=$(cat ./rust-toolchain)" >> $GITHUB_OUTPUT
 
-  # Native targets (Windows/Linux)
-  native-targets:
-    name: All Crates (Windows/Linux)
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@11df97af8e8102fd60b60a77dfbf58d40cd843b8 # v1.10.1
+        with:
+          toolchain: ${{ steps.toolchain.outputs.rust-toolchain }}
+          target: x86_64-unknown-linux-gnu
+          cache: false
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@2383334cf567d78771fc7d89b6b3802ef1412cf6  # v2.56.8
+        with:
+          tool: cargo-hack
+
+      - name: Run cargo hack check
+        run: |
+          cargo hack check \
+            --all \
+            --each-feature \
+            --no-dev-deps \
+            --exclude-features=wasm-deterministic,wasm-web \
+            --target x86_64-unknown-linux-gnu
+
+  # Windows targets - runs in parallel with linux-targets
+  windows-targets:
+    name: All Crates (Windows)
     runs-on: ubuntu-latest
-    needs: setup
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
+      - name: Get Rust toolchain
+        id: toolchain
+        run: echo "rust-toolchain=$(cat ./rust-toolchain)" >> $GITHUB_OUTPUT
+
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@11df97af8e8102fd60b60a77dfbf58d40cd843b8 # v1.10.1
         with:
-          toolchain: ${{ needs.setup.outputs.rust-toolchain }}
-          target: x86_64-pc-windows-gnu,x86_64-unknown-linux-gnu
+          toolchain: ${{ steps.toolchain.outputs.rust-toolchain }}
+          target: x86_64-pc-windows-gnu
           cache: false
 
       - name: Setup sccache
@@ -67,24 +89,26 @@ jobs:
             --each-feature \
             --no-dev-deps \
             --exclude-features=wasm-deterministic,wasm-web \
-            --target x86_64-pc-windows-gnu \
-            --target x86_64-unknown-linux-gnu
+            --target x86_64-pc-windows-gnu
 
-  # WASM targets - No caching needed as it runs in parallel with longer jobs
+  # WASM targets - runs in parallel with native targets
   wasm-targets:
     name: WASM targets
     runs-on: ubuntu-latest
-    needs: setup
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
+      - name: Get Rust toolchain
+        id: toolchain
+        run: echo "rust-toolchain=$(cat ./rust-toolchain)" >> $GITHUB_OUTPUT
+
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@11df97af8e8102fd60b60a77dfbf58d40cd843b8 # v1.10.1
         with:
-          toolchain: ${{ needs.setup.outputs.rust-toolchain }}
+          toolchain: ${{ steps.toolchain.outputs.rust-toolchain }}
           target: wasm32-unknown-unknown
           cache: false
 
