@@ -756,28 +756,48 @@ where
 {
     eprintln!("Issuing bitcoin block");
     btc_controller.build_next_block(1);
-    let start = Instant::now();
-    while !check(btc_controller)? {
-        if start.elapsed() > Duration::from_secs(timeout_secs) {
-            error!("Timed out waiting for block to process, trying to continue test");
-            return Err("Timed out".into());
-        }
-        thread::sleep(Duration::from_millis(100));
+    if wait_for(timeout_secs, || check(btc_controller)).is_err() {
+        error!("Timed out waiting for block to process, trying to continue test");
+        return Err("Timed out".into());
     }
     Ok(())
 }
 
+/// Returns an error if it takes longer than the given number of seconds
+/// for the check to pass, but will actually wait twice as long, in order
+/// to check if a longer timeout would've made the test pass (or at least
+/// continue).
+///
+/// The purpose of this is to end up with "TIMEOUT POSSIBLY TOO LOW" in
+/// the integration test logs in CI, giving a hint at which flaky tests
+/// may simply need a little more time.
+///
+/// Even if the check eventually succeeds, it is still an error if it
+/// took longer than the `timeout_secs` argument! This is not meant as
+/// a blanket "make everything wait twice as long" thing; it's meant
+/// as a tool to help with investigating flaky tests, and may be removed
+/// again at any time.
 pub fn wait_for<F>(timeout_secs: u64, mut check: F) -> Result<(), String>
 where
     F: FnMut() -> Result<bool, String>,
 {
-    let start = Instant::now();
+    let desired_timeout = Duration::from_secs(timeout_secs);
+    let extended_timeout = Duration::from_secs(2 * timeout_secs);
+    let stopwatch = Instant::now();
     while !check()? {
-        if start.elapsed() > Duration::from_secs(timeout_secs) {
-            error!("Timed out waiting for check to process");
-            return Err("Timed out".into());
+        if stopwatch.elapsed() > extended_timeout {
+            break;
         }
         thread::sleep(Duration::from_millis(500));
+    }
+    let elapsed = stopwatch.elapsed();
+    if elapsed > desired_timeout {
+        if elapsed <= extended_timeout {
+            let seconds_taken = elapsed.as_secs();
+            info!("TIMEOUT POSSIBLY TOO LOW: Operation failed to complete in the allotted {timeout_secs} seconds but would have succeeded after {seconds_taken}");
+        }
+        error!("Timed out waiting for check to process");
+        return Err("Timed out".into());
     }
     Ok(())
 }
