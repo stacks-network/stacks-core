@@ -19,8 +19,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use stacks_common::types::chainstate::StacksBlockId;
 
 use super::common::{
-    clone_schemas_from_source, copy_canonical_fork_storage, execute_copy_specs,
-    full_row_except_match, table_exists, TableCopySpec,
+    clone_schemas_from_source, collect_leaf_value_hashes, copy_canonical_fork_storage,
+    execute_copy_specs, full_row_except_match, table_exists, TableCopySpec,
 };
 use crate::burnchains::PoxConstants;
 use crate::chainstate::stacks::index::Error;
@@ -412,23 +412,56 @@ pub fn validate_index_side_tables(
             .unwrap_or(1)
             == 0;
 
-    // __fork_storage: canonical-only copy. Destination is a subset of source.
+    // __fork_storage: canonical-only copy. Validate against the canonical
+    // filtered source set (same leaf-hash filter used by copy_canonical_fork_storage).
     let fork_storage_match = {
         let dst_has = table_exists(&conn, "", "__fork_storage");
         let src_has = table_exists(&conn, "src", "__fork_storage");
         match (dst_has, src_has) {
-            (false, false) => true, // neither has it (test fixtures)
+            (false, false) => true,
             (true, true) => {
-                // No destination rows should be absent from source.
-                conn.query_row(
-                    "SELECT COUNT(*) FROM (SELECT * FROM __fork_storage EXCEPT SELECT * FROM src.__fork_storage)",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )
-                .unwrap_or(1)
-                    == 0
+                let has_marf_data = table_exists(&conn, "", "marf_data");
+
+                if has_marf_data {
+                    let (_tip, leaf_hashes) = collect_leaf_value_hashes::<StacksBlockId>(dst_path)?;
+
+                    conn.execute_batch(
+                        "CREATE TEMP TABLE val_fork_leaf_values (value_hash TEXT PRIMARY KEY)",
+                    )
+                    .map_err(Error::SQLError)?;
+
+                    {
+                        let mut stmt = conn
+                            .prepare(
+                                "INSERT OR IGNORE INTO val_fork_leaf_values (value_hash) VALUES (?1)",
+                            )
+                            .map_err(Error::SQLError)?;
+                        for hash in &leaf_hashes {
+                            stmt.execute([hash]).map_err(Error::SQLError)?;
+                        }
+                    }
+
+                    let ok = full_row_except_match(
+                        &conn,
+                        "SELECT * FROM __fork_storage",
+                        "SELECT f.* FROM src.__fork_storage f \
+                         INNER JOIN val_fork_leaf_values lv ON f.value_hash = lv.value_hash",
+                    );
+
+                    conn.execute_batch("DROP TABLE IF EXISTS val_fork_leaf_values")
+                        .map_err(Error::SQLError)?;
+
+                    ok
+                } else {
+                    // fixture fallback, matching copy_canonical_fork_storage()
+                    full_row_except_match(
+                        &conn,
+                        "SELECT * FROM __fork_storage",
+                        "SELECT * FROM src.__fork_storage",
+                    )
+                }
             }
-            _ => false, // mismatch: one has it, other doesn't
+            _ => false,
         }
     };
 
