@@ -1208,12 +1208,12 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 None
             };
 
-            if let Some((_, patch_node)) = patch_node_opt.as_ref() {
-                // The BFS frontier and the convergence loop must visit the
-                // exact same forward children in the same order. Compare the
-                // chr() sequence of forward pointers in the full node against
-                // the patch diff to guarantee this.
-                debug_assert!({
+            debug_assert!({
+                if let Some((_, patch_node)) = patch_node_opt.as_ref() {
+                    // The BFS frontier and the convergence loop must visit the
+                    // exact same forward children in the same order. Compare the
+                    // chr() sequence of forward pointers in the full node against
+                    // the patch diff to guarantee this.
                     let node_forward = node
                         .ptrs()
                         .iter()
@@ -1225,8 +1225,10 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         .filter(|p| !p.is_empty() && !is_backptr(p.id))
                         .map(|p| p.chr());
                     node_forward.eq(diff_forward)
-                });
-            }
+                } else {
+                    true
+                }
+            });
 
             // queue each child
             let mut has_fwd = false;
