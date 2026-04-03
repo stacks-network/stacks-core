@@ -25,10 +25,12 @@ import {
   signPerTransactionAuth,
   signerAddress,
   signSignerKeyGrant,
+  serializeLockupScript,
 } from './pox-5-helpers';
 import { randomBytes } from '@stacks/transactions';
 import { inspect } from 'node:util';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { hex } from '@scure/base';
 
 const deployer = accounts.deployer.address;
 const alice = accounts.wallet_1.address;
@@ -1531,4 +1533,22 @@ describe('calculating l1 unlock height', () => {
     );
     expect(rov(pox5.rewardCycleToUnlockHeight(2))).toBe(5250n);
   });
+});
+
+test('can create the correct output script for a timelock', () => {
+  // ---- Timelock output script ----,
+  // script: 16051ab3c07a68e5c485f50274b21b2bafc7aa7738bd447503e80300b175,
+  // stacker_sk: 14edc0a0a9322ccc8f1563b4df783b0730d3740bf06abe872816d89bfefeadf301,
+  // stacker_addr: ST2SW0YK8WQ28BX82EJS1PAXFRYN7EE5X8HHEJPXM,
+  // unlock_height: 1000,
+  // unlock_height_bytes: e80300
+  // unlock_bytes: deadbeef
+  const outputScript = serializeLockupScript({
+    stacker: 'ST2SW0YK8WQ28BX82EJS1PAXFRYN7EE5X8HHEJPXM',
+    unlockBurnHeight: 1000n,
+    unlockBytes: new Uint8Array([0xde, 0xad, 0xbe, 0xef]),
+  });
+  expect(hex.encode(outputScript)).toBe(
+    '16051ab3c07a68e5c485f50274b21b2bafc7aa7738bd447502e803b17504deadbeef',
+  );
 });

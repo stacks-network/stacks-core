@@ -238,6 +238,23 @@
     (map-get? pools owner)
 )
 
+;; TODO
+;; #[allow(unused_binding)]
+(define-read-only (get-total-ustx-stacked (reward-cycle uint))
+    u0
+)
+
+(define-read-only (get-pox-info)
+    (ok {
+        min-amount-ustx: MIN_STACKING_AMOUNT,
+        reward-cycle-id: (current-pox-reward-cycle),
+        prepare-cycle-length: (var-get pox-prepare-cycle-length),
+        first-burnchain-block-height: (var-get first-burnchain-block-height),
+        reward-cycle-length: (var-get pox-reward-cycle-length),
+        total-liquid-supply-ustx: stx-liquid-supply,
+    })
+)
+
 ;;; Public functions
 
 (define-public (stake-pooled

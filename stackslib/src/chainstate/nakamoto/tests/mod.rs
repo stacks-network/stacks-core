@@ -138,6 +138,7 @@ fn test_path(name: &str) -> String {
 }
 
 pub mod node;
+pub mod reward_set;
 
 #[test]
 fn codec_nakamoto_header() {

@@ -20,12 +20,13 @@ use clarity::vm::clarity::ClarityError;
 use clarity::vm::database::DataVariableMetadata;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
-    TypeSignature,
+    BufferLength, ListTypeData, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    SequenceSubtype, StandardPrincipalData, TupleData, TypeSignature,
 };
 use clarity::vm::{SymbolicExpression, Value};
 use sha2::{Digest, Sha256};
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{to_hex, Hash160};
@@ -38,8 +39,9 @@ use crate::chainstate::burn::db::sortdb::{
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     NakamotoSignerEntry, PoxStartCycleInfo, PoxVersions, RawRewardSetEntry, RewardSet,
-    SIGNERS_LAST_UPDATED_BTC_HEIGHT, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
-    SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    SIGNERS_LAST_RATIO_PERCENTILES, SIGNERS_LAST_UPDATED_BTC_HEIGHT, SIGNERS_MAX_LIST_SIZE,
+    SIGNERS_NAME, SIGNERS_PK_LEN, SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME,
+    SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TransactionPayload};
@@ -314,13 +316,13 @@ impl<'a, 'b, 'c> Pox5PoolInfoProvider for ClarityPox5PoolInfoProvider<'a, 'b, 'c
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct RawPox5Entry {
-    user: StandardPrincipalData,
-    num_cycles: u128,
-    unlock_bytes: Vec<u8>,
-    amount_ustx: u128,
-    first_reward_cycle: u128,
-    unlock_height: u32,
-    pox_info: RawPox5EntryInfo,
+    pub(crate) user: StandardPrincipalData,
+    pub(crate) num_cycles: u128,
+    pub(crate) unlock_bytes: Vec<u8>,
+    pub(crate) amount_ustx: u128,
+    pub(crate) first_reward_cycle: u128,
+    pub(crate) unlock_height: u32,
+    pub(crate) pox_info: RawPox5EntryInfo,
 }
 
 impl RawPox5Entry {
@@ -357,22 +359,55 @@ impl RawPox5Entry {
         }
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_for_signer_test(
+        stacks_addr: StandardPrincipalData,
+        unlock_height: u32,
+        amount_ustx: u128,
+        unlock_bytes: Vec<u8>,
+        signer_key: [u8; 33],
+    ) -> Self {
+        let pox_addr = PoxAddress::Standard(StacksAddress::from(stacks_addr.clone()), None);
+        Self {
+            user: stacks_addr,
+            num_cycles: 1,
+            unlock_bytes,
+            amount_ustx,
+            first_reward_cycle: 0,
+            unlock_height,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr,
+                signer_key,
+            },
+        }
+    }
+
+    /// Compute the full redeem script for the timelock
+    pub fn to_redeem_script(&self) -> Script {
+        let mut principal_data = vec![0x05, self.user.version()];
+        principal_data.extend_from_slice(&self.user.1);
+        Builder::new()
+            .push_slice(&principal_data)
+            .push_opcode(opcodes::All::OP_DROP)
+            .push_scriptint(self.unlock_height.try_into().unwrap())
+            .push_opcode(opcodes::OP_CLTV)
+            .push_opcode(opcodes::All::OP_DROP)
+            .push_slice(&self.unlock_bytes)
+            .into_script()
+    }
+
+    /// Compute the sha256 hash of the timelock output script
     pub fn script_hash(&self) -> WitnessScriptHash {
+        let output = self.to_redeem_script();
         let mut hasher = Sha256::new();
-        hasher.update(&[
-            opcodes::All::OP_PUSHBYTES_22 as u8,
-            0x05,
-            self.user.version(),
-        ]);
-        hasher.update(&self.user.1);
-        hasher.update(&[
-            opcodes::All::OP_DROP as u8,
-            opcodes::All::OP_PUSHBYTES_3 as u8,
-        ]);
-        hasher.update(&self.unlock_height.to_le_bytes()[0..3]);
-        hasher.update(&[opcodes::OP_CLTV as u8, opcodes::All::OP_DROP as u8]);
-        hasher.update(&self.unlock_bytes);
+        hasher.update(output.as_bytes());
         WitnessScriptHash::from(hasher)
+    }
+
+    /// Compute the P2WSH output corresponding to this witnessScript (aka the "witness redeem
+    /// script")
+    pub fn to_p2wsh(&self) -> Script {
+        self.to_redeem_script().to_v0_p2wsh()
     }
 
     /// Parse a Clarity value from `get-pool-info` or the self-staked entry
@@ -474,10 +509,13 @@ impl RawPox5Entry {
             .saturating_add(num_cycles)
             .try_into()
             .map_err(|_| "Staking entry must have a u64 cycle number")?;
+        let cycle_length = pox_constants.reward_cycle_length;
         let unlock_height: u32 = pox_constants
             .reward_cycle_to_block_height(first_block_ht, last_cycle)
             .try_into()
             .map_err(|_| "Staking entry must have a u32 unlock height")?;
+
+        let unlock_height = unlock_height.saturating_add(cycle_length / 2);
         if unlock_height > u32::from_le_bytes([0xff, 0xff, 0xff, 0x00]) {
             return Err("Unlock height must be <= 0x00ffffff".into());
         }
@@ -546,23 +584,20 @@ impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
 
         // errors below this point just continue the iterator, while errors above should
         //  cancel the calculation.
-        let staker_entry_clar = self.clarity
-            .eval_method_read_only(
-                &self.pox_contract,
-                "get-staker-set-item-for-cycle",
-                &[lookup_staker, self.reward_cycle_clar.clone()]
-            )
-            .map_err(|e| {
-                PoxEntryParsingError::Skip(e.to_string())
-            })?
+        let staker_entry_clar = self
+            .clarity
+            .eval_method_read_only(&self.pox_contract, "get-staker-info", &[lookup_staker])
+            .map_err(|e| PoxEntryParsingError::Skip(e.to_string()))?
             .expect_optional()
             .map_err(|_| {
-                PoxEntryParsingError::Skip("get-staker-set-item-for-cycle did not return optional".into())
+                PoxEntryParsingError::Skip("get-staker-info did not return optional".into())
             })?
             .ok_or_else(|| {
                 PoxEntryParsingError::Skip(format!(
-                    "get-staker-set-item-for-cycle did not return Some for a link-list entry: {cur_staker}"))
+                    "get-staker-info did not return Some: {cur_staker}"
+                ))
             })?;
+
         let staker_entry = RawPox5Entry::try_parse(
             cur_staker,
             staker_entry_clar,
@@ -857,14 +892,8 @@ impl NakamotoSigners {
             liquid_ustx,
         );
 
-        let pox_version: PoxVersions =
-            PoxVersions::lookup_by_name(pox_contract).ok_or(ChainstateError::DefunctPoxContract)?;
-        let reward_set = StacksChainState::make_reward_set(
-            threshold,
-            reward_slots,
-            StacksEpochId::Epoch30,
-            pox_version,
-        );
+        let reward_set =
+            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
 
         test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
 
@@ -918,24 +947,117 @@ impl NakamotoSigners {
             last_computed_btc_height,
         )?;
 
-        // store the last_computed_btc_height
-        clarity.with_clarity_db(|db| {
-            db.set_variable(
-                signers_contract,
-                SIGNERS_LAST_UPDATED_BTC_HEIGHT,
-                Value::UInt(current_calculation_btc_height.into()),
-                &DataVariableMetadata { value_type: TypeSignature::UIntType },
-                &current_epoch
-            ).map_err(|_| ClarityError::BadTransaction("FATAL: failed to set variable during reward set calculation".into()))
-        }).map_err(|_| {
-            error!("FATAL: failed to set SIGNERS_LAST_UPDATED_BTC_HEIGHT during reward set calculation");
-            ChainstateError::PoxNoRewardCycle
+        let ratio_percentiles_type = ListTypeData::new_list(
+            TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                BufferLength::try_from(512u32).map_err(|_| {
+                    ChainstateError::Expects(
+                        "FATAL: failed to setup ratio percentile clarity type".into(),
+                    )
+                })?,
+            )),
+            4,
+        )
+        .map_err(|_| {
+            ChainstateError::Expects("FATAL: failed to setup ratio percentile clarity type".into())
+        })?;
+        let ratio_percentiles_type = DataVariableMetadata {
+            value_type: ratio_percentiles_type.into(),
+        };
+        // store the last_computed_btc_height and fetch the prior percentile ranked ratios
+        let prior_ratios_clar = clarity
+            .with_clarity_db(|db| {
+                db.set_variable(
+                    signers_contract,
+                    SIGNERS_LAST_UPDATED_BTC_HEIGHT,
+                    Value::UInt(current_calculation_btc_height.into()),
+                    &DataVariableMetadata {
+                        value_type: TypeSignature::UIntType,
+                    },
+                    &current_epoch,
+                )
+                .map_err(|_| {
+                    ClarityError::BadTransaction(
+                        "FATAL: failed to set variable during reward set calculation".into(),
+                    )
+                })?;
+                // load the prior 4 reward set's percentile ranked ratio
+                let value = db
+                    .lookup_variable(
+                        signers_contract,
+                        SIGNERS_LAST_RATIO_PERCENTILES,
+                        &ratio_percentiles_type,
+                        current_epoch,
+                    )
+                    .map_err(|_| {
+                        ClarityError::BadTransaction(
+                            "FATAL: failed to setup ratio percentile clarity type".into(),
+                        )
+                    })?;
+                Ok(value)
+            })
+            .map_err(|e| {
+                ChainstateError::Expects(format!(
+                    "Failure setting SIGNERS_LAST_UPDATED_BTC_HEIGHT: {e}"
+                ))
+            })?;
+
+        let ratios_result: Result<Vec<_>, String> = prior_ratios_clar
+            .expect_list()
+            .unwrap_or_else(|_| vec![])
+            .into_iter()
+            .map(|ratio_entry| {
+                let ratio_buff = ratio_entry
+                    .expect_buff(512)
+                    .map_err(|e| format!("Expected buff for ratio entry: {e}"))?;
+                Uint512::from_bytes_le(ratio_buff)
+                    .ok_or_else(|| "Failed to parse ratio entry buffer to U512".into())
+            })
+            .collect();
+        let prior_ratios = ratios_result.map_err(|e| {
+            ChainstateError::Expects(format!(
+                "Failure parsing stored prior reward cycle staking ratios: {e}"
+            ))
         })?;
 
         // compute the reward set, and then update the signers db
         let pox_contract_id = boot_code_id(pox_contract, is_mainnet);
         let mut pool_provider = ClarityPox5PoolInfoProvider::new(clarity, &pox_contract_id);
-        let reward_set = Self::pox_5_make_reward_set(entries, pox_constants, &mut pool_provider)?;
+        let (reward_set, new_ratios) =
+            Self::pox_5_make_reward_set(entries, pox_constants, &mut pool_provider, prior_ratios)?;
+
+        let new_ratios_clar: Result<Vec<_>, _> = new_ratios
+            .into_iter()
+            .map(|big_int| Value::buff_from(big_int.to_bytes_le().to_vec()))
+            .collect();
+        let new_ratios_clar = Value::cons_list_unsanitized(new_ratios_clar.map_err(|e| {
+            ChainstateError::Expects(format!(
+                "FATAL: failure storing reward cycle staking ratios as clarity values: {e}"
+            ))
+        })?)
+        .map_err(|e| {
+            ChainstateError::Expects(format!(
+                "FATAL: failure storing reward cycle staking ratios as clarity values: {e}"
+            ))
+        })?;
+
+        // store the now 4 most recent percentile ranked ratios
+        clarity
+            .with_clarity_db(|db| {
+                db.set_variable(
+                    signers_contract,
+                    SIGNERS_LAST_RATIO_PERCENTILES,
+                    new_ratios_clar,
+                    &ratio_percentiles_type,
+                    &current_epoch,
+                )
+                .map_err(|e| ClarityError::BadTransaction(e.to_string()))
+            })
+            .map_err(|e| {
+                ChainstateError::Expects(format!(
+                    "Failed to set SIGNERS_LAST_RATIO_PERCENTILES: {e}"
+                ))
+            })?;
+
         let events = Self::update_signers(
             clarity,
             reward_cycle,
@@ -952,13 +1074,51 @@ impl NakamotoSigners {
         Ok(SignerCalculation { reward_set, events })
     }
 
-    fn pox_5_make_reward_set<P: Pox5PoolInfoProvider>(
+    pub fn pow_scaled(base: &Uint512, exp: u32, scaling: &Uint512) -> Uint512 {
+        if exp == 0 {
+            return Uint512::from_u64(1);
+        }
+        let mut output = base.clone();
+        for _ in 1..exp {
+            output = output * base.clone() / scaling.clone();
+        }
+        output
+    }
+
+    pub fn find_root_floor(base: Uint512, root: u32, scaling: &Uint512) -> Option<Uint512> {
+        if root == 1 {
+            return Some(base);
+        }
+        if root == 0 {
+            return None;
+        }
+
+        let mut low = Uint512::from_u64(1);
+        let mut high = base.clone();
+        loop {
+            if high <= low {
+                return Some(high.min(low));
+            }
+            let guess = (high + low) / Uint512::from_u64(2);
+            let value = Self::pow_scaled(&guess, root, scaling);
+            if value == base {
+                return Some(guess);
+            } else if value > base {
+                high = guess - Uint512::from_u64(1);
+            } else if value < base {
+                low = guess + Uint512::from_u64(1);
+            }
+        }
+    }
+
+    pub(crate) fn pox_5_make_reward_set<P: Pox5PoolInfoProvider>(
         entries: Vec<(RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>)>,
         pox_constants: &PoxConstants,
         pool_info_provider: &mut P,
+        prior_ratio_percentiles: Vec<Uint512>,
         // will probably need other arguments here to get the windowed averages for
         //  STX/BTC price ratio, STX/BTC 95th percentile ratios
-    ) -> Result<RewardSet, ChainstateError> {
+    ) -> Result<(RewardSet, Vec<Uint512>), ChainstateError> {
         let SCALING_FACTOR = Uint512::from_u128(u128::MAX) + Uint512::one();
 
         // f_min := minimum amount of STX which can be staked for a given BTC stake
@@ -975,6 +1135,8 @@ impl NakamotoSigners {
         let M_time_max = 1;
         // (Maximum Time - 1) denominator
         let M_time_max_denominator = 2;
+
+        info!("Entries: {}", entries.len());
 
         struct SummedPox5Entry {
             entry: RawPox5Entry,
@@ -994,7 +1156,7 @@ impl NakamotoSigners {
 
         // Step 1: calculate d_i
         //
-        // d_i_vec: d_i is a Uint256 with fixed scaling of 128 bits
+        // d_i_vec: d_i is a big int with fixed scaling of SCALING_FACTOR (128 bits)
         //  for ratio of stx/btc.
         // the vec is initially in the same order as entries
         let mut d_i_vec = Vec::new();
@@ -1004,6 +1166,10 @@ impl NakamotoSigners {
             total_btc_locked = entry.sats_locked.saturating_add(total_btc_locked);
             total_ustx_locked = entry.entry.amount_ustx.saturating_add(total_ustx_locked);
             let ustx_locked = Uint512::from_u128(entry.entry.amount_ustx) * SCALING_FACTOR;
+            if entry.sats_locked < 1 {
+                // should be unreachable, but better safe
+                continue;
+            }
             let sats_locked = Uint512::from_u64(entry.sats_locked);
             let d_i = ustx_locked / sats_locked;
             if d_i < d_min_t {
@@ -1014,12 +1180,20 @@ impl NakamotoSigners {
                 );
                 continue;
             }
+            // Overflow sanity check:
+            // d_i is at most u128::MAX, scaled by 128 bits,
+            // so d_i must have 256 empty high bits
+            assert_eq!(d_i.0[7], 0);
+            assert_eq!(d_i.0[6], 0);
+            assert_eq!(d_i.0[5], 0);
+            assert_eq!(d_i.0[4], 0);
             d_i_vec.push((d_i, entry));
         }
 
         // make copy for use in computing w_i later
         let mut w_i_vec = d_i_vec.clone();
         // Step 2: compute D_t -- the BTC weighted pth-percentile of d in this cycle
+        // D_t is scaled by SCALING FACTOR
         d_i_vec.sort_by_key(|(d_i, _)| *d_i);
         let total_target_btc_locked = (total_btc_locked / 100) * p;
         let mut total_locked_so_far = 0;
@@ -1032,27 +1206,94 @@ impl NakamotoSigners {
             }
         }
 
-        // Step 2.5: todo, compute the GeoWeightedAvg for D
+        // Compute the GeoWeightedAvg for D
+        if prior_ratio_percentiles.len() > 4 {
+            return Err(ChainstateError::Expects(
+                "Prior ratio percentiles length must be less than 4".into(),
+            ));
+        }
+        let weighting = 5;
+        let lowest_weight = weighting - prior_ratio_percentiles.len() as u32;
+        let total_weight = (lowest_weight..=weighting).sum();
+        let D_t_contrib = Self::find_root_floor(
+            Self::pow_scaled(&D_t, weighting, &SCALING_FACTOR),
+            total_weight,
+            &SCALING_FACTOR,
+        );
+        let D_avg = prior_ratio_percentiles
+            .iter()
+            .enumerate()
+            .fold(D_t_contrib, |acc, (index, prior_ratio)| {
+                // will not underflow because of the check for len() > 4 above
+                let exponent = weighting - 1 - (index as u32);
+                let contribution = Self::find_root_floor(
+                    Self::pow_scaled(prior_ratio, exponent, &SCALING_FACTOR),
+                    total_weight,
+                    &SCALING_FACTOR,
+                )?;
+                Some(acc? * contribution / SCALING_FACTOR)
+            })
+            .ok_or_else(|| {
+                ChainstateError::Expects("Failed to find w-th root for D calculations".into())
+            })?;
+
+        // Overflow sanity check:
+        // D_avg is at most u128::MAX, scaled by 128 bits,
+        // so D_avg must have 256 empty high bits
+        assert_eq!(D_avg.0[7], 0);
+        assert_eq!(D_avg.0[6], 0);
+        assert_eq!(D_avg.0[5], 0);
+        assert_eq!(D_avg.0[4], 0);
+
+        let mut ratios_to_store = Vec::with_capacity(4);
+        ratios_to_store.push(D_t);
+        ratios_to_store.extend(prior_ratio_percentiles.into_iter().take(3));
 
         // Step 3: Compute w_i scaled by SCALING_FACTOR
         let mut W = Uint512::zero();
         for (d_i, entry) in w_i_vec.iter_mut() {
-            let r_i = if *d_i > D_t {
+            let r_i = if *d_i >= D_avg {
                 SCALING_FACTOR // 1
             } else {
-                *d_i * SCALING_FACTOR / D_t
+                // Overflow sanity check: d_i has 256 empty high bits,
+                //  so scaling 128 bits cannot overflow
+                // D_avg > d_i, so the following calculation
+                // leads to a number between 0 and 1, scaled by SCALING_FACTOR
+                *d_i * SCALING_FACTOR / D_avg
             };
+            // Overflow sanity check:
+            // r_i is at most 1, scaled by 128 bits,
+            // so r_i must have 256 + 127 empty high bits
+            assert_eq!(r_i.0[7], 0);
+            assert_eq!(r_i.0[6], 0);
+            assert_eq!(r_i.0[5], 0);
+            assert_eq!(r_i.0[4], 0);
+            assert_eq!(r_i.0[3], 0);
+            assert!(r_i.0[2] <= 1);
 
-            // r_i should be less than 1 (this prevents overflow)
-            let s_i_numer = r_i * r_i * SCALING_FACTOR; // SCALING_FACTOR^3
-            let s_i_denom = (r_i * r_i) + ((SCALING_FACTOR - r_i) * (SCALING_FACTOR - r_i)); // SCALING_FACTOR^2
-                                                                                             // s_i is the sigmoid output, scaled by SCALING_FACTOR
-            let s_i = s_i_numer / s_i_denom;
+            // s_i_numer has scaling factor of 256
+            let s_i_numer = r_i * r_i;
+            // s_i_denom has a scaling factor of 256
+            let s_i_denom = (r_i * r_i) + ((SCALING_FACTOR - r_i) * (SCALING_FACTOR - r_i));
+            // drop scaling factor of s_i_denom by 128
+            // s_i is the sigmoid output, scaled by SCALING_FACTOR
+            let s_i = s_i_numer / (s_i_denom / SCALING_FACTOR);
 
-            // s_i should be less than 1!
+            // s_i should be <= 1
+            // Overflow sanity check:
+            // s_i is at most 1, scaled by 128 bits,
+            // so s_i must have 256 + 127 empty high bits
+            assert_eq!(s_i.0[7], 0);
+            assert_eq!(s_i.0[6], 0);
+            assert_eq!(s_i.0[5], 0);
+            assert_eq!(s_i.0[4], 0);
+            assert_eq!(s_i.0[3], 0);
+            assert!(s_i.0[2] <= 1);
 
             // ratio_multiplier is M_ratio_i scaled by SCALING_FACTOR
-            let ratio_multiplier = SCALING_FACTOR + (Uint512::from_u64(M_ratio_max - 1) * s_i);
+            // this is at most u32::max (but in constants used, 10)
+            // so ratio multiplier has 256 + 96 empty high bits
+            let ratio_multiplier = SCALING_FACTOR + s_i.mul_u32(M_ratio_max - 1);
             let time_multiplier_user = SCALING_FACTOR
                 * Uint512::from_u128(
                     entry
@@ -1062,13 +1303,20 @@ impl NakamotoSigners {
                         .saturating_sub(1),
                 )
                 / Uint512::from_u128(max_supported_lock_cycles.saturating_sub(1));
-            // scaled by SCALING_FACTOR
+            // time_multiplier is scaled by SCALING_FACTOR
+            // this is at most u32::max (but in constants used, 1.5)
+            // so time multiplier has 256 + 96 empty high bits
             let time_multiplier = SCALING_FACTOR
-                + (Uint512::from_u64(M_time_max) * time_multiplier_user
+                + (time_multiplier_user.mul_u32(M_time_max)
                     / Uint512::from_u64(M_time_max_denominator));
 
-            // SCALING_FACTOR ^ 2
-            let w_i = time_multiplier * ratio_multiplier * Uint512::from_u64(entry.sats_locked);
+            // overflow sanity check: multiplying ratio_multiplier by
+            // time_multiplier occupies at most 160 bits of the 352 available
+            let user_multiplier = time_multiplier * ratio_multiplier / SCALING_FACTOR;
+            // user_multiplier has scaling factor of SCALING_FACTOR
+
+            // w_i has scaling factor of SCALING_FACTOR
+            let w_i = user_multiplier * Uint512::from_u64(entry.sats_locked);
             W = W + w_i;
             *d_i = w_i;
         }
@@ -1133,13 +1381,25 @@ impl NakamotoSigners {
         }
 
         // Step 6: assign signer weights
-        // TODO: should we have a minimum threshold for participation, and then re-weight?
-        let signer_weight_scaling = Uint256::from_u64(u32::MAX as u64 + 1);
-        let total_ustx_locked = Uint256::from_u128(total_ustx_locked);
+        //
+        // We need to set a threshold amount for signing participation,
+        //  so we set a threshold based on total_ustx_locked / reward_slots
+        let signer_weight_scaling = Uint256::from_u64(reward_slots.into());
+        let signer_threshold_ustx = total_ustx_locked / u128::from(reward_slots);
+        let total_ustx_locked_256 = Uint256::from_u128(total_ustx_locked);
         let mut signers = vec![];
         for (_, signer, _, amount_ustx) in totaled_entries.iter() {
+            if *amount_ustx < signer_threshold_ustx {
+                warn!("Dropping signer who did not have enough ustx locked";
+                      "signer_pk" => to_hex(signer),
+                      "amount_ustx" => amount_ustx,
+                      "threshold" => signer_threshold_ustx,
+                      "total_ustx_locked" => total_ustx_locked,
+                );
+                continue;
+            }
             let amount_ustx_scaled = Uint256::from_u128(*amount_ustx) * signer_weight_scaling;
-            let signer_weight = amount_ustx_scaled / total_ustx_locked;
+            let signer_weight = amount_ustx_scaled / total_ustx_locked_256;
             signers.push(NakamotoSignerEntry {
                 signing_key: *signer,
                 stacked_amt: *amount_ustx,
@@ -1147,15 +1407,17 @@ impl NakamotoSigners {
             });
         }
 
-        Ok(RewardSet {
-            rewarded_addresses,
-            start_cycle_state: PoxStartCycleInfo {
-                missed_reward_slots: vec![],
+        Ok((
+            RewardSet {
+                rewarded_addresses,
+                start_cycle_state: PoxStartCycleInfo {
+                    missed_reward_slots: vec![],
+                },
+                signers: Some(signers),
+                pox_ustx_threshold: Some(signer_threshold_ustx),
             },
-            signers: Some(signers),
-            // TODO: we'll have to investigate what to do about this field
-            pox_ustx_threshold: None,
-        })
+            ratios_to_store,
+        ))
     }
 
     /// If this block is mined in the prepare phase, based on its tenure's `burn_tip_height`.  If
@@ -1176,6 +1438,7 @@ impl NakamotoSigners {
             // before Epoch-2.5, no need for special handling
             return Ok(None);
         }
+
         // now, determine if we are in a prepare phase, and we are the first
         //  block in this prepare phase in our fork
         if !pox_constants.is_in_prepare_phase(first_block_height, burn_tip_height.into()) {
@@ -1589,10 +1852,11 @@ mod tests {
             (entry2, vec![make_test_watched_output(1000000)]),
         ];
 
-        let result = NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider);
+        let result =
+            NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider, vec![]);
 
         assert!(result.is_ok());
-        let reward_set = result.unwrap();
+        let (reward_set, _new_ratios) = result.unwrap();
 
         // Verify signers were created
         assert!(reward_set.signers.is_some());
@@ -1658,10 +1922,11 @@ mod tests {
             (entry2, vec![make_test_watched_output(1000000)]),
         ];
 
-        let result = NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider);
+        let result =
+            NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider, vec![]);
 
         assert!(result.is_ok());
-        let reward_set = result.unwrap();
+        let (reward_set, _new_ratios) = result.unwrap();
 
         // Verify signers - pool entries should be aggregated into one signer
         assert!(reward_set.signers.is_some());
@@ -1729,10 +1994,11 @@ mod tests {
             (pool_entry, vec![make_test_watched_output(1000000)]),
         ];
 
-        let result = NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider);
+        let result =
+            NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider, vec![]);
 
         assert!(result.is_ok());
-        let reward_set = result.unwrap();
+        let (reward_set, _new_ratios) = result.unwrap();
 
         // Verify both solo and pool signers are present
         assert!(reward_set.signers.is_some());
@@ -1767,11 +2033,12 @@ mod tests {
 
         let entries = vec![(pool_entry, vec![make_test_watched_output(1000000)])];
 
-        let result = NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider);
+        let result =
+            NakamotoSigners::pox_5_make_reward_set(entries, &pox_constants, &mut provider, vec![]);
 
         // Should succeed but skip the missing pool entry
         assert!(result.is_ok());
-        let reward_set = result.unwrap();
+        let (reward_set, _new_ratios) = result.unwrap();
 
         // No signers should be created since the only entry was skipped
         assert!(reward_set.signers.is_some());
