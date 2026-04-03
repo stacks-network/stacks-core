@@ -2037,7 +2037,20 @@ fn mine_2_nakamoto_reward_cycles() {
     info!("------------------------- Test Setup -------------------------");
     let nmb_reward_cycles = 2;
     let num_signers = 5;
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |_| {},
+        |naka_conf| {
+            // Push epoch 3.5 beyond the mining range of this test so that
+            // pox-5 locking changes don't interfere with the reward set.
+            let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+            epochs[StacksEpochId::Epoch34].end_height = 1000;
+            epochs[StacksEpochId::Epoch35].start_height = 1000;
+        },
+        None,
+        None,
+    );
     let timeout = Duration::from_secs(200);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();

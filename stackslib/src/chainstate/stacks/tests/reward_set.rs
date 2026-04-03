@@ -24,7 +24,7 @@ use stacks_common::util::hash::Hash160;
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::{PoxVersions, RawRewardSetEntry};
+use crate::chainstate::stacks::boot::RawRewardSetEntry;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::proptest_utils::reward_set_entry_strategy;
 

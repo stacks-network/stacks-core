@@ -10775,6 +10775,13 @@ fn sip029_coinbase_change() {
     set_test_coinbase_schedule(Some(new_sched));
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    // Push epoch 3.5 beyond the mining range of this test so that
+    // pox-5 locking changes don't interfere with the reward set.
+    {
+        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+        epochs[StacksEpochId::Epoch34].end_height = 1000;
+        epochs[StacksEpochId::Epoch35].start_height = 1000;
+    }
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 

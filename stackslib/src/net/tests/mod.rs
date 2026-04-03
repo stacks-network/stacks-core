@@ -826,19 +826,13 @@ impl NakamotoBootPlan {
         // transaction in `all_blocks` ran to completion
         if let Some(observer) = observer {
             let mut observed_blocks = observer.get_blocks();
-            let mut block_idx = (peer
-                .config
-                .chain_config
-                .burnchain
-                .pox_constants
-                .pox_4_activation_height
-                + peer
-                    .config
-                    .chain_config
-                    .burnchain
-                    .pox_constants
-                    .reward_cycle_length
-                - 25) as usize;
+            // Skip past the epoch 2.x blocks in `observed_blocks` to find where
+            // the Nakamoto blocks begin. Find the first observed block that is a
+            // Nakamoto block and use that as the starting index.
+            let mut block_idx = observed_blocks
+                .iter()
+                .position(|blk| blk.metadata.anchored_header.as_stacks_nakamoto().is_some())
+                .expect("No Nakamoto blocks found in observed blocks");
 
             // filter out observed blocks that are malleablized
             observed_blocks.retain(|blk| {
