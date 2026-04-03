@@ -649,3 +649,627 @@ fn test_spv_headers_reused_output_dir() {
         "reused output dir should produce valid copy: {v:?}"
     );
 }
+
+// ---------------------------------------------------------------
+// Sortition side-table tests
+// ---------------------------------------------------------------
+
+use super::sortition::{copy_sortition_side_tables, validate_sortition_side_tables};
+use crate::chainstate::burn::db::sortdb::{
+    SORTITION_DB_INITIAL_SCHEMA, SORTITION_DB_SCHEMA_10, SORTITION_DB_SCHEMA_11,
+    SORTITION_DB_SCHEMA_2, SORTITION_DB_SCHEMA_3, SORTITION_DB_SCHEMA_4, SORTITION_DB_SCHEMA_5,
+    SORTITION_DB_SCHEMA_6, SORTITION_DB_SCHEMA_7, SORTITION_DB_SCHEMA_8, SORTITION_DB_SCHEMA_9,
+};
+
+/// Create a sortition source DB with the real schema (all migrations
+/// through schema 11). Applies only the DDL; epoch data inserts are
+/// skipped since tests only need the table structure.
+fn create_sortition_source_db(path: &std::path::Path) -> Connection {
+    let conn = Connection::open(path).unwrap();
+    for cmd in SORTITION_DB_INITIAL_SCHEMA {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in SORTITION_DB_SCHEMA_2 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in SORTITION_DB_SCHEMA_3 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in SORTITION_DB_SCHEMA_4 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in SORTITION_DB_SCHEMA_5 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in SORTITION_DB_SCHEMA_6 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in SORTITION_DB_SCHEMA_7 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in SORTITION_DB_SCHEMA_8 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in SORTITION_DB_SCHEMA_9 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in SORTITION_DB_SCHEMA_10 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in SORTITION_DB_SCHEMA_11 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    conn.execute(
+        "INSERT OR REPLACE INTO db_config (version) VALUES ('11')",
+        [],
+    )
+    .unwrap();
+    conn
+}
+
+/// Insert a snapshot row for the given sortition_id and burn_header_hash.
+fn insert_snapshot(
+    conn: &Connection,
+    sortition_id: &str,
+    burn_header_hash: &str,
+    block_height: u32,
+) {
+    conn.execute(
+        "INSERT INTO snapshots (
+                block_height, burn_header_hash, sortition_id, parent_sortition_id,
+                burn_header_timestamp, parent_burn_header_hash, consensus_hash,
+                ops_hash, total_burn, sortition, sortition_hash,
+                winning_block_txid, winning_stacks_block_hash, index_root,
+                num_sortitions, stacks_block_accepted, stacks_block_height,
+                arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash,
+                canonical_stacks_tip_consensus_hash, pox_valid,
+                accumulated_coinbase_ustx, pox_payouts, miner_pk_hash
+            ) VALUES (
+                ?1, ?2, ?3, 'parent_sort', 1000, 'parent_bhh', ?4,
+                'ops', '0', 1, 'shash', 'wbtxid', 'wsbh', ?5,
+                ?1, 0, 0, ?1, 0, 'csth', 'cstch', 1, '0', '[]', NULL
+            )",
+        params![
+            block_height,
+            burn_header_hash,
+            sortition_id,
+            format!("ch_{sortition_id}"),
+            format!("ir_{sortition_id}"),
+        ],
+    )
+    .unwrap();
+}
+
+/// Insert a leader_keys row for the given sortition_id.
+fn insert_leader_key(conn: &Connection, sortition_id: &str) {
+    conn.execute(
+        "INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, \
+             sortition_id, consensus_hash, public_key, memo) \
+             VALUES (?1, 0, 1, 'bhh', ?2, 'ch', 'pk', 'memo')",
+        params![format!("lk_tx_{sortition_id}"), sortition_id],
+    )
+    .unwrap();
+}
+
+/// Insert a block_commits row for the given sortition_id.
+fn insert_block_commit(conn: &Connection, sortition_id: &str) {
+    conn.execute(
+        "INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, \
+             sortition_id, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, \
+             key_block_ptr, key_vtxindex, memo, commit_outs, burn_fee, sunset_burn, \
+             input, apparent_sender, burn_parent_modulus, punished) \
+             VALUES (?1, 0, 1, 'bhh', ?2, 'bhh', 'seed', 0, 0, 0, 0, '', '', '0', '0', \
+             'input', 'sender', 0, NULL)",
+        params![format!("bc_tx_{sortition_id}"), sortition_id],
+    )
+    .unwrap();
+}
+
+/// Insert a block_commit_parents row.
+fn insert_block_commit_parent(conn: &Connection, sortition_id: &str) {
+    conn.execute(
+        "INSERT INTO block_commit_parents (block_commit_txid, block_commit_sortition_id, \
+             parent_sortition_id) VALUES (?1, ?2, 'parent_sort')",
+        params![format!("bc_tx_{sortition_id}"), sortition_id],
+    )
+    .unwrap();
+}
+
+/// Insert a stack_stx row for the given burn_header_hash.
+fn insert_stack_stx(conn: &Connection, burn_header_hash: &str, txid: &str) {
+    conn.execute(
+        "INSERT INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, \
+             sender_addr, reward_addr, stacked_ustx, num_cycles, signer_key, max_amount, auth_id) \
+             VALUES (?1, 0, 1, ?2, 'sender', 'reward', '1000', 1, NULL, NULL, NULL)",
+        params![txid, burn_header_hash],
+    )
+    .unwrap();
+}
+
+/// Insert an epochs row.
+fn insert_epoch(conn: &Connection, start: u32, epoch_id: u32) {
+    conn.execute(
+        "INSERT INTO epochs (start_block_height, end_block_height, epoch_id, \
+             block_limit, network_epoch) VALUES (?1, ?2, ?3, '{}', 1)",
+        params![start, start + 100, epoch_id],
+    )
+    .unwrap();
+}
+
+/// Create a sortition dest DB simulating a squashed MARF with the given
+/// canonical sortition IDs.
+fn create_sortition_dest_db(path: &std::path::Path, canonical_sortition_ids: &[&str]) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS marf_squash_block_heights \
+             (block_hash TEXT NOT NULL, height INTEGER NOT NULL)",
+    )
+    .unwrap();
+    for (h, sid) in canonical_sortition_ids.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO marf_squash_block_heights (block_hash, height) VALUES (?1, ?2)",
+            params![sid, h as i64],
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn test_sortition_copy_excludes_fork_data() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_sort.sqlite");
+    let conn = create_sortition_source_db(&src_path);
+
+    // Canonical chain: sort_0 at height 0, sort_1 at height 1.
+    insert_snapshot(&conn, "sort_0", "bhh_0", 0);
+    insert_snapshot(&conn, "sort_1", "bhh_1", 1);
+    // Fork at height 1: sort_1_fork with different burn hash.
+    insert_snapshot(&conn, "sort_1_fork", "bhh_1_fork", 1);
+
+    // Insert related data for canonical and fork.
+    insert_leader_key(&conn, "sort_1");
+    insert_leader_key(&conn, "sort_1_fork");
+    insert_block_commit(&conn, "sort_1");
+    insert_block_commit(&conn, "sort_1_fork");
+    insert_block_commit_parent(&conn, "sort_1");
+    insert_block_commit_parent(&conn, "sort_1_fork");
+    insert_stack_stx(&conn, "bhh_1", "stx_tx_canon");
+    insert_stack_stx(&conn, "bhh_1_fork", "stx_tx_fork");
+    insert_epoch(&conn, 0, 1);
+
+    // Transition ops.
+    conn.execute(
+        "INSERT INTO snapshot_transition_ops (sortition_id, accepted_ops, consumed_keys) \
+             VALUES ('sort_1', '[]', '[]')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO snapshot_transition_ops (sortition_id, accepted_ops, consumed_keys) \
+             VALUES ('sort_1_fork', '[]', '[]')",
+        [],
+    )
+    .unwrap();
+
+    // Stacks chain tips.
+    conn.execute(
+        "INSERT INTO stacks_chain_tips (sortition_id, consensus_hash, block_hash, block_height) \
+             VALUES ('sort_1', 'ch', 'bh', 1)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO stacks_chain_tips (sortition_id, consensus_hash, block_hash, block_height) \
+             VALUES ('sort_1_fork', 'ch2', 'bh2', 1)",
+        [],
+    )
+    .unwrap();
+
+    // Missed commits.
+    conn.execute(
+        "INSERT INTO missed_commits (txid, input, intended_sortition_id) \
+             VALUES ('mc_tx', 'input', 'sort_1')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO missed_commits (txid, input, intended_sortition_id) \
+             VALUES ('mc_tx_fork', 'input', 'sort_1_fork')",
+        [],
+    )
+    .unwrap();
+
+    // Preprocessed reward sets.
+    conn.execute(
+        "INSERT INTO preprocessed_reward_sets (sortition_id, reward_set) \
+             VALUES ('sort_1', '{}')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO preprocessed_reward_sets (sortition_id, reward_set) \
+             VALUES ('sort_1_fork', '{}')",
+        [],
+    )
+    .unwrap();
+
+    drop(conn);
+
+    // Only sort_0 and sort_1 are canonical.
+    let dst_path = dir.path().join("dst_sort.sqlite");
+    create_sortition_dest_db(&dst_path, &["sort_0", "sort_1"]);
+
+    let stats =
+        copy_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap()).unwrap();
+
+    // Only canonical rows should be copied.
+    assert_eq!(stats.snapshots_rows, 2, "2 canonical snapshots");
+    assert_eq!(stats.leader_keys_rows, 1, "only sort_1 leader key");
+    assert_eq!(stats.block_commits_rows, 1, "only sort_1 block commit");
+    assert_eq!(
+        stats.block_commit_parents_rows, 1,
+        "only sort_1 block commit parent"
+    );
+    assert_eq!(
+        stats.snapshot_transition_ops_rows, 1,
+        "only sort_1 transition ops"
+    );
+    assert_eq!(stats.stacks_chain_tips_rows, 1, "only sort_1 chain tip");
+    assert_eq!(stats.missed_commits_rows, 1, "only sort_1 missed commit");
+    assert_eq!(
+        stats.preprocessed_reward_sets_rows, 1,
+        "only sort_1 reward set"
+    );
+    assert_eq!(stats.stack_stx_rows, 1, "only bhh_1 stack_stx");
+    assert_eq!(stats.epochs_rows, 1, "epochs full copy");
+    assert_eq!(stats.db_config_rows, 1, "db_config full copy");
+
+    // Validate passes.
+    let validation =
+        validate_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap())
+            .unwrap();
+    assert!(
+        validation.is_valid(),
+        "validation should pass: {validation:?}"
+    );
+}
+
+#[test]
+fn test_sortition_validate_detects_payload_corruption() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_sort.sqlite");
+    let conn = create_sortition_source_db(&src_path);
+
+    insert_snapshot(&conn, "sort_0", "bhh_0", 0);
+    insert_epoch(&conn, 0, 1);
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_sort.sqlite");
+    create_sortition_dest_db(&dst_path, &["sort_0"]);
+
+    let _stats =
+        copy_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap()).unwrap();
+
+    // Corrupt a non-key column in the destination snapshots table.
+    {
+        let conn = Connection::open(&dst_path).unwrap();
+        conn.execute(
+            "UPDATE snapshots SET burn_header_timestamp = 9999 WHERE sortition_id = 'sort_0'",
+            [],
+        )
+        .unwrap();
+    }
+
+    let validation =
+        validate_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap())
+            .unwrap();
+
+    assert!(
+        !validation.snapshots_match,
+        "payload corruption should be detected"
+    );
+    assert!(!validation.is_valid(), "validation must fail");
+}
+
+#[test]
+fn test_sortition_validate_detects_extra_rows() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_sort.sqlite");
+    let conn = create_sortition_source_db(&src_path);
+
+    insert_snapshot(&conn, "sort_0", "bhh_0", 0);
+    insert_epoch(&conn, 0, 1);
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_sort.sqlite");
+    create_sortition_dest_db(&dst_path, &["sort_0"]);
+
+    let _stats =
+        copy_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap()).unwrap();
+
+    // Inject an extra leader_keys row in destination that doesn't exist in source.
+    {
+        let conn = Connection::open(&dst_path).unwrap();
+        conn.execute(
+            "INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, \
+                 sortition_id, consensus_hash, public_key, memo) \
+                 VALUES ('extra_tx', 0, 1, 'bhh', 'sort_0', 'ch', 'pk', 'memo')",
+            [],
+        )
+        .unwrap();
+    }
+
+    let validation =
+        validate_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap())
+            .unwrap();
+
+    assert!(
+        !validation.leader_keys_match,
+        "extra rows should be detected"
+    );
+    assert!(!validation.is_valid(), "validation must fail");
+}
+
+#[test]
+fn test_sortition_burn_header_hash_filtering() {
+    // Verify that burn_header_hash-keyed tables (stack_stx, transfer_stx, etc.)
+    // correctly exclude rows associated with non-canonical burn hashes.
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_sort.sqlite");
+    let conn = create_sortition_source_db(&src_path);
+
+    insert_snapshot(&conn, "sort_0", "bhh_canon", 0);
+    insert_snapshot(&conn, "sort_0_fork", "bhh_fork", 0);
+
+    // stack_stx at canonical and fork burn hashes.
+    insert_stack_stx(&conn, "bhh_canon", "stx_canon");
+    insert_stack_stx(&conn, "bhh_fork", "stx_fork");
+
+    // transfer_stx at canonical and fork.
+    conn.execute(
+        "INSERT INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, \
+             sender_addr, recipient_addr, transfered_ustx, memo) \
+             VALUES ('xfer_canon', 0, 0, 'bhh_canon', 's', 'r', '100', 'x')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, \
+             sender_addr, recipient_addr, transfered_ustx, memo) \
+             VALUES ('xfer_fork', 0, 0, 'bhh_fork', 's', 'r', '100', 'x')",
+        [],
+    )
+    .unwrap();
+
+    insert_epoch(&conn, 0, 1);
+    drop(conn);
+
+    // Only sort_0 is canonical -> bhh_canon is the only canonical burn hash.
+    let dst_path = dir.path().join("dst_sort.sqlite");
+    create_sortition_dest_db(&dst_path, &["sort_0"]);
+
+    let stats =
+        copy_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap()).unwrap();
+
+    assert_eq!(stats.stack_stx_rows, 1, "only bhh_canon stack_stx");
+    assert_eq!(stats.transfer_stx_rows, 1, "only bhh_canon transfer_stx");
+
+    let validation =
+        validate_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap())
+            .unwrap();
+    assert!(
+        validation.is_valid(),
+        "should pass with canonical-only data: {validation:?}"
+    );
+}
+
+#[test]
+fn test_sortition_validate_detects_fabricated_canonical_set() {
+    // Destination claims a sortition_id that doesn't exist in source snapshots.
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_sort.sqlite");
+    let conn = create_sortition_source_db(&src_path);
+
+    insert_snapshot(&conn, "sort_0", "bhh_0", 0);
+    insert_epoch(&conn, 0, 1);
+    drop(conn);
+
+    // Destination claims sort_0 AND sort_fake as canonical.
+    let dst_path = dir.path().join("dst_sort.sqlite");
+    create_sortition_dest_db(&dst_path, &["sort_0", "sort_fake"]);
+
+    let _stats =
+        copy_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap()).unwrap();
+
+    let validation =
+        validate_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap())
+            .unwrap();
+
+    assert!(
+        !validation.canonical_set_in_source,
+        "fabricated sortition_id should be detected"
+    );
+    assert!(!validation.is_valid(), "validation must fail");
+}
+
+#[test]
+fn test_sortition_optional_table_asymmetry() {
+    // Source has snapshot_burn_distributions but destination doesn't
+    // (e.g., table was created in source but clone_optional_schemas
+    // somehow didn't create it in destination). Validation should
+    // report Some(false).
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_sort.sqlite");
+    let conn = create_sortition_source_db(&src_path);
+
+    // Add the optional table to source.
+    conn.execute_batch(
+        "CREATE TABLE snapshot_burn_distributions (
+                sortition_id TEXT PRIMARY KEY,
+                data TEXT NOT NULL
+            )",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO snapshot_burn_distributions (sortition_id, data) \
+             VALUES ('sort_0', 'dist_data')",
+        [],
+    )
+    .unwrap();
+
+    insert_snapshot(&conn, "sort_0", "bhh_0", 0);
+    insert_epoch(&conn, 0, 1);
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_sort.sqlite");
+    create_sortition_dest_db(&dst_path, &["sort_0"]);
+
+    // Do the copy - this should copy snapshot_burn_distributions.
+    let _stats =
+        copy_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap()).unwrap();
+
+    // Validation should pass with the table present in both.
+    let validation =
+        validate_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap())
+            .unwrap();
+    assert_eq!(
+        validation.snapshot_burn_distributions_match,
+        Some(true),
+        "should match when present in both"
+    );
+    assert!(validation.is_valid(), "should pass: {validation:?}");
+
+    // Now drop the table from destination to simulate asymmetry.
+    {
+        let conn = Connection::open(&dst_path).unwrap();
+        conn.execute_batch("DROP TABLE snapshot_burn_distributions")
+            .unwrap();
+    }
+
+    let validation =
+        validate_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap())
+            .unwrap();
+    assert_eq!(
+        validation.snapshot_burn_distributions_match,
+        Some(false),
+        "should detect table present in source but not dest"
+    );
+    assert!(
+        !validation.is_valid(),
+        "asymmetric optional table must fail"
+    );
+}
+
+#[test]
+fn test_sortition_stacks_chain_tips_by_burn_view_copied() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_sort.sqlite");
+    let conn = create_sortition_source_db(&src_path);
+
+    // Insert canonical snapshots.
+    insert_snapshot(&conn, "sort_0", "bhh_0", 0);
+    insert_snapshot(&conn, "sort_1", "bhh_1", 1);
+    insert_epoch(&conn, 0, 2);
+
+    // Insert stacks_chain_tips_by_burn_view rows (schema 11 table).
+    // consensus_hash and burn_view_consensus_hash must reference
+    // existing snapshots(consensus_hash) due to FK constraints.
+    conn.execute(
+        "INSERT INTO stacks_chain_tips_by_burn_view \
+         (sortition_id, consensus_hash, burn_view_consensus_hash, block_hash, block_height) \
+         VALUES ('sort_0', 'ch_sort_0', 'ch_sort_0', 'bh_0', 0)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO stacks_chain_tips_by_burn_view \
+         (sortition_id, consensus_hash, burn_view_consensus_hash, block_hash, block_height) \
+         VALUES ('sort_1', 'ch_sort_1', 'ch_sort_1', 'bh_1', 1)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_sort.sqlite");
+    create_sortition_dest_db(&dst_path, &["sort_0", "sort_1"]);
+
+    let stats =
+        copy_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap()).unwrap();
+
+    // The stats struct should reflect the copied rows.
+    assert_eq!(
+        stats.stacks_chain_tips_by_burn_view_rows, 2,
+        "stats should report 2 stacks_chain_tips_by_burn_view rows"
+    );
+
+    // Verify the rows actually exist in the destination.
+    let dst_conn = Connection::open(&dst_path).unwrap();
+    let count: i64 = dst_conn
+        .query_row(
+            "SELECT COUNT(*) FROM stacks_chain_tips_by_burn_view",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 2);
+
+    // Validation should pass.
+    let validation =
+        validate_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap())
+            .unwrap();
+    assert!(
+        validation.is_valid(),
+        "validation should pass: {validation:?}"
+    );
+}
+
+#[test]
+fn test_sortition_stacks_chain_tips_by_burn_view_detects_extra_row() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_sort.sqlite");
+    let conn = create_sortition_source_db(&src_path);
+
+    insert_snapshot(&conn, "sort_0", "bhh_0", 0);
+    insert_epoch(&conn, 0, 1);
+
+    conn.execute(
+        "INSERT INTO stacks_chain_tips_by_burn_view \
+         (sortition_id, consensus_hash, burn_view_consensus_hash, block_hash, block_height) \
+         VALUES ('sort_0', 'ch_sort_0', 'ch_sort_0', 'bh_0', 0)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_sort.sqlite");
+    create_sortition_dest_db(&dst_path, &["sort_0"]);
+
+    copy_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap()).unwrap();
+
+    // Inject a non-canonical row directly into the destination.
+    {
+        let dst_conn = Connection::open(&dst_path).unwrap();
+        dst_conn.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+        dst_conn
+            .execute(
+                "INSERT INTO stacks_chain_tips_by_burn_view \
+                 (sortition_id, consensus_hash, burn_view_consensus_hash, block_hash, block_height) \
+                 VALUES ('rogue_sort', 'rogue_ch', 'rogue_bv', 'rogue_bh', 999)",
+                [],
+            )
+            .unwrap();
+    }
+
+    let validation =
+        validate_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap())
+            .unwrap();
+    assert!(
+        !validation.stacks_chain_tips_by_burn_view_match,
+        "extra non-canonical row should fail validation"
+    );
+    assert!(!validation.is_valid());
+}
+
+// -----------------------------------------------------------------------
+// Block preservation tests
+// -----------------------------------------------------------------------

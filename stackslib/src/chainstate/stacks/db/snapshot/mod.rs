@@ -15,6 +15,7 @@
 
 pub mod common;
 pub mod index;
+pub mod sortition;
 pub mod spv;
 
 #[cfg(test)]
@@ -23,5 +24,9 @@ mod tests;
 pub use index::{
     copy_index_side_tables, validate_index_side_tables, IndexSideTableStats,
     IndexSideTableValidation,
+};
+pub use sortition::{
+    copy_sortition_side_tables, validate_sortition_side_tables, SortitionSideTableStats,
+    SortitionSideTableValidation,
 };
 pub use spv::{copy_spv_headers, validate_spv_headers, SpvHeadersCopyStats, SpvHeadersValidation};
