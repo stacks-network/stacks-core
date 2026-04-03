@@ -1078,9 +1078,9 @@ impl NakamotoSigners {
         if exp == 0 {
             return Uint512::from_u64(1);
         }
-        let mut output = base.clone();
+        let mut output = *base;
         for _ in 1..exp {
-            output = output * base.clone() / scaling.clone();
+            output = output * *base / *scaling;
         }
         output
     }
@@ -1094,7 +1094,7 @@ impl NakamotoSigners {
         }
 
         let mut low = Uint512::from_u64(1);
-        let mut high = base.clone();
+        let mut high = base;
         loop {
             if high <= low {
                 return Some(high.min(low));
