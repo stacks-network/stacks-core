@@ -1698,6 +1698,15 @@ fn simple_neon_integration() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+
+    // Push epoch 3.5 beyond the test's mining range so that pox-5 doesn't
+    // activate while the test is still relying on pox-4 stacking state.
+    {
+        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+        epochs[StacksEpochId::Epoch34].end_height = 300;
+        epochs[StacksEpochId::Epoch35].start_height = 300;
+    }
+
     // set the block commit delay very high, so that we can safely assert that
     //  only one commit is submitted per tenure without generating test flake.
     naka_conf.miner.block_commit_delay = Duration::from_secs(600);
@@ -2155,6 +2164,15 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = "127.0.0.1:6000".to_string();
     naka_conf.node.prometheus_bind = Some(prom_bind);
+
+    // Push epoch 3.5 beyond the test's mining range so that pox-5 doesn't
+    // activate while the test is still relying on pox-4 stacking state.
+    {
+        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+        epochs[StacksEpochId::Epoch34].end_height = 300;
+        epochs[StacksEpochId::Epoch35].start_height = 300;
+    }
+
     let sender_sk = Secp256k1PrivateKey::random();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -2586,6 +2604,14 @@ fn multiple_miners() {
     naka_conf.node.local_peer_seed = vec![1, 1, 1, 1];
     naka_conf.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
 
+    // Push epoch 3.5 beyond the test's mining range so that pox-5 doesn't
+    // activate while the test is still relying on pox-4 stacking state.
+    {
+        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+        epochs[StacksEpochId::Epoch34].end_height = 300;
+        epochs[StacksEpochId::Epoch35].start_height = 300;
+    }
+
     let node_2_rpc = 51026;
     let node_2_p2p = 51025;
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
@@ -2857,6 +2883,10 @@ fn correct_burn_outs() {
         epochs[StacksEpochId::Epoch25].start_height = 208;
         epochs[StacksEpochId::Epoch25].end_height = 225;
         epochs[StacksEpochId::Epoch30].start_height = 225;
+        // Push epoch 3.5 beyond the test's mining range so that pox-5 doesn't
+        // activate while the test is still relying on pox-4 stacking state.
+        epochs[StacksEpochId::Epoch34].end_height = 300;
+        epochs[StacksEpochId::Epoch35].start_height = 300;
     }
 
     naka_conf.initial_balances.clear();
@@ -4214,6 +4244,14 @@ fn follower_bootup_across_multiple_cycles() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
+
+    // Push epoch 3.5 beyond the test's mining range so that pox-5 doesn't
+    // activate while the test is still relying on pox-4 stacking state.
+    {
+        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+        epochs[StacksEpochId::Epoch34].end_height = 300;
+        epochs[StacksEpochId::Epoch35].start_height = 300;
+    }
 
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
@@ -6788,6 +6826,15 @@ fn signer_chainstate() {
     let prom_bind = "127.0.0.1:6000".to_string();
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
+
+    // Push epoch 3.5 beyond the test's mining range so that pox-5 doesn't
+    // activate while the test is still relying on pox-4 stacking state.
+    {
+        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+        epochs[StacksEpochId::Epoch34].end_height = 300;
+        epochs[StacksEpochId::Epoch35].start_height = 300;
+    }
+
     let sender_sk = Secp256k1PrivateKey::random();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -12064,6 +12111,14 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     naka_conf.miner.mempool_walk_strategy = strategy;
     naka_conf.miner.nakamoto_attempt_time_ms = 10_000;
 
+    // Push epoch 3.5 beyond the test's mining range so that pox-5 doesn't
+    // activate while the test is still relying on pox-4 stacking state.
+    {
+        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+        epochs[StacksEpochId::Epoch34].end_height = 300;
+        epochs[StacksEpochId::Epoch35].start_height = 300;
+    }
+
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
@@ -13733,6 +13788,14 @@ fn test_sip_031_last_phase() {
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
+    // Push epoch 3.5 beyond the test's mining range so that pox-5 doesn't
+    // activate while the test is still relying on pox-4 stacking state.
+    {
+        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+        epochs[StacksEpochId::Epoch34].end_height = 350;
+        epochs[StacksEpochId::Epoch35].start_height = 350;
+    }
+
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -14057,6 +14120,14 @@ fn test_sip_031_last_phase_out_of_epoch() {
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
+    // Push epoch 3.5 beyond the test's mining range so that pox-5 doesn't
+    // activate while the test is still relying on pox-4 stacking state.
+    {
+        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+        epochs[StacksEpochId::Epoch34].end_height = 350;
+        epochs[StacksEpochId::Epoch35].start_height = 350;
+    }
+
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -14269,6 +14340,14 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
+
+    // Push epoch 3.5 beyond the test's mining range so that pox-5 doesn't
+    // activate while the test is still relying on pox-4 stacking state.
+    {
+        let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+        epochs[StacksEpochId::Epoch34].end_height = 350;
+        epochs[StacksEpochId::Epoch35].start_height = 350;
+    }
 
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
