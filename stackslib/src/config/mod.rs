@@ -563,6 +563,15 @@ impl Config {
                 burnchain.pox_constants.pox_4_activation_height = epoch.start_height as u32;
                 burnchain.pox_constants.v3_unlock_height = epoch.start_height as u32 + 1;
             }
+
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch35) {
+                // Override pox_5_activation_height to the start_height of epoch3.5
+                debug!(
+                    "Override pox_5_activation_height from {} to {}",
+                    burnchain.pox_constants.pox_5_activation_height, epoch.start_height
+                );
+                burnchain.pox_constants.pox_5_activation_height = epoch.start_height as u32;
+            }
         }
 
         if let Some(sunset_start) = self.burnchain.sunset_start {

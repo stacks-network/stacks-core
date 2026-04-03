@@ -36,7 +36,7 @@ use crate::chainstate::burn::operations::{
     BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::core::*;
 #[cfg(test)]
@@ -397,9 +397,7 @@ impl PoxConstants {
         burn_height: u64,
     ) -> &'static str {
         if burn_height > pox_5_activation_height {
-            // TODO [Pox5]: Fix this and use POX_5_NAME
-            // POX_5_NAME
-            POX_4_NAME
+            POX_5_NAME
         } else if burn_height > pox_4_activation_height {
             POX_4_NAME
         } else if burn_height > pox_3_activation_height {

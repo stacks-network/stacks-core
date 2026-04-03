@@ -97,6 +97,9 @@ use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
+use stacks::util_lib::signed_structured_data::pox5::{
+    make_pox_5_signer_key_signature, Pox5SignatureTopic,
+};
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -140,6 +143,9 @@ use crate::{tests, BitcoinRegtestController, BurnchainController, Config, Config
 
 pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 pub static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
+
+pub static POX_5_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
+pub static POX_5_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 
 use clarity::vm::database::STXBalance;
 use stacks::chainstate::stacks::boot::SIP_031_NAME;
@@ -19521,6 +19527,450 @@ fn test_pox_5_activation() {
     );
 
     assert_eq!(pox_5_boot_contract_exists, Some(true));
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+/// Test PoX-5 staking
+///
+/// - boot to epoch 3.5
+/// - stake STX
+#[test]
+#[ignore]
+#[serial]
+fn test_pox_5_staking() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.node.pox_sync_sample_secs = 180;
+    naka_conf.burnchain.max_rbf = 10_000_000;
+
+    println!(
+        "POX_CONSTANTS0: {} {}",
+        naka_conf
+            .get_burnchain()
+            .pox_constants
+            .pox_4_activation_height,
+        naka_conf
+            .get_burnchain()
+            .pox_constants
+            .pox_5_activation_height
+    );
+
+    // setup 3 stakers for pox-5
+    let staker0_sk = setup_stacker(&mut naka_conf);
+    let staker0_address = tests::to_addr(&staker0_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(staker0_address.clone()).to_string(),
+        POX_5_DEFAULT_STACKER_BALANCE,
+    );
+    let staker1_sk = setup_stacker(&mut naka_conf);
+    let staker1_address = tests::to_addr(&staker1_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(staker1_address.clone()).to_string(),
+        POX_5_DEFAULT_STACKER_BALANCE,
+    );
+    let staker2_sk = setup_stacker(&mut naka_conf);
+    let staker2_address = tests::to_addr(&staker2_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(staker2_address.clone()).to_string(),
+        POX_5_DEFAULT_STACKER_BALANCE,
+    );
+
+    test_observer::spawn();
+    test_observer::register(
+        &mut naka_conf,
+        &[
+            EventKeyType::AnyEvent,
+            EventKeyType::MinedBlocks,
+            EventKeyType::MemPoolTransactions,
+        ],
+    );
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[staker0_sk.clone(), staker1_sk.clone(), staker2_sk.clone()],
+        &[staker0_sk.clone(), staker1_sk.clone(), staker2_sk.clone()],
+        &mut None,
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let _sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut _chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("Nakamoto miner started...");
+
+    let signers = TestSigners::new(vec![
+        staker0_sk.clone(),
+        staker1_sk.clone(),
+        staker2_sk.clone(),
+    ]);
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // mine until epoch 3.5 height
+    loop {
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+        wait_for(20, || {
+            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
+        })
+        .unwrap();
+
+        let node_info = get_chain_info_opt(&naka_conf).unwrap();
+        if node_info.burn_block_height
+            >= naka_conf.burnchain.epochs.clone().unwrap()[StacksEpochId::Epoch35].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+
+    // prepare pox-5 signatures
+    use rand::RngCore as _;
+    let mut rng = rand::thread_rng();
+    let mut random_256_bytes = [0u8; 256];
+
+    // staker 0
+    let staker0_pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        tests::to_addr(&staker0_sk).bytes().clone(),
+    );
+    let staker0_pox_addr_tuple: clarity::vm::Value =
+        staker0_pox_addr.clone().as_clarity_tuple().unwrap().into();
+    let signature0 = make_pox_5_signer_key_signature(
+        &staker0_pox_addr,
+        &staker0_sk,
+        reward_cycle.into(),
+        &Pox5SignatureTopic::Stake,
+        naka_conf.burnchain.chain_id,
+        12_u128,
+        u128::MAX,
+        1,
+    )
+    .unwrap()
+    .to_rsv();
+    let staker0_pk = StacksPublicKey::from_private(&staker0_sk);
+    rng.fill_bytes(&mut random_256_bytes);
+    let staking0_tx = make_contract_call(
+        &staker0_sk,
+        1,
+        1000,
+        naka_conf.burnchain.chain_id,
+        &StacksAddress::burn_address(false),
+        "pox-5",
+        "stake",
+        &[
+            clarity::vm::Value::UInt(POX_5_DEFAULT_STACKER_STX_AMT),
+            staker0_pox_addr_tuple.clone(),
+            clarity::vm::Value::UInt(block_height as u128),
+            clarity::vm::Value::some(clarity::vm::Value::buff_from(signature0).unwrap()).unwrap(),
+            clarity::vm::Value::buff_from(staker0_pk.to_bytes_compressed()).unwrap(),
+            clarity::vm::Value::UInt(u128::MAX),
+            clarity::vm::Value::UInt(1),
+            clarity::vm::Value::UInt(12),
+            clarity::vm::Value::buff_from(random_256_bytes.to_vec()).unwrap(),
+        ],
+    );
+
+    // staker 1
+    let staker1_pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        tests::to_addr(&staker1_sk).bytes().clone(),
+    );
+    let staker1_pox_addr_tuple: clarity::vm::Value =
+        staker1_pox_addr.clone().as_clarity_tuple().unwrap().into();
+    let signature1 = make_pox_5_signer_key_signature(
+        &staker1_pox_addr,
+        &staker1_sk,
+        reward_cycle.into(),
+        &Pox5SignatureTopic::Stake,
+        naka_conf.burnchain.chain_id,
+        12_u128,
+        u128::MAX,
+        1,
+    )
+    .unwrap()
+    .to_rsv();
+    let staker1_pk = StacksPublicKey::from_private(&staker1_sk);
+    rng.fill_bytes(&mut random_256_bytes);
+    let staking1_tx = make_contract_call(
+        &staker1_sk,
+        1,
+        1000,
+        naka_conf.burnchain.chain_id,
+        &StacksAddress::burn_address(false),
+        "pox-5",
+        "stake",
+        &[
+            clarity::vm::Value::UInt(POX_5_DEFAULT_STACKER_STX_AMT),
+            staker1_pox_addr_tuple.clone(),
+            clarity::vm::Value::UInt(block_height as u128),
+            clarity::vm::Value::some(clarity::vm::Value::buff_from(signature1).unwrap()).unwrap(),
+            clarity::vm::Value::buff_from(staker1_pk.to_bytes_compressed()).unwrap(),
+            clarity::vm::Value::UInt(u128::MAX),
+            clarity::vm::Value::UInt(1),
+            clarity::vm::Value::UInt(12),
+            clarity::vm::Value::buff_from(random_256_bytes.to_vec()).unwrap(),
+        ],
+    );
+
+    // staker 2
+    let staker2_pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        tests::to_addr(&staker2_sk).bytes().clone(),
+    );
+    let staker2_pox_addr_tuple: clarity::vm::Value =
+        staker2_pox_addr.clone().as_clarity_tuple().unwrap().into();
+    let signature2 = make_pox_5_signer_key_signature(
+        &staker2_pox_addr,
+        &staker2_sk,
+        reward_cycle.into(),
+        &Pox5SignatureTopic::Stake,
+        naka_conf.burnchain.chain_id,
+        12_u128,
+        u128::MAX,
+        1,
+    )
+    .unwrap()
+    .to_rsv();
+    let staker2_pk = StacksPublicKey::from_private(&staker2_sk);
+    rng.fill_bytes(&mut random_256_bytes);
+    let staking2_tx = make_contract_call(
+        &staker2_sk,
+        1,
+        1000,
+        naka_conf.burnchain.chain_id,
+        &StacksAddress::burn_address(false),
+        "pox-5",
+        "stake",
+        &[
+            clarity::vm::Value::UInt(POX_5_DEFAULT_STACKER_STX_AMT),
+            staker2_pox_addr_tuple.clone(),
+            clarity::vm::Value::UInt(block_height as u128),
+            clarity::vm::Value::some(clarity::vm::Value::buff_from(signature2).unwrap()).unwrap(),
+            clarity::vm::Value::buff_from(staker2_pk.to_bytes_compressed()).unwrap(),
+            clarity::vm::Value::UInt(u128::MAX),
+            clarity::vm::Value::UInt(1),
+            clarity::vm::Value::UInt(12),
+            clarity::vm::Value::buff_from(random_256_bytes.to_vec()).unwrap(),
+        ],
+    );
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    let staking0_txid = submit_tx(&http_origin, &staking0_tx);
+    let staking1_txid = submit_tx(&http_origin, &staking1_tx);
+    let staking2_txid = submit_tx(&http_origin, &staking2_tx);
+
+    let mut found_txids = HashSet::new();
+
+    wait_for(180, || {
+        for nakamoto_block_event in test_observer::get_mined_nakamoto_blocks() {
+            for tx_event in &nakamoto_block_event.tx_events {
+                match tx_event {
+                    TransactionEvent::Success(TransactionSuccessEvent { txid, .. }) => {
+                        let staking_txid = txid.to_string();
+                        if [
+                            staking0_txid.clone(),
+                            staking1_txid.clone(),
+                            staking2_txid.clone(),
+                        ]
+                        .contains(&staking_txid)
+                        {
+                            found_txids.insert(staking_txid);
+                        }
+                    }
+                    _ => (),
+                }
+            }
+
+            if found_txids.len() == 3 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+    .unwrap();
+
+    // the reward set is generally calculated in the first block of the prepare phase hence the + 1
+    let reward_set_calculation = btc_regtest_controller
+        .get_burnchain()
+        .pox_constants
+        .prepare_phase_start(
+            btc_regtest_controller.get_burnchain().first_block_height,
+            reward_cycle,
+        )
+        + 1;
+
+    // Run until the prepare phase
+    run_until_burnchain_height(
+        &btc_regtest_controller,
+        &blocks_processed,
+        reward_set_calculation,
+        &naka_conf,
+    );
+
+    let result = call_read_only(
+        &naka_conf,
+        &StacksAddress::burn_address(false),
+        "pox-5",
+        "get-staker-info",
+        vec![&Value::Principal(staker0_address.clone().into())],
+    )
+    .result()
+    .unwrap();
+
+    assert_eq!(
+        result
+            .expect_optional()
+            .unwrap()
+            .unwrap()
+            .expect_tuple()
+            .unwrap()
+            .get("amount-ustx")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap(),
+        POX_5_DEFAULT_STACKER_STX_AMT
+    );
+
+    let result = call_read_only(
+        &naka_conf,
+        &StacksAddress::burn_address(false),
+        "pox-5",
+        "get-staker-info",
+        vec![&Value::Principal(staker1_address.clone().into())],
+    )
+    .result()
+    .unwrap();
+
+    assert_eq!(
+        result
+            .expect_optional()
+            .unwrap()
+            .unwrap()
+            .expect_tuple()
+            .unwrap()
+            .get("amount-ustx")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap(),
+        POX_5_DEFAULT_STACKER_STX_AMT
+    );
+
+    let result = call_read_only(
+        &naka_conf,
+        &StacksAddress::burn_address(false),
+        "pox-5",
+        "get-staker-info",
+        vec![&Value::Principal(staker2_address.clone().into())],
+    )
+    .result()
+    .unwrap();
+
+    assert_eq!(
+        result
+            .expect_optional()
+            .unwrap()
+            .unwrap()
+            .expect_tuple()
+            .unwrap()
+            .get("amount-ustx")
+            .unwrap()
+            .clone()
+            .expect_u128()
+            .unwrap(),
+        POX_5_DEFAULT_STACKER_STX_AMT
+    );
+
+    let transfer_tx = make_stacks_transfer_tx(
+        &staker0_sk,
+        2,
+        1000,
+        naka_conf.burnchain.chain_id,
+        &staker1_address.clone().into(),
+        10000,
+    );
+
+    let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx.serialize_to_vec()));
+
+    // Run until the prepare phase + 1
+    run_until_burnchain_height(
+        &btc_regtest_controller,
+        &blocks_processed,
+        reward_set_calculation + 1,
+        &naka_conf,
+    );
+
+    submit_tx(&http_origin, &transfer_tx.serialize_to_vec());
+
+    wait_for(30, || {
+        let transfer_tx_included = test_observer::get_blocks().into_iter().any(|block_json| {
+            block_json["transactions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
+        });
+        Ok(transfer_tx_included)
+    })
+    .expect("Timed out waiting for submitted transaction to be included in a block");
 
     coord_channel
         .lock()
