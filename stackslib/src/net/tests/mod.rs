@@ -188,23 +188,38 @@ impl NakamotoBootPlan {
 
         // Override pox activation heights to match epoch start heights,
         // mirroring what the production config does in config/mod.rs.
+        // Only override when the epoch has a non-zero start_height; zero means
+        // the epoch is collapsed/active-from-genesis in the test epoch list, and
+        // overriding would clobber the values set by with_pox_constants().
         if let Some(epochs) = chainstate_config.epochs.as_ref() {
             let pox = &mut chainstate_config.burnchain.pox_constants;
             if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch21) {
-                pox.v1_unlock_height = epoch.start_height as u32 + 1;
+                if epoch.start_height > 0 {
+                    pox.v1_unlock_height = epoch.start_height as u32 + 1;
+                }
             }
             if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch22) {
-                pox.v2_unlock_height = epoch.start_height as u32 + 1;
+                if epoch.start_height > 0 {
+                    pox.v2_unlock_height = epoch.start_height as u32 + 1;
+                }
             }
             if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch24) {
-                pox.pox_3_activation_height = epoch.start_height as u32;
+                if epoch.start_height > 0 {
+                    pox.pox_3_activation_height = epoch.start_height as u32;
+                }
             }
             if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch25) {
-                pox.pox_4_activation_height = epoch.start_height as u32;
-                pox.v3_unlock_height = epoch.start_height as u32 + 1;
+                if epoch.start_height > 0 {
+                    pox.pox_4_activation_height = epoch.start_height as u32;
+                    pox.v3_unlock_height = epoch.start_height as u32 + 1;
+                }
             }
             if let Some(epoch) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch35) {
                 pox.pox_5_activation_height = epoch.start_height as u32;
+            } else {
+                // If Epoch35 is not in the epoch list, disable pox-5 activation
+                // to avoid NoSuchContract errors when pox-5 is not deployed.
+                pox.pox_5_activation_height = u32::MAX;
             }
         }
 

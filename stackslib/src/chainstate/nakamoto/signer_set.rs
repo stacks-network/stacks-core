@@ -386,14 +386,18 @@ impl RawPox5Entry {
     pub fn to_redeem_script(&self) -> Script {
         let mut principal_data = vec![0x05, self.user.version()];
         principal_data.extend_from_slice(&self.user.1);
-        Builder::new()
+        let builder = Builder::new()
             .push_slice(&principal_data)
             .push_opcode(opcodes::All::OP_DROP)
             .push_scriptint(self.unlock_height.try_into().unwrap())
             .push_opcode(opcodes::OP_CLTV)
-            .push_opcode(opcodes::All::OP_DROP)
-            .push_slice(&self.unlock_bytes)
-            .into_script()
+            .push_opcode(opcodes::All::OP_DROP);
+        let builder = if !self.unlock_bytes.is_empty() {
+            builder.push_slice(&self.unlock_bytes)
+        } else {
+            builder
+        };
+        builder.into_script()
     }
 
     /// Compute the sha256 hash of the timelock output script
