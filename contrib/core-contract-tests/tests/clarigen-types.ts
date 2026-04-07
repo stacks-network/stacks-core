@@ -3612,6 +3612,7 @@ export const contracts = {
               response: {
                 ok: {
                   tuple: [
+                    { name: 'amount-ustx', type: 'uint128' },
                     { name: 'first-reward-cycle', type: 'uint128' },
                     { name: 'staker', type: 'principal' },
                   ],
@@ -3626,6 +3627,7 @@ export const contracts = {
             response: {
               ok: {
                 tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
                   { name: 'first-reward-cycle', type: 'uint128' },
                   { name: 'staker', type: 'principal' },
                 ],
@@ -3640,6 +3642,7 @@ export const contracts = {
           paramsResp: TypedAbiArg<
             Response<
               {
+                amountUstx: number | bigint;
                 firstRewardCycle: number | bigint;
                 staker: string;
               },
@@ -3650,6 +3653,7 @@ export const contracts = {
         ],
         Response<
           {
+            amountUstx: bigint;
             firstRewardCycle: bigint;
             staker: string;
           },
@@ -3663,6 +3667,7 @@ export const contracts = {
           { name: 'staker', type: 'principal' },
           { name: 'first-reward-cycle', type: 'uint128' },
           { name: 'num-cycles', type: 'uint128' },
+          { name: 'amount-ustx', type: 'uint128' },
         ],
         outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
       } as TypedAbiFunction<
@@ -3670,6 +3675,7 @@ export const contracts = {
           staker: TypedAbiArg<string, 'staker'>,
           firstRewardCycle: TypedAbiArg<number | bigint, 'firstRewardCycle'>,
           numCycles: TypedAbiArg<number | bigint, 'numCycles'>,
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
         ],
         Response<boolean, bigint>
       >,
@@ -4014,6 +4020,7 @@ export const contracts = {
               ok: {
                 tuple: [
                   { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'cycles-remaining', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   {
                     name: 'pool-or-solo-info',
@@ -4079,6 +4086,7 @@ export const contracts = {
         Response<
           {
             amountUstx: bigint;
+            cyclesRemaining: bigint;
             numCycles: bigint;
             poolOrSoloInfo: Response<
               string,
@@ -4094,6 +4102,78 @@ export const contracts = {
             unlockBurnHeight: bigint;
             unlockBytes: Uint8Array;
             unlockCycle: bigint;
+          },
+          bigint
+        >
+      >,
+      updateAmountUstxStaked: {
+        name: 'update-amount-ustx-staked',
+        access: 'private',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'amount-ustx', type: 'uint128' },
+          { name: 'cycles-remaining', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
+          cyclesRemaining: TypedAbiArg<number | bigint, 'cyclesRemaining'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      updateAmountUstxStakedForCycle: {
+        name: 'update-amount-ustx-staked-for-cycle',
+        access: 'private',
+        args: [
+          { name: 'cycle-index', type: 'uint128' },
+          {
+            name: 'params-resp',
+            type: {
+              response: {
+                ok: {
+                  tuple: [
+                    { name: 'amount-ustx', type: 'uint128' },
+                    { name: 'first-reward-cycle', type: 'uint128' },
+                  ],
+                },
+                error: 'uint128',
+              },
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'first-reward-cycle', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          cycleIndex: TypedAbiArg<number | bigint, 'cycleIndex'>,
+          paramsResp: TypedAbiArg<
+            Response<
+              {
+                amountUstx: number | bigint;
+                firstRewardCycle: number | bigint;
+              },
+              number | bigint
+            >,
+            'paramsResp'
+          >,
+        ],
+        Response<
+          {
+            amountUstx: bigint;
+            firstRewardCycle: bigint;
           },
           bigint
         >
@@ -4735,6 +4815,7 @@ export const contracts = {
               ok: {
                 tuple: [
                   { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'cycles-remaining', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   {
                     name: 'pool-or-solo-info',
@@ -4798,6 +4879,7 @@ export const contracts = {
         Response<
           {
             amountUstx: bigint;
+            cyclesRemaining: bigint;
             numCycles: bigint;
             poolOrSoloInfo: Response<
               string,
@@ -4830,6 +4912,7 @@ export const contracts = {
               ok: {
                 tuple: [
                   { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'cycles-remaining', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   {
                     name: 'pool-or-solo-info',
@@ -4883,6 +4966,7 @@ export const contracts = {
         Response<
           {
             amountUstx: bigint;
+            cyclesRemaining: bigint;
             numCycles: bigint;
             poolOrSoloInfo: Response<
               string,
@@ -5455,6 +5539,11 @@ export const contracts = {
           signerKey: Uint8Array;
         }
       >,
+      rewardCycleTotalStaked: {
+        name: 'reward-cycle-total-staked',
+        key: 'uint128',
+        value: 'uint128',
+      } as TypedAbiMap<number | bigint, bigint>,
       signerKeyGrants: {
         name: 'signer-key-grants',
         key: {
@@ -6539,6 +6628,7 @@ export const contracts = {
               ok: {
                 tuple: [
                   { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'cycles-remaining', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   {
                     name: 'pool-or-solo-info',
@@ -6602,6 +6692,7 @@ export const contracts = {
         Response<
           {
             amountUstx: bigint;
+            cyclesRemaining: bigint;
             numCycles: bigint;
             poolOrSoloInfo: Response<
               string,
@@ -6634,6 +6725,7 @@ export const contracts = {
               ok: {
                 tuple: [
                   { name: 'amount-ustx', type: 'uint128' },
+                  { name: 'cycles-remaining', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   {
                     name: 'pool-or-solo-info',
@@ -6687,6 +6779,7 @@ export const contracts = {
         Response<
           {
             amountUstx: bigint;
+            cyclesRemaining: bigint;
             numCycles: bigint;
             poolOrSoloInfo: Response<
               string,

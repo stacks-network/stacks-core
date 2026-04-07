@@ -121,7 +121,14 @@ describe('staking', () => {
       const stackers = getAllStackersForCycle(BigInt(startCycle + i));
       expect(stackers).toHaveLength(1);
       expect(stackers[0]).toBe(stacker);
+      expect(rov(pox5.getTotalUstxStacked(BigInt(startCycle + i)))).toBe(
+        minAmount,
+      );
     }
+    expect(rov(pox5.getTotalUstxStacked(0n))).toBe(0n);
+    expect(rov(pox5.getTotalUstxStacked(BigInt(startCycle + numCycles)))).toBe(
+      0n,
+    );
     expect(
       rov(pox5.getStakerSetItemForCycle({ staker: stacker, cycle: 0n })),
     ).toBeNull();
@@ -693,6 +700,7 @@ describe('staking', () => {
           }),
         ),
       ).not.toBeNull();
+      expect(rov(pox5.getTotalUstxStacked(1n))).toBe(minAmount);
     });
 
     test('can switch from solo to pooled via stake-extend-pooled', () => {
@@ -783,6 +791,227 @@ describe('staking', () => {
 
       expect(result.value).toEqual(errorCodes.ERR_INVALID_POX_ADDRESS);
     });
+  });
+});
+
+describe('get-total-ustx-stacked', () => {
+  beforeEach(() => {
+    txOk(
+      pox5.setBurnchainParameters({
+        firstBurnHeight: 0n,
+        prepareCycleLength: 10n,
+        rewardCycleLength: 100n,
+        beginPox5RewardCycle: 0n,
+      }),
+      deployer,
+    );
+  });
+
+  test('returns zero for cycles with no stakers', () => {
+    expect(rov(pox5.getTotalUstxStacked(0n))).toBe(0n);
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(0n);
+    expect(rov(pox5.getTotalUstxStacked(100n))).toBe(0n);
+  });
+
+  test('accumulates totals from multiple stakers in the same cycle', () => {
+    const { signerKey: aliceKey } = setupSigner(alice);
+    const { signerKey: bobKey } = setupSigner(bob);
+    const aliceAmount = minAmount;
+    const bobAmount = minAmount + 500000n;
+
+    txOk(
+      pox5.stake({
+        amountUstx: aliceAmount,
+        poxAddr: randomPoxAddress(),
+        signerKey: aliceKey,
+        maxAmount: aliceAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    txOk(
+      pox5.stake({
+        amountUstx: bobAmount,
+        poxAddr: randomPoxAddress(),
+        signerKey: bobKey,
+        maxAmount: bobAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      bob,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(aliceAmount + bobAmount);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(aliceAmount);
+  });
+
+  test('stake-extend adds to new cycle totals', () => {
+    const { signerKey } = setupSigner(alice);
+    const poxAddr = randomPoxAddress();
+    const amount = minAmount;
+
+    const stakeReceipt = txOk(
+      pox5.stake({
+        amountUstx: amount,
+        poxAddr,
+        signerKey,
+        maxAmount: amount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(amount);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(0n);
+
+    mineUntil(stakeReceipt.value.unlockBurnHeight);
+
+    txOk(
+      pox5.stakeExtend({
+        amountUstx: amount,
+        numCycles: 1,
+        poxAddr,
+        signerKey,
+        signerSig: null,
+        maxAmount: amount,
+        authId: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(amount);
+  });
+
+  test('stake-update correctly increases cycle totals', () => {
+    const { signerKey } = setupSigner(alice);
+    const initialAmount = minAmount;
+    const increase = 250000n;
+
+    txOk(
+      pox5.stake({
+        amountUstx: initialAmount,
+        poxAddr: randomPoxAddress(),
+        signerKey,
+        maxAmount: initialAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(initialAmount);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(initialAmount);
+
+    const { signerKey: nextKey } = setupSigner(alice);
+    txOk(
+      pox5.stakeUpdate({
+        amountUstxIncrease: increase,
+        poxAddr: randomPoxAddress(),
+        signerKey: nextKey,
+        signerSig: null,
+        authId: 1,
+        maxAmount: initialAmount + increase,
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(initialAmount + increase);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(initialAmount + increase);
+  });
+
+  test('pooled staking tracks cycle totals', () => {
+    registerPool({ caller: deployer });
+
+    txOk(
+      pox5.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(minAmount);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(minAmount);
+    expect(rov(pox5.getTotalUstxStacked(3n))).toBe(0n);
+  });
+
+  test('stake-update-pooled correctly increases cycle totals', () => {
+    registerPool({ caller: deployer });
+    const increase = 500000n;
+
+    txOk(
+      pox5.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(minAmount);
+
+    txOk(
+      pox5.stakeUpdatePooled({
+        poolOwner: testPool.identifier,
+        amountUstxIncrease: increase,
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(minAmount + increase);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(minAmount + increase);
+  });
+
+  test('stake-extend-pooled adds to new cycle totals', () => {
+    registerPool({ caller: deployer });
+
+    const pooledStake = txOk(
+      pox5.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(1n))).toBe(minAmount);
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(0n);
+
+    mineUntil(pooledStake.value.unlockBurnHeight);
+
+    txOk(
+      pox5.stakeExtendPooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    expect(rov(pox5.getTotalUstxStacked(2n))).toBe(minAmount);
   });
 });
 

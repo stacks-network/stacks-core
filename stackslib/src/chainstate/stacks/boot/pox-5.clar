@@ -192,6 +192,12 @@
     { until-burn-ht: (optional uint) }
 )
 
+;; How many uSTX are staked in a given reward cycle.
+(define-map reward-cycle-total-staked
+    uint
+    uint
+)
+
 ;; What's the reward cycle number of the burnchain block height?
 ;; Will runtime-abort if height is less than the first burnchain block (this is intentional)
 (define-read-only (burn-height-to-reward-cycle (height uint))
@@ -245,10 +251,9 @@
     (map-get? pools owner)
 )
 
-;; TODO
-;; #[allow(unused_binding)]
+;; Get the total amount of uSTX staked in a given reward cycle.
 (define-read-only (get-total-ustx-stacked (reward-cycle uint))
-    u0
+    (default-to u0 (map-get? reward-cycle-total-staked reward-cycle))
 )
 
 ;; Get the burn height at which a particular contract is allowed to stack for a particular principal.
@@ -371,7 +376,9 @@
             ERR_INSUFFICIENT_FUNDS
         )
 
-        (try! (add-staker-to-reward-cycles tx-sender first-reward-cycle num-cycles))
+        (try! (add-staker-to-reward-cycles tx-sender first-reward-cycle num-cycles
+            amount-ustx
+        ))
 
         (map-set staking-state tx-sender {
             amount-ustx: amount-ustx,
@@ -466,7 +473,9 @@
         )
         (asserts! (is-eq prev-unlock-cycle current-cycle) ERR_CANNOT_EXTEND)
 
-        (try! (add-staker-to-reward-cycles tx-sender (+ current-cycle u1) num-cycles))
+        (try! (add-staker-to-reward-cycles tx-sender (+ current-cycle u1) num-cycles
+            amount-ustx
+        ))
 
         ;; The caller has locked STX - we need to ensure that their locked + unlocked balance
         ;; is sufficient
@@ -573,20 +582,16 @@
         ;;  pox-addr must be valid
         (try! (check-pox-addr pox-addr))
 
-        (let (
-                (stake-update-result (try! (inner-stake-update amount-ustx-increase
-                    (err {
-                        pox-addr: pox-addr,
-                        signer-key: signer-key,
-                    })
-                )))
-                (cycles-remaining (- (get unlock-cycle stake-update-result)
-                    (current-pox-reward-cycle)
-                ))
-            )
+        (let ((stake-update-result (try! (inner-stake-update amount-ustx-increase
+                (err {
+                    pox-addr: pox-addr,
+                    signer-key: signer-key,
+                })
+            ))))
             (try! (validate-signer-key-usage pox-addr (current-pox-reward-cycle)
-                "stake-update" cycles-remaining signer-sig signer-key
-                amount-ustx-increase max-amount auth-id tx-sender
+                "stake-update" (get cycles-remaining stake-update-result)
+                signer-sig signer-key amount-ustx-increase max-amount
+                auth-id tx-sender
             ))
             (ok stake-update-result)
         )
@@ -612,6 +617,7 @@
                 )
                 u1
             ))
+            (cycles-remaining (- unlock-cycle (current-pox-reward-cycle)))
         )
         ;; assert that the amount of STX to increase is greater than 0
         (asserts! (> amount-ustx-increase u0) ERR_INVALID_AMOUNT)
@@ -623,6 +629,10 @@
 
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (verify-caller-allowed))
+
+        (try! (update-amount-ustx-staked tx-sender amount-ustx-increase
+            cycles-remaining
+        ))
 
         (map-set staking-state tx-sender {
             amount-ustx: new-amount-ustx,
@@ -640,6 +650,7 @@
             unlock-cycle: unlock-cycle,
             num-cycles: (get num-cycles current-stacker-info),
             pool-or-solo-info: pool-or-solo-info,
+            cycles-remaining: cycles-remaining,
         })
     )
 )
@@ -1202,6 +1213,7 @@
         (staker principal)
         (first-reward-cycle uint)
         (num-cycles uint)
+        (amount-ustx uint)
     )
     (let ((cycle-indexes (unwrap!
             (slice?
@@ -1217,6 +1229,7 @@
             (ok {
                 staker: staker,
                 first-reward-cycle: first-reward-cycle,
+                amount-ustx: amount-ustx,
             })
         ))
         (ok true)
@@ -1228,14 +1241,71 @@
         (params-resp (response {
             staker: principal,
             first-reward-cycle: uint,
+            amount-ustx: uint,
         }
             uint
         ))
     )
-    (let ((params (try! params-resp)))
-        (try! (add-staker-to-set-for-cycle (get staker params)
-            (+ (get first-reward-cycle params) cycle-index)
+    (let (
+            (params (try! params-resp))
+            (reward-cycle (+ (get first-reward-cycle params) cycle-index))
+            (total-staked (get-total-ustx-stacked reward-cycle))
+        )
+        (try! (add-staker-to-set-for-cycle (get staker params) reward-cycle))
+        (map-set reward-cycle-total-staked reward-cycle
+            (+ total-staked (get amount-ustx params))
+        )
+        (ok params)
+    )
+)
+
+;; Iterate over the remaining cycles for a staker and update the total amount of uSTX staked.
+;; Called from `stake-update` and `stake-update-pooled`.
+(define-private (update-amount-ustx-staked
+        (staker principal)
+        (amount-ustx uint)
+        (cycles-remaining uint)
+    )
+    (let (
+            (current-cycle (current-pox-reward-cycle))
+            (cycle-indexes (unwrap!
+                (slice?
+                    (list
+                        u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14
+                        u15 u16 u17 u18 u19 u20 u21 u22 u23
+                    )
+                    u0 cycles-remaining
+                )
+                ERR_INVALID_NUM_CYCLES
+            ))
+        )
+        (try! (fold update-amount-ustx-staked-for-cycle cycle-indexes
+            (ok {
+                first-reward-cycle: (+ current-cycle u1),
+                amount-ustx: amount-ustx,
+            })
         ))
+        (ok true)
+    )
+)
+
+(define-private (update-amount-ustx-staked-for-cycle
+        (cycle-index uint)
+        (params-resp (response {
+            first-reward-cycle: uint,
+            amount-ustx: uint,
+        }
+            uint
+        ))
+    )
+    (let (
+            (params (try! params-resp))
+            (amount-staked (get-total-ustx-stacked (+ (get first-reward-cycle params) cycle-index)))
+        )
+        (map-set reward-cycle-total-staked
+            (+ (get first-reward-cycle params) cycle-index)
+            (+ amount-staked (get amount-ustx params))
+        )
         (ok params)
     )
 )
