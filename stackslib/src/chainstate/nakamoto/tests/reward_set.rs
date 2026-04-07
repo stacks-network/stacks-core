@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use clarity::util::uint::{Uint256, Uint512};
+use clarity::util::uint::FixedPointU256;
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use pinny::tag;
 use proptest::array::uniform20;
@@ -157,7 +157,7 @@ fn make_test_pox_constants() -> PoxConstants {
 fn check_solo_reward_set_invariants(
     entries: Vec<(RawPox5Entry, Vec<WatchedP2WSHOutputMetadata>)>,
     pox_constants: &PoxConstants,
-    prior_ratios: Vec<Uint512>,
+    prior_ratios: Vec<FixedPointU256<64>>,
 ) -> Result<(), TestCaseError> {
     let mut provider = MockPox5PoolInfoProvider::new();
 
@@ -220,50 +220,36 @@ fn check_solo_reward_set_invariants(
 
     // Invariant 5: signer weights sum correctly (if any signers)
     //
-    // Each signer's weight = floor(amount_ustx * reward_slots / total_ustx_locked).
-    // Signers below signer_threshold_ustx are dropped, so surviving weights
-    // sum to approximately total_signer_ustx * reward_slots / total_ustx_locked.
-    // We recover total_ustx_locked from the output: threshold * reward_slots, applying
-    //  some tolerance for the precision loss in division by reward_slots.
+    // Each signer's weight = floor(amount_ustx / signer_threshold_ustx)
+    // where signer_threshold_ustx = total_ustx_locked / reward_slots.
+    // So weight_i = amount_ustx_i * reward_slots / total_ustx_locked.
+    // Sum of weights = total_signer_ustx * reward_slots / total_ustx_locked.
     if !signers.is_empty() {
         let reward_slots = pox_constants.reward_slots() as u128;
         let threshold = reward_set
             .pox_ustx_threshold
             .expect("pox_ustx_threshold should be Some");
-        let total_ustx_locked = threshold * reward_slots;
-        let tolerance = reward_slots;
-        prop_assert!(total_ustx_locked > 0, "total_ustx_locked should be > 0");
-        prop_assert!(total_ustx_locked + tolerance >= total_signer_ustx, "total_ustx_locked ({total_ustx_locked}) should be > total_signer_ustx ({total_signer_ustx})");
+        prop_assert!(threshold > 0, "signer_threshold_ustx should be > 0");
 
         let total_weight: u64 = signers.iter().map(|s| s.weight as u64).sum();
-        let scaling = Uint256::from_u64(reward_slots as u64);
 
-        let expected_weight_high = Uint256::from_u128(total_signer_ustx)
-            * Uint256::from_u64(reward_slots as u64)
-            / Uint256::from_u128(total_ustx_locked);
-        let expected_weight_low = Uint256::from_u128(total_signer_ustx)
-            * Uint256::from_u64(reward_slots as u64)
-            / Uint256::from_u128(total_ustx_locked + tolerance);
-
-        let expected_weight_low = expected_weight_low.low_u32() as u64;
-        let expected_weight_high = if expected_weight_high > scaling {
-            reward_slots as u64
-        } else {
-            expected_weight_high.low_u32() as u64
-        };
-        // Each signer can lose up to 1 from integer truncation
-        let tolerance = signers.len() as u64;
+        // Upper bound: each weight_i = floor(amount_ustx_i / threshold),
+        // so sum <= total_signer_ustx / threshold
+        let expected_weight_high = total_signer_ustx / threshold;
         prop_assert!(
-            total_weight <= expected_weight_high,
+            total_weight <= expected_weight_high as u64,
             "total weight ({}) exceeds expected ({})",
             total_weight,
             expected_weight_high
         );
+
+        // Lower bound: each floor loses at most 1, so sum >= expected - num_signers
+        let tolerance = signers.len() as u64;
         prop_assert!(
-            total_weight >= expected_weight_low.saturating_sub(tolerance),
+            total_weight >= (expected_weight_high as u64).saturating_sub(tolerance),
             "total weight ({}) too far below expected ({}, tolerance {})",
             total_weight,
-            expected_weight_low,
+            expected_weight_high,
             tolerance
         );
     }
@@ -423,7 +409,7 @@ proptest! {
         let result = NakamotoSigners::pox_5_make_reward_set(
             entries, &pox_constants, &mut provider, vec![],
         );
-        prop_assert!(result.is_ok());
+        prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
         let (reward_set, _) = result.unwrap();
         let signers = reward_set.signers.unwrap();
 
@@ -480,7 +466,7 @@ proptest! {
         let result = NakamotoSigners::pox_5_make_reward_set(
             entries, &pox_constants, &mut provider, vec![],
         );
-        prop_assert!(result.is_ok());
+        prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
         let (reward_set, _) = result.unwrap();
         let signers = reward_set.signers.unwrap();
 
@@ -526,16 +512,16 @@ proptest! {
             },
         };
 
-        // Create prior ratios as small Uint512 values (valid ratio range)
-        let prior_ratios: Vec<Uint512> = (0..num_priors)
-            .map(|i| Uint512::from_u64((i as u64 + 1) * 1000))
+        // Create prior ratios as small FixedPointU256 values (valid ratio range)
+        let prior_ratios: Vec<FixedPointU256<64>> = (0..num_priors)
+            .map(|i| FixedPointU256::<64>::from_u64((i as u64 + 1) * 1000))
             .collect();
 
         let entries = vec![(entry, vec![watched_output(sats)])];
         let result = NakamotoSigners::pox_5_make_reward_set(
             entries, &pox_constants, &mut provider, prior_ratios.clone(),
         );
-        prop_assert!(result.is_ok());
+        prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
         let (_, ratios_to_store) = result.unwrap();
 
         // First element is D_t (newly computed), rest are prior ratios (up to 3)
@@ -608,13 +594,315 @@ proptest! {
         let result = NakamotoSigners::pox_5_make_reward_set(
             entries, &pox_constants, &mut provider, vec![],
         );
-        prop_assert!(result.is_ok());
+        prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
         let (reward_set, _) = result.unwrap();
         let signers = reward_set.signers.unwrap();
 
         // The bad entry should have been excluded
         let bad_signer = signers.iter().find(|s| s.signing_key == [2u8; 33]);
         prop_assert!(bad_signer.is_none(), "entry below d_min should be excluded from signers");
+    }
+
+    // -----------------------------------------------------------------------
+    // Extreme-range tests: verify no overflow/underflow for boundary inputs
+    // -----------------------------------------------------------------------
+
+    /// Huge STX amounts (up to u128::MAX) with small BTC amounts produce
+    /// very large d_i ratios. The geometric weighted average, pow, and
+    /// find_root_floor must handle these without overflow.
+    #[tag(t_prop)]
+    #[test]
+    fn pox5_extreme_huge_stx_ratio(
+        amount_ustx in (u64::MAX as u128)..u128::MAX,
+        sats in 1u64..1_000u64,
+        num_cycles in 1u128..12u128,
+    ) {
+        let pox_constants = make_test_pox_constants();
+        let mut provider = MockPox5PoolInfoProvider::new();
+
+        let entry = RawPox5Entry {
+            user: StandardPrincipalData::new(0x16, [1u8; 20]).unwrap(),
+            num_cycles,
+            unlock_bytes: vec![],
+            amount_ustx,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr: PoxAddress::Standard(
+                    StacksAddress::new(0x16, Hash160([1u8; 20])).unwrap(), None),
+                signer_key: [1u8; 33],
+            },
+        };
+
+        let entries = vec![(entry, vec![watched_output(sats)])];
+        let result = NakamotoSigners::pox_5_make_reward_set(
+            entries, &pox_constants, &mut provider, vec![],
+        );
+        prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
+    }
+
+    /// Tiny STX with huge BTC: d_i is near or below d_min_t. The sigmoid
+    /// sees r_i ≈ 0 and must not underflow or divide by zero.
+    #[tag(t_prop)]
+    #[test]
+    fn pox5_extreme_tiny_stx_ratio(
+        amount_ustx in 1u128..1_000u128,
+        sats in (u32::MAX as u64)..u64::MAX,
+    ) {
+        let pox_constants = make_test_pox_constants();
+        let mut provider = MockPox5PoolInfoProvider::new();
+
+        let entry = RawPox5Entry {
+            user: StandardPrincipalData::new(0x16, [1u8; 20]).unwrap(),
+            num_cycles: 1,
+            unlock_bytes: vec![],
+            amount_ustx,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr: PoxAddress::Standard(
+                    StacksAddress::new(0x16, Hash160([1u8; 20])).unwrap(), None),
+                signer_key: [1u8; 33],
+            },
+        };
+
+        let entries = vec![(entry, vec![watched_output(sats)])];
+        let result = NakamotoSigners::pox_5_make_reward_set(
+            entries, &pox_constants, &mut provider, vec![],
+        );
+        // These entries may be dropped by d_min, but the function must not error
+        prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
+    }
+
+    /// Mixed extreme ratios: one entry with a huge STX/BTC ratio, one with
+    /// a tiny ratio. D_avg is moderate, so individual r_i values span 0..1
+    /// and stress all branches of the sigmoid.
+    #[tag(t_prop)]
+    #[test]
+    fn pox5_extreme_mixed_ratios(
+        high_ustx in (u64::MAX as u128)..u128::MAX,
+        high_sats in 1u64..100u64,
+        low_ustx in 100_000u128..1_000_000u128,
+        low_sats in 100_000u64..1_000_000u64,
+    ) {
+        let pox_constants = make_test_pox_constants();
+        let mut provider = MockPox5PoolInfoProvider::new();
+
+        let high_entry = RawPox5Entry {
+            user: StandardPrincipalData::new(0x16, [1u8; 20]).unwrap(),
+            num_cycles: 12,
+            unlock_bytes: vec![],
+            amount_ustx: high_ustx,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr: PoxAddress::Standard(
+                    StacksAddress::new(0x16, Hash160([1u8; 20])).unwrap(), None),
+                signer_key: [1u8; 33],
+            },
+        };
+        let low_entry = RawPox5Entry {
+            user: StandardPrincipalData::new(0x16, [2u8; 20]).unwrap(),
+            num_cycles: 1,
+            unlock_bytes: vec![],
+            amount_ustx: low_ustx,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr: PoxAddress::Standard(
+                    StacksAddress::new(0x16, Hash160([2u8; 20])).unwrap(), None),
+                signer_key: [2u8; 33],
+            },
+        };
+
+        let entries = vec![
+            (high_entry, vec![watched_output(high_sats)]),
+            (low_entry, vec![watched_output(low_sats)]),
+        ];
+        let result = NakamotoSigners::pox_5_make_reward_set(
+            entries, &pox_constants, &mut provider, vec![],
+        );
+        prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
+    }
+
+    /// Large prior ratio percentiles (up to from_u128(u128::MAX)) fed into
+    /// the geometric weighted average must not overflow.
+    #[tag(t_prop)]
+    #[test]
+    fn pox5_extreme_prior_ratios(
+        num_priors in 1usize..4,
+        ratio_magnitude in (u64::MAX as u128)..u128::MAX,
+        amount_ustx in 1_000_000u128..10_000_000u128,
+        sats in 1_000u64..100_000u64,
+    ) {
+        let pox_constants = make_test_pox_constants();
+        let mut provider = MockPox5PoolInfoProvider::new();
+
+        let entry = RawPox5Entry {
+            user: StandardPrincipalData::new(0x16, [1u8; 20]).unwrap(),
+            num_cycles: 6,
+            unlock_bytes: vec![],
+            amount_ustx,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr: PoxAddress::Standard(
+                    StacksAddress::new(0x16, Hash160([1u8; 20])).unwrap(), None),
+                signer_key: [1u8; 33],
+            },
+        };
+
+        let prior_ratios: Vec<FixedPointU256<64>> = (0..num_priors)
+            .map(|_| FixedPointU256::<64>::from_u128(ratio_magnitude))
+            .collect();
+
+        let entries = vec![(entry, vec![watched_output(sats)])];
+        let result = NakamotoSigners::pox_5_make_reward_set(
+            entries, &pox_constants, &mut provider, prior_ratios,
+        );
+        prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
+    }
+
+    /// Max lock cycles (12) combined with extreme STX/BTC ratios: the
+    /// time_multiplier is at its maximum (1.5) and ratio_multiplier at its
+    /// maximum (10), producing the largest possible user_multiplier (15).
+    #[tag(t_prop)]
+    #[test]
+    fn pox5_extreme_max_multipliers(
+        amount_ustx in (u64::MAX as u128)..u128::MAX,
+        sats in 1u64..100u64,
+    ) {
+        let pox_constants = make_test_pox_constants();
+        let mut provider = MockPox5PoolInfoProvider::new();
+
+        let entry = RawPox5Entry {
+            user: StandardPrincipalData::new(0x16, [1u8; 20]).unwrap(),
+            num_cycles: 12,
+            unlock_bytes: vec![],
+            amount_ustx,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr: PoxAddress::Standard(
+                    StacksAddress::new(0x16, Hash160([1u8; 20])).unwrap(), None),
+                signer_key: [1u8; 33],
+            },
+        };
+
+        let entries = vec![(entry, vec![watched_output(sats)])];
+        let result = NakamotoSigners::pox_5_make_reward_set(
+            entries, &pox_constants, &mut provider, vec![],
+        );
+        prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
+    }
+
+    /// Multiple entries whose STX amounts are near u128::MAX individually,
+    /// but whose sum stays within u128::MAX. Tests W accumulation with large
+    /// individual w_i values.
+    #[tag(t_prop)]
+    #[test]
+    fn pox5_extreme_many_large_entries(
+        num_entries in 2usize..10,
+        sats in 1_000u64..100_000u64,
+        num_cycles in 1u128..12u128,
+    ) {
+        let pox_constants = make_test_pox_constants();
+        let mut provider = MockPox5PoolInfoProvider::new();
+
+        // Divide u128::MAX evenly so the sum stays within bounds
+        let per_entry_ustx = u128::MAX / (num_entries as u128);
+
+        let mut entries = Vec::with_capacity(num_entries);
+        for i in 0..num_entries {
+            let hash_bytes = {
+                let mut h = [0u8; 20];
+                h[..8].copy_from_slice(&(i as u64).to_le_bytes());
+                h
+            };
+            let signer_key = {
+                let mut k = [0u8; 33];
+                k[..8].copy_from_slice(&(i as u64).to_le_bytes());
+                k
+            };
+            let entry = RawPox5Entry {
+                user: StandardPrincipalData::new(0x16, hash_bytes).unwrap(),
+                num_cycles,
+                unlock_bytes: vec![],
+                amount_ustx: per_entry_ustx,
+                first_reward_cycle: 0,
+                unlock_height: 1000,
+                pox_info: RawPox5EntryInfo::Solo {
+                    pox_addr: PoxAddress::Standard(
+                        StacksAddress::new(0x16, Hash160(hash_bytes)).unwrap(), None),
+                    signer_key,
+                },
+            };
+            entries.push((entry, vec![watched_output(sats)]));
+        }
+
+        let result = NakamotoSigners::pox_5_make_reward_set(
+            entries, &pox_constants, &mut provider, vec![],
+        );
+        prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
+    }
+
+    /// Combine all extremes: large prior ratios, mixed entry sizes, and
+    /// max lock cycles. This is the "kitchen sink" stress test.
+    #[tag(t_prop)]
+    #[test]
+    fn pox5_extreme_combined(
+        high_ustx in (u64::MAX as u128)..u128::MAX,
+        low_ustx in 100_000u128..1_000_000u128,
+        high_sats in 1u64..100u64,
+        low_sats in 100_000u64..1_000_000u64,
+        num_priors in 0usize..4,
+        ratio_magnitude in (u64::MAX as u128)..u128::MAX,
+    ) {
+        // Ensure sum doesn't overflow u128
+        prop_assume!(high_ustx.checked_add(low_ustx).is_some());
+
+        let pox_constants = make_test_pox_constants();
+        let mut provider = MockPox5PoolInfoProvider::new();
+
+        let high_entry = RawPox5Entry {
+            user: StandardPrincipalData::new(0x16, [1u8; 20]).unwrap(),
+            num_cycles: 12,
+            unlock_bytes: vec![],
+            amount_ustx: high_ustx,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr: PoxAddress::Standard(
+                    StacksAddress::new(0x16, Hash160([1u8; 20])).unwrap(), None),
+                signer_key: [1u8; 33],
+            },
+        };
+        let low_entry = RawPox5Entry {
+            user: StandardPrincipalData::new(0x16, [2u8; 20]).unwrap(),
+            num_cycles: 1,
+            unlock_bytes: vec![],
+            amount_ustx: low_ustx,
+            first_reward_cycle: 0,
+            unlock_height: 1000,
+            pox_info: RawPox5EntryInfo::Solo {
+                pox_addr: PoxAddress::Standard(
+                    StacksAddress::new(0x16, Hash160([2u8; 20])).unwrap(), None),
+                signer_key: [2u8; 33],
+            },
+        };
+
+        let prior_ratios: Vec<FixedPointU256<64>> = (0..num_priors)
+            .map(|_| FixedPointU256::<64>::from_u128(ratio_magnitude))
+            .collect();
+
+        let entries = vec![
+            (high_entry, vec![watched_output(high_sats)]),
+            (low_entry, vec![watched_output(low_sats)]),
+        ];
+        let result = NakamotoSigners::pox_5_make_reward_set(
+            entries, &pox_constants, &mut provider, prior_ratios,
+        );
+        prop_assert!(result.is_ok(), "pox_5_make_reward_set error: {:?}", result.err());
     }
 
     /// The time multiplier should scale with num_cycles. An entry with
