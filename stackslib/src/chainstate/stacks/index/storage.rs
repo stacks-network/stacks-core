@@ -940,9 +940,11 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // step 1: determine breadth-first node order
         let mut frontier: VecDeque<u32> = VecDeque::new();
         let mut node_data = vec![];
-        let mut forward_ptr_count = 0usize;
-        // True when a node has forward pointers whose encoding may widen.
-        let mut has_forward_ptrs = vec![];
+        let mut inline_child_count = 0usize;
+        // True when a node has inline children, i.e. non-empty, non-backptr
+        // child pointers serialized inline in the current trie blob. Their
+        // encoded widths may widen from u32 to u64.
+        let mut has_inline_children = vec![];
 
         let start = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr();
         frontier.push_back(
@@ -954,21 +956,21 @@ impl<T: MarfTrieId> TrieRAM<T> {
             let (node, _node_hash) = self.get_nodetype(pointer)?;
 
             // queue each child
-            let mut has_fwd = false;
+            let mut has_inline = false;
             if !node.is_leaf() {
                 for ptr in node.ptrs().iter() {
                     if !ptr.is_empty() && !is_backptr(ptr.id) {
                         let idx = ptr.ptr_as_u32()?;
                         frontier.push_back(idx);
-                        forward_ptr_count = forward_ptr_count
+                        inline_child_count = inline_child_count
                             .checked_add(1)
                             .ok_or_else(|| Error::OverflowError)?;
-                        has_fwd = true;
+                        has_inline = true;
                     }
                 }
             }
 
-            has_forward_ptrs.push(has_fwd);
+            has_inline_children.push(has_inline);
             node_data.push(pointer);
         }
 
@@ -977,8 +979,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // and the next 4 bytes for the local block identifier.
         let mut end_offset = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
         let mut offsets = Vec::with_capacity(node_data.len());
-        // Cached byte lengths: nodes without forward pointers have constant
-        // sizes across passes, so we only recompute nodes with forward ptrs.
+        // Cached byte lengths: nodes without inline children have constant
+        // sizes across passes, so we only recompute nodes that have them.
         let mut byte_lens = node_data
             .iter()
             .map(|p| {
@@ -989,18 +991,18 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // The first pass replaces in-memory indices with serialized offsets.
         // Afterwards, each mutable child pointer can widen from u32 to u64 at most once.
         // A pass that changes offsets without introducing any new wide pointers is the final
-        // settling pass, so `forward_ptr_count + 2` bounds convergence.
-        let max_layout_passes = forward_ptr_count.saturating_add(2);
+        // settling pass, so `inline_child_count + 2` bounds convergence.
+        let max_layout_passes = inline_child_count.saturating_add(2);
         let mut converged = false;
         for _ in 0..max_layout_passes {
             offsets.clear();
             let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
-            for ((&pointer, &has_fwd), blen) in node_data
+            for ((&pointer, &has_inline), blen) in node_data
                 .iter()
-                .zip(has_forward_ptrs.iter())
+                .zip(has_inline_children.iter())
                 .zip(byte_lens.iter_mut())
             {
-                if has_fwd {
+                if has_inline {
                     let (node, _) = self.get_nodetype(pointer)?;
                     *blen =
                         u64::try_from(get_node_byte_len(node)).map_err(|_| Error::OverflowError)?;
@@ -1012,8 +1014,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
             let mut changed = false;
             let mut i = 0;
-            for (&node_data_ptr, &has_fwd) in node_data.iter().zip(has_forward_ptrs.iter()) {
-                if !has_fwd {
+            for (&node_data_ptr, &has_inline) in node_data.iter().zip(has_inline_children.iter()) {
+                if !has_inline {
                     continue;
                 }
                 let next_node = &mut self
@@ -1149,8 +1151,11 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let mut frontier: VecDeque<u32> = VecDeque::new();
 
         let mut node_data = vec![];
-        let mut forward_ptr_count = 0usize;
-        let mut has_forward_ptrs = vec![];
+        let mut inline_child_count = 0usize;
+        // True when a node has inline children, i.e. non-empty, non-backptr
+        // child pointers serialized inline in the current trie blob. Their
+        // encoded widths may widen from u32 to u64.
+        let mut has_inline_children = vec![];
 
         let start = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr();
         frontier.push_back(
@@ -1211,27 +1216,27 @@ impl<T: MarfTrieId> TrieRAM<T> {
             debug_assert!({
                 if let Some((_, patch_node)) = patch_node_opt.as_ref() {
                     // The BFS frontier and the convergence loop must visit the
-                    // exact same forward children in the same order. Compare the
-                    // chr() sequence of forward pointers in the full node against
+                    // exact same inline children in the same order. Compare the
+                    // chr() sequence of inline children in the full node against
                     // the patch diff to guarantee this.
-                    let node_forward = node
+                    let node_inline = node
                         .ptrs()
                         .iter()
                         .filter(|p| !p.is_empty() && !is_backptr(p.id))
                         .map(|p| p.chr());
-                    let diff_forward = patch_node
+                    let diff_inline = patch_node
                         .ptr_diff
                         .iter()
                         .filter(|p| !p.is_empty() && !is_backptr(p.id))
                         .map(|p| p.chr());
-                    node_forward.eq(diff_forward)
+                    node_inline.eq(diff_inline)
                 } else {
                     true
                 }
             });
 
             // queue each child
-            let mut has_fwd = false;
+            let mut has_inline = false;
             if !node.is_leaf() {
                 for ptr in node.ptrs().iter() {
                     if !ptr.is_empty() && !is_backptr(ptr.id) {
@@ -1242,22 +1247,22 @@ impl<T: MarfTrieId> TrieRAM<T> {
                             ))
                         })?;
                         frontier.push_back(idx);
-                        forward_ptr_count = forward_ptr_count
+                        inline_child_count = inline_child_count
                             .checked_add(1)
                             .ok_or_else(|| Error::OverflowError)?;
-                        has_fwd = true;
+                        has_inline = true;
                     }
                 }
             }
 
-            // Nodes with forward ptrs need re-measurement each layout
+            // Nodes with inline children need re-measurement each layout
             // pass because child offsets can widen from u32 to u64.
             if let Some((hash_bytes, patch)) = patch_node_opt.take() {
                 node_data.push(DumpPtr::Patch(pointer, hash_bytes, patch));
             } else {
                 node_data.push(DumpPtr::Normal(pointer));
             }
-            has_forward_ptrs.push(has_fwd);
+            has_inline_children.push(has_inline);
         }
 
         // step 2: repeatedly lay out nodes until serialized offsets stabilize
@@ -1265,8 +1270,9 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // and the next 4 bytes for the local block identifier.
         let mut end_offset = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
         let mut offsets = vec![];
-        // Cached byte lengths: leaf / pointer-free / patch node sizes are
-        // constant across passes, so we only recompute non-leaf nodes.
+        // Cached byte lengths: nodes without inline children (leaves,
+        // back-pointer-only nodes, patches) have constant sizes across
+        // passes, so we only recompute nodes that have inline children.
         let mut byte_lens = node_data
             .iter()
             .map(|dp| {
@@ -1282,17 +1288,17 @@ impl<T: MarfTrieId> TrieRAM<T> {
         // The first pass replaces in-memory indices with serialized offsets.
         // Afterwards, each mutable child pointer can widen from u32 to u64 at most once.
         // A pass that changes offsets without introducing any new wide pointers is the final
-        // settling pass, so `forward_ptr_count + 2` bounds convergence.
-        let max_layout_passes = forward_ptr_count.saturating_add(2);
+        // settling pass, so `inline_child_count + 2` bounds convergence.
+        let max_layout_passes = inline_child_count.saturating_add(2);
         let mut converged = false;
         for _pass in 0..max_layout_passes {
             offsets.clear();
             let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
-            for (node_data_ptr, (&has_fwd, blen)) in node_data
+            for (node_data_ptr, (&has_inline, blen)) in node_data
                 .iter()
-                .zip(has_forward_ptrs.iter().zip(byte_lens.iter_mut()))
+                .zip(has_inline_children.iter().zip(byte_lens.iter_mut()))
             {
-                if has_fwd {
+                if has_inline {
                     let new_len = if let Some(patch) = node_data_ptr.patch() {
                         TRIEHASH_ENCODED_SIZE + patch.size()
                     } else {
@@ -1308,7 +1314,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
             let mut changed = false;
             let mut i = 0;
-            for (node_data_ptr, &has_fwd) in node_data.iter_mut().zip(has_forward_ptrs.iter()) {
+            for (node_data_ptr, &has_inline) in node_data.iter_mut().zip(has_inline_children.iter())
+            {
                 if let Some(patch) = node_data_ptr.patch_mut() {
                     for ptr in patch.ptr_diff.iter_mut() {
                         if !ptr.is_empty() && !is_backptr(ptr.id) {
@@ -1324,7 +1331,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                             i += 1;
                         }
                     }
-                } else if has_fwd {
+                } else if has_inline {
                     let next_node = &mut self
                         .data
                         .get_mut(
