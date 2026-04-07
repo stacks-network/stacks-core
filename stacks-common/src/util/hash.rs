@@ -181,7 +181,7 @@ impl Hash160 {
     // (borrowed from Andrew Poelstra)
     pub fn from_data(data: &[u8]) -> Hash160 {
         let sha2_result = Sha256::digest(data);
-        let ripe_160_result = Ripemd160::digest(sha2_result.as_slice());
+        let ripe_160_result = Ripemd160::digest(sha2_result);
         Hash160(ripe_160_result.into())
     }
 
@@ -257,7 +257,7 @@ impl MerkleHashFunc for DoubleSha256 {
         sha2_1.update(data);
 
         let mut sha2_2 = Sha256::new();
-        sha2_2.update(sha2_1.finalize().as_slice());
+        sha2_2.update(sha2_1.finalize());
         let ret = sha2_2.finalize().into();
 
         DoubleSha256(ret)

@@ -1,0 +1,2 @@
+Optimized `SequenceData::retain_values` built-in from O(n²) to O(n)
+Renamed `SequenceData::retain_values` to `SequenceData::try_retain` and changed it to take `self` by value instead of `&mut self`
