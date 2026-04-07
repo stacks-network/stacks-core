@@ -121,6 +121,6 @@ expression: result
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch35,
-    error: "Invalid Stacks block 0b5eaac6ab930cc81edfc1269fac0d22bd76ec2dbb70b4a0bcdab4867dbb42b4: InvalidFee",
+    error: "Invalid Stacks block 929768e8d820b03323732845182ce6d18ba2f3b55c7c042113c529a1ae12ab01: InvalidFee",
   )),
 ]
