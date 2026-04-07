@@ -5074,21 +5074,13 @@ export const contracts = {
           { name: 'sender', type: 'principal' },
           { name: 'calling-contract', type: 'principal' },
         ],
-        outputs: {
-          type: {
-            optional: {
-              tuple: [{ name: 'until-burn-ht', type: { optional: 'uint128' } }],
-            },
-          },
-        },
+        outputs: { type: { optional: { optional: 'uint128' } } },
       } as TypedAbiFunction<
         [
           sender: TypedAbiArg<string, 'sender'>,
           callingContract: TypedAbiArg<string, 'callingContract'>,
         ],
-        {
-          untilBurnHt: bigint | null;
-        } | null
+        bigint | null | null
       >,
       getPoolInfo: {
         name: 'get-pool-info',
@@ -5500,17 +5492,13 @@ export const contracts = {
             { name: 'sender', type: 'principal' },
           ],
         },
-        value: {
-          tuple: [{ name: 'until-burn-ht', type: { optional: 'uint128' } }],
-        },
+        value: { optional: 'uint128' },
       } as TypedAbiMap<
         {
           contractCaller: string;
           sender: string;
         },
-        {
-          untilBurnHt: bigint | null;
-        }
+        bigint | null
       >,
       pools: {
         name: 'pools',

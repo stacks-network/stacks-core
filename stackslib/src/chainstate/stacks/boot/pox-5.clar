@@ -189,13 +189,13 @@
         sender: principal,
         contract-caller: principal,
     }
-    { until-burn-ht: (optional uint) }
+    (optional uint) ;; expiration burn height
 )
 
 ;; How many uSTX are staked in a given reward cycle.
 (define-map reward-cycle-total-staked
-    uint
-    uint
+    uint ;; reward cycle
+    uint ;; total amount of uSTX staked
 )
 
 ;; What's the reward cycle number of the burnchain block height?
@@ -992,7 +992,8 @@
         (ok (map-set allowance-contract-callers {
             sender: tx-sender,
             contract-caller: caller,
-        } { until-burn-ht: until-burn-ht }
+        }
+            until-burn-ht
         ))
     )
 )
@@ -1062,7 +1063,7 @@
                     ))
                 (expires-at
                     ;; if until-burn-ht not set, then return true (because no expiry)
-                    (unwrap! (get until-burn-ht caller-allowed) true)
+                    (unwrap! caller-allowed true)
                 )
             )
             ;; is the caller allowance expired?
