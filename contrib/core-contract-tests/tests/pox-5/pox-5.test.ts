@@ -17,6 +17,7 @@ import {
 } from '../test-helpers';
 import {
   pox5,
+  pox5Indirect,
   errorCodes,
   testPool,
   createSignerKeyGrant,
@@ -776,8 +777,6 @@ describe('staking', () => {
             version: Uint8Array.from([0x07]),
             hashbytes: randomBytes(32),
           },
-          signerSig: randomBytes(65),
-          authId: 0,
         }),
         deployer,
       );
@@ -1476,8 +1475,6 @@ describe('per-transaction signer signatures', () => {
         poolOwner: testPool.identifier,
         signerKey,
         poxAddr: randomPoxAddress(),
-        signerSig: new Uint8Array(65),
-        authId: 0,
       }),
       deployer,
     );
@@ -1551,4 +1548,391 @@ test('can create the correct output script for a timelock', () => {
   expect(hex.encode(outputScript)).toBe(
     '16051ab3c07a68e5c485f50274b21b2bafc7aa7738bd447502e803b17504deadbeef',
   );
+});
+
+test('pox-addr cannot have an empty version byte', () => {
+  const result = rovErr(
+    pox5.checkPoxAddr({
+      poxAddr: {
+        version: new Uint8Array([0]),
+        hashbytes: new Uint8Array([0]),
+      },
+    }),
+  );
+  expect(result).toEqual(errorCodes.ERR_INVALID_POX_ADDRESS);
+});
+
+describe('contract-caller allowance', () => {
+  beforeEach(() => {
+    txOk(
+      pox5.setBurnchainParameters({
+        firstBurnHeight: 0n,
+        prepareCycleLength: 10n,
+        rewardCycleLength: 100n,
+        beginPox5RewardCycle: 0n,
+      }),
+      deployer,
+    );
+  });
+
+  const wrapper = pox5Indirect.identifier;
+
+  test('stake via wrapper fails without allowance, succeeds with allowance', () => {
+    const { signerKey } = setupSigner(alice);
+    const poxAddr = randomPoxAddress();
+
+    const result = txErr(
+      pox5Indirect.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+
+    const ok = txOk(
+      pox5Indirect.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(ok.value.stacker).toBe(alice);
+  });
+
+  test('stake-pooled via wrapper fails without allowance, succeeds with allowance', () => {
+    registerPool({ caller: deployer });
+
+    const result = txErr(
+      pox5Indirect.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+
+    const ok = txOk(
+      pox5Indirect.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+    expect(ok.value.stacker).toBe(alice);
+  });
+
+  test('stake-extend via wrapper fails without allowance, succeeds with allowance', () => {
+    const { signerKey } = setupSigner(alice);
+    const poxAddr = randomPoxAddress();
+    const unlockBytes = randomBytes(255);
+
+    const stakeResult = txOk(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 1,
+        unlockBytes,
+      }),
+      alice,
+    );
+    mineUntil(stakeResult.value.unlockBurnHeight);
+
+    const result = txErr(
+      pox5Indirect.stakeExtend({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 1,
+        numCycles: 1,
+        unlockBytes,
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+
+    const ok = txOk(
+      pox5Indirect.stakeExtend({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 1,
+        numCycles: 1,
+        unlockBytes,
+      }),
+      alice,
+    );
+    expect(ok.value.stacker).toBe(alice);
+  });
+
+  test('stake-extend-pooled via wrapper fails without allowance, succeeds with allowance', () => {
+    registerPool({ caller: deployer });
+
+    const stakeResult = txOk(
+      pox5.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+    mineUntil(stakeResult.value.unlockBurnHeight);
+
+    const result = txErr(
+      pox5Indirect.stakeExtendPooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+
+    const ok = txOk(
+      pox5Indirect.stakeExtendPooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 1,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+    expect(ok.value.stacker).toBe(alice);
+  });
+
+  test('stake-update via wrapper fails without allowance, succeeds with allowance', () => {
+    const { signerKey } = setupSigner(alice);
+    txOk(
+      pox5.stake({
+        amountUstx: minAmount,
+        poxAddr: randomPoxAddress(),
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    const { signerKey: newSignerKey } = setupSigner(alice);
+    const newPoxAddr = randomPoxAddress();
+
+    const result = txErr(
+      pox5Indirect.stakeUpdate({
+        amountUstxIncrease: 1,
+        poxAddr: newPoxAddr,
+        signerKey: newSignerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 1,
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+
+    const ok = txOk(
+      pox5Indirect.stakeUpdate({
+        amountUstxIncrease: 1,
+        poxAddr: newPoxAddr,
+        signerKey: newSignerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 1,
+      }),
+      alice,
+    );
+    expect(ok.value.amountUstx).toBe(minAmount + 1n);
+  });
+
+  test('stake-update-pooled via wrapper fails without allowance, succeeds with allowance', () => {
+    registerPool({ caller: deployer });
+    txOk(
+      pox5.stakePooled({
+        poolOwner: testPool.identifier,
+        amountUstx: minAmount,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+        startBurnHt: simnet.burnBlockHeight,
+      }),
+      alice,
+    );
+
+    const result = txErr(
+      pox5Indirect.stakeUpdatePooled({
+        poolOwner: testPool.identifier,
+        amountUstxIncrease: 1,
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+
+    const ok = txOk(
+      pox5Indirect.stakeUpdatePooled({
+        poolOwner: testPool.identifier,
+        amountUstxIncrease: 1,
+      }),
+      alice,
+    );
+    expect(ok.value.amountUstx).toBe(minAmount + 1n);
+  });
+
+  test('register-pool via wrapper fails without allowance, succeeds with allowance', () => {
+    const { signerKey } = setupSigner(deployer);
+    const poxAddr = randomPoxAddress();
+
+    const result = txErr(
+      pox5Indirect.registerPool({
+        poolOwner: testPool.identifier,
+        signerKey,
+        poxAddr,
+        signerSig: new Uint8Array(65),
+        authId: 0,
+      }),
+      deployer,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), deployer);
+
+    const ok = txOk(
+      pox5Indirect.registerPool({
+        poolOwner: testPool.identifier,
+        signerKey,
+        poxAddr,
+        signerSig: new Uint8Array(65),
+        authId: 0,
+      }),
+      deployer,
+    );
+    expect(ok.value.owner).toBe(testPool.identifier);
+  });
+
+  test('revoke-signer-grant via wrapper fails without allowance, succeeds with allowance', () => {
+    const signerSk = randomSecretKey();
+    const signerKey = secp256k1.getPublicKey(signerSk, true);
+    const addr = signerAddress(signerKey);
+
+    createSignerKeyGrant({
+      staker: alice,
+      signerSk,
+      poxAddr: null,
+      authId: 0n,
+    });
+
+    const result = txErr(
+      pox5Indirect.revokeSignerGrant({ staker: alice, signerKey }),
+      addr,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+
+    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), addr);
+
+    const ok = txOk(
+      pox5Indirect.revokeSignerGrant({ staker: alice, signerKey }),
+      addr,
+    );
+    expect(ok.value).toBe(true);
+  });
+
+  test('allowance with expiration: stake then stake-update via wrapper', () => {
+    const { signerKey } = setupSigner(alice);
+    const poxAddr = randomPoxAddress();
+
+    // Allow the wrapper until burn height 50
+    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: 50 }), alice);
+
+    txOk(
+      pox5Indirect.stake({
+        amountUstx: minAmount,
+        poxAddr,
+        signerKey,
+        maxAmount: minAmount,
+        authId: 0,
+        signerSig: null,
+        startBurnHt: simnet.burnBlockHeight,
+        numCycles: 2,
+        unlockBytes: randomBytes(255),
+      }),
+      alice,
+    );
+
+    // stake-update also works before expiration
+    const { signerKey: newSignerKey } = setupSigner(alice);
+    txOk(
+      pox5Indirect.stakeUpdate({
+        amountUstxIncrease: 1,
+        poxAddr,
+        signerKey: newSignerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 1,
+      }),
+      alice,
+    );
+
+    // Mine past the expiration
+    mineUntil(51);
+
+    // Now stake-update via wrapper should fail
+    const { signerKey: anotherSignerKey } = setupSigner(alice);
+    const result = txErr(
+      pox5Indirect.stakeUpdate({
+        amountUstxIncrease: 1,
+        poxAddr,
+        signerKey: anotherSignerKey,
+        signerSig: null,
+        maxAmount: minAmount,
+        authId: 2,
+      }),
+      alice,
+    );
+    expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
+  });
 });

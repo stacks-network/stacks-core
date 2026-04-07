@@ -64,6 +64,11 @@ path = "./contracts/test-pox-5-pool.clar"
 clarity_version = 4
 epoch = 3.3
 
+[contracts.pox-5-indirect]
+path = "./contracts/pox-5-indirect.clar"
+clarity_version = 4
+epoch = 3.3
+
 [repl.analysis.lints]
 unused_const = "warn"
 unused_data_var = "warn"

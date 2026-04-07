@@ -22,6 +22,7 @@
 (define-constant ERR_SIGNER_KEY_GRANT_NOT_FOUND (err u21))
 (define-constant ERR_SIGNER_KEY_GRANT_POX_ADDR_MISMATCH (err u22))
 (define-constant ERR_NOT_ALLOWED (err u23))
+(define-constant ERR_PERMISSION_DENIED (err u24))
 
 (define-trait pool-owner-trait (
     (validate-stake!
@@ -40,9 +41,7 @@
 ))
 
 ;; Values for stacks address versions
-;; #[allow(unused_const)]
 (define-constant STACKS_ADDR_VERSION_MAINNET 0x16)
-;; #[allow(unused_const)]
 (define-constant STACKS_ADDR_VERSION_TESTNET 0x1a)
 
 ;; Maximum number of cycles you can stake for
@@ -86,7 +85,6 @@
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
-;; #[allow(unused_data_var)]
 (define-data-var pox-prepare-cycle-length uint PREPARE_CYCLE_LENGTH)
 (define-data-var pox-reward-cycle-length uint REWARD_CYCLE_LENGTH)
 (define-data-var first-burnchain-block-height uint u0)
@@ -185,6 +183,15 @@
     bool ;; Whether the field has been used or not
 )
 
+;; allowed contract-callers
+(define-map allowance-contract-callers
+    {
+        sender: principal,
+        contract-caller: principal,
+    }
+    { until-burn-ht: (optional uint) }
+)
+
 ;; What's the reward cycle number of the burnchain block height?
 ;; Will runtime-abort if height is less than the first burnchain block (this is intentional)
 (define-read-only (burn-height-to-reward-cycle (height uint))
@@ -244,6 +251,21 @@
     u0
 )
 
+;; Get the burn height at which a particular contract is allowed to stack for a particular principal.
+;; *New in Stacks 2.1*
+;; Returns (some (some X)) if X is the burn height at which the allowance terminates
+;; Returns (some none) if the caller is allowed indefinitely
+;; Returns none if there is no allowance record
+(define-read-only (get-allowance-contract-callers
+        (sender principal)
+        (calling-contract principal)
+    )
+    (map-get? allowance-contract-callers {
+        sender: sender,
+        contract-caller: calling-contract,
+    })
+)
+
 (define-read-only (get-pox-info)
     (ok {
         min-amount-ustx: MIN_STACKING_AMOUNT,
@@ -273,7 +295,6 @@
     )
 )
 
-;; #[allow(unnecessary_public)]
 (define-public (stake
         (amount-ustx uint)
         (pox-addr {
@@ -340,7 +361,7 @@
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
 
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
-        ;; (asserts! (check-caller-allowed) (err ERR_STACKING_PERMISSION_DENIED))
+        (try! (verify-caller-allowed))
 
         ;;;;  tx-sender principal must not be stacking
         (asserts! (is-none (get-staker-info tx-sender)) ERR_ALREADY_STAKED)
@@ -387,19 +408,15 @@
     )
 )
 
-;; #[allow(unnecessary_public)]
 (define-public (stake-extend
         (amount-ustx uint)
         (pox-addr {
             version: (buff 1),
             hashbytes: (buff 32),
         })
-        ;; #[allow(unused_binding)]
         (signer-sig (optional (buff 65)))
         (signer-key (buff 33))
-        ;; #[allow(unused_binding)]
         (max-amount uint)
-        ;; #[allow(unused_binding)]
         (auth-id uint)
         (num-cycles uint)
         (unlock-bytes (buff 683))
@@ -466,6 +483,9 @@
         ;;  lock period must be in acceptable range.
         (asserts! (check-pox-lock-period num-cycles) ERR_INVALID_NUM_CYCLES)
 
+        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        (try! (verify-caller-allowed))
+
         (map-set staking-state tx-sender {
             amount-ustx: amount-ustx,
             first-reward-cycle: (+ current-cycle u1),
@@ -493,10 +513,6 @@
             version: (buff 1),
             hashbytes: (buff 32),
         })
-        ;; #[allow(unused_binding)]
-        (signer-sig (buff 65))
-        ;; #[allow(unused_binding)]
-        (auth-id uint)
     )
     (let ((owner (contract-of pool-owner)))
         (try! (verify-signer-key-grant tx-sender signer-key pox-addr))
@@ -506,6 +522,9 @@
         (try! (contract-call? pool-owner validate-management! tx-sender signer-key
             pox-addr
         ))
+
+        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        (try! (verify-caller-allowed))
 
         (map-set pools owner {
             signer-key: signer-key,
@@ -539,8 +558,6 @@
 
 ;; Allow a user to update their staked STX amount, signer key,
 ;; and/or PoX address while they are staked.
-;;
-;; #[allow(unnecessary_public)]
 (define-public (stake-update
         (amount-ustx-increase uint)
         (pox-addr {
@@ -548,11 +565,8 @@
             hashbytes: (buff 32),
         })
         (signer-key (buff 33))
-        ;; #[allow(unused_binding)]
         (signer-sig (optional (buff 65)))
-        ;; #[allow(unused_binding)]
         (max-amount uint)
-        ;; #[allow(unused_binding)]
         (auth-id uint)
     )
     (begin
@@ -607,6 +621,9 @@
             ERR_INSUFFICIENT_FUNDS
         )
 
+        ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
+        (try! (verify-caller-allowed))
+
         (map-set staking-state tx-sender {
             amount-ustx: new-amount-ustx,
             first-reward-cycle: (get first-reward-cycle current-stacker-info),
@@ -629,6 +646,13 @@
 
 ;;; Signer key authorization functions
 
+;; Grant usage of a signer key for a staker. This function is callable by
+;; any principal, as authorization is verified via the signature provided by
+;; the signer.
+;;
+;; A grant can optionally specify the pox-addr that must be used with this grant.
+;; If a pox-addr is specified, the staker _must_ use that pox-addr when making
+;; staking transactions with this signer key.
 (define-public (grant-signer-key
         (signer-key (buff 33))
         (staker principal)
@@ -708,6 +732,10 @@
             )
             ERR_NOT_ALLOWED
         )
+
+        ;; must be called directly by the tx-sender or by an allowed contract-caller
+        (try! (verify-caller-allowed))
+
         (ok (map-delete signer-key-grants {
             signer-key: signer-key,
             staker: staker,
@@ -929,6 +957,35 @@
     ))
 )
 
+;; Revoke contract-caller authorization to call staking methods
+(define-public (disallow-contract-caller (caller principal))
+    (begin
+        (asserts! (is-eq tx-sender contract-caller) ERR_NOT_ALLOWED)
+        (ok (map-delete allowance-contract-callers {
+            sender: tx-sender,
+            contract-caller: caller,
+        }))
+    )
+)
+
+;; Give a contract-caller authorization to call staking methods
+;;  normally, stacking methods may only be invoked by _direct_ transactions
+;;   (i.e., the tx-sender issues a direct contract-call to the staking methods)
+;;  by issuing an allowance, the tx-sender may call through the allowed contract
+(define-public (allow-contract-caller
+        (caller principal)
+        (until-burn-ht (optional uint))
+    )
+    (begin
+        (asserts! (is-eq tx-sender contract-caller) ERR_PERMISSION_DENIED)
+        (ok (map-set allowance-contract-callers {
+            sender: tx-sender,
+            contract-caller: caller,
+        } { until-burn-ht: until-burn-ht }
+        ))
+    )
+)
+
 ;;; Validation helpers
 
 (define-read-only (check-pox-lock-period (lock-period uint))
@@ -953,6 +1010,7 @@
             (and
                 (<= version MAX_ADDRESS_VERSION)
                 (is-eq (len (get hashbytes pox-addr)) expected-len)
+                (is-eq (len (get version pox-addr)) u1)
             )
             ERR_INVALID_POX_ADDRESS
         ))
@@ -976,6 +1034,37 @@
             false
         )
     )
+)
+
+(define-read-only (check-caller-allowed)
+    (or
+        (is-eq tx-sender contract-caller)
+        (let (
+                (caller-allowed
+                    ;; if not in the caller map, return false
+                    (unwrap!
+                        (map-get? allowance-contract-callers {
+                            sender: tx-sender,
+                            contract-caller: contract-caller,
+                        })
+                        false
+                    ))
+                (expires-at
+                    ;; if until-burn-ht not set, then return true (because no expiry)
+                    (unwrap! (get until-burn-ht caller-allowed) true)
+                )
+            )
+            ;; is the caller allowance expired?
+            (if (>= burn-block-height expires-at)
+                false
+                true
+            )
+        )
+    )
+)
+
+(define-read-only (verify-caller-allowed)
+    (ok (asserts! (check-caller-allowed) ERR_PERMISSION_DENIED))
 )
 
 ;;; Cycle-based Linked List functions
