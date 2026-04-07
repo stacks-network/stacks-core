@@ -23,11 +23,12 @@ use clarity::vm::errors::RuntimeError;
 use clarity::vm::types::{PrincipalData, ResponseData};
 use clarity::vm::{max_call_stack_depth_for_epoch, ClarityVersion, Value as ClarityValue};
 use stacks_common::address::AddressHashMode;
+use stacks_common::consts::CHAIN_ID_TESTNET;
 
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
-    make_pox_2_lockup, make_pox_3_lockup, make_pox_4_lockup, make_pox_lockup,
+    make_pox_2_lockup, make_pox_3_lockup, make_pox_4_lockup, make_pox_5_lockup, make_pox_lockup,
     make_signer_key_signature,
 };
 use crate::chainstate::tests::consensus::{
@@ -36,6 +37,9 @@ use crate::chainstate::tests::consensus::{
 };
 use crate::core::test_util::to_addr;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
+use crate::util_lib::signed_structured_data::pox5::{
+    make_pox_5_signer_key_signature, Pox5SignatureTopic,
+};
 
 /// Generates a coverage classification report for a specific [`RuntimeError`] variant.
 ///
@@ -786,7 +790,7 @@ fn defunct_pox_contracts() {
 
     let initial_balances = vec![(principal.clone(), u64::try_from(lock_amount).unwrap() * 2)];
 
-    let signature = make_signer_key_signature(
+    let pox_4_signature = make_signer_key_signature(
         &pox_address,
         &sender_sk,
         6,
@@ -795,6 +799,19 @@ fn defunct_pox_contracts() {
         u128::MAX,
         auth_id,
     );
+
+    let pox_5_signature = make_pox_5_signer_key_signature(
+        &pox_address,
+        &sender_sk,
+        6,
+        &Pox5SignatureTopic::Stake,
+        CHAIN_ID_TESTNET,
+        1,
+        u128::MAX,
+        auth_id,
+    )
+    .unwrap()
+    .to_rsv();
 
     let mut blocks = vec![];
     // Attempt to mine each transaction in a diff block
@@ -825,7 +842,7 @@ fn defunct_pox_contracts() {
             lock_period,
             height,
         ),
-        // This final lockup should succeed until we upgrade our pox contract
+        // pox-4 lockup should also fail (defunct)
         make_pox_4_lockup(
             &sender_sk,
             nonce + 3,
@@ -834,7 +851,20 @@ fn defunct_pox_contracts() {
             1,
             &signer_key,
             48,
-            Some(signature.clone()),
+            Some(pox_4_signature.clone()),
+            u128::MAX,
+            auth_id,
+        ),
+        // This final lockup should succeed with pox-5
+        make_pox_5_lockup(
+            &sender_sk,
+            nonce + 4,
+            lock_amount,
+            &pox_address,
+            1,
+            &signer_key,
+            48,
+            Some(pox_5_signature.clone()),
             u128::MAX,
             auth_id,
         ),

@@ -4,7 +4,7 @@ expression: results
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "d470f71b703a30df8bb9a7f0f296f4f81a4ad6991c8eebfd8678fe5101d89872",
+    marf_hash: "c622cb39c47ec432329636156250c14aed39a0a1bd0c65244e19cee567b61819",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +34,7 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "34e5581c18362c3940ee631f83ad65033dba28a342db8ac2c5ddd826a5df28ab",
+    marf_hash: "266e2f03cb6063fa09f0ebc23de3dc91bcc786dd2a103c578f591d12e45b5688",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +64,7 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1393a9ac948c0dba8626656f500d244a4a20d3bfe9c3bb57c0d50931729172b6",
+    marf_hash: "2aa66e1df63a738450a2ac93abf0e9947811d1045990dba1d294f7241864f89c",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,31 +94,61 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4dedea09b6930a902071830ec262ba378f8cd57981eaffd8c72c0536d3336e33",
+    marf_hash: "40e70cadc66cef7c8200cc8274b67c38f5eaffa95bf130a957715310006f7457",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-4, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1), Optional(OptionalData { data: Some(Sequence(Buffer(0c275bdb023a1f8de3d1c99e821268f36e16cbf82d8747f19abee8bd454459ca34aca028eff0ad9ddb6b742ef5b065f2db0b40d93f63b82cde2024cb00ac67cb01))) }), Sequence(Buffer(02b37b7f1553fa17fe0ad71c57538f4a93bfada632947c04e1ca6fcdad65e8106d)), UInt(340282366920938463463374607431768211455), UInt(1)]])",
+        vm_error: "Some(DefunctPoxContract) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 77048,
+          read_count: 8,
+          runtime: 82886,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 77048,
+      read_count: 8,
+      runtime: 82886,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c7e155ae73641437fd271171dd401eb68e26facfcc4c77dfa9887cc3974af318",
+    evaluated_epoch: Epoch35,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-5, function_name: stake, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), Optional(OptionalData { data: Some(Sequence(Buffer(211ae3adae009b93a6f3ce8963ea692151c0538edfa134cc3744ea44e30b24b84c178dc911aa9e983a4d4a3606e7813506e855dd697c372c0dbce2000441d4c600))) }), Sequence(Buffer(02b37b7f1553fa17fe0ad71c57538f4a93bfada632947c04e1ca6fcdad65e8106d)), UInt(340282366920938463463374607431768211455), UInt(1), UInt(1), Sequence(Buffer())]])",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
-          data: Int(24),
+          data: UInt(17),
         )),
         cost: ExecutionCost(
           write_length: 1,
           write_count: 1,
-          read_length: 77049,
-          read_count: 9,
-          runtime: 87526,
+          read_length: 36552,
+          read_count: 8,
+          runtime: 81998,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 1,
       write_count: 1,
-      read_length: 77049,
-      read_count: 9,
-      runtime: 87526,
+      read_length: 36552,
+      read_count: 8,
+      runtime: 81998,
     ),
   )),
 ]

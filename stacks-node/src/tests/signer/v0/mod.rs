@@ -106,7 +106,7 @@ use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and,
     next_block_and_process_new_stacks_block, setup_epoch_3_reward_set, wait_for,
-    POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
+    POX_DEFAULT_STACKER_BALANCE, POX_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch,
@@ -280,7 +280,7 @@ impl SignerTest<SpawnedSigner> {
                 "pox-4",
                 "stack-stx",
                 &[
-                    clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                    clarity::vm::Value::UInt(POX_DEFAULT_STACKER_STX_AMT),
                     pox_addr_tuple.clone(),
                     clarity::vm::Value::UInt(block_height as u128),
                     clarity::vm::Value::UInt(lock_period),
@@ -2037,7 +2037,20 @@ fn mine_2_nakamoto_reward_cycles() {
     info!("------------------------- Test Setup -------------------------");
     let nmb_reward_cycles = 2;
     let num_signers = 5;
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |_| {},
+        |naka_conf| {
+            // Push epoch 3.5 beyond the mining range of this test so that
+            // pox-5 locking changes don't interfere with the reward set.
+            let epochs = naka_conf.burnchain.epochs.as_mut().unwrap();
+            epochs[StacksEpochId::Epoch34].end_height = 1000;
+            epochs[StacksEpochId::Epoch35].start_height = 1000;
+        },
+        None,
+        None,
+    );
     let timeout = Duration::from_secs(200);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
@@ -3165,7 +3178,7 @@ fn signer_set_rollover() {
 
     let mut initial_balances = new_signer_addresses
         .iter()
-        .map(|addr| (addr.clone(), POX_4_DEFAULT_STACKER_BALANCE))
+        .map(|addr| (addr.clone(), POX_DEFAULT_STACKER_BALANCE))
         .collect::<Vec<_>>();
 
     initial_balances.push((sender_addr, (send_amt + send_fee) * 4));
@@ -3340,7 +3353,7 @@ fn signer_set_rollover() {
             "pox-4",
             "stack-stx",
             &[
-                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                clarity::vm::Value::UInt(POX_DEFAULT_STACKER_STX_AMT),
                 pox_addr_tuple.clone(),
                 clarity::vm::Value::UInt(burn_block_height as u128),
                 clarity::vm::Value::UInt(1),
@@ -3677,7 +3690,7 @@ fn signer_multinode_rollover() {
     let new_signer_addrs: Vec<_> = new_signer_sks.iter().map(tests::to_addr).collect();
     let additional_initial_balances: Vec<_> = new_signer_addrs
         .iter()
-        .map(|addr| (addr.clone(), POX_4_DEFAULT_STACKER_BALANCE))
+        .map(|addr| (addr.clone(), POX_DEFAULT_STACKER_BALANCE))
         .collect();
     let new_signers_port_start = 3000 + num_signers;
 
@@ -3831,7 +3844,7 @@ fn signer_multinode_rollover() {
             "pox-4",
             "stack-stx",
             &[
-                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                clarity::vm::Value::UInt(POX_DEFAULT_STACKER_STX_AMT),
                 pox_addr_tuple.clone(),
                 clarity::vm::Value::UInt(burn_block_height as u128),
                 clarity::vm::Value::UInt(1),
@@ -5601,7 +5614,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     let mut initial_balances = new_signer_addresses
         .iter()
-        .map(|addr| (addr.clone(), POX_4_DEFAULT_STACKER_BALANCE))
+        .map(|addr| (addr.clone(), POX_DEFAULT_STACKER_BALANCE))
         .collect::<Vec<_>>();
 
     initial_balances.push((sender_addr, (send_amt + send_fee) * 4));
@@ -5737,7 +5750,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
         "pox-4",
         "stack-stx",
         &[
-            clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+            clarity::vm::Value::UInt(POX_DEFAULT_STACKER_STX_AMT),
             pox_addr_tuple,
             clarity::vm::Value::UInt(burn_block_height as u128),
             clarity::vm::Value::UInt(1),

@@ -34,7 +34,7 @@ use crate::consts::{
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
-    PEER_VERSION_EPOCH_3_5,
+    PEER_VERSION_EPOCH_3_5, STACKS_EPOCH_MAX,
 };
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
@@ -1268,6 +1268,9 @@ impl<L: Clone> EpochList<L> {
     pub fn truncate_after(&mut self, epoch_id: StacksEpochId) {
         if let Some(index) = StacksEpoch::find_epoch_by_id(&self.0, epoch_id) {
             self.0.truncate(index + 1);
+        }
+        if let Some(epoch) = self.0.last_mut() {
+            epoch.end_height = STACKS_EPOCH_MAX;
         }
     }
 

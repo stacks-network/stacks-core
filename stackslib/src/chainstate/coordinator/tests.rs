@@ -2727,6 +2727,7 @@ fn test_pox_btc_ops() {
     let pox_v1_unlock_ht = u32::MAX;
     let pox_v2_unlock_ht = u32::MAX;
     let pox_v3_unlock_ht = u32::MAX;
+    let pox_v4_unlock_ht = u32::MAX;
     let pox_consts = Some(PoxConstants::new(
         5,
         3,
@@ -2925,7 +2926,8 @@ fn test_pox_btc_ops() {
                             burn_height as u64,
                             pox_v1_unlock_ht,
                             pox_v2_unlock_ht,
-                            pox_v3_unlock_ht
+                            pox_v3_unlock_ht,
+                            pox_v4_unlock_ht,
                         )
                         .unwrap(),
                     balance as u128,
@@ -3015,6 +3017,7 @@ fn test_stx_transfer_btc_ops() {
     let pox_v1_unlock_ht = u32::MAX;
     let pox_v2_unlock_ht = u32::MAX;
     let pox_v3_unlock_ht = u32::MAX;
+    let pox_v4_unlock_ht = u32::MAX;
     let sunset_ht = 8000;
     let pox_consts = Some(PoxConstants::new(
         5,
@@ -3028,7 +3031,7 @@ fn test_stx_transfer_btc_ops() {
         pox_v2_unlock_ht,
         pox_v3_unlock_ht,
         u32::MAX,
-        u32::MAX, // PLACEHOLDER (rob-stacks)
+        pox_v4_unlock_ht,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -3235,6 +3238,7 @@ fn test_stx_transfer_btc_ops() {
                             pox_v1_unlock_ht,
                             pox_v2_unlock_ht,
                             pox_v3_unlock_ht,
+                            pox_v4_unlock_ht,
                         )
                         .unwrap(),
                     (balance as u128) - transfer_amt,
@@ -3247,6 +3251,7 @@ fn test_stx_transfer_btc_ops() {
                             pox_v1_unlock_ht,
                             pox_v2_unlock_ht,
                             pox_v3_unlock_ht,
+                            pox_v4_unlock_ht,
                         )
                         .unwrap(),
                     transfer_amt,
@@ -3260,6 +3265,7 @@ fn test_stx_transfer_btc_ops() {
                             pox_v1_unlock_ht,
                             pox_v2_unlock_ht,
                             pox_v3_unlock_ht,
+                            pox_v4_unlock_ht,
                         )
                         .unwrap(),
                     balance as u128,
@@ -3271,6 +3277,7 @@ fn test_stx_transfer_btc_ops() {
                             pox_v1_unlock_ht,
                             pox_v2_unlock_ht,
                             pox_v3_unlock_ht,
+                            pox_v4_unlock_ht,
                         )
                         .unwrap(),
                     0,

@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "96075c8c696e47a94f2ad26831da11e44d8d1f005821761f8527b980e745af02",
+    marf_hash: "9d60eaed4260bbe518d1c88fc28db21d59cfb3cd22ef8b682f60e9cf56293222",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -62,7 +62,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "488e7c00b52602e1f0d95dee5c98c15f2326540afc2a1327bb682922d809e520",
+    marf_hash: "14ed7113f91c625aaef485e2521f82da58254234a7f6379e90dd9e783c5cd013",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -121,6 +121,6 @@ expression: result
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch35,
-    error: "Invalid Stacks block 0b5eaac6ab930cc81edfc1269fac0d22bd76ec2dbb70b4a0bcdab4867dbb42b4: InvalidFee",
+    error: "Invalid Stacks block 16e894672199ee439201267e3314af7d9ebaba9b5b0ba5bdc03dc4747c965959: InvalidFee",
   )),
 ]

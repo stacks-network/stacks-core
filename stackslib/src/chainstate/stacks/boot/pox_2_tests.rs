@@ -1272,6 +1272,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
         burnchain.pox_constants.v3_unlock_height,
+        burnchain.pox_constants.pox_5_activation_height,
     )
     .unwrap();
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
@@ -1303,6 +1304,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
         burnchain.pox_constants.v3_unlock_height,
+        burnchain.pox_constants.pox_5_activation_height,
     )
     .unwrap();
     assert_eq!(bob_bal.amount_locked(), 0);
@@ -1318,6 +1320,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
         burnchain.pox_constants.v3_unlock_height,
+        burnchain.pox_constants.pox_5_activation_height,
     )
     .unwrap();
     assert_eq!(bob_bal.amount_locked(), 0);
