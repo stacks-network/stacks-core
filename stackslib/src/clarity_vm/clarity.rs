@@ -3478,8 +3478,9 @@ mod tests {
             "block 2 should record at least one cache miss"
         );
 
-        // Block 3: call again — the cached contract should produce a hit
-        let hits_before_block3 = clarity_instance.contract_cache().hits();
+        // Block 3: call again — the cached contract should produce a hit. Snapshot hits *after
+        // begin_block (via the block connection) so that cost-contract hits during block
+        // initialization don't inflate the delta.
         {
             let mut conn = clarity_instance.begin_block(
                 &StacksBlockId([2; 32]),
@@ -3487,6 +3488,8 @@ mod tests {
                 &TEST_HEADER_DB,
                 &TEST_BURN_STATE_DB,
             );
+
+            let hits_before_call = conn.contract_cache.unwrap().hits();
 
             let result = conn
                 .as_transaction(|tx| {
@@ -3504,14 +3507,14 @@ mod tests {
                 .0;
             assert_eq!(result, Value::okay(Value::Int(2)).unwrap());
 
+            let hits_after_call = conn.contract_cache.unwrap().hits();
             conn.commit_block();
-        }
 
-        // The contract load in block 3 should have been a cache hit
-        assert!(
-            clarity_instance.contract_cache().hits() > hits_before_block3,
-            "block 3 should record at least one cache hit (cross-block persistence)"
-        );
+            assert!(
+                hits_after_call > hits_before_call,
+                "block 3 should record at least one cache hit (cross-block persistence)"
+            );
+        }
     }
 
     /// Read-only connections at a historical block must not use the shared cache, because the cache
