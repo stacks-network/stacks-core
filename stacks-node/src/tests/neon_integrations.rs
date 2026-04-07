@@ -7280,7 +7280,13 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
             max_contract_src,
         ),
     );
-    run_until_burnchain_height(&mut btc_regtest_controller, &blocks_processed, 212, &conf);
+    // Mine blocks until the contract publish (nonce 0) is confirmed.
+    wait_for(30, || {
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+        let account = get_account(&http_origin, &spender_addr);
+        Ok(account.nonce >= 1)
+    })
+    .expect("Timed out waiting for contract publish to confirm");
 
     // Loop 20 times. Each time, execute the same transaction, but increase the amount *paid*.
     // This will exercise the window size.
@@ -7300,12 +7306,13 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
                 &[],
             ),
         );
-        run_until_burnchain_height(
-            &mut btc_regtest_controller,
-            &blocks_processed,
-            212 + 2 * i,
-            &conf,
-        );
+        // Mine blocks until this transaction (nonce i) is confirmed.
+        wait_for(30, || {
+            next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+            let account = get_account(&http_origin, &spender_addr);
+            Ok(account.nonce > i)
+        })
+        .unwrap_or_else(|_| panic!("Timed out waiting for tx nonce {i} to confirm"));
 
         {
             // Read from the fee estimation endpoin.
@@ -7337,19 +7344,13 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
         }
     }
 
-    // Wait two extra blocks to be sure.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
     assert_eq!(response_estimated_costs.len(), response_top_fee_rates.len());
 
     // Check that:
     // 1) The cost is always the same.
-    // 2) Fee rate trends upward overall. With 2 blocks mined per transaction the
-    //    estimator window contains a mix of transaction-bearing and empty blocks.
-    //    Empty blocks contribute fee_rate=1.0 (the minimum), which can cause
-    //    intermediate dips in the median — so we verify the overall trend rather
-    //    than strict monotonicity at every step.
+    // 2) Fee rate trends upward overall. The estimator window may contain empty
+    //    blocks (fee_rate=1.0 minimum) which can cause intermediate dips in the
+    //    median — so we verify the overall trend rather than strict monotonicity.
     for i in 1..response_estimated_costs.len() {
         let curr_cost = response_estimated_costs[i];
         let last_cost = response_estimated_costs[i - 1];
