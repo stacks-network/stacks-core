@@ -767,6 +767,10 @@ where
     Ok(())
 }
 
+/// Wait until check returns Ok(true), if check ever returns an Err(), this
+///  method will immediately return that Err().
+///
+/// After timeout_seconds have passed, this function returns `Err("Timed out")`
 pub fn wait_for<F>(timeout_secs: u64, mut check: F) -> Result<(), String>
 where
     F: FnMut() -> Result<bool, String>,

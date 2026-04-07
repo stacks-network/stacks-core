@@ -149,9 +149,13 @@ impl Drop for BitcoinCoreContainer {
 }
 
 mod tests {
+    use pinny::tag;
+
     use super::*;
 
+    #[tag(ci_skip)]
     #[test]
+    #[ignore = "temporary promoted to integration test to exclude it from unit-test execution"]
     fn test_start_and_stop() {
         let mut container = BitcoinCoreContainer::new(BITCOIN_DEFAULT_IMAGE_TAG);
 

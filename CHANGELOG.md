@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.4.0.0.1]
+
+### Fixed
+
+- Fix a bug that could cause genesis sync to stall forever due to a slow path in computing the canonical Stacks tip getting triggerred when the Stacks tip is significantly behind the sortition tip.
+- Validate PoX addresses.
+- Fix the 3.4 activation height in sample testnet configs.
+
 ## [3.4.0.0.0]
 
 ### Added

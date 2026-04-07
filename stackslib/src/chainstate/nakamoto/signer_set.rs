@@ -62,9 +62,10 @@ impl RawRewardSetEntry {
         })?;
 
         let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
-            .ok_or_else(|| {
-                ChainstateError::Expects(format!("not a valid PoX address: {pox_addr_tuple}"))
-            })?;
+            .unwrap_or_else(|| {
+                warn!("Invalid PoX address supplied, replacing with burn address"; "pox_addr_tuple" => %pox_addr_tuple);
+                PoxAddress::standard_burn_address(is_mainnet)
+            });
 
         let total_ustx = tuple_data
             .remove("total-ustx")
