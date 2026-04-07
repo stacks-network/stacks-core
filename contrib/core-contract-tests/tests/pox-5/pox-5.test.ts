@@ -1597,7 +1597,10 @@ describe('contract-caller allowance', () => {
     );
     expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
 
-    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
 
     const ok = txOk(
       pox5Indirect.stake({
@@ -1631,7 +1634,10 @@ describe('contract-caller allowance', () => {
     );
     expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
 
-    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
 
     const ok = txOk(
       pox5Indirect.stakePooled({
@@ -1682,7 +1688,10 @@ describe('contract-caller allowance', () => {
     );
     expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
 
-    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
 
     const ok = txOk(
       pox5Indirect.stakeExtend({
@@ -1726,7 +1735,10 @@ describe('contract-caller allowance', () => {
     );
     expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
 
-    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
 
     const ok = txOk(
       pox5Indirect.stakeExtendPooled({
@@ -1773,7 +1785,10 @@ describe('contract-caller allowance', () => {
     );
     expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
 
-    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
 
     const ok = txOk(
       pox5Indirect.stakeUpdate({
@@ -1811,7 +1826,10 @@ describe('contract-caller allowance', () => {
     );
     expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
 
-    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), alice);
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      alice,
+    );
 
     const ok = txOk(
       pox5Indirect.stakeUpdatePooled({
@@ -1839,7 +1857,10 @@ describe('contract-caller allowance', () => {
     );
     expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
 
-    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), deployer);
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      deployer,
+    );
 
     const ok = txOk(
       pox5Indirect.registerPool({
@@ -1872,7 +1893,10 @@ describe('contract-caller allowance', () => {
     );
     expect(result.value).toEqual(errorCodes.ERR_PERMISSION_DENIED);
 
-    txOk(pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }), addr);
+    txOk(
+      pox5.allowContractCaller({ caller: wrapper, untilBurnHt: null }),
+      addr,
+    );
 
     const ok = txOk(
       pox5Indirect.revokeSignerGrant({ staker: alice, signerKey }),
