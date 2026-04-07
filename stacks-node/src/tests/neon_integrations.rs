@@ -790,6 +790,30 @@ pub fn next_block_and_wait_with_timeout(
     true
 }
 
+/// Mine blocks until `check` returns `true`, up to `max_blocks` blocks.
+/// Each block is mined with `next_block_and_wait`, waiting up to
+/// `block_timeout_secs` for it to be processed before moving on.
+pub fn mine_blocks_until<F>(
+    btc_controller: &BitcoinRegtestController,
+    blocks_processed: &Arc<AtomicU64>,
+    max_blocks: u64,
+    block_timeout_secs: u64,
+    mut check: F,
+) -> Result<(), String>
+where
+    F: FnMut() -> Result<bool, String>,
+{
+    for _ in 0..max_blocks {
+        next_block_and_wait_with_timeout(btc_controller, blocks_processed, block_timeout_secs);
+        if check()? {
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "Condition not met after mining {max_blocks} blocks"
+    ))
+}
+
 /// Returns `false` on a timeout, true otherwise.
 pub fn next_block_and_iterate(
     btc_controller: &BitcoinRegtestController,
@@ -4302,8 +4326,7 @@ fn cost_voting_integration() {
     submit_tx(&http_origin, &call_le_tx);
 
     // Mine blocks until both txs are confirmed (nonces 3 and 4)
-    wait_for(120, || {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
         let res = get_account(&http_origin, &spender_princ);
         Ok(res.nonce >= 5)
     })
@@ -4353,8 +4376,7 @@ fn cost_voting_integration() {
     submit_tx(&http_origin, &confirm_proposal);
 
     // Mine blocks until early confirm-miners is confirmed (nonce 5)
-    wait_for(120, || {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
         let res = get_account(&http_origin, &spender_princ);
         Ok(res.nonce >= 6)
     })
@@ -4404,8 +4426,7 @@ fn cost_voting_integration() {
     submit_tx(&http_origin, &confirm_proposal);
 
     // Mine blocks until confirm-miners after maturation is confirmed (nonce 6)
-    wait_for(120, || {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
         let res = get_account(&http_origin, &spender_princ);
         Ok(res.nonce >= 7)
     })
@@ -4450,8 +4471,7 @@ fn cost_voting_integration() {
     submit_tx(&http_origin, &call_le_tx);
 
     // Mine blocks until execute-2 with new cost is confirmed (nonce 7)
-    wait_for(120, || {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
         let res = get_account(&http_origin, &spender_princ);
         Ok(res.nonce >= 8)
     })
@@ -7281,8 +7301,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
         ),
     );
     // Mine blocks until the contract publish (nonce 0) is confirmed.
-    wait_for(30, || {
-        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
         let account = get_account(&http_origin, &spender_addr);
         Ok(account.nonce >= 1)
     })
@@ -7307,8 +7326,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
             ),
         );
         // Mine blocks until this transaction (nonce i) is confirmed.
-        wait_for(30, || {
-            next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+        mine_blocks_until(&btc_regtest_controller, &blocks_processed, 3, 60, || {
             let account = get_account(&http_origin, &spender_addr);
             Ok(account.nonce > i)
         })
