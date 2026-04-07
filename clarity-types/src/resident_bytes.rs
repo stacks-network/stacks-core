@@ -41,13 +41,9 @@ const ARC_OVERHEAD: usize = 16;
 
 /// Layout constants for `std::collections::BTreeMap` / `BTreeSet`.
 ///
-/// Rust's BTreeMap uses `B=6` (hardcoded). Each node holds up to `CAPACITY = 2*B-1 = 11` entries:
-/// * **LeafNode** layout: parent ptr (8) + parent_idx (2) + len (2) + padding (~4) + keys:
-///   `[MaybeUninit<K>; 11]` + vals: `[MaybeUninit<V>; 11]`.
-/// * **InternalNode** layout: LeafNode fields + edges: `[MaybeUninit<NonNull<LeafNode>>; 12]`.
-/// * Allocator header adds ~16 bytes per node.
-/// * Total per-node overhead (metadata + allocator): ~32 bytes. Average fill factor ~2/3 → ~7
-///   entries per node. Internal nodes at average fill have ~8 children.
+/// BTreeMap uses `B=6`, so nodes hold up to `2*B-1 = 11` entries. Leaf nodes store keys+values;
+/// internal nodes add 12 edge pointers. ~32 bytes overhead per node (metadata + allocator header),
+/// ~2/3 average fill (~7 entries/node, ~8 children for internal nodes).
 mod btree {
     use std::mem::size_of;
 
@@ -93,38 +89,28 @@ mod btree {
     }
 }
 
-/// Layout constants for [`HashMap`] / [`HashSet`].
+/// Layout constants for [`HashMap`] / [`HashSet`] (hashbrown-backed since Rust 1.36).
 ///
-/// `std`'s HashMap has been backed by `hashbrown` since Rust 1.36. These constants reflect
-/// internals that are not exposed through any `std` API.
+/// `hashbrown` uses a 7/8 max load factor and 1-byte control tags per bucket.
 ///
-/// * `hashbrown` targets a 7/8 max load factor: it allocates more buckets than `capacity()`
-///   reports. `capacity()` returns the number of insertions before reallocation, not the bucket
-///   count. Actual buckets ~= `ceil(capacity * LOAD_FACTOR_INV_NUM / LOAD_FACTOR_INV_DEN)`.
-/// * Each bucket has a 1-byte control tag. The control array is padded by `Group::WIDTH` bytes (4,
-///   8, or 16 depending on target SIMD support) for probing at the end of the table. We use 16 as a
-///   conservative upper bound.
-/// * `hashbrown` also aligns `buckets * entry_size` up to `ctrl_align` (max of entry alignment and
-///   Group alignment) before placing control bytes. We don't model this padding — for the types
-///   used in Clarity, bucket counts are powers of 2 and entry alignments are <=8, so the gap is
-///   typically zero.
+/// The control array is padded by `Group::WIDTH` (4/8/16 depending on SIMD support); we use 16 as
+/// an upper bound.
 mod hashmap {
     /// Inverse of `hashbrown`'s max load factor (7/8), as a fraction: `buckets ~= (capacity * 8/7)`.
     pub const LOAD_FACTOR_INV_NUM: usize = 8;
     pub const LOAD_FACTOR_INV_DEN: usize = 7;
-    /// Conservative upper bound for SIMD group width padding appended to the control byte array.
-    /// `hashbrown`'s actual `Group::WIDTH` varies by target (4, 8, or 16 bytes); 16 is the max
-    /// (`SSE2` path on `x86_64`) and overestimates by at most 12 bytes on other platforms.
+    /// Upper bound for SIMD group-width padding. In hashbrown 0.15, Group::WIDTH varies by target
+    /// and implementation (4/8/16 bytes), so we use 16 as a conservative upper bound for
+    /// control-byte padding overhead.
     pub const CONTROL_GROUP_PADDING: usize = 16;
 }
 
-/// Reports the approximate in-memory footprint of an instance, in bytes.
+/// Approximate in-memory footprint, in bytes.
 ///
-/// The trait is split into two methods to avoid double-counting when composing nested types. A
-/// container (e.g. `Vec<T>`) already accounts for the inline `size_of::<T>()` of each element in
-/// its heap allocation, so it must call [`heap_bytes()`](Self::heap_bytes) — not `resident_bytes()`
-/// — on each child. Only the outermost caller uses [`resident_bytes()`](Self::resident_bytes),
-/// which adds `size_of::<Self>()` exactly once.
+/// Split into [`heap_bytes()`](Self::heap_bytes) (children only) and
+/// [`resident_bytes()`](Self::resident_bytes) (inline + heap) to avoid double-counting in nested
+/// types — containers call `heap_bytes()` on children, only the outermost caller should use
+/// `resident_bytes()`.
 pub trait ResidentBytes: Sized {
     /// Total approximate memory footprint of this instance.
     ///
