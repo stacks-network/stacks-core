@@ -3,8 +3,6 @@ name = "stacks-node"
 version = "0.1.0"
 authors = ["Jude Nelson <jude@stacks.org>", "Aaron Blankstein <aaron@blockstack.com>", "Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2021"
-resolver = "2"
-rust-version = "1.61"
 
 [dependencies]
 lazy_static = "1.4.0"
@@ -57,10 +55,11 @@ http-types =  { version = "2.12", default-features = false }
 tempfile = "3.3"
 mockito = "1.5"
 serial_test = "3.2.0"
-pinny = { git = "https://github.com/BitcoinL2-Labs/pinny-rs.git", rev = "54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49" } #v0.0.2
+pinny = { workspace = true }
 madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", tag = "0.2.0" }
 proptest = "1.6.*"
 stdext = "0.3.1"
+testcontainers =  { version = "0.27.0", features = ["blocking"] }
 
 [features]
 monitoring_prom = ["stacks/monitoring_prom", "async-h1", "async-std", "http-types"]
@@ -71,4 +70,4 @@ testing = ["stacks-common/testing", "stacks/testing", "clarity/testing"]
 build-signer-v3-3-0-0-5-0 = ["signer_v3_3_0_0_5_0", "libsigner_v3_3_0_0_5", "stacks_v3_3_0_0_5", "stacks_common_v3_3_0_0_5"]
 
 [package.metadata.pinny]
-allowed = ["bitcoind", "flaky", "slow"]
+allowed = ["bitcoind", "flaky", "slow", "ci_skip"]

@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Stacks Open Internet Foundation
+// Copyright (C) 2024-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -34,6 +34,7 @@ use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
+use stacks::types::MinerDiagnosticData;
 use stacks::util::hash::Sha512Trunc256Sum;
 use stacks::util::secp256k1::MessageSignature;
 use stacks::util_lib::boot::boot_code_id;
@@ -281,6 +282,7 @@ impl SignerCoordinator {
         counters: &Counters,
         election_sortition: &BlockSnapshot,
         miner_db: &MinerDB,
+        miner_diagnostic_data: MinerDiagnosticData,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {
         // Add this block to the block status map.
         self.stackerdb_comms.insert_block(&block.header);
@@ -293,7 +295,7 @@ impl SignerCoordinator {
             block: block.clone(),
             burn_height: election_sortition.block_height,
             reward_cycle: reward_cycle_id,
-            block_proposal_data: BlockProposalData::from_current_version(),
+            block_proposal_data: BlockProposalData::from_current_version(miner_diagnostic_data),
         };
 
         let block_proposal_message = SignerMessageV0::BlockProposal(block_proposal);

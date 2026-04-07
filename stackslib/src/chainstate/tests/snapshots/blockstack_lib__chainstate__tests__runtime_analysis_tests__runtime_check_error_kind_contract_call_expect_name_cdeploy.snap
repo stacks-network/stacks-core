@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "1db39215fa26536780994c01b73e2307740af39a2d40dedf7d2d11c86dc59390",
+    marf_hash: "ccca7533b395f2d918a8b8444294bc11d32bd9f943480cf94ca6e4b7617f4aac",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a8459c30613099d3d4859109d2be51076fb96c3b35f261d50211233795cb153f",
+    marf_hash: "b69cb5f0005e7bc95b5a9510f01a29f2c26c2fd10ecea3c545a8098c26a87bb9",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "be6a784ffff194a48502f3927b37d0e9d7d1c9af9e6d9c97807bbcff97b9854f",
+    marf_hash: "cdf0de3ebae96aac192ab8e87abb8fd72c77e5cdf9889c91251ac50135d2c309",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,115 +94,123 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6a06cecb3093fc04925d8406d9f4c2691434bc2d4f927cf39775c445087c84d1",
+    marf_hash: "190a882b6be381ddd4fc3ff5a55f19ea95fb53edead91a04881b601416126f86",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: contract-3-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
         )),
         cost: ExecutionCost(
           write_length: 273,
           write_count: 2,
-          read_length: 101,
-          read_count: 6,
-          runtime: 20295,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 273,
       write_count: 2,
-      read_length: 101,
-      read_count: 6,
-      runtime: 20295,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "904e91a9d0abd2f6e79004f1e0d1602ae2ac5a1bb889a5c6865a1996b33735f2",
+    marf_hash: "7b4a0a19d6a53cbf2938267310516c7c12441da7ff56ce23a47be3ff04440d27",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: contract-3-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
         )),
         cost: ExecutionCost(
           write_length: 273,
           write_count: 2,
-          read_length: 101,
-          read_count: 6,
-          runtime: 20295,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 273,
       write_count: 2,
-      read_length: 101,
-      read_count: 6,
-      runtime: 20295,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "310fa4144d35d35f51b5771a0cb9a237d27f1105d24382469c6c4deb87f27dd5",
+    marf_hash: "47812b96bed51205019dc3344381c08b042e121a4bf4282fe8b510f0403904e4",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: contract-3-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
         )),
         cost: ExecutionCost(
           write_length: 273,
           write_count: 2,
-          read_length: 101,
-          read_count: 6,
-          runtime: 20295,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 273,
       write_count: 2,
-      read_length: 101,
-      read_count: 6,
-      runtime: 20295,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b5adb2b21ebbdd64828267ba0668a47703451970c3a93068457e3b681550828a",
+    marf_hash: "accaca33ad80bc363a09d30cb8da0b378fe1700504944928dcadb4498a9e810c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: contract-3-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(ContractCallExpectName) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
         )),
         cost: ExecutionCost(
           write_length: 273,
           write_count: 2,
-          read_length: 101,
-          read_count: 6,
-          runtime: 20295,
+          read_length: 9,
+          read_count: 3,
+          runtime: 19904,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 273,
       write_count: 2,
-      read_length: 101,
-      read_count: 6,
-      runtime: 20295,
+      read_length: 9,
+      read_count: 3,
+      runtime: 19904,
     ),
   )),
 ]
