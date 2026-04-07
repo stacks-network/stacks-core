@@ -12,7 +12,7 @@ fi
 
 # --- Location ---
 echo ""
-echo "📝 No changelog fragment detected in staged files."
+echo "📝 Create a changelog fragment."
 echo ""
 echo "Where should the fragment go?"
 echo "  1) changelog.d/          (node / stackslib changes)"
