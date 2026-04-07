@@ -411,6 +411,42 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
     }
 }
 
+/// Log and count unreachable ClarityError variants that should never occur in production.
+fn log_unreachable_error(error: &ClarityError, txid: &Txid) {
+    match error {
+        ClarityError::Parse(parse_err) if parse_err.is_unreachable() => {
+            error!("UNREACHABLE_ERROR_TRIGGERED: parse error that should never occur was hit";
+                "event_name" => "unreachable_error",
+                "error_type" => "parse",
+                "txid" => %txid,
+                "error" => %parse_err,
+            );
+            increment_unreachable_errors_counter("parse");
+        }
+        ClarityError::StaticCheck(static_err) if static_err.err.is_unreachable() => {
+            error!("UNREACHABLE_ERROR_TRIGGERED: static check error that should never occur was hit";
+                "event_name" => "unreachable_error",
+                "error_type" => "static_check",
+                "txid" => %txid,
+                "error" => %static_err,
+            );
+            increment_unreachable_errors_counter("static_check");
+        }
+        ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_check_err))
+            if runtime_check_err.is_unreachable() =>
+        {
+            error!("UNREACHABLE_ERROR_TRIGGERED: runtime check error that should never occur was hit";
+                "event_name" => "unreachable_error",
+                "error_type" => "runtime_check",
+                "txid" => %txid,
+                "error" => %runtime_check_err,
+            );
+            increment_unreachable_errors_counter("runtime_check");
+        }
+        _ => {}
+    }
+}
+
 pub fn convert_clarity_error_to_transaction_result(
     clarity_tx: &mut ClarityTx,
     tx: &StacksTransaction,
@@ -1168,131 +1204,104 @@ impl StacksChainState {
                               "cost" => ?total_cost);
                         (return_value, asset_map, events, None)
                     }
-                    Err(e) => match handle_clarity_runtime_error(e) {
-                        ClarityRuntimeTxError::Acceptable { error, err_type } => {
-                            info!("Contract-call processed with {}", err_type;
-                                      "txid" => %tx.txid(),
-                                      "origin" => %origin_account.principal,
-                                      "origin_nonce" => %origin_account.nonce,
-                                      "contract_name" => %contract_id,
-                                      "function_name" => %contract_call.function_name,
-                                      "function_args" => %VecDisplay(&contract_call.function_args),
-                                      "error" => ?error);
-                            (
-                                Value::err_none(),
-                                AssetMap::new(),
-                                vec![],
-                                Some(error.to_string()),
-                            )
-                        }
-                        ClarityRuntimeTxError::AbortedByCallback {
-                            output,
-                            assets_modified,
-                            tx_events,
-                            reason,
-                        } => {
-                            info!("Contract-call aborted by post-condition";
-                                      "txid" => %tx.txid(),
-                                      "origin" => %origin_account.principal,
-                                      "origin_nonce" => %origin_account.nonce,
-                                      "contract_name" => %contract_id,
-                                      "function_name" => %contract_call.function_name,
-                                      "function_args" => %VecDisplay(&contract_call.function_args));
-                            let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
-                                    tx.clone(),
-                                    tx_events,
-                                    output.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
-                                    assets_modified.get_stx_burned_total()?,
-                                    total_cost,
-                                    reason,
-                                );
-                            return Ok(receipt);
-                        }
-                        ClarityRuntimeTxError::CostError(cost_after, budget) => {
-                            warn!("Block compute budget exceeded: if included, this will invalidate a block"; "txid" => %tx.txid(), "cost" => %cost_after, "budget" => %budget);
-                            return Err(Error::CostOverflowError(cost_before, cost_after, budget));
-                        }
-                        ClarityRuntimeTxError::AnalysisError(runtime_check_err) => {
-                            if epoch_id >= StacksEpochId::Epoch21 {
-                                // in 2.1 and later, this is a permitted runtime error.  take the
-                                // fee from the payer and keep the tx.
-                                info!("Contract-call encountered an analysis error at runtime";
-                                      "txid" => %tx.txid(),
-                                      "origin" => %origin_account.principal,
-                                      "origin_nonce" => %origin_account.nonce,
-                                      "contract_name" => %contract_id,
-                                      "function_name" => %contract_call.function_name,
-                                      "function_args" => %VecDisplay(&contract_call.function_args),
-                                      "error" => %runtime_check_err);
-
-                                let receipt =
-                                    StacksTransactionReceipt::from_runtime_failure_contract_call(
-                                        tx.clone(),
-                                        total_cost,
-                                        runtime_check_err,
-                                    );
-                                return Ok(receipt);
-                            } else {
-                                // prior to 2.1, this is not permitted in a block.
-                                warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
+                    Err(e) => {
+                        log_unreachable_error(&e, &tx.txid());
+                        match handle_clarity_runtime_error(e) {
+                            ClarityRuntimeTxError::Acceptable { error, err_type } => {
+                                info!("Contract-call processed with {}", err_type;
                                           "txid" => %tx.txid(),
                                           "origin" => %origin_account.principal,
                                           "origin_nonce" => %origin_account.nonce,
+                                          "contract_name" => %contract_id,
+                                          "function_name" => %contract_call.function_name,
+                                          "function_args" => %VecDisplay(&contract_call.function_args),
+                                          "error" => ?error);
+                                (
+                                    Value::err_none(),
+                                    AssetMap::new(),
+                                    vec![],
+                                    Some(error.to_string()),
+                                )
+                            }
+                            ClarityRuntimeTxError::AbortedByCallback {
+                                output,
+                                assets_modified,
+                                tx_events,
+                                reason,
+                            } => {
+                                info!("Contract-call aborted by post-condition";
+                                          "txid" => %tx.txid(),
+                                          "origin" => %origin_account.principal,
+                                          "origin_nonce" => %origin_account.nonce,
+                                          "contract_name" => %contract_id,
+                                          "function_name" => %contract_call.function_name,
+                                          "function_args" => %VecDisplay(&contract_call.function_args));
+                                let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
+                                        tx.clone(),
+                                        tx_events,
+                                        output.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
+                                        assets_modified.get_stx_burned_total()?,
+                                        total_cost,
+                                        reason,
+                                    );
+                                return Ok(receipt);
+                            }
+                            ClarityRuntimeTxError::CostError(cost_after, budget) => {
+                                warn!("Block compute budget exceeded: if included, this will invalidate a block"; "txid" => %tx.txid(), "cost" => %cost_after, "budget" => %budget);
+                                return Err(Error::CostOverflowError(
+                                    cost_before,
+                                    cost_after,
+                                    budget,
+                                ));
+                            }
+                            ClarityRuntimeTxError::AnalysisError(runtime_check_err) => {
+                                if epoch_id >= StacksEpochId::Epoch21 {
+                                    // in 2.1 and later, this is a permitted runtime error.  take the
+                                    // fee from the payer and keep the tx.
+                                    info!("Contract-call encountered an analysis error at runtime";
+                                          "txid" => %tx.txid(),
+                                          "origin" => %origin_account.principal,
+                                          "origin_nonce" => %origin_account.nonce,
+                                          "contract_name" => %contract_id,
+                                          "function_name" => %contract_call.function_name,
+                                          "function_args" => %VecDisplay(&contract_call.function_args),
+                                          "error" => %runtime_check_err);
+
+                                    let receipt =
+                                        StacksTransactionReceipt::from_runtime_failure_contract_call(
+                                            tx.clone(),
+                                            total_cost,
+                                            runtime_check_err,
+                                        );
+                                    return Ok(receipt);
+                                } else {
+                                    // prior to 2.1, this is not permitted in a block.
+                                    warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
+                                              "txid" => %tx.txid(),
+                                              "origin" => %origin_account.principal,
+                                              "origin_nonce" => %origin_account.nonce,
+                                               "contract_name" => %contract_id,
+                                               "function_name" => %contract_call.function_name,
+                                               "function_args" => %VecDisplay(&contract_call.function_args),
+                                               "error" => %runtime_check_err);
+                                    return Err(Error::ClarityError(ClarityError::Interpreter(
+                                        VmExecutionError::RuntimeCheck(runtime_check_err),
+                                    )));
+                                }
+                            }
+                            ClarityRuntimeTxError::Rejectable(e) => {
+                                error!("Unexpected error in validating transaction: if included, this will invalidate a block";
+                                           "txid" => %tx.txid(),
+                                           "origin" => %origin_account.principal,
+                                           "origin_nonce" => %origin_account.nonce,
                                            "contract_name" => %contract_id,
                                            "function_name" => %contract_call.function_name,
                                            "function_args" => %VecDisplay(&contract_call.function_args),
-                                           "error" => %runtime_check_err);
-                                return Err(Error::ClarityError(ClarityError::Interpreter(
-                                    VmExecutionError::RuntimeCheck(runtime_check_err),
-                                )));
+                                           "error" => ?e);
+                                return Err(Error::ClarityError(e));
                             }
                         }
-                        ClarityRuntimeTxError::Rejectable(e) => {
-                            match &e {
-                                ClarityError::Parse(parse_err) if parse_err.is_unreachable() => {
-                                    error!("UNREACHABLE_ERROR_TRIGGERED: parse error that should never occur was hit";
-                                        "event_name" => "unreachable_error",
-                                        "error_type" => "parse",
-                                        "txid" => %tx.txid(),
-                                        "error" => %parse_err,
-                                    );
-                                    increment_unreachable_errors_counter("parse");
-                                }
-                                ClarityError::StaticCheck(static_err)
-                                    if static_err.err.is_unreachable() =>
-                                {
-                                    error!("UNREACHABLE_ERROR_TRIGGERED: static check error that should never occur was hit";
-                                        "event_name" => "unreachable_error",
-                                        "error_type" => "static_check",
-                                        "txid" => %tx.txid(),
-                                        "error" => %static_err,
-                                    );
-                                    increment_unreachable_errors_counter("static_check");
-                                }
-                                ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-                                    runtime_check_err,
-                                )) if runtime_check_err.is_unreachable() => {
-                                    error!("UNREACHABLE_ERROR_TRIGGERED: runtime check error that should never occur was hit";
-                                        "event_name" => "unreachable_error",
-                                        "error_type" => "runtime_check",
-                                        "txid" => %tx.txid(),
-                                        "error" => %runtime_check_err,
-                                    );
-                                    increment_unreachable_errors_counter("runtime_check");
-                                }
-                                _ => {}
-                            }
-                            error!("Unexpected error in validating transaction: if included, this will invalidate a block";
-                                       "txid" => %tx.txid(),
-                                       "origin" => %origin_account.principal,
-                                       "origin_nonce" => %origin_account.nonce,
-                                       "contract_name" => %contract_id,
-                                       "function_name" => %contract_call.function_name,
-                                       "function_args" => %VecDisplay(&contract_call.function_args),
-                                       "error" => ?e);
-                            return Err(Error::ClarityError(e));
-                        }
-                    },
+                    }
                 };
 
                 let receipt = StacksTransactionReceipt::from_contract_call(
@@ -1344,6 +1353,7 @@ impl StacksChainState {
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
                     Err(e) => {
+                        log_unreachable_error(&e, &tx.txid());
                         match e {
                             ClarityError::CostError(ref cost_after, ref budget) => {
                                 warn!(
@@ -1361,15 +1371,6 @@ impl StacksChainState {
                             }
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {
-                                    if err.is_unreachable() {
-                                        error!("UNREACHABLE_ERROR_TRIGGERED: parse error that should never occur was hit";
-                                            "event_name" => "unreachable_error",
-                                            "error_type" => "parse",
-                                            "txid" => %tx.txid(),
-                                            "error" => %err,
-                                        );
-                                        increment_unreachable_errors_counter("parse");
-                                    }
                                     if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
                                         info!(
                                             "Transaction {} is problematic and should have prevented this block from being relayed",
@@ -1379,15 +1380,6 @@ impl StacksChainState {
                                     }
                                 }
                                 if let ClarityError::StaticCheck(err) = &other_error {
-                                    if err.err.is_unreachable() {
-                                        error!("UNREACHABLE_ERROR_TRIGGERED: static check error that should never occur was hit";
-                                            "event_name" => "unreachable_error",
-                                            "error_type" => "static_check",
-                                            "txid" => %tx.txid(),
-                                            "error" => %err,
-                                        );
-                                        increment_unreachable_errors_counter("static_check");
-                                    }
                                     if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
                                         info!(
                                             "Transaction {} is problematic and should have prevented this block from being relayed",
@@ -1459,124 +1451,97 @@ impl StacksChainState {
                             .expect("FATAL: failed to store contract analysis");
                         x
                     }
-                    Err(e) => match handle_clarity_runtime_error(e) {
-                        ClarityRuntimeTxError::Acceptable { error, err_type } => {
-                            info!("Smart-contract processed with {}", err_type;
-                                      "txid" => %tx.txid(),
-                                      "contract" => %contract_id,
-                                      "error" => ?error);
-                            // When top-level code in a contract publish causes a runtime error,
-                            // the transaction is accepted, but the contract is not created.
-                            //   Return a tx receipt with an `err_none()` result to indicate
-                            //   that the transaction failed during execution.
-                            let receipt = StacksTransactionReceipt {
-                                transaction: tx.clone().into(),
-                                events: vec![],
-                                post_condition_aborted: false,
-                                result: Value::err_none(),
-                                stx_burned: 0,
-                                contract_analysis: Some(contract_analysis),
-                                execution_cost: total_cost,
-                                microblock_header: None,
-                                tx_index: 0,
-                                vm_error: Some(error.to_string()),
-                            };
-                            return Ok(receipt);
-                        }
-                        ClarityRuntimeTxError::AbortedByCallback {
-                            assets_modified,
-                            tx_events,
-                            reason,
-                            ..
-                        } => {
-                            let receipt =
-                                StacksTransactionReceipt::from_condition_aborted_smart_contract(
-                                    tx.clone(),
-                                    tx_events,
-                                    assets_modified.get_stx_burned_total()?,
-                                    contract_analysis,
-                                    total_cost,
-                                    reason,
-                                );
-                            return Ok(receipt);
-                        }
-                        ClarityRuntimeTxError::CostError(cost_after, budget) => {
-                            warn!("Block compute budget exceeded: if included, this will invalidate a block";
-                                      "txid" => %tx.txid(),
-                                      "cost" => %cost_after,
-                                      "budget" => %budget);
-                            return Err(Error::CostOverflowError(cost_before, cost_after, budget));
-                        }
-                        ClarityRuntimeTxError::AnalysisError(runtime_check_err) => {
-                            if epoch_id >= StacksEpochId::Epoch21 {
-                                // in 2.1 and later, this is a permitted runtime error.  take the
-                                // fee from the payer and keep the tx.
-                                info!("Smart-contract encountered an analysis error at runtime";
-                                      "txid" => %tx.txid(),
-                                      "contract" => %contract_id,
-                                      "error" => %runtime_check_err);
-
+                    Err(e) => {
+                        log_unreachable_error(&e, &tx.txid());
+                        match handle_clarity_runtime_error(e) {
+                            ClarityRuntimeTxError::Acceptable { error, err_type } => {
+                                info!("Smart-contract processed with {}", err_type;
+                                          "txid" => %tx.txid(),
+                                          "contract" => %contract_id,
+                                          "error" => ?error);
+                                // When top-level code in a contract publish causes a runtime error,
+                                // the transaction is accepted, but the contract is not created.
+                                //   Return a tx receipt with an `err_none()` result to indicate
+                                //   that the transaction failed during execution.
+                                let receipt = StacksTransactionReceipt {
+                                    transaction: tx.clone().into(),
+                                    events: vec![],
+                                    post_condition_aborted: false,
+                                    result: Value::err_none(),
+                                    stx_burned: 0,
+                                    contract_analysis: Some(contract_analysis),
+                                    execution_cost: total_cost,
+                                    microblock_header: None,
+                                    tx_index: 0,
+                                    vm_error: Some(error.to_string()),
+                                };
+                                return Ok(receipt);
+                            }
+                            ClarityRuntimeTxError::AbortedByCallback {
+                                assets_modified,
+                                tx_events,
+                                reason,
+                                ..
+                            } => {
                                 let receipt =
-                                    StacksTransactionReceipt::from_runtime_failure_smart_contract(
+                                    StacksTransactionReceipt::from_condition_aborted_smart_contract(
                                         tx.clone(),
-                                        total_cost,
+                                        tx_events,
+                                        assets_modified.get_stx_burned_total()?,
                                         contract_analysis,
-                                        runtime_check_err,
+                                        total_cost,
+                                        reason,
                                     );
                                 return Ok(receipt);
-                            } else {
-                                // prior to 2.1, this is not permitted in a block.
-                                warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
-                                      "txid" => %tx.txid(),
-                                      "contract" => %contract_id,
-                                      "error" => %runtime_check_err);
-                                return Err(Error::ClarityError(ClarityError::Interpreter(
-                                    VmExecutionError::RuntimeCheck(runtime_check_err),
-                                )));
+                            }
+                            ClarityRuntimeTxError::CostError(cost_after, budget) => {
+                                warn!("Block compute budget exceeded: if included, this will invalidate a block";
+                                          "txid" => %tx.txid(),
+                                          "cost" => %cost_after,
+                                          "budget" => %budget);
+                                return Err(Error::CostOverflowError(
+                                    cost_before,
+                                    cost_after,
+                                    budget,
+                                ));
+                            }
+                            ClarityRuntimeTxError::AnalysisError(runtime_check_err) => {
+                                if epoch_id >= StacksEpochId::Epoch21 {
+                                    // in 2.1 and later, this is a permitted runtime error.  take the
+                                    // fee from the payer and keep the tx.
+                                    info!("Smart-contract encountered an analysis error at runtime";
+                                          "txid" => %tx.txid(),
+                                          "contract" => %contract_id,
+                                          "error" => %runtime_check_err);
+
+                                    let receipt =
+                                        StacksTransactionReceipt::from_runtime_failure_smart_contract(
+                                            tx.clone(),
+                                            total_cost,
+                                            contract_analysis,
+                                            runtime_check_err,
+                                        );
+                                    return Ok(receipt);
+                                } else {
+                                    // prior to 2.1, this is not permitted in a block.
+                                    warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
+                                          "txid" => %tx.txid(),
+                                          "contract" => %contract_id,
+                                          "error" => %runtime_check_err);
+                                    return Err(Error::ClarityError(ClarityError::Interpreter(
+                                        VmExecutionError::RuntimeCheck(runtime_check_err),
+                                    )));
+                                }
+                            }
+                            ClarityRuntimeTxError::Rejectable(e) => {
+                                error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
+                                           "txid" => %tx.txid(),
+                                           "contract_name" => %contract_id,
+                                           "error" => ?e);
+                                return Err(Error::ClarityError(e));
                             }
                         }
-                        ClarityRuntimeTxError::Rejectable(e) => {
-                            match &e {
-                                ClarityError::Parse(parse_err) if parse_err.is_unreachable() => {
-                                    error!("UNREACHABLE_ERROR_TRIGGERED: parse error that should never occur was hit";
-                                        "event_name" => "unreachable_error",
-                                        "error_type" => "parse",
-                                        "txid" => %tx.txid(),
-                                        "error" => %parse_err,
-                                    );
-                                    increment_unreachable_errors_counter("parse");
-                                }
-                                ClarityError::StaticCheck(static_err)
-                                    if static_err.err.is_unreachable() =>
-                                {
-                                    error!("UNREACHABLE_ERROR_TRIGGERED: static check error that should never occur was hit";
-                                        "event_name" => "unreachable_error",
-                                        "error_type" => "static_check",
-                                        "txid" => %tx.txid(),
-                                        "error" => %static_err,
-                                    );
-                                    increment_unreachable_errors_counter("static_check");
-                                }
-                                ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-                                    runtime_check_err,
-                                )) if runtime_check_err.is_unreachable() => {
-                                    error!("UNREACHABLE_ERROR_TRIGGERED: runtime check error that should never occur was hit";
-                                        "event_name" => "unreachable_error",
-                                        "error_type" => "runtime_check",
-                                        "txid" => %tx.txid(),
-                                        "error" => %runtime_check_err,
-                                    );
-                                    increment_unreachable_errors_counter("runtime_check");
-                                }
-                                _ => {}
-                            }
-                            error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
-                                       "txid" => %tx.txid(),
-                                       "contract_name" => %contract_id,
-                                       "error" => ?e);
-                            return Err(Error::ClarityError(e));
-                        }
-                    },
+                    }
                 };
 
                 let receipt = StacksTransactionReceipt::from_smart_contract(
@@ -12160,37 +12125,5 @@ pub mod test {
 
             conn.commit_block();
         }
-    }
-
-    #[test]
-    fn handle_clarity_runtime_error_routes_parse_to_rejectable() {
-        use clarity::vm::ast::errors::{ParseError, ParseErrorKind};
-
-        let error = ClarityError::Parse(ParseError::new(ParseErrorKind::UnexpectedParserFailure));
-        let result = handle_clarity_runtime_error(error);
-        assert!(
-            matches!(
-                result,
-                ClarityRuntimeTxError::Rejectable(ClarityError::Parse(_))
-            ),
-            "Parse errors must route to Rejectable (via catch-all), not Acceptable"
-        );
-    }
-
-    #[test]
-    fn handle_clarity_runtime_error_routes_static_check_to_rejectable() {
-        use clarity::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
-
-        let error = ClarityError::StaticCheck(StaticCheckError::new(
-            StaticCheckErrorKind::Unreachable("test".into()),
-        ));
-        let result = handle_clarity_runtime_error(error);
-        assert!(
-            matches!(
-                result,
-                ClarityRuntimeTxError::Rejectable(ClarityError::StaticCheck(_))
-            ),
-            "StaticCheck errors must route to Rejectable (via catch-all), not Acceptable"
-        );
     }
 }
