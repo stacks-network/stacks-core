@@ -986,7 +986,7 @@ impl TrackerData {
                         Ok(cached) => cached.contract.contract_context.clone(),
                         Err(e) => {
                             error!("Failed to load intended Clarity cost contract";
-                               "contract" => %boot_costs_id.to_string(),
+                               "contract" => %circuit_target.contract_id.to_string(),
                                "error" => %format!("{:?}", e));
                             clarity_db
                                 .roll_back()
