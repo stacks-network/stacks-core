@@ -154,22 +154,19 @@ jobs:
           default-filter = 'test(/:t::(?:.*::)?${TEST_TAG}:/)'
           EOF
 
-          set +e
           cargo nextest run \
             --no-fail-fast \
             --config-file /tmp/nextest-ci.toml
-          exit_code=$?
-          set -e
 
-          ## On failure, extract failing test names from the JUnit report
-          if [ $exit_code -ne 0 ] && [ -f /tmp/nextest-junit.xml ]; then
+      - name: Extract test failures (if any)
+        if: failure() && steps.run_tests.outcome == 'failure'
+        run: |
+          if [ -f /tmp/nextest-junit.xml ]; then
             sudo apt-get install -y libxml2-utils
             xmllint --xpath '//testcase[failure or error]/@name' /tmp/nextest-junit.xml \
               | grep -oP 'name="\K[^"]+' \
               > /tmp/failed-prop-tests.txt
           fi
-
-          exit $exit_code
 
       ## Persist proptest regression files for the next run on this branch.
       - name: Save proptest regressions (if any)
