@@ -12,7 +12,7 @@
 ##   3. Replays saved seeds automatically on the next run
 ##   4. Send a Slack notification
 ##
-## Note: A Slack notification is also sent in case of unexpected worfklow error.
+## Note: A Slack notification is also sent in case of unexpected workflow error.
 
 name: Tests::Proptest Nightly
 
