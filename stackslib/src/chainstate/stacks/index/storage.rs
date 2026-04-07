@@ -988,6 +988,10 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 u64::try_from(get_node_byte_len(node)).map_err(|_| Error::OverflowError)
             })
             .collect::<Result<Vec<u64>, Error>>()?;
+
+        assert_eq!(node_data.len(), has_inline_children.len());
+        assert_eq!(node_data.len(), byte_lens.len());
+
         // The first pass replaces in-memory indices with serialized offsets.
         // Afterwards, each mutable child pointer can widen from u32 to u64 at most once.
         // A pass that changes offsets without introducing any new wide pointers is the final
@@ -1285,6 +1289,10 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 u64::try_from(byte_len).map_err(|_| Error::OverflowError)
             })
             .collect::<Result<Vec<u64>, Error>>()?;
+
+        assert_eq!(node_data.len(), has_inline_children.len());
+        assert_eq!(node_data.len(), byte_lens.len());
+
         // The first pass replaces in-memory indices with serialized offsets.
         // Afterwards, each mutable child pointer can widen from u32 to u64 at most once.
         // A pass that changes offsets without introducing any new wide pointers is the final
