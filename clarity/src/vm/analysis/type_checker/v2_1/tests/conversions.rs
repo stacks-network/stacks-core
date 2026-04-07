@@ -148,8 +148,8 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
                 to_ascii_expected_types.clone(),
                 Box::new(TypeSignature::TupleType(
                     vec![
-                        (ClarityName::from("a"), TypeSignature::IntType),
-                        (ClarityName::from("b"), TypeSignature::UIntType),
+                        (ClarityName::must_from("a"), TypeSignature::IntType),
+                        (ClarityName::must_from("b"), TypeSignature::UIntType),
                     ]
                     .try_into()
                     .unwrap(),

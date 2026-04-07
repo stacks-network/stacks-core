@@ -540,6 +540,8 @@ fn clarity2_implicit_cast(
 
 #[cfg(test)]
 mod test {
+    use stacks_common::util::MustInto;
+
     use super::*;
     use crate::vm::types::{
         QualifiedContractIdentifier, StandardPrincipalData, TupleTypeSignature,
@@ -627,7 +629,7 @@ mod test {
         }
 
         // {a: principal} -> {a: <trait>}
-        let a_name = ClarityName::from("a");
+        let a_name = ClarityName::must_from("a");
         let tuple_ty = TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![(a_name.clone(), trait_ty)]).unwrap(),
         );
@@ -752,17 +754,17 @@ mod test {
     fn test_canonicalize_defined_function() {
         let trait_id = TraitIdentifier::new(
             StandardPrincipalData::transient(),
-            "my-contract".into(),
-            "my-trait".into(),
+            "my-contract".must_into(),
+            "my-trait".must_into(),
         );
         let mut f = DefinedFunction::new(
             vec![(
-                "a".into(),
+                "a".must_into(),
                 TypeSignature::TraitReferenceType(trait_id.clone()),
             )],
             SymbolicExpression::atom_value(Value::Int(3)),
             DefineType::Public,
-            &"foo".into(),
+            &"foo".must_into(),
             "testing",
         );
         f.canonicalize_types(&StacksEpochId::Epoch21);

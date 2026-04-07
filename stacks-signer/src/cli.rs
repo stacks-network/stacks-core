@@ -38,6 +38,7 @@ use stacks_common::address::{
 };
 use stacks_common::define_u8_enum;
 use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::util::MustInto;
 
 extern crate alloc;
 
@@ -184,8 +185,8 @@ impl VoteInfo {
     /// Get the digest to sign that authenticates this vote data
     fn digest(&self) -> Sha256Sum {
         let vote_message = TupleData::from_data(vec![
-            ("sip".into(), Value::UInt(self.sip.into())),
-            ("vote".into(), Value::UInt(self.vote.to_u8().into())),
+            ("sip".must_into(), Value::UInt(self.sip.into())),
+            ("vote".must_into(), Value::UInt(self.vote.to_u8().into())),
         ])
         .unwrap();
         let data_domain =

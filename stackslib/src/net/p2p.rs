@@ -5565,7 +5565,8 @@ impl PeerNetwork {
 
 #[cfg(test)]
 mod test {
-    use std::{thread, time};
+    use stacks_common::util::MustInto;
+use std::{thread, time};
 
     use clarity::util::sleep_ms;
     use rand::{self, RngCore};
@@ -5654,7 +5655,7 @@ mod test {
             0x9abcdef0,
             0,
             23456,
-            "http://test-p2p.com".into(),
+            "http://test-p2p.com".must_into(),
             &[],
             initial_neighbors,
         )

@@ -2316,6 +2316,7 @@ mod tests {
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::ConsensusHash;
     use stacks_common::types::sqlite::NO_PARAMS;
+    use stacks_common::util::MustInto;
 
     use super::*;
     use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _};
@@ -3056,7 +3057,7 @@ mod tests {
             TransactionAuth::Standard(spending_cond.clone()),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: "hello-world".into(),
+                    name: "hello-world".must_into(),
                     code_body: StacksString::from_str(contract).unwrap(),
                 },
                 None,
@@ -3068,7 +3069,7 @@ mod tests {
             TransactionAuth::Standard(spending_cond.clone()),
             TransactionPayload::SmartContract(
                 TransactionSmartContract {
-                    name: "hello-world".into(),
+                    name: "hello-world".must_into(),
                     code_body: StacksString::from_str(contract).unwrap(),
                 },
                 None,
@@ -3086,8 +3087,8 @@ mod tests {
             TransactionAuth::Standard(spending_cond),
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: sender.clone(),
-                contract_name: "hello-world".into(),
-                function_name: "foo".into(),
+                contract_name: "hello-world".must_into(),
+                function_name: "foo".must_into(),
                 function_args: vec![],
             }),
         );

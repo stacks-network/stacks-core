@@ -17,6 +17,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::types::chainstate::StacksBlockId;
+use clarity::util::MustInto;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
@@ -77,7 +78,7 @@ fn test_try_parse_request() {
             .unwrap()
         )
     );
-    assert_eq!(handler.function, Some("ro-test".into()));
+    assert_eq!(handler.function, Some("ro-test".must_into()));
     assert_eq!(
         handler.sender,
         Some(PrincipalData::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap())

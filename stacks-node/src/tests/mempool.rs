@@ -911,7 +911,7 @@ fn mempool_setup_chainstate() {
 
                 let contract_id = QualifiedContractIdentifier::new(
                     StandardPrincipalData::from(contract_addr.clone()),
-                    ContractName::from("implement-trait-contract"),
+                    ContractName::must_from("implement-trait-contract"),
                 );
                 let contract_principal = PrincipalData::Contract(contract_id);
 
@@ -939,7 +939,7 @@ fn mempool_setup_chainstate() {
 
                 let contract_id = QualifiedContractIdentifier::new(
                     StandardPrincipalData::from(contract_addr.clone()),
-                    ContractName::from("bad-trait-contract"),
+                    ContractName::must_from("bad-trait-contract"),
                 );
                 let contract_principal = PrincipalData::Contract(contract_id);
 

@@ -22,6 +22,7 @@ use clarity::types::StacksEpochId;
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, MAX_TYPE_DEPTH};
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
+use stacks_common::util::MustInto;
 
 use crate::chainstate::tests::consensus::{
     contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
@@ -1132,7 +1133,7 @@ fn bad_trait_implementation_mismatched_args() {
         function_args: &[ClarityValue::Principal(PrincipalData::Contract(
             QualifiedContractIdentifier::new(
                 FAUCET_ADDRESS.clone().into(),
-                "target-contract".into(),
+                "target-contract".must_into(),
             )
         ))],
         setup_contracts: &[trait_definer, target_contract],

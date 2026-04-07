@@ -33,6 +33,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::util::hash::to_hex;
+use stacks_common::util::MustInto;
 
 use super::SIGNERS_MAX_LIST_SIZE;
 use crate::burnchains::PoxConstants;
@@ -1684,11 +1685,13 @@ fn simple_epoch21_test() {
     sim.epoch_bounds = vec![0, 1, 3];
     let delegator = StacksPrivateKey::random();
 
-    let clarity_2_0_id =
-        QualifiedContractIdentifier::new(StandardPrincipalData::transient(), "contract-2-0".into());
+    let clarity_2_0_id = QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        "contract-2-0".must_into(),
+    );
     let clarity_2_0_bad_id = QualifiedContractIdentifier::new(
         StandardPrincipalData::transient(),
-        "contract-2-0-bad".into(),
+        "contract-2-0-bad".must_into(),
     );
     let clarity_2_0_content = "
 (define-private (stx-account (a principal)) 1)
@@ -1696,11 +1699,13 @@ fn simple_epoch21_test() {
   (ok (stx-account 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)))
 ";
 
-    let clarity_2_1_id =
-        QualifiedContractIdentifier::new(StandardPrincipalData::transient(), "contract-2-1".into());
+    let clarity_2_1_id = QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        "contract-2-1".must_into(),
+    );
     let clarity_2_1_bad_id = QualifiedContractIdentifier::new(
         StandardPrincipalData::transient(),
-        "contract-2-1-bad".into(),
+        "contract-2-1-bad".must_into(),
     );
     let clarity_2_1_content = "
 (define-public (call-through)
@@ -1799,10 +1804,10 @@ fn max_stackerdb_list() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "signer".into(),
+                        "signer".must_into(),
                         Value::Principal(PrincipalData::from(signer_address)),
                     ),
-                    ("num-slots".into(), Value::UInt(1)),
+                    ("num-slots".must_into(), Value::UInt(1)),
                 ])
                 .expect("BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple"),
             )

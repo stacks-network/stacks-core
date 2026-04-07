@@ -5,6 +5,7 @@ use clarity::vm::Value;
 use rand::Rng;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::MustInto;
 
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{
@@ -59,8 +60,8 @@ fn make_dummy_cc_tx(fee: u64, execution_cost: &ExecutionCost) -> StacksTransacti
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::ContractCall(TransactionContractCall {
             address: StacksAddress::new(0, Hash160([0; 20])).unwrap(),
-            contract_name: "cc-dummy".into(),
-            function_name: "func-name".into(),
+            contract_name: "cc-dummy".must_into(),
+            function_name: "func-name".must_into(),
             function_args: vec![],
         }),
     );

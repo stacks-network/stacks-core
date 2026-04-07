@@ -15,6 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
+#[cfg(test)]
+use stacks_common::util::MustInto;
 
 use crate::vm::contexts::{AssetMap, OwnedEnvironment};
 use crate::vm::errors::VmExecutionError;
@@ -178,9 +180,9 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     };
 
     let token_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".into());
+        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".must_into());
     let second_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "second".into());
+        QualifiedContractIdentifier::new(p1_std_principal_data, "second".must_into());
 
     owned_env
         .initialize_contract(token_contract_id.clone(), contract, None)
@@ -530,11 +532,11 @@ fn test_simple_token_system(
     };
 
     let token_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "tokens".into());
+        QualifiedContractIdentifier::new(p1_std_principal_data, "tokens".must_into());
 
     let token_identifier = AssetIdentifier {
         contract_identifier: token_contract_id.clone(),
-        asset_name: "stackaroos".into(),
+        asset_name: "stackaroos".must_into(),
     };
 
     let contract_principal = PrincipalData::Contract(token_contract_id.clone());
@@ -829,7 +831,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     };
 
     let token_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "tokens".into());
+        QualifiedContractIdentifier::new(p1_std_principal_data, "tokens".must_into());
     let err = owned_env
         .initialize_contract(token_contract_id.clone(), bad_0, None)
         .unwrap_err();
@@ -915,11 +917,11 @@ fn test_overlapping_nfts(
     };
 
     let tokens_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".into());
+        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".must_into());
     let names_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "names".into());
+        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "names".must_into());
     let names_2_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data, "names-2".into());
+        QualifiedContractIdentifier::new(p1_std_principal_data, "names-2".must_into());
 
     owned_env
         .initialize_contract(tokens_contract_id, tokens_contract, None)
@@ -962,18 +964,18 @@ fn test_simple_naming_system(
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let tokens_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".into());
+        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".must_into());
 
     let names_contract_id =
-        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "names".into());
+        QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "names".must_into());
 
     let names_identifier = AssetIdentifier {
         contract_identifier: names_contract_id,
-        asset_name: "names".into(),
+        asset_name: "names".must_into(),
     };
     let tokens_identifier = AssetIdentifier {
         contract_identifier: tokens_contract_id.clone(),
-        asset_name: "stackaroos".into(),
+        asset_name: "stackaroos".must_into(),
     };
 
     let name_hash_expensive_0 = execute("(hash160 1)");
@@ -984,7 +986,8 @@ fn test_simple_naming_system(
         .initialize_contract(tokens_contract_id, tokens_contract, None)
         .unwrap();
 
-    let names_contract_id = QualifiedContractIdentifier::new(p1_std_principal_data, "names".into());
+    let names_contract_id =
+        QualifiedContractIdentifier::new(p1_std_principal_data, "names".must_into());
     owned_env
         .initialize_contract(names_contract_id.clone(), names_contract, None)
         .unwrap();
@@ -1355,8 +1358,8 @@ fn test_constant_contract_principal_in_stx_ops() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-stx".into());
+    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
+    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-stx".must_into());
 
     owned_env
         .initialize_versioned_contract(
@@ -1481,8 +1484,8 @@ fn test_constant_contract_principal_in_ft_ops() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-ft".into());
+    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
+    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-ft".must_into());
 
     owned_env
         .initialize_versioned_contract(
@@ -1576,8 +1579,8 @@ fn test_constant_contract_principal_in_nft_principal_args() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-nft".into());
+    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
+    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-nft".must_into());
 
     owned_env
         .initialize_versioned_contract(
@@ -1668,8 +1671,8 @@ fn test_constant_contract_principal_in_compound_values() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-compound".into());
+    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
+    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-compound".must_into());
 
     owned_env
         .initialize_versioned_contract(
@@ -1733,8 +1736,9 @@ fn test_nft_with_constant_contract_principal_as_token_id() {
         panic!("Expected principal data");
     };
 
-    let helper_contract_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".into());
-    let nft_contract_id = QualifiedContractIdentifier::new(p1_std.clone(), "nft-contract".into());
+    let helper_contract_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
+    let nft_contract_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), "nft-contract".must_into());
 
     // A trivial contract so we have a valid contract principal to reference.
     owned_env
@@ -1792,7 +1796,7 @@ fn test_nft_with_constant_contract_principal_as_token_id() {
         .expect("p1 should have asset entries");
     let nft_identifier = AssetIdentifier {
         contract_identifier: nft_contract_id,
-        asset_name: "nft".into(),
+        asset_name: "nft".must_into(),
     };
     let entry = p1_assets
         .get(&nft_identifier)
@@ -1847,8 +1851,8 @@ fn test_constant_contract_principal_is_eq() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-contract".into());
+    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
+    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-contract".must_into());
 
     owned_env
         .initialize_versioned_contract(
@@ -1914,8 +1918,8 @@ fn test_constant_contract_principal_index_of_and_list_ops() {
         panic!("Expected principal data");
     };
 
-    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".into());
-    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-contract".into());
+    let helper_id = QualifiedContractIdentifier::new(p1_std.clone(), "helper".must_into());
+    let test_id = QualifiedContractIdentifier::new(p1_std.clone(), "test-contract".must_into());
 
     owned_env
         .initialize_versioned_contract(

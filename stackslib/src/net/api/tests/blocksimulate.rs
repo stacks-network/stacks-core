@@ -285,8 +285,8 @@ fn simulate_block_with_pc_failure() {
     let private_key = StacksPrivateKey::from_seed("blocksimulate".as_bytes());
     let address = to_addr(&private_key);
 
-    let contract_name = ContractName::from("test");
-    let function_name = ClarityName::from("test");
+    let contract_name = ContractName::must_from("test");
+    let function_name = ClarityName::must_from("test");
 
     // Set up the RPC test with a contract, so that we can test a post-condition failure
     let rpc_test =
@@ -310,8 +310,8 @@ fn simulate_block_with_pc_failure() {
                 1000,
                 CHAIN_ID_TESTNET,
                 &address,
-                &contract_name,
-                &function_name,
+                contract_name.clone(),
+                function_name.clone(),
                 &vec![],
             );
 

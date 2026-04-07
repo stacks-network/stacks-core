@@ -24,6 +24,7 @@ use stacks_common::address::{
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::util::MustInto;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::ast::parse;
@@ -703,13 +704,13 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
     );
 
     if let Ok(parsed_bodies) = function_bodies {
-        let func_args1 = vec![("x".into(), TypeSignature::IntType)];
-        let func_args2 = vec![("x".into(), TypeSignature::IntType)];
+        let func_args1 = vec![("x".must_into(), TypeSignature::IntType)];
+        let func_args2 = vec![("x".must_into(), TypeSignature::IntType)];
         let user_function1 = DefinedFunction::new(
             func_args1,
             parsed_bodies[0].clone(),
             Private,
-            &"with_else".into(),
+            &"with_else".must_into(),
             "",
         );
 
@@ -717,7 +718,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             func_args2,
             parsed_bodies[1].clone(),
             Private,
-            &"without_else".into(),
+            &"without_else".must_into(),
             "",
         );
 
@@ -737,10 +738,10 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         contract_context
             .functions
-            .insert("with_else".into(), user_function1);
+            .insert("with_else".must_into(), user_function1);
         contract_context
             .functions
-            .insert("without_else".into(), user_function2);
+            .insert("without_else".must_into(), user_function2);
 
         let mut call_stack = CallStack::new();
         let mut exec_state = ExecutionState {

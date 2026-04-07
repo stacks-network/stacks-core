@@ -111,7 +111,7 @@ use stacks_common::types::{
 };
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::{get_epoch_time_secs, sleep_ms};
+use stacks_common::util::{get_epoch_time_secs, sleep_ms, MustInto};
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
 use stacks_signer::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
@@ -15898,8 +15898,8 @@ fn check_sip040_post_conditions() {
         PostConditionPrincipal::Origin,
         AssetInfo {
             contract_address: sender_addr.clone(),
-            contract_name: ContractName::from(contract_name),
-            asset_name: ClarityName::from("asset"),
+            contract_name: ContractName::must_from(contract_name),
+            asset_name: ClarityName::must_from("asset"),
         },
         Value::UInt(1),
         NonfungibleConditionCode::MaybeSent,
@@ -16839,7 +16839,7 @@ fn check_with_stacking_allowances_stack_stx() {
         "pox-4",
         "allow-contract-caller",
         &[
-            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
+            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.must_into())
                 .into(),
             Value::none(),
         ],
@@ -16905,7 +16905,7 @@ fn check_with_stacking_allowances_stack_stx() {
         "pox-4",
         "allow-contract-caller",
         &[
-            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
+            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.must_into())
                 .into(),
             Value::none(),
         ],
@@ -16998,7 +16998,7 @@ fn check_with_stacking_allowances_stack_stx() {
         "pox-4",
         "allow-contract-caller",
         &[
-            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
+            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.must_into())
                 .into(),
             Value::none(),
         ],
@@ -17516,7 +17516,7 @@ fn check_restrict_assets_rollback() {
             call_fee,
             chain_id,
             sender_addr,
-            contract_name,
+            contract_name.try_into().unwrap(),
             function_name,
             function_args,
         );
@@ -17945,7 +17945,7 @@ fn check_as_contract_rollback() {
     let contract_name = "test-contract";
     let contract_addr = PrincipalData::Contract(QualifiedContractIdentifier {
         issuer: sender_addr.clone().into(),
-        name: contract_name.into(),
+        name: contract_name.must_into(),
     });
     let deploy_fee = 4000;
     let call_fee = 400;
@@ -18221,7 +18221,7 @@ fn check_as_contract_rollback() {
     ) -> (Value, u128, u128) {
         let contract_addr = PrincipalData::Contract(QualifiedContractIdentifier {
             issuer: sender_addr.clone().into(),
-            name: contract_name.into(),
+            name: contract_name.try_into().unwrap(),
         });
         let contract_balance = get_account(http_origin, &contract_addr).balance;
         let recipient_balance = get_account(http_origin, recipient).balance;
@@ -18975,7 +18975,7 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
             0,
             deploy_fee,
             naka_conf.burnchain.chain_id,
-            &contract_name,
+            contract_name.as_str(),
             &contract,
         );
 

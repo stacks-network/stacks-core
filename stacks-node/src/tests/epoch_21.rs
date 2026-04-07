@@ -33,7 +33,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks_common::util::sleep_ms;
+use stacks_common::util::{sleep_ms, MustInto};
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::bitcoin_regtest_controller::UTXO;
@@ -1925,10 +1925,10 @@ fn transition_empty_blocks() {
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
-                if tsc.name == "pox-2".into() {
+                if tsc.name == "pox-2".must_into() {
                     have_pox2 = true;
                 }
-                if tsc.name == "costs-3".into() {
+                if tsc.name == "costs-3".must_into() {
                     have_costs3 = true;
                 }
             }

@@ -7313,8 +7313,8 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
 
             let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
                 address: spender_addr.clone(),
-                contract_name: ContractName::from("increment-contract"),
-                function_name: ClarityName::from("increment-many"),
+                contract_name: ContractName::must_from("increment-contract"),
+                function_name: ClarityName::must_from("increment-many"),
                 function_args: vec![],
             });
 
@@ -8502,7 +8502,7 @@ pub fn make_expensive_tx_chain(
                 nonce,
                 1049230 + nonce + fee_plus,
                 chain_id,
-                &contract_name,
+                contract_name.as_str(),
                 &make_runtime_sized_contract(num_index_of, nonce, &addr_prefix),
             )
         } else {

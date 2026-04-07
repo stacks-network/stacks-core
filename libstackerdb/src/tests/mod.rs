@@ -19,6 +19,7 @@ use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLE
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::MustInto;
 
 use crate::*;
 
@@ -80,7 +81,7 @@ fn test_stackerdb_paths() {
     )
     .unwrap();
 
-    let contract_id = QualifiedContractIdentifier::new(addr.into(), "hello-world".into());
+    let contract_id = QualifiedContractIdentifier::new(addr.into(), "hello-world".must_into());
 
     assert_eq!(
         stackerdb_get_metadata_path(contract_id.clone()),

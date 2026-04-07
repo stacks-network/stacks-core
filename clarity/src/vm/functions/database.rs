@@ -18,6 +18,7 @@ use clarity_types::types::CallableData;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::MustInto;
 
 use crate::vm::callables::DefineType;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
@@ -1171,7 +1172,7 @@ pub fn special_get_burn_block_info(
                 Some((addrs, payout)) => Ok(Value::some(Value::Tuple(
                     TupleData::from_data(vec![
                         (
-                            "addrs".into(),
+                            "addrs".must_into(),
                             Value::cons_list(
                                 addrs.into_iter().map(Value::Tuple).collect(),
                                 exec_state.epoch(),
@@ -1182,7 +1183,7 @@ pub fn special_get_burn_block_info(
                                 )
                             })?,
                         ),
-                        ("payout".into(), Value::UInt(payout)),
+                        ("payout".must_into(), Value::UInt(payout)),
                     ])
                     .map_err(|_| {
                         VmInternalError::Expect(

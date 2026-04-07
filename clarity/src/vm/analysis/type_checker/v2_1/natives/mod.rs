@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::MustInto;
 
 use super::{
     TypeChecker, TypingContext, check_argument_count, check_arguments_at_least,
@@ -724,9 +725,9 @@ fn check_principal_construct(
     Ok(TypeSignature::new_response(
             TypeSignature::PrincipalType,
             TupleTypeSignature::try_from(vec![
-                ("error_code".into(), TypeSignature::UIntType),
+                ("error_code".must_into(), TypeSignature::UIntType),
                 (
-                    "value".into(),
+                    "value".must_into(),
                     TypeSignature::new_option(TypeSignature::PrincipalType).map_err(|_| StaticCheckErrorKind::Unreachable("FATAL: failed to create (optional principal) type signature".into()))?,
                 ),
             ])
@@ -1086,10 +1087,10 @@ impl TypedNativeFunction {
                     fn parse_principal_basic_type()
                     -> Result<TupleTypeSignature, StaticCheckErrorKind> {
                         TupleTypeSignature::try_from(vec![
-                            ("version".into(), TypeSignature::BUFFER_1),
-                            ("hash-bytes".into(), TypeSignature::BUFFER_20),
+                            ("version".must_into(), TypeSignature::BUFFER_1),
+                            ("hash-bytes".must_into(), TypeSignature::BUFFER_20),
                             (
-                                "name".into(),
+                                "name".must_into(),
                                 TypeSignature::new_option(
                                     TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX,
                                 )
@@ -1121,9 +1122,9 @@ impl TypedNativeFunction {
                     })?,
                 )],
                 returns: TupleTypeSignature::try_from(vec![
-                    ("unlocked".into(), TypeSignature::UIntType),
-                    ("locked".into(), TypeSignature::UIntType),
-                    ("unlock-height".into(), TypeSignature::UIntType),
+                    ("unlocked".must_into(), TypeSignature::UIntType),
+                    ("locked".must_into(), TypeSignature::UIntType),
+                    ("unlock-height".must_into(), TypeSignature::UIntType),
                 ])
                 .map_err(|_| {
                     StaticCheckErrorKind::Unreachable(

@@ -28,6 +28,7 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::types::Address;
 use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::MustInto;
 
 use super::test::*;
 use super::RawRewardSetEntry;
@@ -103,7 +104,7 @@ pub fn get_stacking_state_pox(
 ) -> Option<Value> {
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
-            TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
+            TupleData::from_data(vec![("stacker".must_into(), account.clone().into())]).unwrap(),
         );
         let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(
@@ -175,8 +176,8 @@ pub fn check_all_stacker_link_invariants(
 pub fn generate_pox_clarity_value(str_hash: &str) -> Value {
     let byte_vec = hex_bytes(str_hash).unwrap();
     let pox_addr_tuple = TupleData::from_data(vec![
-        ("hashbytes".into(), Value::buff_from(byte_vec).unwrap()),
-        ("version".into(), Value::buff_from_byte(0)),
+        ("hashbytes".must_into(), Value::buff_from(byte_vec).unwrap()),
+        ("version".must_into(), Value::buff_from_byte(0)),
     ])
     .unwrap();
 
@@ -370,8 +371,8 @@ pub fn check_stacking_state_invariants(
 
             let entry_key = Value::from(
                 TupleData::from_data(vec![
-                    ("reward-cycle".into(), Value::UInt(cycle_checked)),
-                    ("index".into(), Value::UInt(reward_index)),
+                    ("reward-cycle".must_into(), Value::UInt(cycle_checked)),
+                    ("index".must_into(), Value::UInt(reward_index)),
                 ])
                 .unwrap(),
             );
@@ -589,7 +590,7 @@ pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_nu
 
     with_clarity_db_ro(peer, tip, |db| {
         let total_stacked_key = TupleData::from_data(vec![(
-            "reward-cycle".into(),
+            "reward-cycle".must_into(),
             Value::UInt(cycle_number.into()),
         )])
         .unwrap()
@@ -631,9 +632,9 @@ pub fn get_partial_stacked(
 ) -> u128 {
     with_clarity_db_ro(peer, tip, |db| {
         let key = TupleData::from_data(vec![
-            ("pox-addr".into(), pox_addr.clone()),
-            ("reward-cycle".into(), Value::UInt(cycle_number.into())),
-            ("sender".into(), Value::from(sender.clone())),
+            ("pox-addr".must_into(), pox_addr.clone()),
+            ("reward-cycle".must_into(), Value::UInt(cycle_number.into())),
+            ("sender".must_into(), Value::from(sender.clone())),
         ])
         .unwrap()
         .into();

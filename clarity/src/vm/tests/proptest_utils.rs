@@ -31,6 +31,7 @@ use proptest::strategy::BoxedStrategy;
 use proptest::string::string_regex;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::util::MustInto;
 use stacks_common::util::hash::to_hex;
 
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
@@ -54,7 +55,7 @@ fn initialize_balances(
     let sender_principal = PrincipalData::Standard(sender.clone());
     let contract_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
         sender.clone(),
-        "contract".into(),
+        "contract".must_into(),
     ));
     let balance = STXBalance::initial(INITIAL_BALANCE);
 
@@ -92,7 +93,7 @@ pub fn execute_versioned(
 ) -> Result<Option<Value>, ClarityEvalError> {
     let sender_pk = StacksPrivateKey::random();
     let sender: StandardPrincipalData = (&sender_pk).into();
-    let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
+    let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".must_into());
     let sender_for_init = sender.clone();
     execute_with_parameters_and_call_in_global_context(
         snippet,

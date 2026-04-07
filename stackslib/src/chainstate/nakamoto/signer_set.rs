@@ -21,6 +21,7 @@ use clarity::vm::{SymbolicExpression, Value};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::MustInto;
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -232,10 +233,10 @@ impl NakamotoSigners {
                     let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
                     let tuple_data = TupleData::from_data(vec![
                         (
-                            "signer".into(),
+                            "signer".must_into(),
                             Value::Principal(PrincipalData::from(signing_address)),
                         ),
-                        ("num-slots".into(), Value::UInt(1)),
+                        ("num-slots".must_into(), Value::UInt(1)),
                     ])
                     .map_err(|e| {
                         ChainstateError::Expects(format!(
@@ -260,10 +261,10 @@ impl NakamotoSigners {
                     let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
                     let tuple = TupleData::from_data(vec![
                         (
-                            "signer".into(),
+                            "signer".must_into(),
                             Value::Principal(PrincipalData::from(signing_address)),
                         ),
-                        ("weight".into(), Value::UInt(signer.weight.into())),
+                        ("weight".must_into(), Value::UInt(signer.weight.into())),
                     ])
                     .map_err(|e| {
                         ChainstateError::Expects(format!(
@@ -558,7 +559,7 @@ impl NakamotoSigners {
         };
         if payload.contract_identifier()
             != boot_code_id(SIGNERS_VOTING_NAME, transaction.is_mainnet())
-            || payload.function_name != SIGNERS_VOTING_FUNCTION_NAME.into()
+            || payload.function_name != SIGNERS_VOTING_FUNCTION_NAME.must_into()
         {
             // This is not a special cased transaction.
             return None;

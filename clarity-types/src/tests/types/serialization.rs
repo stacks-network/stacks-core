@@ -14,6 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
+use stacks_common::util::MustInto;
+
 use crate::errors::ClarityTypeError;
 use crate::types::serialization::SerializationError;
 use crate::types::{
@@ -182,30 +184,30 @@ fn test_string_utf8() {
 fn test_tuples() {
     let t_1 = Value::from(
         TupleData::from_data(vec![
-            ("a".into(), Value::Int(1)),
-            ("b".into(), Value::Int(1)),
+            ("a".must_into(), Value::Int(1)),
+            ("b".must_into(), Value::Int(1)),
         ])
         .unwrap(),
     );
     let t_0 = Value::from(
         TupleData::from_data(vec![
-            ("b".into(), Value::Int(1)),
-            ("a".into(), Value::Int(1)),
+            ("b".must_into(), Value::Int(1)),
+            ("a".must_into(), Value::Int(1)),
         ])
         .unwrap(),
     );
     let t_2 = Value::from(
         TupleData::from_data(vec![
-            ("a".into(), Value::Int(1)),
-            ("b".into(), Value::Bool(true)),
+            ("a".must_into(), Value::Int(1)),
+            ("b".must_into(), Value::Bool(true)),
         ])
         .unwrap(),
     );
-    let t_3 = Value::from(TupleData::from_data(vec![("a".into(), Value::Int(1))]).unwrap());
+    let t_3 = Value::from(TupleData::from_data(vec![("a".must_into(), Value::Int(1))]).unwrap());
     let t_4 = Value::from(
         TupleData::from_data(vec![
-            ("a".into(), Value::Int(1)),
-            ("c".into(), Value::Bool(true)),
+            ("a".must_into(), Value::Int(1)),
+            ("c".must_into(), Value::Bool(true)),
         ])
         .unwrap(),
     );
@@ -303,7 +305,7 @@ fn test_vectors() {
                     ],
                 )
                 .unwrap(),
-                "abcd".into(),
+                "abcd".must_into(),
             )
             .into()),
         ),
@@ -334,8 +336,8 @@ fn test_vectors() {
             "0c000000020362617a0906666f6f62617203",
             Ok(Value::from(
                 TupleData::from_data(vec![
-                    ("baz".into(), Value::none()),
-                    ("foobar".into(), Value::Bool(true)),
+                    ("baz".must_into(), Value::none()),
+                    ("foobar".must_into(), Value::Bool(true)),
                 ])
                 .unwrap(),
             )),
@@ -405,7 +407,7 @@ fn test_principals() {
             .unwrap();
     let standard_p = Value::from(issuer.clone());
 
-    let contract_identifier = QualifiedContractIdentifier::new(issuer, "foo".into());
+    let contract_identifier = QualifiedContractIdentifier::new(issuer, "foo".must_into());
     let contract_p2 = Value::from(PrincipalData::Contract(contract_identifier));
 
     test_deser_ser(contract_p2.clone());

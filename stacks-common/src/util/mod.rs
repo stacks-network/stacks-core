@@ -150,3 +150,14 @@ where
 }
 #[cfg(all(feature = "rusqlite", target_family = "wasm"))]
 compile_error!("The `rusqlite` feature is not supported for wasm targets");
+
+pub trait MustInto<T> {
+    /// Like `.into()`, but for cases where it's not a perfect conversion, and the
+    /// caller must guarantee that the conversion will succeed, because the method
+    /// will panic otherwise. This is made for converting `&str` into things
+    /// like `ClarityName`s, where the source value is hardcoded and thus it's visible
+    /// at a glance that the conversion will succeed.
+    ///
+    /// For values only known at runtime, use `try_into()` and deal with errors.
+    fn must_into(&'static self) -> T;
+}

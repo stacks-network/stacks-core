@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use stacks_common::util::MustInto;
 pub mod diagnostic;
 pub mod errors;
 
@@ -621,7 +622,7 @@ where
     use crate::vm::tests::test_only_mainnet_to_chain_id;
     use crate::vm::types::QualifiedContractIdentifier;
 
-    let contract_id = QualifiedContractIdentifier::new(sender, "contract".into());
+    let contract_id = QualifiedContractIdentifier::new(sender, "contract".must_into());
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
@@ -726,6 +727,7 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>, ClarityEvalError> {
 mod test {
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
+    use stacks_common::util::MustInto;
 
     use super::ClarityVersion;
     use crate::vm::callables::{DefineType, DefinedFunction};
@@ -747,22 +749,22 @@ mod test {
         //  (do_work a)
         //
         let content = [SymbolicExpression::list(vec![
-            SymbolicExpression::atom("do_work".into()),
-            SymbolicExpression::atom("a".into()),
+            SymbolicExpression::atom("do_work".must_into()),
+            SymbolicExpression::atom("a".must_into()),
         ])];
 
         let func_body = SymbolicExpression::list(vec![
-            SymbolicExpression::atom("+".into()),
+            SymbolicExpression::atom("+".must_into()),
             SymbolicExpression::atom_value(Value::Int(5)),
-            SymbolicExpression::atom("x".into()),
+            SymbolicExpression::atom("x".must_into()),
         ]);
 
-        let func_args = vec![("x".into(), TypeSignature::IntType)];
+        let func_args = vec![("x".must_into(), TypeSignature::IntType)];
         let user_function = DefinedFunction::new(
             func_args,
             func_body,
             DefineType::Private,
-            &"do_work".into(),
+            &"do_work".must_into(),
             "",
         );
 
@@ -783,10 +785,10 @@ mod test {
 
         contract_context
             .variables
-            .insert("a".into(), Value::Int(59));
+            .insert("a".must_into(), Value::Int(59));
         contract_context
             .functions
-            .insert("do_work".into(), user_function);
+            .insert("do_work".must_into(), user_function);
 
         let mut call_stack = CallStack::new();
         let mut exec_state = ExecutionState {

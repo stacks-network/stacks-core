@@ -23,6 +23,7 @@ use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::MustInto;
 
 use super::{RawRewardSetEntry, SIGNERS_PK_LEN};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -156,18 +157,18 @@ fn signers_get_config() {
         readonly_call(
             &mut peer,
             &latest_block,
-            "signers".into(),
-            STACKERDB_CONFIG_FUNCTION.into(),
+            "signers".must_into(),
+            STACKERDB_CONFIG_FUNCTION.must_into(),
             vec![],
         ),
         Value::okay(Value::Tuple(
             TupleData::from_data(vec![
-                ("chunk-size".into(), Value::UInt(2 * 1024 * 1024)),
-                ("write-freq".into(), Value::UInt(0)),
-                ("max-writes".into(), Value::UInt(u32::MAX.into())),
-                ("max-neighbors".into(), Value::UInt(32)),
+                ("chunk-size".must_into(), Value::UInt(2 * 1024 * 1024)),
+                ("write-freq".must_into(), Value::UInt(0)),
+                ("max-writes".must_into(), Value::UInt(u32::MAX.into())),
+                ("max-neighbors".must_into(), Value::UInt(32)),
                 (
-                    "hint-replicas".into(),
+                    "hint-replicas".must_into(),
                     Value::cons_list_unsanitized(vec![]).unwrap()
                 )
             ])
@@ -182,20 +183,20 @@ fn signers_get_config() {
             let config = readonly_call(
                 &mut peer,
                 &latest_block,
-                contract_name.as_str().into(),
-                STACKERDB_CONFIG_FUNCTION.into(),
+                contract_name.try_into().unwrap(),
+                STACKERDB_CONFIG_FUNCTION.must_into(),
                 vec![],
             );
             assert_eq!(
                 config,
                 Value::okay(Value::Tuple(
                     TupleData::from_data(vec![
-                        ("chunk-size".into(), Value::UInt(2 * 1024 * 1024)),
-                        ("write-freq".into(), Value::UInt(0)),
-                        ("max-writes".into(), Value::UInt(u32::MAX.into())),
-                        ("max-neighbors".into(), Value::UInt(32)),
+                        ("chunk-size".must_into(), Value::UInt(2 * 1024 * 1024)),
+                        ("write-freq".must_into(), Value::UInt(0)),
+                        ("max-writes".must_into(), Value::UInt(u32::MAX.into())),
+                        ("max-neighbors".must_into(), Value::UInt(32)),
                         (
-                            "hint-replicas".into(),
+                            "hint-replicas".must_into(),
                             Value::cons_list_unsanitized(vec![]).unwrap()
                         )
                     ])
@@ -229,8 +230,11 @@ fn signers_get_signer_keys_from_stackerdb() {
                 let pk_bytes = pk.to_bytes_compressed();
                 let signer_addr = StacksAddress::p2pkh(false, &pk);
                 let stackerdb_entry = TupleData::from_data(vec![
-                    ("signer".into(), PrincipalData::from(signer_addr).into()),
-                    ("num-slots".into(), Value::UInt(1)),
+                    (
+                        "signer".must_into(),
+                        PrincipalData::from(signer_addr).into(),
+                    ),
+                    ("num-slots".must_into(), Value::UInt(1)),
                 ])
                 .unwrap();
                 (pk_bytes, stackerdb_entry)
@@ -249,8 +253,8 @@ fn signers_get_signer_keys_from_stackerdb() {
     let signers = readonly_call(
         &mut peer,
         &latest_block_id,
-        "signers".into(),
-        "stackerdb-get-signer-slots-page".into(),
+        "signers".must_into(),
+        "stackerdb-get-signer-slots-page".must_into(),
         vec![Value::UInt(1)],
     )
     .expect_result_ok()
@@ -281,8 +285,11 @@ fn signers_db_get_slots() {
                 let pk_bytes = pk.to_bytes_compressed();
                 let signer_addr = StacksAddress::p2pkh(false, &pk);
                 let stackerdb_entry = TupleData::from_data(vec![
-                    ("signer".into(), PrincipalData::from(signer_addr).into()),
-                    ("num-slots".into(), Value::UInt(1)),
+                    (
+                        "signer".must_into(),
+                        PrincipalData::from(signer_addr).into(),
+                    ),
+                    ("num-slots".must_into(), Value::UInt(1)),
                 ])
                 .unwrap();
                 (pk_bytes, stackerdb_entry)
@@ -301,18 +308,19 @@ fn signers_db_get_slots() {
 
     for signer_set in 0..2 {
         for message_id in 0..SIGNER_SLOTS_PER_USER {
-            let contract_name = format!("signers-{}-{}", &signer_set, &message_id);
+            let contract_name =
+                ContractName::try_from(format!("signers-{}-{}", &signer_set, &message_id)).unwrap();
             let signers = readonly_call(
                 &mut peer,
                 &latest_block_id,
-                contract_name.as_str().into(),
-                "stackerdb-get-signer-slots".into(),
+                contract_name.clone(),
+                "stackerdb-get-signer-slots".must_into(),
                 vec![],
             )
             .expect_result_ok()
             .unwrap();
 
-            debug!("Check .{}", &contract_name);
+            debug!("Check .{}", contract_name);
             if signer_set == 0 {
                 assert_eq!(signers.expect_list().unwrap(), vec![]);
             } else {
@@ -365,8 +373,8 @@ pub fn prepare_signers_test<'a>(
     let current_reward_cycle = readonly_call(
         &mut peer,
         &latest_block_id,
-        SIGNERS_VOTING_NAME.into(),
-        "current-reward-cycle".into(),
+        SIGNERS_VOTING_NAME.must_into(),
+        "current-reward-cycle".must_into(),
         vec![],
     )
     .expect_u128()
@@ -377,8 +385,8 @@ pub fn prepare_signers_test<'a>(
     let last_set_cycle = readonly_call(
         &mut peer,
         &latest_block_id,
-        SIGNERS_NAME.into(),
-        "get-last-set-cycle".into(),
+        SIGNERS_NAME.must_into(),
+        "get-last-set-cycle".must_into(),
         vec![],
     )
     .expect_result_ok()
@@ -501,8 +509,8 @@ pub fn get_signer_index(
     let signers = readonly_call(
         peer,
         latest_block_id,
-        "signers".into(),
-        "stackerdb-get-signer-slots-page".into(),
+        "signers".must_into(),
+        "stackerdb-get-signer-slots-page".must_into(),
         vec![Value::UInt(cycle_mod)],
     )
     .expect_result_ok()

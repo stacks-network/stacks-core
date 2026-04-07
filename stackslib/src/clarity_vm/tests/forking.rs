@@ -25,6 +25,7 @@ use clarity::vm::version::ClarityVersion;
 use clarity::vm::ContractContext;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::MustInto;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
@@ -382,7 +383,7 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
 
     eprintln!("Initializing contract...");
 
-    let contract_identifier = QualifiedContractIdentifier::new(p1_address, "tokens".into());
+    let contract_identifier = QualifiedContractIdentifier::new(p1_address, "tokens".must_into());
     owned_env
         .initialize_contract(contract_identifier, &contract, None)
         .unwrap();
@@ -396,7 +397,8 @@ fn branched_execution(
     let Value::Principal(PrincipalData::Standard(p1_address)) = execute(p1_str) else {
         panic!("Expected a standard principal data");
     };
-    let contract_identifier = QualifiedContractIdentifier::new(p1_address.clone(), "tokens".into());
+    let contract_identifier =
+        QualifiedContractIdentifier::new(p1_address.clone(), "tokens".must_into());
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 

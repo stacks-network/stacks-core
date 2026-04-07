@@ -272,6 +272,8 @@ impl ContractAnalysis {
 
 #[cfg(test)]
 mod test {
+    use stacks_common::util::MustInto;
+
     use super::*;
     use crate::vm::analysis::ContractAnalysis;
     use crate::vm::costs::LimitedCostTracker;
@@ -291,12 +293,12 @@ mod test {
         );
         let trait_id = TraitIdentifier::new(
             StandardPrincipalData::transient(),
-            "my-contract".into(),
-            "my-trait".into(),
+            "my-contract".must_into(),
+            "my-trait".must_into(),
         );
         let mut trait_functions = BTreeMap::new();
         trait_functions.insert(
-            "alpha".into(),
+            "alpha".must_into(),
             FunctionSignature {
                 args: vec![TypeSignature::TraitReferenceType(trait_id.clone())],
                 returns: TypeSignature::ResponseType(Box::new((
@@ -305,14 +307,14 @@ mod test {
                 ))),
             },
         );
-        contract_analysis.add_defined_trait("foo".into(), trait_functions);
+        contract_analysis.add_defined_trait("foo".must_into(), trait_functions);
 
         contract_analysis.add_public_function(
-            "bar".into(),
+            "bar".must_into(),
             FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg {
                     signature: TypeSignature::TraitReferenceType(trait_id.clone()),
-                    name: "t".into(),
+                    name: "t".must_into(),
                 }],
                 returns: TypeSignature::new_response(
                     TypeSignature::BoolType,
@@ -323,16 +325,16 @@ mod test {
         );
 
         contract_analysis.add_read_only_function(
-            "baz".into(),
+            "baz".must_into(),
             FunctionType::Fixed(FixedFunction {
                 args: vec![
                     FunctionArg {
                         signature: TypeSignature::UIntType,
-                        name: "u".into(),
+                        name: "u".must_into(),
                     },
                     FunctionArg {
                         signature: TypeSignature::TraitReferenceType(trait_id.clone()),
-                        name: "t".into(),
+                        name: "t".must_into(),
                     },
                 ],
                 returns: TypeSignature::BoolType,

@@ -50,6 +50,7 @@ use stacks_common::codec::{
 };
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks_common::util::MustInto;
 
 use crate::stacks_common::types::PublicKey;
 use crate::v0::signer_state::{ReplayTransactionSet, SignerStateMachine};
@@ -371,25 +372,25 @@ impl MockProposal {
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "stacks-tip-consensus-hash".into(),
+                    "stacks-tip-consensus-hash".must_into(),
                     Value::buff_from(self.peer_info.stacks_tip_consensus_hash.as_bytes().into())
                         .unwrap(),
                 ),
                 (
-                    "stacks-tip".into(),
+                    "stacks-tip".must_into(),
                     Value::buff_from(self.peer_info.stacks_tip.as_bytes().into()).unwrap(),
                 ),
                 (
-                    "stacks-tip-height".into(),
+                    "stacks-tip-height".must_into(),
                     Value::UInt(self.peer_info.stacks_tip_height.into()),
                 ),
                 (
-                    "server-version".into(),
+                    "server-version".must_into(),
                     Value::string_ascii_from_bytes(self.peer_info.server_version.clone().into())
                         .unwrap(),
                 ),
                 (
-                    "pox-consensus".into(),
+                    "pox-consensus".must_into(),
                     Value::buff_from(self.peer_info.pox_consensus.as_bytes().into()).unwrap(),
                 ),
             ])
@@ -405,11 +406,11 @@ impl MockProposal {
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "miner-signature-hash".into(),
+                    "miner-signature-hash".must_into(),
                     Value::buff_from(self.miner_signature_hash().as_bytes().into()).unwrap(),
                 ),
                 (
-                    "miner-signature".into(),
+                    "miner-signature".must_into(),
                     Value::buff_from(self.signature.as_bytes().into()).unwrap(),
                 ),
             ])

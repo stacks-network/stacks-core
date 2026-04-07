@@ -990,7 +990,7 @@ fn main() {
                 0,
                 None,
                 0,
-                UrlString::from("abc"),
+                UrlString::must_from("abc"),
                 vec![],
             );
 

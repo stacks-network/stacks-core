@@ -28,6 +28,7 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::MustInto;
 
 use super::test::*;
 use crate::burnchains::{Burnchain, PoxConstants};
@@ -4688,10 +4689,10 @@ fn stack_agg_increase() {
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
             (
-                "stacker".into(),
+                "stacker".must_into(),
                 Value::Principal(PrincipalData::from(bob.address.clone())),
             ),
-            ("total-locked".into(), Value::UInt(min_ustx * 2)),
+            ("total-locked".must_into(), Value::UInt(min_ustx * 2)),
         ])
         .unwrap(),
     ))
@@ -6460,10 +6461,10 @@ fn stack_increase(use_nakamoto: bool) {
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
             (
-                "stacker".into(),
+                "stacker".must_into(),
                 Value::Principal(PrincipalData::from(alice_address.clone())),
             ),
-            ("total-locked".into(), Value::UInt(min_ustx * 2)),
+            ("total-locked".must_into(), Value::UInt(min_ustx * 2)),
         ])
         .unwrap(),
     ))
@@ -6645,8 +6646,8 @@ fn delegate_stack_increase(use_nakamoto: bool) {
 
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
-            ("stacker".into(), Value::Principal(alice_address)),
-            ("total-locked".into(), Value::UInt(min_ustx * 2)),
+            ("stacker".must_into(), Value::Principal(alice_address)),
+            ("total-locked".must_into(), Value::UInt(min_ustx * 2)),
         ])
         .unwrap(),
     ))
@@ -9049,7 +9050,7 @@ pub fn get_stacking_state_pox_4(
 ) -> Option<Value> {
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
-            TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
+            TupleData::from_data(vec![("stacker".must_into(), account.clone().into())]).unwrap(),
         );
         let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(
@@ -9075,21 +9076,21 @@ pub fn make_signer_key_authorization_lookup_key(
 ) -> Value {
     TupleData::from_data(vec![
         (
-            "pox-addr".into(),
+            "pox-addr".must_into(),
             pox_addr.as_clarity_tuple().unwrap().into(),
         ),
-        ("reward-cycle".into(), Value::UInt(reward_cycle.into())),
+        ("reward-cycle".must_into(), Value::UInt(reward_cycle.into())),
         (
-            "topic".into(),
+            "topic".must_into(),
             Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
         ),
-        ("period".into(), Value::UInt(period)),
+        ("period".must_into(), Value::UInt(period)),
         (
-            "signer-key".into(),
+            "signer-key".must_into(),
             Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
         ),
-        ("max-amount".into(), Value::UInt(max_amount)),
-        ("auth-id".into(), Value::UInt(auth_id)),
+        ("max-amount".must_into(), Value::UInt(max_amount)),
+        ("auth-id".must_into(), Value::UInt(auth_id)),
     ])
     .unwrap()
     .into()
@@ -9179,11 +9180,14 @@ pub fn get_partially_stacked_state_pox_4(
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = TupleData::from_data(vec![
             (
-                "pox-addr".into(),
+                "pox-addr".must_into(),
                 pox_addr.as_clarity_tuple().unwrap().into(),
             ),
-            ("reward-cycle".into(), Value::UInt(reward_cycle.into())),
-            ("sender".into(), PrincipalData::from(sender.clone()).into()),
+            ("reward-cycle".must_into(), Value::UInt(reward_cycle.into())),
+            (
+                "sender".must_into(),
+                PrincipalData::from(sender.clone()).into(),
+            ),
         ])
         .unwrap()
         .into();
@@ -9215,7 +9219,7 @@ pub fn get_delegation_state_pox_4(
 ) -> Option<Value> {
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
-            TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
+            TupleData::from_data(vec![("stacker".must_into(), account.clone().into())]).unwrap(),
         );
         let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(

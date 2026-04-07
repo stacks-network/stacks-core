@@ -2199,6 +2199,7 @@ impl CallStack {
 mod test {
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::util::MustInto;
     use stacks_common::util::hash::Hash160;
 
     use super::*;
@@ -2220,11 +2221,11 @@ mod test {
 
         let t1 = AssetIdentifier {
             contract_identifier: a_contract_id,
-            asset_name: "a".into(),
+            asset_name: "a".must_into(),
         };
         let _t2 = AssetIdentifier {
             contract_identifier: b_contract_id,
-            asset_name: "a".into(),
+            asset_name: "a".must_into(),
         };
 
         let mut am1 = AssetMap::new();
@@ -2263,23 +2264,23 @@ mod test {
 
         let t1 = AssetIdentifier {
             contract_identifier: a_contract_id,
-            asset_name: "a".into(),
+            asset_name: "a".must_into(),
         };
         let t2 = AssetIdentifier {
             contract_identifier: b_contract_id,
-            asset_name: "a".into(),
+            asset_name: "a".must_into(),
         };
         let t3 = AssetIdentifier {
             contract_identifier: c_contract_id,
-            asset_name: "a".into(),
+            asset_name: "a".must_into(),
         };
         let t4 = AssetIdentifier {
             contract_identifier: d_contract_id,
-            asset_name: "a".into(),
+            asset_name: "a".must_into(),
         };
         let t5 = AssetIdentifier {
             contract_identifier: e_contract_id,
-            asset_name: "a".into(),
+            asset_name: "a".must_into(),
         };
         let t6 = AssetIdentifier::STX();
         let t7 = AssetIdentifier::STX_burned();
@@ -2389,30 +2390,30 @@ mod test {
     fn test_canonicalize_contract_context() {
         let trait_id = TraitIdentifier::new(
             StandardPrincipalData::transient(),
-            "my-contract".into(),
-            "my-trait".into(),
+            "my-contract".must_into(),
+            "my-trait".must_into(),
         );
         let mut contract_context = ContractContext::new(
             QualifiedContractIdentifier::local("foo").unwrap(),
             ClarityVersion::Clarity1,
         );
         contract_context.functions.insert(
-            "foo".into(),
+            "foo".must_into(),
             DefinedFunction::new(
                 vec![(
-                    "a".into(),
+                    "a".must_into(),
                     TypeSignature::TraitReferenceType(trait_id.clone()),
                 )],
                 SymbolicExpression::atom_value(Value::Int(3)),
                 DefineType::Public,
-                &"foo".into(),
+                &"foo".must_into(),
                 "testing",
             ),
         );
 
         let mut trait_functions = BTreeMap::new();
         trait_functions.insert(
-            "alpha".into(),
+            "alpha".must_into(),
             FunctionSignature {
                 args: vec![TypeSignature::TraitReferenceType(trait_id.clone())],
                 returns: TypeSignature::ResponseType(Box::new((
@@ -2423,7 +2424,7 @@ mod test {
         );
         contract_context
             .defined_traits
-            .insert("bar".into(), trait_functions);
+            .insert("bar".must_into(), trait_functions);
 
         contract_context
             .canonicalize_types(&StacksEpochId::Epoch21)
@@ -2453,7 +2454,7 @@ mod test {
         let p2 = PrincipalData::Contract(b_contract_id.clone());
         let t1 = AssetIdentifier {
             contract_identifier: a_contract_id,
-            asset_name: "a".into(),
+            asset_name: "a".must_into(),
         };
 
         let mut am1 = AssetMap::new();

@@ -22,6 +22,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, PoxId, SortitionId, StacksAddress,
     StacksBlockId, VRFSeed,
 };
+use stacks_common::util::MustInto;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::vm::costs::ExecutionCost;
@@ -313,8 +314,11 @@ impl BurnStateDB for UnitTestBurnStateDB {
         Some((
             vec![
                 TupleData::from_data(vec![
-                    ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
-                    ("hashbytes".into(), Value::buff_from(vec![0u8; 20]).unwrap()),
+                    ("version".must_into(), Value::buff_from(vec![0u8]).unwrap()),
+                    (
+                        "hashbytes".must_into(),
+                        Value::buff_from(vec![0u8; 20]).unwrap(),
+                    ),
                 ])
                 .unwrap(),
             ],

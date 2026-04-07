@@ -3736,11 +3736,11 @@ fn test_trait_args() {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let bad_expected = [StaticCheckErrorKind::IncompatibleTrait(
         Box::new(TraitIdentifier {
-            name: ClarityName::from("trait-foo"),
+            name: ClarityName::must_from("trait-foo"),
             contract_identifier: contract_identifier.clone(),
         }),
         Box::new(TraitIdentifier {
-            name: ClarityName::from("trait-bar"),
+            name: ClarityName::must_from("trait-bar"),
             contract_identifier,
         }),
     )];

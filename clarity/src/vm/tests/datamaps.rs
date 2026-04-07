@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity_types::errors::ClarityTypeError;
+use stacks_common::util::MustInto;
 
 use crate::vm::errors::{
     ClarityEvalError, EarlyReturnError, RuntimeCheckErrorKind, SyntaxBindingError, VmExecutionError,
@@ -254,22 +255,22 @@ fn test_set_tuple_variable() {
     let expected = Value::list_from(vec![
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(1)),
-                ("v1".into(), Value::Int(1)),
+                ("k1".must_into(), Value::Int(1)),
+                ("v1".must_into(), Value::Int(1)),
             ])
             .unwrap(),
         ),
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(2)),
-                ("v1".into(), Value::Int(0)),
+                ("k1".must_into(), Value::Int(2)),
+                ("v1".must_into(), Value::Int(0)),
             ])
             .unwrap(),
         ),
         Value::Tuple(
             TupleData::from_data(vec![
-                ("k1".into(), Value::Int(2)),
-                ("v1".into(), Value::Int(0)),
+                ("k1".must_into(), Value::Int(2)),
+                ("v1".must_into(), Value::Int(0)),
             ])
             .unwrap(),
         ),
@@ -713,31 +714,34 @@ fn test_combines_tuples() {
 
     let expected = [
         make_tuple(vec![
-            ("a".into(), Value::Int(5)),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            ("a".must_into(), Value::Int(5)),
+            ("b".must_into(), Value::Int(2)),
+            ("c".must_into(), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), make_tuple(vec![("x".into(), Value::Int(5))])),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            (
+                "a".must_into(),
+                make_tuple(vec![("x".must_into(), Value::Int(5))]),
+            ),
+            ("b".must_into(), Value::Int(2)),
+            ("c".must_into(), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::none()),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(3)),
+            ("a".must_into(), Value::none()),
+            ("b".must_into(), Value::Int(2)),
+            ("c".must_into(), Value::Int(3)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::Int(4)),
-            ("b".into(), Value::Int(5)),
-            ("c".into(), Value::Int(6)),
+            ("a".must_into(), Value::Int(4)),
+            ("b".must_into(), Value::Int(5)),
+            ("c".must_into(), Value::Int(6)),
         ]),
         make_tuple(vec![
-            ("a".into(), Value::Int(1)),
-            ("b".into(), Value::Int(2)),
-            ("c".into(), Value::Int(4)),
-            ("d".into(), Value::Int(5)),
-            ("e".into(), Value::Int(6)),
+            ("a".must_into(), Value::Int(1)),
+            ("b".must_into(), Value::Int(2)),
+            ("c".must_into(), Value::Int(4)),
+            ("d".must_into(), Value::Int(5)),
+            ("e".must_into(), Value::Int(6)),
         ]),
     ];
 

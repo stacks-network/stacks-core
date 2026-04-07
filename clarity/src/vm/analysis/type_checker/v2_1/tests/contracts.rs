@@ -3567,8 +3567,8 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::TupleType(
                     vec![
-                        (ClarityName::from("a"), TypeSignature::IntType),
-                        (ClarityName::from("b"), TypeSignature::UIntType),
+                        (ClarityName::must_from("a"), TypeSignature::IntType),
+                        (ClarityName::must_from("b"), TypeSignature::UIntType),
                     ]
                     .try_into()
                     .unwrap(),

@@ -26,6 +26,7 @@ pub use clarity_types::types::{
     SequencedValue, StacksAddressExtensions, TraitIdentifier, TupleData, UTF8Data, Value,
     WRAPPER_VALUE_SIZE, byte_len_of_serialization,
 };
+use stacks_common::util::MustInto;
 
 pub use self::std_principals::StandardPrincipalData;
 use crate::vm::ClarityVersion;
@@ -95,12 +96,12 @@ impl BurnBlockInfoProperty {
             HeaderHash => TypeSignature::BUFFER_32,
             PoxAddrs => TupleTypeSignature::try_from(vec![
                 (
-                    "addrs".into(),
+                    "addrs".must_into(),
                     TypeSignature::list_of(
                         TypeSignature::TupleType(
                             TupleTypeSignature::try_from(vec![
-                                ("version".into(), TypeSignature::BUFFER_1),
-                                ("hashbytes".into(), TypeSignature::BUFFER_32),
+                                ("version".must_into(), TypeSignature::BUFFER_1),
+                                ("hashbytes".must_into(), TypeSignature::BUFFER_32),
                             ])
                             .map_err(|_| {
                                 RuntimeCheckErrorKind::Unreachable(
@@ -114,7 +115,7 @@ impl BurnBlockInfoProperty {
                         RuntimeCheckErrorKind::Unreachable("FATAL: bad list type signature".into())
                     })?,
                 ),
-                ("payout".into(), TypeSignature::UIntType),
+                ("payout".must_into(), TypeSignature::UIntType),
             ])
             .map_err(|_| {
                 RuntimeCheckErrorKind::Unreachable("FATAL: bad type signature for pox addr".into())

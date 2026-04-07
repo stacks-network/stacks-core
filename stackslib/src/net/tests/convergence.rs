@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::ContractName;
 use rand::prelude::*;
 use rand::thread_rng;
 
@@ -47,7 +48,7 @@ fn setup_rlimit_nofiles() {
 fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
     QualifiedContractIdentifier::new(
         StandardPrincipalData::new(0x01, [i as u8; 20]).unwrap(),
-        format!("db-{}", i).as_str().into(),
+        ContractName::try_from(format!("db-{}", i)).unwrap(),
     )
 }
 

@@ -3017,6 +3017,7 @@ mod test {
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
         StacksBlockId, VRFSeed,
     };
+    use stacks_common::util::MustInto;
     use stacks_common::util::hash::hex_bytes;
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
@@ -3227,9 +3228,9 @@ mod test {
             Some((
                 vec![
                     TupleData::from_data(vec![
-                        ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
+                        ("version".must_into(), Value::buff_from(vec![0u8]).unwrap()),
                         (
-                            "hashbytes".into(),
+                            "hashbytes".must_into(),
                             Value::buff_from(
                                 hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap(),
                             )
@@ -3238,9 +3239,9 @@ mod test {
                     ])
                     .unwrap(),
                     TupleData::from_data(vec![
-                        ("version".into(), Value::buff_from(vec![1u8]).unwrap()),
+                        ("version".must_into(), Value::buff_from(vec![1u8]).unwrap()),
                         (
-                            "hashbytes".into(),
+                            "hashbytes".must_into(),
                             Value::buff_from(
                                 hex_bytes("7c6775e20e3e938d2d7e9d79ac310108ba501ddb").unwrap(),
                             )

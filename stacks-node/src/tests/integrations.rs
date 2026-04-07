@@ -41,6 +41,7 @@ use stacks::net::api::getcontractsrc::ContractSrcResponse;
 use stacks::net::api::getistraitimplemented::GetIsTraitImplementedResponse;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum};
+use stacks_common::util::MustInto;
 
 use super::{new_test_conf, ADDR_4, SK_1, SK_2, SK_3};
 use crate::helium::RunLoop;
@@ -503,7 +504,7 @@ fn integration_test_get_info() {
                 let client = reqwest::blocking::Client::new();
                 let path = format!("{http_origin}/v2/map_entry/{contract_addr}/get-info/block-data");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
+                let key: Value = TupleData::from_data(vec![("height".must_into(), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {path}");
@@ -518,7 +519,7 @@ fn integration_test_get_info() {
 
                 assert_eq!(result_data, expected_data);
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(100))])
+                let key: Value = TupleData::from_data(vec![("height".must_into(), Value::UInt(100))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {path}");
@@ -534,7 +535,7 @@ fn integration_test_get_info() {
                 // now, let's use a query string to get data without a proof
                 let path = format!("{http_origin}/v2/map_entry/{contract_addr}/get-info/block-data?proof=0");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
+                let key: Value = TupleData::from_data(vec![("height".must_into(), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {path}");
@@ -554,7 +555,7 @@ fn integration_test_get_info() {
                 // now, let's use a query string to get data _with_ a proof
                 let path = format!("{http_origin}/v2/map_entry/{contract_addr}/get-info/block-data?proof=1");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
+                let key: Value = TupleData::from_data(vec![("height".must_into(), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {path}");
@@ -969,8 +970,8 @@ fn integration_test_get_info() {
 
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
                     address: contract_addr.clone(),
-                    contract_name: "get-info".into(),
-                    function_name: "update-info".into(),
+                    contract_name: "get-info".must_into(),
+                    function_name: "update-info".must_into(),
                     function_args: vec![],
                 });
 
@@ -1019,8 +1020,8 @@ fn integration_test_get_info() {
 
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
                     address: contract_addr,
-                    contract_name: "get-info".into(),
-                    function_name: "update-info".into(),
+                    contract_name: "get-info".must_into(),
+                    function_name: "update-info".must_into(),
                     function_args: vec![],
                 });
 

@@ -233,6 +233,16 @@ macro_rules! guarded_string {
             pub fn is_empty(&self) -> bool {
                 self.len() == 0
             }
+
+            /// The caller must guarantee that the conversion will succeed, because the method
+            /// will panic otherwise. This is made for converting `&str` into things
+            /// like `ClarityName`s, where the source value is hardcoded and thus it's visible
+            /// at a glance that the conversion will succeed.
+            ///
+            /// For values only known at runtime, use `try_from()` and deal with errors.
+            pub fn must_from(value: &'static str) -> Self {
+                Self::try_from(value).expect("Expected must_from to never fail")
+            }
         }
 
         impl Deref for $Name {
@@ -254,18 +264,16 @@ macro_rules! guarded_string {
             }
         }
 
-        // Arguably this implementation shouldn't exist, because this conversion isn't
-        // perfect, and thus "some-string".into() could fail for guarded strings. Even
-        // more dangerously, because `TryFrom` is automatically implementeted for `From`,
-        // the call `ClarityName::try_from("foo")` looks like it's safe, but it would
-        // actually panic on invalid arguments.
-        //
-        // The reason we're keeping it around is that it's used *a lot* for hardcoded
-        // strings, and for those, you could argue that it's fine. That's why we're
-        // requiring static lifetime, to limit it to constant strings.
-        impl From<&'static str> for $Name {
-            fn from(value: &str) -> Self {
-                Self::try_from(value.to_string()).unwrap()
+        impl TryFrom<&str> for $Name {
+            type Error = $ErrorType;
+            fn try_from(value: &str) -> Result<Self, Self::Error> {
+                Self::try_from(value.to_string())
+            }
+        }
+
+        impl stacks_common::util::MustInto<$Name> for str {
+            fn must_into(&'static self) -> $Name {
+                $Name::must_from(self)
             }
         }
 

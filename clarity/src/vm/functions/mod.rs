@@ -925,6 +925,7 @@ fn special_contract_of(
 mod test {
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
+    use stacks_common::util::MustInto;
 
     use super::ClarityVersion;
     use crate::vm::analysis::errors::RuntimeCheckErrorKind;
@@ -1005,7 +1006,7 @@ mod test {
         );
 
         // --- Atom argument, but NOT registered as a callable trait ---
-        let atom = SymbolicExpression::atom("not_a_trait".into());
+        let atom = SymbolicExpression::atom("not_a_trait".must_into());
 
         let contract_context =
             ContractContext::new(QualifiedContractIdentifier::transient(), version);
@@ -1250,7 +1251,7 @@ mod test {
         );
 
         // Pass an Atom but NOT a valid stacks block info property
-        let bad_property = SymbolicExpression::atom("not-a-valid-stacks-prop".into());
+        let bad_property = SymbolicExpression::atom("not-a-valid-stacks-prop".must_into());
 
         let height = SymbolicExpression::atom_value(Value::UInt(0));
 
@@ -1301,7 +1302,7 @@ mod test {
         );
 
         // Atom But NOT a valid burn block info property
-        let bad_property = SymbolicExpression::atom("not-a-valid-burn-prop".into());
+        let bad_property = SymbolicExpression::atom("not-a-valid-burn-prop".must_into());
 
         // Valid uint height to avoid TypeValueError
         let height = SymbolicExpression::atom_value(Value::UInt(0));
@@ -1368,8 +1369,8 @@ mod test {
         };
         // (contract-call? unknown-contract foo)
         let args = vec![
-            SymbolicExpression::atom("unknown-contract".into()), // Atom, NOT registered
-            SymbolicExpression::atom("foo".into()),              // Valid function name atom
+            SymbolicExpression::atom("unknown-contract".must_into()), // Atom, NOT registered
+            SymbolicExpression::atom("foo".must_into()),              // Valid function name atom
         ];
 
         let err = special_contract_call(&args, &mut exec_state, &invoke_ctx, &context).unwrap_err();

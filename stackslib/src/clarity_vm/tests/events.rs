@@ -23,6 +23,7 @@ use clarity::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier,
 use clarity::vm::{ClarityVersion, ContractContext};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::MustInto;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::StacksBlockHeader;
@@ -306,7 +307,7 @@ fn test_emit_ft_transfer_ok() {
             let contract_identifier = QualifiedContractIdentifier::local("contract").unwrap();
             let asset_identifier = AssetIdentifier {
                 contract_identifier,
-                asset_name: "token".into(),
+                asset_name: "token".must_into(),
             };
             assert_eq!(data.asset_identifier, asset_identifier);
             assert_eq!(data.amount, 10u128);
@@ -356,7 +357,7 @@ fn test_emit_ft_mint_ok() {
             let contract_identifier = QualifiedContractIdentifier::local("contract").unwrap();
             let asset_identifier = AssetIdentifier {
                 contract_identifier,
-                asset_name: "token".into(),
+                asset_name: "token".must_into(),
             };
             assert_eq!(data.asset_identifier, asset_identifier);
             assert_eq!(data.amount, 10u128);
@@ -402,7 +403,7 @@ fn test_emit_nft_transfer_ok() {
             let contract_identifier = QualifiedContractIdentifier::local("contract").unwrap();
             let asset_identifier = AssetIdentifier {
                 contract_identifier,
-                asset_name: "token".into(),
+                asset_name: "token".must_into(),
             };
             assert_eq!(data.asset_identifier, asset_identifier);
             assert_eq!(data.value, execute("u1"));
@@ -452,7 +453,7 @@ fn test_emit_nft_mint_ok() {
             let contract_identifier = QualifiedContractIdentifier::local("contract").unwrap();
             let asset_identifier = AssetIdentifier {
                 contract_identifier,
-                asset_name: "token".into(),
+                asset_name: "token".must_into(),
             };
             assert_eq!(data.asset_identifier, asset_identifier);
             assert_eq!(data.value, execute("u1"));

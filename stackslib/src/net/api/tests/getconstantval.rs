@@ -20,6 +20,7 @@ use clarity::types::chainstate::StacksBlockId;
 use clarity::types::Address;
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::MustInto;
 
 use super::test_rpc;
 use crate::net::api::*;
@@ -73,7 +74,7 @@ fn test_try_parse_request() {
             .unwrap()
         )
     );
-    assert_eq!(handler.constname, Some("test-const".into()));
+    assert_eq!(handler.constname, Some("test-const".must_into()));
 
     assert_eq!(&preamble, request.preamble());
 

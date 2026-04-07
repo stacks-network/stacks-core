@@ -209,11 +209,11 @@ pub fn make_contract_publish_tx(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    contract_name: &'static str,
+    contract_name: &str,
     contract_content: &str,
     version: Option<ClarityVersion>,
 ) -> StacksTransaction {
-    let name = ContractName::from(contract_name);
+    let name = ContractName::try_from(contract_name).expect("invalid contract name");
     let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
 
     let payload =
@@ -227,7 +227,7 @@ pub fn make_contract_publish_versioned(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    contract_name: &'static str,
+    contract_name: &str,
     contract_content: &str,
     version: Option<ClarityVersion>,
 ) -> Vec<u8> {
@@ -248,7 +248,7 @@ pub fn make_contract_publish(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    contract_name: &'static str,
+    contract_name: &str,
     contract_content: &str,
 ) -> Vec<u8> {
     make_contract_publish_versioned(
@@ -267,11 +267,11 @@ pub fn make_contract_publish_microblock_only_versioned(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    contract_name: &'static str,
+    contract_name: &str,
     contract_content: &str,
     version: Option<ClarityVersion>,
 ) -> Vec<u8> {
-    let name = ContractName::from(contract_name);
+    let name = ContractName::try_from(contract_name).expect("invalid contract name");
     let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
 
     let payload =
@@ -295,7 +295,7 @@ pub fn make_contract_publish_microblock_only(
     nonce: u64,
     tx_fee: u64,
     chain_id: u32,
-    contract_name: &'static str,
+    contract_name: &str,
     contract_content: &str,
 ) -> Vec<u8> {
     make_contract_publish_microblock_only_versioned(
@@ -431,13 +431,10 @@ pub fn make_contract_call_tx(
     tx_fee: u64,
     chain_id: u32,
     contract_addr: &StacksAddress,
-    contract_name: &'static str,
-    function_name: &'static str,
+    contract_name: ContractName,
+    function_name: ClarityName,
     function_args: &[Value],
 ) -> StacksTransaction {
-    let contract_name = ContractName::from(contract_name);
-    let function_name = ClarityName::from(function_name);
-
     let payload = TransactionContractCall {
         address: contract_addr.clone(),
         contract_name,
@@ -455,8 +452,8 @@ pub fn make_contract_call(
     tx_fee: u64,
     chain_id: u32,
     contract_addr: &StacksAddress,
-    contract_name: &'static str,
-    function_name: &'static str,
+    contract_name: &str,
+    function_name: &str,
     function_args: &[Value],
 ) -> Vec<u8> {
     make_contract_call_tx(
@@ -465,8 +462,8 @@ pub fn make_contract_call(
         tx_fee,
         chain_id,
         contract_addr,
-        contract_name,
-        function_name,
+        contract_name.try_into().expect("invalid contract name"),
+        function_name.try_into().expect("invalid function name"),
         function_args,
     )
     .serialize_to_vec()
@@ -483,8 +480,8 @@ pub fn make_contract_call_mblock_only(
     function_name: &'static str,
     function_args: &[Value],
 ) -> Vec<u8> {
-    let contract_name = ContractName::from(contract_name);
-    let function_name = ClarityName::from(function_name);
+    let contract_name = ContractName::must_from(contract_name);
+    let function_name = ClarityName::must_from(function_name);
 
     let payload = TransactionContractCall {
         address: contract_addr.clone(),

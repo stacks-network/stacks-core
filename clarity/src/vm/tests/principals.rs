@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::MustInto;
 use stacks_common::util::hash::hex_bytes;
 
 use crate::vm::types::{
@@ -306,19 +307,19 @@ fn create_principal_destruct_tuple_from_strings(
     Value::Tuple(
         TupleData::from_data(vec![
             (
-                "version".into(),
+                "version".must_into(),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: hex_bytes(version).unwrap(),
                 })),
             ),
             (
-                "hash-bytes".into(),
+                "hash-bytes".must_into(),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: hex_bytes(hash_bytes).unwrap(),
                 })),
             ),
             (
-                "name".into(),
+                "name".must_into(),
                 Value::Optional(OptionalData {
                     data: name.map(|name_str| {
                         Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
@@ -693,7 +694,7 @@ fn test_principal_construct_good() {
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
                     StandardPrincipalData::new(22, transfer_buffer).unwrap(),
-                    "hello-world".into()
+                    "hello-world".must_into()
                 )
             )))
         }),
@@ -716,7 +717,7 @@ fn test_principal_construct_good() {
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
                     StandardPrincipalData::new(20, transfer_buffer).unwrap(),
-                    "hello-world".into()
+                    "hello-world".must_into()
                 )
             )))
         }),
@@ -777,7 +778,7 @@ fn test_principal_construct_good() {
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
                     StandardPrincipalData::new(26, transfer_buffer).unwrap(),
-                    "hello-world".into()
+                    "hello-world".must_into()
                 )
             )))
         }),
@@ -800,7 +801,7 @@ fn test_principal_construct_good() {
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
                     StandardPrincipalData::new(21, transfer_buffer).unwrap(),
-                    "hello-world".into()
+                    "hello-world".must_into()
                 )
             )))
         }),
@@ -853,11 +854,11 @@ fn test_principal_construct_version_byte_future() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        "error_code".must_into(),
                         Value::UInt(PrincipalConstructErrorCode::VERSION_BYTE as u128)
                     ),
                     (
-                        "value".into(),
+                        "value".must_into(),
                         Value::some(create_principal_from_strings(
                             "1f",
                             "0102030405060708091011121314151617181920",
@@ -888,11 +889,11 @@ fn test_principal_construct_version_byte_future() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        "error_code".must_into(),
                         Value::UInt(PrincipalConstructErrorCode::VERSION_BYTE as u128)
                     ),
                     (
-                        "value".into(),
+                        "value".must_into(),
                         Value::some(create_principal_from_strings(
                             "1f",
                             "0102030405060708091011121314151617181920",
@@ -1019,10 +1020,10 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        "error_code".must_into(),
                         Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
                     ),
-                    ("value".into(), Value::none()),
+                    ("value".must_into(), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
             )),
@@ -1046,10 +1047,10 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        "error_code".must_into(),
                         Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
                     ),
-                    ("value".into(), Value::none()),
+                    ("value".must_into(), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
             )),
@@ -1064,10 +1065,10 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        "error_code".must_into(),
                         Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
                     ),
-                    ("value".into(), Value::none()),
+                    ("value".must_into(), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
             )),
@@ -1090,10 +1091,10 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        "error_code".must_into(),
                         Value::UInt(PrincipalConstructErrorCode::CONTRACT_NAME as u128)
                     ),
-                    ("value".into(), Value::none()),
+                    ("value".must_into(), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
             )),
@@ -1116,10 +1117,10 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        "error_code".must_into(),
                         Value::UInt(PrincipalConstructErrorCode::CONTRACT_NAME as u128)
                     ),
-                    ("value".into(), Value::none()),
+                    ("value".must_into(), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
             )),

@@ -20,6 +20,7 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::MustInto;
 
 use crate::chainstate::stacks::address::PoxAddress;
 
@@ -61,20 +62,22 @@ pub fn make_structured_data_domain(name: &str, version: &str, chain_id: u32) -> 
     Value::Tuple(
         TupleData::from_data(vec![
             (
-                "name".into(),
+                "name".must_into(),
                 Value::string_ascii_from_bytes(name.into()).unwrap(),
             ),
             (
-                "version".into(),
+                "version".must_into(),
                 Value::string_ascii_from_bytes(version.into()).unwrap(),
             ),
-            ("chain-id".into(), Value::UInt(chain_id.into())),
+            ("chain-id".must_into(), Value::UInt(chain_id.into())),
         ])
         .unwrap(),
     )
 }
 
 pub mod pox4 {
+    use stacks_common::util::MustInto;
+
     use super::{
         make_structured_data_domain, structured_data_message_hash, MessageSignature, PoxAddress,
         PrivateKey, Sha256Sum, StacksPrivateKey, TupleData, Value,
@@ -105,21 +108,21 @@ pub mod pox4 {
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "pox-addr".into(),
+                    "pox-addr".must_into(),
                     pox_addr
                         .clone()
                         .as_clarity_tuple()
                         .expect("Error creating signature hash - invalid PoX Address")
                         .into(),
                 ),
-                ("reward-cycle".into(), Value::UInt(reward_cycle)),
-                ("period".into(), Value::UInt(period)),
+                ("reward-cycle".must_into(), Value::UInt(reward_cycle)),
+                ("period".must_into(), Value::UInt(period)),
                 (
-                    "topic".into(),
+                    "topic".must_into(),
                     Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
                 ),
-                ("auth-id".into(), Value::UInt(auth_id)),
-                ("max-amount".into(), Value::UInt(max_amount)),
+                ("auth-id".must_into(), Value::UInt(auth_id)),
+                ("max-amount".must_into(), Value::UInt(max_amount)),
             ])
             .expect("Error creating signature hash"),
         );
@@ -426,14 +429,14 @@ mod test {
         let domain = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "name".into(),
+                    "name".must_into(),
                     Value::string_ascii_from_bytes("Test App".into()).unwrap(),
                 ),
                 (
-                    "version".into(),
+                    "version".must_into(),
                     Value::string_ascii_from_bytes("1.0.0".into()).unwrap(),
                 ),
-                ("chain-id".into(), Value::UInt(CHAIN_ID_MAINNET.into())),
+                ("chain-id".must_into(), Value::UInt(CHAIN_ID_MAINNET.into())),
             ])
             .unwrap(),
         );
@@ -457,14 +460,14 @@ mod test {
         let domain = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "name".into(),
+                    "name".must_into(),
                     Value::string_ascii_from_bytes("Test App".into()).unwrap(),
                 ),
                 (
-                    "version".into(),
+                    "version".must_into(),
                     Value::string_ascii_from_bytes("1.0.0".into()).unwrap(),
                 ),
-                ("chain-id".into(), Value::UInt(CHAIN_ID_MAINNET.into())),
+                ("chain-id".must_into(), Value::UInt(CHAIN_ID_MAINNET.into())),
             ])
             .unwrap(),
         );
