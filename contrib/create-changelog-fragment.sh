@@ -2,8 +2,6 @@
 set -euo pipefail
 
 # Creates a changelog fragment interactively and stages it.
-# Called from the pre-commit hook when no fragment is found,
-# or can be run standalone.
 
 # Detect the current branch and try to extract a PR number
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
