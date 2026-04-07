@@ -14,15 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 //! TinyUFO-based in-memory cache for parsed Clarity contracts.
-//!
-//! Contracts are keyed by [`QualifiedContractIdentifier`] and weighted by their
-//! [`ResidentBytes`] heap footprint so the cache respects a configurable byte budget.
-//!
-//! The cache is owned by [`ClarityInstance`](crate::vm::clarity::ClarityInstance) and
-//! lives across blocks. [`ContractCache::check_and_advance`] must be called at the start
-//! of each block to detect reorgs or epoch transitions; either condition invalidates the
-//! entire cache.
 
+use std::cell::RefCell;
 use std::mem::size_of;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -36,25 +29,15 @@ use tinyufo::TinyUfo;
 use crate::vm::contracts::Contract;
 use crate::vm::types::QualifiedContractIdentifier;
 
-/// Per-entry overhead beyond what `contract.resident_bytes()` and `key.resident_bytes()` report.
-///
-/// - `CachedContractInner` minus `Contract`: the wrapper's own fields (`load_cost_size`,
-///   `resident_bytes`) that sit outside the `Contract`'s `resident_bytes()` measurement.
-/// - Arc allocation header (strong + weak counts on the heap): 16 bytes.
-/// - TinyUFO per-entry metadata (frequency counters, node pointers): ~64 bytes.
+/// Per-entry overhead: wrapper fields + Arc header (~16 bytes) + TinyUFO bookkeeping (~64 bytes).
 const ENTRY_OVERHEAD: u64 =
     (size_of::<CachedContractInner>() - size_of::<Contract>()) as u64 + 16 + 64;
 
-/// Bytes per TinyUFO weight unit. Smaller values give finer eviction granularity but reduce the
-/// maximum representable entry size (`u16::MAX * CACHE_WEIGHT_UNIT`).
-///
-/// At 256 bytes per unit:
-/// - Max per-entry weight: `u16::MAX * 256` ≈ 16 MiB (sufficient headroom for a parsed AST from a
-///   max-size 2 MiB contract source — `MAX_TRANSACTION_LEN` in stackslib)
-/// - A 64 MiB cache budget yields `262,144` capacity units
+/// Weight unit (256 bytes) for LFU eviction. Allows up to ~16 MiB per entry
+/// (`u16::MAX * 256`), which covers the largest possible parsed contract AST.
 const CACHE_WEIGHT_UNIT: u64 = 256;
 
-/// Inner data for a cached contract. Not used directly by callers.
+/// Backing data for [`CachedContract`].
 pub struct CachedContractInner {
     pub contract: Contract,
     /// `contract_size` + `data_size` (for load-contract runtime cost)
@@ -63,8 +46,9 @@ pub struct CachedContractInner {
     pub resident_bytes: u64,
 }
 
-/// Shared handle to a cached contract. Cheap to clone (Arc internally).
-/// Derefs to [`CachedContractInner`] so callers access fields directly.
+/// Handle to a cached contract (`Arc`-backed, cheap to clone).
+///
+/// Derefs to [`CachedContractInner`].
 #[derive(Clone)]
 pub struct CachedContract(Arc<CachedContractInner>);
 
@@ -87,19 +71,15 @@ impl Deref for CachedContract {
     }
 }
 
-/// Parsed-contract cache backed by TinyUFO (an O(1), lock-free, approximate LFU).
+/// LFU cache of parsed contracts (`TinyUFO`-backed), weighted by in-memory footprint.
 ///
-/// Entries are weighted by their in-memory footprint so the total resident size stays within
-/// `byte_limit`.
-///
-/// The cache is invalidated in its entirety when a reorg or epoch transition is detected by
-/// [`check_and_advance()`](Self::check_and_advance), which *must* be called at the start of each
-/// new block to ensure cache correctness.
+/// Invalidated on reorg or epoch transition. Call [`check_and_advance()`](Self::check_and_advance)
+/// at each block start.
 pub struct ContractCache {
     cache: TinyUfo<QualifiedContractIdentifier, CachedContract>,
     byte_limit: usize,
     last_epoch: Option<StacksEpochId>,
-    last_block: Option<StacksBlockId>,
+    last_block: RefCell<Option<StacksBlockId>>,
     hits: AtomicU64,
     misses: AtomicU64,
 }
@@ -113,7 +93,7 @@ impl ContractCache {
             cache: TinyUfo::new(byte_limit / CACHE_WEIGHT_UNIT as usize, 256),
             byte_limit,
             last_epoch: None,
-            last_block: None,
+            last_block: RefCell::new(None),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
         }
@@ -160,10 +140,26 @@ impl ContractCache {
         self.cache.put(key, entry, weight);
     }
 
+    /// Returns `Some(self)` if the cache was built for (or advanced through) `block`,
+    /// `None` otherwise.
+    ///
+    /// Read-only and ephemeral connections should use this to obtain a cache reference,
+    /// ensuring they never serve contracts from a different tip.
+    pub fn for_block(&self, block: &StacksBlockId) -> Option<&Self> {
+        (self.last_block.borrow().as_ref() == Some(block)).then_some(self)
+    }
+
+    /// Mark the cache as stale so `for_block` returns `None` until the next
+    /// `check_and_advance`.
+    pub fn invalidate(&self) {
+        *self.last_block.borrow_mut() = None;
+    }
+
     /// Validate cache against the current block and epoch.
     ///
     /// If the parent block doesn't match the last seen block, or if the epoch has changed, we
     /// assume a reorg or epoch transition has occurred and clear the cache to maintain correctness.
+    ///
     /// Otherwise, the cache is updated to reflect the new `current_block` and preserved for
     /// continued use.
     pub fn check_and_advance(
@@ -172,11 +168,13 @@ impl ContractCache {
         current_block: &StacksBlockId,
         epoch: StacksEpochId,
     ) {
-        if self.last_block.as_ref() != Some(parent_block) || self.last_epoch != Some(epoch) {
+        let last_block = self.last_block.get_mut();
+        if last_block.as_ref() != Some(parent_block) || self.last_epoch != Some(epoch) {
+            // TinyUFO doesn't have a clear() method, so replace it with a new instance.
             self.cache = TinyUfo::new(self.byte_limit / CACHE_WEIGHT_UNIT as usize, 256);
             self.last_epoch = Some(epoch);
         }
-        self.last_block = Some(current_block.clone());
+        *last_block = Some(current_block.clone());
     }
 }
 
@@ -217,6 +215,25 @@ mod tests {
         cache.insert(id.clone(), entry.clone());
         let hit = cache.get(&id).unwrap();
         assert_eq!(hit.load_cost_size, 1000);
+    }
+
+    #[test]
+    fn invalidate_clears_last_block() {
+        let mut cache = ContractCache::new(64 * 1024 * 1024);
+        let block_a = StacksBlockId([0x01; 32]);
+        let block_b = StacksBlockId([0x02; 32]);
+
+        cache.check_and_advance(&block_a, &block_b, StacksEpochId::Epoch21);
+        assert!(cache.for_block(&block_b).is_some());
+
+        // Simulate rollback: invalidate through a shared reference
+        let cache_ref: &ContractCache = &cache;
+        cache_ref.invalidate();
+
+        assert!(
+            cache.for_block(&block_b).is_none(),
+            "for_block should return None after invalidate"
+        );
     }
 
     #[test]

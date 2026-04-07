@@ -283,6 +283,7 @@ pub struct ClarityReadOnlyConnection<'a> {
     header_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
     epoch: StacksEpochId,
+    contract_cache: Option<&'a ContractCache>,
 }
 
 impl From<ChainstateError> for ClarityError {
@@ -442,8 +443,15 @@ impl ClarityInstance {
         let mut datastore = self.datastore.begin(current, next);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
+
+        // Validate the cache before cost tracker init so that cost contract loads can hit it.
+        self.contract_cache
+            .check_and_advance(current, next, epoch.epoch_id);
+
         let cost_track = {
-            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            let mut clarity_db = datastore
+                .as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+                .with_contract_cache(&self.contract_cache);
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
@@ -455,9 +463,6 @@ impl ClarityInstance {
                 .expect("FAIL: problem instantiating cost tracking"),
             )
         };
-
-        self.contract_cache
-            .check_and_advance(current, next, epoch.epoch_id);
 
         ClarityBlockConnection {
             datastore: Box::new(datastore),
@@ -790,6 +795,8 @@ impl ClarityInstance {
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
     ) -> Result<ClarityReadOnlyConnection<'a>, ClarityError> {
+        let contract_cache = self.contract_cache.for_block(at_block);
+
         let mut datastore = self.datastore.begin_read_only_checked(Some(at_block))?;
         let epoch = {
             let mut db = datastore.as_clarity_db(header_db, burn_state_db);
@@ -804,6 +811,7 @@ impl ClarityInstance {
             header_db,
             burn_state_db,
             epoch,
+            contract_cache,
         })
     }
 
@@ -824,6 +832,9 @@ impl ClarityInstance {
     ) -> Result<Value, ClarityError> {
         let mut read_only_conn = self.datastore.begin_read_only(Some(at_block));
         let mut clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
+
+        clarity_db.set_contract_cache(self.contract_cache.for_block(at_block));
+
         let epoch_id = {
             clarity_db.begin();
             let result = clarity_db.get_clarity_epoch_version();
@@ -849,9 +860,7 @@ impl ClarityConnection for ClarityBlockConnection<'_, '_> {
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
         let mut db = ClarityDatabase::new(&mut self.datastore, self.header_db, self.burn_state_db);
-        if let Some(cc) = self.contract_cache {
-            db.set_contract_cache(cc);
-        }
+        db.set_contract_cache(self.contract_cache);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back()
@@ -885,6 +894,7 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
         let mut db = self
             .datastore
             .as_clarity_db(self.header_db, self.burn_state_db);
+        db.set_contract_cache(self.contract_cache);
         db.begin();
         let (result, mut db) = to_do(db);
         db.roll_back()
@@ -926,6 +936,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         // this is a "lower-level" rollback than the roll backs performed in
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
         debug!("Rollback Clarity datastore");
+        if let Some(cc) = self.contract_cache {
+            cc.invalidate();
+        }
         self.datastore.drop_current_trie();
     }
 
@@ -2058,9 +2071,7 @@ impl ClarityConnection for ClarityTransactionConnection<'_, '_> {
                 self.header_db,
                 self.burn_state_db,
             );
-            if let Some(cc) = self.contract_cache {
-                db.set_contract_cache(cc);
-            }
+            db.set_contract_cache(self.contract_cache);
             db.begin();
             let (r, mut db) = to_do(db);
             db.roll_back()
@@ -2126,9 +2137,9 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                     self.header_db,
                     self.burn_state_db,
                 );
-                if let Some(cc) = self.contract_cache {
-                    db.set_contract_cache(cc);
-                }
+
+                // Use the contract cache.
+                db.set_contract_cache(self.contract_cache);
 
                 // wrap the whole contract-call in a claritydb transaction,
                 //   so we can abort on call_back's boolean retun
@@ -2201,9 +2212,9 @@ impl ClarityTransactionConnection<'_, '_> {
                 self.header_db,
                 self.burn_state_db,
             );
-            if let Some(cc) = self.contract_cache {
-                db.set_contract_cache(cc);
-            }
+
+            // Use the contract cache if one is set.
+            db.set_contract_cache(self.contract_cache);
 
             db.begin();
             let result = to_do(&mut db);
@@ -3429,9 +3440,9 @@ mod tests {
             conn.commit_block();
         }
 
-        // No hits or misses yet — deploy doesn't go through get_contract_cached
+        // No hits yet: begin_block loaded the cost contract via get_contract_cached (a cold miss),
+        // and deploy doesn't go through the cache path.
         assert_eq!(clarity_instance.contract_cache().hits(), 0);
-        assert_eq!(clarity_instance.contract_cache().misses(), 0);
 
         // Block 2: call the contract (cache miss → populates)
         let misses_before_block2 = clarity_instance.contract_cache().misses();
@@ -3502,5 +3513,249 @@ mod tests {
             clarity_instance.contract_cache().hits() > hits_before_block3,
             "block 3 should record at least one cache hit (cross-block persistence)"
         );
+    }
+
+    /// Read-only connections at a historical block must not use the shared cache, because the cache
+    /// reflects the current tip and could contain contracts deployed after the requested block.
+    #[test]
+    pub fn readonly_at_historical_block_bypasses_cache() {
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
+        let contract_id = QualifiedContractIdentifier::local("counter").unwrap();
+
+        // Genesis (block 0)
+        clarity_instance
+            .begin_test_genesis_block(
+                &StacksBlockId::sentinel(),
+                &StacksBlockId([0; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            )
+            .commit_block();
+
+        // Block 1: deploy the contract
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            );
+            let src = "(define-data-var counter int 0)
+                 (define-public (increment) (begin (var-set counter (+ (var-get counter) 1)) (ok (var-get counter))))";
+            conn.as_transaction(|tx| {
+                let (ast, analysis) = tx
+                    .analyze_smart_contract(&contract_id, ClarityVersion::Clarity1, src)
+                    .unwrap();
+                tx.initialize_smart_contract(
+                    &contract_id,
+                    ClarityVersion::Clarity1,
+                    &ast,
+                    src,
+                    None,
+                    |_, _| None,
+                    None,
+                )
+                .unwrap();
+                tx.save_analysis(&contract_id, &analysis).unwrap();
+            });
+            conn.commit_block();
+        }
+
+        // Block 2: call the contract so it populates the cache
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([1; 32]),
+                &StacksBlockId([2; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            );
+            let sender = StandardPrincipalData::transient().into();
+            conn.as_transaction(|tx| {
+                tx.run_contract_call(
+                    &sender,
+                    None,
+                    &contract_id,
+                    "increment",
+                    &[],
+                    |_, _| None,
+                    None,
+                )
+            })
+            .unwrap();
+            conn.commit_block();
+        }
+
+        // The contract should be in the cache now (from block 2 execution).
+        assert!(
+            clarity_instance.contract_cache().hits() > 0
+                || clarity_instance.contract_cache().misses() > 0,
+            "cache should have been exercised during block 2"
+        );
+
+        // Read-only at block 0 (before the contract was deployed). The cache has the contract, but
+        // the guard should prevent attachment because block 0 != the cache's last_block (block 2).
+        let result = clarity_instance.eval_read_only(
+            &StacksBlockId([0; 32]),
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
+            &contract_id,
+            "(var-get counter)",
+        );
+
+        assert!(
+            result.is_err(),
+            "contract should not be visible at block 0 (deployed in block 1), \
+             but the read-only connection returned: {:?}",
+            result,
+        );
+
+        // Read-only at block 2 (current tip) should work fine.
+        let result = clarity_instance
+            .eval_read_only(
+                &StacksBlockId([2; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+                &contract_id,
+                "(var-get counter)",
+            )
+            .expect("read-only at current tip should succeed");
+        assert_eq!(result, Value::Int(1));
+    }
+
+    /// After rollback_block(), the cache must be invalidated immediately so that a read-only
+    /// connection opened before the next begin_block() does not serve contracts from the
+    /// rolled-back block.
+    #[test]
+    pub fn rollback_invalidates_cache_before_next_begin_block() {
+        let marf = MarfedKV::temporary();
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
+        let contract_id = QualifiedContractIdentifier::local("counter").unwrap();
+        let sender = StandardPrincipalData::transient().into();
+
+        // Genesis
+        clarity_instance
+            .begin_test_genesis_block(
+                &StacksBlockId::sentinel(),
+                &StacksBlockId([0; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            )
+            .commit_block();
+
+        // Block 1: deploy and commit
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([0; 32]),
+                &StacksBlockId([1; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            );
+            let src = "(define-data-var counter int 0)
+                 (define-public (increment) (begin (var-set counter (+ (var-get counter) 1)) (ok (var-get counter))))";
+            conn.as_transaction(|tx| {
+                let (ast, analysis) = tx
+                    .analyze_smart_contract(&contract_id, ClarityVersion::Clarity1, src)
+                    .unwrap();
+                tx.initialize_smart_contract(
+                    &contract_id,
+                    ClarityVersion::Clarity1,
+                    &ast,
+                    src,
+                    None,
+                    |_, _| None,
+                    None,
+                )
+                .unwrap();
+                tx.save_analysis(&contract_id, &analysis).unwrap();
+            });
+            conn.commit_block();
+        }
+
+        // Block 2: call the contract (populates the cache), then commit
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([1; 32]),
+                &StacksBlockId([2; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            );
+            conn.as_transaction(|tx| {
+                tx.run_contract_call(
+                    &sender,
+                    None,
+                    &contract_id,
+                    "increment",
+                    &[],
+                    |_, _| None,
+                    None,
+                )
+            })
+            .unwrap();
+            conn.commit_block();
+        }
+
+        // Cache should be valid for block 2 now.
+        assert!(
+            clarity_instance
+                .contract_cache()
+                .for_block(&StacksBlockId([2; 32]))
+                .is_some(),
+            "cache should be valid for block 2 after commit"
+        );
+
+        // Block 3: begin, call the contract (cache hit), then ROLLBACK.
+        {
+            let mut conn = clarity_instance.begin_block(
+                &StacksBlockId([2; 32]),
+                &StacksBlockId([3; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+            );
+            conn.as_transaction(|tx| {
+                tx.run_contract_call(
+                    &sender,
+                    None,
+                    &contract_id,
+                    "increment",
+                    &[],
+                    |_, _| None,
+                    None,
+                )
+            })
+            .unwrap();
+            conn.rollback_block();
+        }
+
+        // After rollback, the cache must be invalidated. A read-only connection at block 2 (the
+        // last committed block) must not use stale cache state.
+        assert!(
+            clarity_instance
+                .contract_cache()
+                .for_block(&StacksBlockId([3; 32]))
+                .is_none(),
+            "cache should not be valid for the rolled-back block"
+        );
+        assert!(
+            clarity_instance
+                .contract_cache()
+                .for_block(&StacksBlockId([2; 32]))
+                .is_none(),
+            "cache should not be valid for any block after invalidation"
+        );
+
+        // A read-only eval at block 2 should still work (goes through the backing store, not the
+        // invalidated cache).
+        let result = clarity_instance
+            .eval_read_only(
+                &StacksBlockId([2; 32]),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+                &contract_id,
+                "(var-get counter)",
+            )
+            .expect("read-only at last committed block should succeed");
+        // counter was incremented once in block 2 (committed), block 3 was rolled back
+        assert_eq!(result, Value::Int(1));
     }
 }

@@ -138,9 +138,8 @@ pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
-    /// Optional parsed-contract cache shared across transactions within a block.
-    ///
-    /// Set via [`set_contract_cache()`](Self::set_contract_cache).
+    /// Optional parsed-contract cache. Callers should only attach it when it is valid for the
+    /// view/block being queried.
     contract_cache: Option<&'a ContractCache>,
 }
 
@@ -472,9 +471,15 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
-    /// Attach a contract cache to this database.
-    pub fn set_contract_cache(&mut self, cache: &'a ContractCache) {
+    /// Set the contract cache to this database.
+    pub fn set_contract_cache(&mut self, cache: impl Into<Option<&'a ContractCache>>) {
+        self.contract_cache = cache.into();
+    }
+
+    /// Use the specified [`ContractCache`] for this instance.
+    pub fn with_contract_cache(mut self, cache: &'a ContractCache) -> Self {
         self.contract_cache = Some(cache);
+        self
     }
 
     pub fn initialize(&mut self) {}
@@ -917,7 +922,8 @@ impl<'a> ClarityDatabase<'a> {
             return Ok(entry);
         }
 
-        // Cache miss: load from committed store, safe to cache
+        // Cache miss, safe to cache: contract defs are immutable once deployed, and contract-call
+        // can only target already-committed contracts.
         let contract_size = self.get_contract_size(contract_identifier)?;
         let contract = self.get_contract(contract_identifier)?;
         let resident = contract.resident_bytes() as u64;

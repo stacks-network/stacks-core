@@ -953,19 +953,19 @@ impl TrackerData {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
             if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
-                let contract_context = match clarity_db.get_contract(&cost_function_ref.contract_id)
-                {
-                    Ok(contract) => contract.contract_context,
-                    Err(e) => {
-                        error!("Failed to load intended Clarity cost contract";
+                let contract_context =
+                    match clarity_db.get_contract_cached(&cost_function_ref.contract_id) {
+                        Ok(cached) => cached.contract.contract_context.clone(),
+                        Err(e) => {
+                            error!("Failed to load intended Clarity cost contract";
                                "contract" => %cost_function_ref.contract_id,
                                "error" => ?e);
-                        clarity_db
-                            .roll_back()
-                            .map_err(|e| CostErrors::Expect(e.to_string()))?;
-                        return Err(CostErrors::CostContractLoadFailure);
-                    }
-                };
+                            clarity_db
+                                .roll_back()
+                                .map_err(|e| CostErrors::Expect(e.to_string()))?;
+                            return Err(CostErrors::CostContractLoadFailure);
+                        }
+                    };
                 cost_contracts.insert(cost_function_ref.contract_id.clone(), contract_context);
             }
 
@@ -981,18 +981,19 @@ impl TrackerData {
 
         for (_, circuit_target) in self.contract_call_circuits.iter() {
             if !cost_contracts.contains_key(&circuit_target.contract_id) {
-                let contract_context = match clarity_db.get_contract(&circuit_target.contract_id) {
-                    Ok(contract) => contract.contract_context,
-                    Err(e) => {
-                        error!("Failed to load intended Clarity cost contract";
+                let contract_context =
+                    match clarity_db.get_contract_cached(&circuit_target.contract_id) {
+                        Ok(cached) => cached.contract.contract_context.clone(),
+                        Err(e) => {
+                            error!("Failed to load intended Clarity cost contract";
                                "contract" => %boot_costs_id.to_string(),
                                "error" => %format!("{:?}", e));
-                        clarity_db
-                            .roll_back()
-                            .map_err(|e| CostErrors::Expect(e.to_string()))?;
-                        return Err(CostErrors::CostContractLoadFailure);
-                    }
-                };
+                            clarity_db
+                                .roll_back()
+                                .map_err(|e| CostErrors::Expect(e.to_string()))?;
+                            return Err(CostErrors::CostContractLoadFailure);
+                        }
+                    };
                 cost_contracts.insert(circuit_target.contract_id.clone(), contract_context);
             }
         }

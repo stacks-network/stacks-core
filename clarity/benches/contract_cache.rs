@@ -62,9 +62,7 @@ const CALLER_CONTRACT: &str = "
       (contract-call? .callee store owner amount))
 ";
 
-// Deep call chain contracts (4 layers + orchestrator with fold)
-// Simulates DeFi patterns: nested contract-call?s inside a fold,
-// e.g. batch payouts routing through multiple protocol layers.
+// Deep call chain: 4 layers + orchestrator with fold.
 
 const LAYER_0: &str = "
     (define-data-var counter uint u0)
@@ -104,8 +102,7 @@ fn sender() -> PrincipalData {
     PrincipalData::parse("SP3FBR2AGK5H9QBDH3EEN6DF8EK8JY7RX8QJ5SVTE").unwrap()
 }
 
-/// Initialize the backing store with epoch metadata, deploy both contracts,
-/// and return the store ready for benchmarking.
+/// Deploy test contracts and prepare the store for benchmarking.
 fn setup_store(store: &mut MemoryBackingStore) {
     let mut db = store.as_clarity_db();
     db.begin();
@@ -151,9 +148,7 @@ fn make_env<'a>(
     cache: Option<&'a ContractCache>,
 ) -> OwnedEnvironment<'a, 'a> {
     let mut db = db;
-    if let Some(c) = cache {
-        db.set_contract_cache(c);
-    }
+    db.set_contract_cache(cache);
     OwnedEnvironment::new(db, EPOCH)
 }
 
@@ -251,10 +246,7 @@ fn bench_repeated_calls(c: &mut Criterion) {
     group.finish();
 }
 
-/// 4-deep contract-call? chain × 20 fold iterations.
-/// Each fold iteration resolves 4 `contract-call?`s (Orchestrator -> Layer-3 -> L2 -> L1 -> L0).
-/// Without cache: 80 contract loads from the backing store.
-/// With cache: 4 cold misses on the first iteration, then 76 cache hits.
+/// 4-deep `contract-call?` chain × 20 fold iterations including nested calls.
 fn bench_deep_fold(c: &mut Criterion) {
     let mut group = c.benchmark_group("deep_fold");
     group.sample_size(150);
