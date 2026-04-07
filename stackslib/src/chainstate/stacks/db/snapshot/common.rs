@@ -144,6 +144,21 @@ pub fn full_row_except_match(conn: &Connection, dst_sql: &str, src_sql: &str) ->
     extra_in_dst == 0 && extra_in_src == 0
 }
 
+/// One-directional subset check: every row in `dst_sql` must exist in
+/// `src_sql`, but `src_sql` may contain additional rows. Use this for
+/// non-consensus tables that grow after the snapshot (e.g. signer_stats,
+/// matured_rewards).
+pub fn dst_subset_of_src(conn: &Connection, dst_sql: &str, src_sql: &str) -> bool {
+    let extra_in_dst: i64 = conn
+        .query_row(
+            &format!("SELECT COUNT(*) FROM ({dst_sql} EXCEPT {src_sql})"),
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(1);
+    extra_in_dst == 0
+}
+
 /// Execute a slice of copy specs inside the current transaction.
 /// Returns a vec of (table_name, rows_copied).
 pub fn execute_copy_specs(

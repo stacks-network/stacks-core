@@ -19,8 +19,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 use stacks_common::types::chainstate::StacksBlockId;
 
 use super::common::{
-    clone_schemas_from_source, copy_canonical_fork_storage, execute_copy_specs,
-    full_row_except_match, table_exists, TableCopySpec,
+    checkpoint_destination_wal, clone_schemas_from_source, collect_leaf_value_hashes,
+    copy_canonical_fork_storage, dst_subset_of_src, execute_copy_specs, full_row_except_match,
+    table_exists, TableCopySpec,
 };
 use crate::burnchains::PoxConstants;
 use crate::chainstate::stacks::index::Error;
@@ -246,6 +247,7 @@ pub fn copy_index_side_tables(
             conn.execute_batch("COMMIT").map_err(Error::SQLError)?;
             conn.execute_batch("DETACH DATABASE src")
                 .map_err(Error::SQLError)?;
+            checkpoint_destination_wal(&conn)?;
             Ok(stats)
         }
         Err(e) => {
@@ -412,23 +414,56 @@ pub fn validate_index_side_tables(
             .unwrap_or(1)
             == 0;
 
-    // __fork_storage: canonical-only copy. Destination is a subset of source.
+    // __fork_storage: canonical-only copy. Validate against the canonical
+    // filtered source set (same leaf-hash filter used by copy_canonical_fork_storage).
     let fork_storage_match = {
         let dst_has = table_exists(&conn, "", "__fork_storage");
         let src_has = table_exists(&conn, "src", "__fork_storage");
         match (dst_has, src_has) {
-            (false, false) => true, // neither has it (test fixtures)
+            (false, false) => true,
             (true, true) => {
-                // No destination rows should be absent from source.
-                conn.query_row(
-                    "SELECT COUNT(*) FROM (SELECT * FROM __fork_storage EXCEPT SELECT * FROM src.__fork_storage)",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )
-                .unwrap_or(1)
-                    == 0
+                let has_marf_data = table_exists(&conn, "", "marf_data");
+
+                if has_marf_data {
+                    let (_tip, leaf_hashes) = collect_leaf_value_hashes::<StacksBlockId>(dst_path)?;
+
+                    conn.execute_batch(
+                        "CREATE TEMP TABLE val_fork_leaf_values (value_hash TEXT PRIMARY KEY)",
+                    )
+                    .map_err(Error::SQLError)?;
+
+                    {
+                        let mut stmt = conn
+                            .prepare(
+                                "INSERT OR IGNORE INTO val_fork_leaf_values (value_hash) VALUES (?1)",
+                            )
+                            .map_err(Error::SQLError)?;
+                        for hash in &leaf_hashes {
+                            stmt.execute([hash]).map_err(Error::SQLError)?;
+                        }
+                    }
+
+                    let ok = full_row_except_match(
+                        &conn,
+                        "SELECT * FROM __fork_storage",
+                        "SELECT f.* FROM src.__fork_storage f \
+                         INNER JOIN val_fork_leaf_values lv ON f.value_hash = lv.value_hash",
+                    );
+
+                    conn.execute_batch("DROP TABLE IF EXISTS val_fork_leaf_values")
+                        .map_err(Error::SQLError)?;
+
+                    ok
+                } else {
+                    // fixture fallback, matching copy_canonical_fork_storage()
+                    full_row_except_match(
+                        &conn,
+                        "SELECT * FROM __fork_storage",
+                        "SELECT * FROM src.__fork_storage",
+                    )
+                }
             }
-            _ => false, // mismatch: one has it, other doesn't
+            _ => false,
         }
     };
 
@@ -579,20 +614,43 @@ pub fn validate_index_side_tables(
 
     let max_reward_cycle = derive_max_reward_cycle(&conn, first_burn_height, reward_cycle_len)?;
 
-    let signer_stats_match = match max_reward_cycle {
-        Some(cycle) => full_row_except_match(
+    // signer_stats is a non-consensus counter table whose only writer uses
+    // INSERT ... ON CONFLICT DO UPDATE SET blocks_signed = blocks_signed + 1.
+    // After the snapshot the source keeps incrementing, so we check:
+    //   1. every (public_key, reward_cycle) key in dst exists in filtered src
+    //   2. dst.blocks_signed <= src.blocks_signed
+    let signer_stats_match = {
+        let cycle_filter = match max_reward_cycle {
+            Some(cycle) => format!(" WHERE reward_cycle <= {cycle}"),
+            None => String::new(),
+        };
+        // No fabricated keys.
+        let keys_ok = dst_subset_of_src(
             &conn,
-            "SELECT * FROM signer_stats",
-            &format!("SELECT * FROM src.signer_stats WHERE reward_cycle <= {cycle}"),
-        ),
-        None => full_row_except_match(
-            &conn,
-            "SELECT * FROM signer_stats",
-            "SELECT * FROM src.signer_stats",
-        ),
+            "SELECT public_key, reward_cycle FROM signer_stats",
+            &format!("SELECT public_key, reward_cycle FROM src.signer_stats{cycle_filter}"),
+        );
+        // No inflated counters.
+        let counters_ok: i64 = conn
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM signer_stats d \
+                     JOIN src.signer_stats s \
+                       ON d.public_key = s.public_key AND d.reward_cycle = s.reward_cycle \
+                     WHERE d.blocks_signed > s.blocks_signed"
+                ),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(1);
+        keys_ok && counters_ok == 0
     };
 
-    let matured_rewards_match = full_row_except_match(
+    // matured_rewards is a non-consensus cache populated as new blocks
+    // trigger maturation of older canonical blocks' rewards. The source
+    // legitimately gains rows after the snapshot, so we only verify no
+    // fabricated rows exist in the destination.
+    let matured_rewards_match = dst_subset_of_src(
         &conn,
         "SELECT * FROM matured_rewards",
         &format!("SELECT * FROM src.matured_rewards WHERE child_index_block_hash IN ({cb})"),
