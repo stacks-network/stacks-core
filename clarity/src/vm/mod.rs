@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#[cfg(any(test, feature = "testing"))]
 use stacks_common::util::MustInto;
 pub mod diagnostic;
 pub mod errors;
