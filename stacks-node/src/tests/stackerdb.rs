@@ -17,14 +17,13 @@
 use std::{env, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use reqwest;
-use serde_json;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::MustInto;
+use {reqwest, serde_json};
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::BurnchainController;

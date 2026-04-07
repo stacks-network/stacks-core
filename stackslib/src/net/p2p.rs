@@ -5565,12 +5565,12 @@ impl PeerNetwork {
 
 #[cfg(test)]
 mod test {
-    use stacks_common::util::MustInto;
-use std::{thread, time};
+    use std::{thread, time};
 
     use clarity::util::sleep_ms;
     use rand::{self, RngCore};
     use stacks_common::types::chainstate::BurnchainHeaderHash;
+    use stacks_common::util::MustInto;
 
     use super::*;
     use crate::burnchains::*;
