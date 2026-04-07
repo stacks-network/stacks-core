@@ -19,8 +19,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 use stacks_common::types::chainstate::StacksBlockId;
 
 use super::common::{
-    clone_schemas_from_source, collect_leaf_value_hashes, copy_canonical_fork_storage,
-    execute_copy_specs, full_row_except_match, table_exists, TableCopySpec,
+    checkpoint_destination_wal, clone_schemas_from_source, collect_leaf_value_hashes,
+    copy_canonical_fork_storage, dst_subset_of_src, execute_copy_specs, full_row_except_match,
+    table_exists, TableCopySpec,
 };
 use crate::burnchains::PoxConstants;
 use crate::chainstate::stacks::index::Error;
@@ -246,6 +247,7 @@ pub fn copy_index_side_tables(
             conn.execute_batch("COMMIT").map_err(Error::SQLError)?;
             conn.execute_batch("DETACH DATABASE src")
                 .map_err(Error::SQLError)?;
+            checkpoint_destination_wal(&conn)?;
             Ok(stats)
         }
         Err(e) => {
@@ -612,20 +614,43 @@ pub fn validate_index_side_tables(
 
     let max_reward_cycle = derive_max_reward_cycle(&conn, first_burn_height, reward_cycle_len)?;
 
-    let signer_stats_match = match max_reward_cycle {
-        Some(cycle) => full_row_except_match(
+    // signer_stats is a non-consensus counter table whose only writer uses
+    // INSERT ... ON CONFLICT DO UPDATE SET blocks_signed = blocks_signed + 1.
+    // After the snapshot the source keeps incrementing, so we check:
+    //   1. every (public_key, reward_cycle) key in dst exists in filtered src
+    //   2. dst.blocks_signed <= src.blocks_signed
+    let signer_stats_match = {
+        let cycle_filter = match max_reward_cycle {
+            Some(cycle) => format!(" WHERE reward_cycle <= {cycle}"),
+            None => String::new(),
+        };
+        // No fabricated keys.
+        let keys_ok = dst_subset_of_src(
             &conn,
-            "SELECT * FROM signer_stats",
-            &format!("SELECT * FROM src.signer_stats WHERE reward_cycle <= {cycle}"),
-        ),
-        None => full_row_except_match(
-            &conn,
-            "SELECT * FROM signer_stats",
-            "SELECT * FROM src.signer_stats",
-        ),
+            "SELECT public_key, reward_cycle FROM signer_stats",
+            &format!("SELECT public_key, reward_cycle FROM src.signer_stats{cycle_filter}"),
+        );
+        // No inflated counters.
+        let counters_ok: i64 = conn
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM signer_stats d \
+                     JOIN src.signer_stats s \
+                       ON d.public_key = s.public_key AND d.reward_cycle = s.reward_cycle \
+                     WHERE d.blocks_signed > s.blocks_signed"
+                ),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(1);
+        keys_ok && counters_ok == 0
     };
 
-    let matured_rewards_match = full_row_except_match(
+    // matured_rewards is a non-consensus cache populated as new blocks
+    // trigger maturation of older canonical blocks' rewards. The source
+    // legitimately gains rows after the snapshot, so we only verify no
+    // fabricated rows exist in the destination.
+    let matured_rewards_match = dst_subset_of_src(
         &conn,
         "SELECT * FROM matured_rewards",
         &format!("SELECT * FROM src.matured_rewards WHERE child_index_block_hash IN ({cb})"),
