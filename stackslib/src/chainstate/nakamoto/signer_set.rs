@@ -386,14 +386,18 @@ impl RawPox5Entry {
     pub fn to_redeem_script(&self) -> Script {
         let mut principal_data = vec![0x05, self.user.version()];
         principal_data.extend_from_slice(&self.user.1);
-        Builder::new()
+        let builder = Builder::new()
             .push_slice(&principal_data)
             .push_opcode(opcodes::All::OP_DROP)
             .push_scriptint(self.unlock_height.try_into().unwrap())
             .push_opcode(opcodes::OP_CLTV)
-            .push_opcode(opcodes::All::OP_DROP)
-            .push_slice(&self.unlock_bytes)
-            .into_script()
+            .push_opcode(opcodes::All::OP_DROP);
+        let builder = if !self.unlock_bytes.is_empty() {
+            builder.push_slice(&self.unlock_bytes)
+        } else {
+            builder
+        };
+        builder.into_script()
     }
 
     /// Compute the sha256 hash of the timelock output script
@@ -1078,9 +1082,9 @@ impl NakamotoSigners {
         if exp == 0 {
             return Uint512::from_u64(1);
         }
-        let mut output = base.clone();
+        let mut output = *base;
         for _ in 1..exp {
-            output = output * base.clone() / scaling.clone();
+            output = output * *base / *scaling;
         }
         output
     }
@@ -1094,7 +1098,7 @@ impl NakamotoSigners {
         }
 
         let mut low = Uint512::from_u64(1);
-        let mut high = base.clone();
+        let mut high = base;
         loop {
             if high <= low {
                 return Some(high.min(low));
@@ -1339,7 +1343,7 @@ impl NakamotoSigners {
                 } => {
                     totaled_entries.push((
                         pox_addr.clone(),
-                        signer_key.clone(),
+                        *signer_key,
                         w_i,
                         entry.entry.amount_ustx,
                     ));
@@ -1401,7 +1405,7 @@ impl NakamotoSigners {
             let amount_ustx_scaled = Uint256::from_u128(*amount_ustx) * signer_weight_scaling;
             let signer_weight = amount_ustx_scaled / total_ustx_locked_256;
             signers.push(NakamotoSignerEntry {
-                signing_key: (*signer).clone(),
+                signing_key: *signer,
                 stacked_amt: *amount_ustx,
                 weight: signer_weight.low_u32(),
             });

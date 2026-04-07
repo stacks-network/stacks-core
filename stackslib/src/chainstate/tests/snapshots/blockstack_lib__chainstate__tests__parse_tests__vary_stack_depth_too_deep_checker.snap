@@ -5,22 +5,22 @@ expression: result
 [
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch33,
-    error: "Invalid Stacks block f1c126e22338e1a1d4677cbea2304b40c854640b8534b3dfc512180f68647ab8: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+    error: "Invalid Stacks block f4206f4a7f4fea7693e3d46ceb2868b9c7e3d5bb18e7c77831d9af3e8ad0507a: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch33,
-    error: "Invalid Stacks block 8ca04a4fd4476c4bb252de5b0cfca2885213d2c140a66a0c4bec09cc3cdfdde1: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+    error: "Invalid Stacks block 37de6aea8916d688af895080dbca43e3f7295d292da295b12cf214a3410bdfc5: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch33,
-    error: "Invalid Stacks block e59672cee6483720f25b6b1898f6f965036ff1e3d8f3a74760405f2130697cb8: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+    error: "Invalid Stacks block 833aec180836d2afe190427955f061c12194b3ed1ea6eec6e5072c5a11c52098: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch33,
-    error: "Invalid Stacks block 76b3b29590ad495bdc85315d157cfaf8622466982d7bcb41316a0322e8e45875: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
+    error: "Invalid Stacks block 5bf708313b27c9b6b50be2e71862547177e004ce92d3584e63b2c645cb5ee9ad: ClarityError(Parse(ParseError { err: VaryExpressionStackDepthTooDeep { max_depth: 64 }, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))",
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2b7af2962fbd8b46c1648cc3d06828eb702e004246d9cc5c1dce1e59de3ec294",
+    marf_hash: "cc5820592e1fe7b8311178d79a75125402feeac882960ef3643986c5a6305b0b",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -50,7 +50,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1b59e6f3d0c3c9339377ff82facc0657e6ee1ef3d07484a4fc1a406ce7aa898f",
+    marf_hash: "ed1bb1e8b22b14516ecf590b50c4280952d8d0e045d67d4c4a5184488206f2e6",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -80,7 +80,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3c900ab60f9b7bc83074a6871091b664f3b366b5bd97b5b518d24b0d3e1f9cd5",
+    marf_hash: "052214251b33f9fa409abc55b24846f4b42d3eeb6be5afc43388327dce9297cf",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -110,7 +110,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7e4d572919cf33789b55b9114db1ba564c3341e213f7a592abbee4a09c9b9cc0",
+    marf_hash: "a0d7446181f0e455d833187575ecdfe78e91bc680efc7ee5750949d517aedfe1",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -140,7 +140,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e8a53fe5e0677ce8aaf7450be74035f81c7306b3fdd5e7a27cf5adaa1798e6b6",
+    marf_hash: "f54e20b5a1b8520eadc2628c0ba27fd9150a4d39d3a11049668c154f51c72a6e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -170,7 +170,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "be86b360d3bb83a6ab20578e58920292383aef766e71887fb53bfd2647e1205a",
+    marf_hash: "761050d4caee758c6245f31580a74233d1d38c6d79f26dbc72f68dd824bbb3a9",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -200,7 +200,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "72514295fbabf5bf25cb61a352ba4dcf5814bc8054897817cbc48ab159e37275",
+    marf_hash: "31b4f7727c545310d4407b053f45d2d6b86da880d0224f1d9b758045504a9fd2",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -230,7 +230,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "75a339577a12e2107954cc0c6dfce52f1f0be31839f57ad6a4b08c6343d19838",
+    marf_hash: "fa8c9f578a130e0ce66d141cb62d12c2e7663394fdc22d9da47c8ab2b632b726",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -260,7 +260,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "441647fe51d1443821f1dc1230921d8ee633464579dddb12ae72714c162f3236",
+    marf_hash: "ee63901b5164d216d400e3e43cc62f6762bc56de5ee3eb36b1fd669b2401fbdf",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -290,7 +290,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7e0046b23e52b48dc7261964b5a1b1f9a82b82415266e768f8dc1f5a034fc2e4",
+    marf_hash: "d9d108a9edc5c2ef3ac19b299e446193b1982c084958733202b62d747efc8c6e",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(

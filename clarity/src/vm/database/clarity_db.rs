@@ -1073,6 +1073,16 @@ impl ClarityDatabase<'_> {
         }
     }
 
+    /// Return the height for PoX v4 -> v5 auto unlocks
+    ///   from the burn state db
+    pub fn get_v4_unlock_height(&mut self) -> Result<u32, VmExecutionError> {
+        if self.get_clarity_epoch_version()? >= StacksEpochId::Epoch35 {
+            Ok(self.burn_state_db.get_pox_5_activation_height())
+        } else {
+            Ok(u32::MAX)
+        }
+    }
+
     /// Return the block height for a given tenure height
     ///   if the block information is queryable for the tenure height.
     /// The block information for a given tenure height is queryable iff:
@@ -2351,13 +2361,15 @@ impl<'a> ClarityDatabase<'a> {
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )?,
             stx_balance.has_unlockable_tokens_at_burn_block(
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )
         );
 
@@ -2385,13 +2397,15 @@ impl<'a> ClarityDatabase<'a> {
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )?,
             stx_balance.has_unlockable_tokens_at_burn_block(
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )
         );
 

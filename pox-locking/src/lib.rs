@@ -38,6 +38,7 @@ mod pox_1;
 mod pox_2;
 mod pox_3;
 mod pox_4;
+mod pox_5;
 
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -140,6 +141,20 @@ pub fn handle_contract_call_special_cases(
             result,
         );
     } else if *contract_id == boot_code_id(POX_4_NAME, global_context.mainnet) {
+        if !pox_4::is_read_only(function_name) && global_context.epoch_id >= StacksEpochId::Epoch35
+        {
+            warn!("PoX-4 function call attempted on an account after Epoch 3.5";
+                  "v4_unlock_ht" => global_context.database.get_v4_unlock_height()?,
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height()?,
+                  "function_name" => function_name,
+                  "contract_id" => %contract_id
+            );
+            return Err(VmExecutionError::Runtime(
+                RuntimeError::DefunctPoxContract,
+                None,
+            ));
+        }
+
         return pox_4::handle_contract_call(
             global_context,
             sender,
@@ -149,8 +164,14 @@ pub fn handle_contract_call_special_cases(
             result,
         );
     } else if *contract_id == boot_code_id(POX_5_NAME, global_context.mainnet) {
-        // PLACEHOLDER (rob-stacks)
-        return Ok(());
+        return pox_5::handle_contract_call(
+            global_context,
+            sender,
+            contract_id,
+            function_name,
+            args,
+            result,
+        );
     }
 
     Ok(())

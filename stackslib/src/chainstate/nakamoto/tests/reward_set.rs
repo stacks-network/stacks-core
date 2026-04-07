@@ -220,9 +220,9 @@ fn check_solo_reward_set_invariants(
 
     // Invariant 5: signer weights sum correctly (if any signers)
     //
-    // Each signer's weight = floor(amount_ustx * (u32::MAX) / total_ustx_locked).
+    // Each signer's weight = floor(amount_ustx * reward_slots / total_ustx_locked).
     // Signers below signer_threshold_ustx are dropped, so surviving weights
-    // sum to approximately total_signer_ustx * (u32::MAX) / total_ustx_locked.
+    // sum to approximately total_signer_ustx * reward_slots / total_ustx_locked.
     // We recover total_ustx_locked from the output: threshold * reward_slots, applying
     //  some tolerance for the precision loss in division by reward_slots.
     if !signers.is_empty() {
@@ -236,16 +236,18 @@ fn check_solo_reward_set_invariants(
         prop_assert!(total_ustx_locked + tolerance >= total_signer_ustx, "total_ustx_locked ({total_ustx_locked}) should be > total_signer_ustx ({total_signer_ustx})");
 
         let total_weight: u64 = signers.iter().map(|s| s.weight as u64).sum();
-        let scaling = Uint256::from_u64(u32::MAX as u64);
+        let scaling = Uint256::from_u64(reward_slots as u64);
 
-        let expected_weight_high = Uint256::from_u128(total_signer_ustx).mul_u32(u32::MAX)
+        let expected_weight_high = Uint256::from_u128(total_signer_ustx)
+            * Uint256::from_u64(reward_slots as u64)
             / Uint256::from_u128(total_ustx_locked);
-        let expected_weight_low = Uint256::from_u128(total_signer_ustx).mul_u32(u32::MAX)
+        let expected_weight_low = Uint256::from_u128(total_signer_ustx)
+            * Uint256::from_u64(reward_slots as u64)
             / Uint256::from_u128(total_ustx_locked + tolerance);
 
         let expected_weight_low = expected_weight_low.low_u32() as u64;
         let expected_weight_high = if expected_weight_high > scaling {
-            u32::MAX as u64
+            reward_slots as u64
         } else {
             expected_weight_high.low_u32() as u64
         };
