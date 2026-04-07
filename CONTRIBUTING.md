@@ -81,24 +81,19 @@ fix: incorporate unlocks in mempool admitter, #3623
 
 ## Recommended developer setup
 
-### Recommended githooks
+### Githooks
 
-It is helpful to set up the pre-commit git hook set up, so that Rust formatting issues are caught before
-you push your code. Follow these instruction to set it up:
-
-1. Rename `.git/hooks/pre-commit.sample` to `.git/hooks/pre-commit`
-2. Change the content of `.git/hooks/pre-commit` to be the following
+The repository ships pre-commit hooks in the `.githooks/` directory. To enable
+them, point Git at that directory:
 
 ```sh
-#!/bin/sh
-git diff --name-only --staged | grep '\.rs$' | xargs -P 8 -I {} rustfmt {} --edition 2021 --check --config group_imports=StdExternalCrate,imports_granularity=Module || (
-  echo 'rustfmt failed: run "cargo fmt-stacks"';
-  exit 1
-)
+git config core.hooksPath .githooks
 ```
 
-3. Make it executable by running `chmod +x .git/hooks/pre-commit`
-   That's it! Now your pre-commit hook should be configured on your local machine.
+The pre-commit hook will:
+- Check for a changelog fragment and interactively help you create one if missing
+- Run `cargo +nightly fmt-stacks --check` on staged Rust files
+- Run `cargo clippy-stacks` and `cargo clippy-stackslib` on staged Rust files
 
 # Creating and Reviewing PRs
 
