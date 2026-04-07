@@ -62,7 +62,9 @@ use crate::util_lib::strings::StacksString;
 
 pub const SIP_031_INITIAL_MINT: u128 = 200_000_000_000_000;
 
-///
+/// Default byte budget for the parsed-contract cache (64 MiB).
+const DEFAULT_CONTRACT_CACHE_SIZE: usize = 64 * 1024 * 1024;
+
 /// A high-level interface for interacting with the Clarity VM.
 ///
 /// ClarityInstance takes ownership of a MARF + Sqlite store used for
@@ -83,9 +85,6 @@ pub const SIP_031_INITIAL_MINT: u128 = 200_000_000_000_000;
 ///   wish to benefit from some abstraction of high-level interfaces should implement the
 ///   `TransactionConnection` trait, which contains auto implementations for the typical transaction
 ///   types in a Clarity-based blockchain.
-///
-/// Default byte budget for the parsed-contract cache (64 MiB).
-const DEFAULT_CONTRACT_CACHE_SIZE: usize = 64 * 1024 * 1024;
 
 pub struct ClarityInstance {
     datastore: MarfedKV,
