@@ -579,7 +579,7 @@ impl BlockMinerThread {
         &self,
         new_block: &NakamotoBlock,
         last_block_rejected: &mut bool,
-        e: NakamotoNodeError,
+        e: &NakamotoNodeError,
     ) {
         // Sleep for a bit to allow signers to catch up
         let pause_ms = if *last_block_rejected {
@@ -848,32 +848,26 @@ impl BlockMinerThread {
                         );
                         return Err(e);
                     }
-                    self.pause_and_retry(&new_block, last_block_rejected, e);
+                    self.pause_and_retry(&new_block, last_block_rejected, &e);
                     return Ok(false);
                 }
                 NakamotoNodeError::SignersRejected {
-                    excluded_txids: rejected_txids,
-                    problematic_txids: rejected_problematic_txids,
+                    ref excluded_txids,
+                    ref problematic_txids,
                 } => {
-                    self.pause_and_retry(
-                        &new_block,
-                        last_block_rejected,
-                        NakamotoNodeError::SignersRejected {
-                            excluded_txids: rejected_txids.clone(),
-                            problematic_txids: rejected_problematic_txids.clone(),
-                        },
-                    );
                     // Replace (not extend) excluded_txids so the ban only applies
                     // to the next block proposal — transient failures may resolve
                     // after one block.
-                    self.excluded_txids = rejected_txids;
+                    self.excluded_txids = excluded_txids.clone();
                     // Problematic txids will be blacklisted from the mempool
                     // when mine_block opens the mempool connection.
-                    self.problematic_txids.extend(rejected_problematic_txids);
+                    self.problematic_txids
+                        .extend(problematic_txids.iter().cloned());
+                    self.pause_and_retry(&new_block, last_block_rejected, &e);
                     return Ok(false);
                 }
                 _ => {
-                    self.pause_and_retry(&new_block, last_block_rejected, e);
+                    self.pause_and_retry(&new_block, last_block_rejected, &e);
                     return Ok(false);
                 }
             },
