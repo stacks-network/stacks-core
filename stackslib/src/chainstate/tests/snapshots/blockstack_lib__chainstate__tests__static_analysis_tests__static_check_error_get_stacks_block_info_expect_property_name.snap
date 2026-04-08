@@ -154,7 +154,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c658968d4affc5e996158cb55ba3ba04bc37dad432ef2873c5ba9c87d1c44ca5",
+    marf_hash: "0cacfce68315b34484f32e849868cd8c9c49b07f3991770feefcf469c58a3853",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +184,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d31a1f9533a13c9fcdb6170986033898c14aab0ac14b57158928bfad696ddb9a",
+    marf_hash: "cf239e28653c4d7cdf06d4994c838d19997d88865f490bd7be56819ce24652ab",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -214,7 +214,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8f8c166c176275832c50a127c75bee3dd2b703a888c6cd05cc55a9e71fcce42e",
+    marf_hash: "b526c4275f7bc25c5c6632e88b0057db490d078c97628d49c92a6b20a5685e61",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(

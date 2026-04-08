@@ -4,7 +4,7 @@ expression: results
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "fad4ec3e07e445efc31c0885b4f58ddd181b712f830c4ca884e194708cae6a88",
+    marf_hash: "0124be359ed974371226b374018a564bbaeeaa930a7ba500682a9eadedf1fbda",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +34,7 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0fb49ae7947c1c04d558cb9b7c96f4ca80e8f6047f8f5d6381c27d41636ef768",
+    marf_hash: "51e8cf596613fe7a86d65c0f5906509e5a3ebce0debaffd92291e149cb838886",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +64,7 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "efbbcd6bbcd55ceddce0660213e95c0e026e36fdd7e24891365ec7d159054851",
+    marf_hash: "844a228afa40c057f7a157fc12ba64fcd374525cb6e726d908dad350fe0246f0",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +94,7 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0fafaaf37c0e0bccdab3d96ca1ca53bea88707ce4626d65d4bbf0004da118d57",
+    marf_hash: "e467ee4a93c1beca56a0c741f21548cc21db800e8cd1cd44fad0321e9922dff1",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +124,7 @@ expression: results
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a288bc8581c0bb50a9db0deadee9d97392fd6a09a1fecdf842ea782bd41fc886",
+    marf_hash: "4d89522fbcdbbd5185a38942a6c589271269b299deffec331bdeff261786b5ee",
     evaluated_epoch: Epoch35,
     transactions: [
       ExpectedTransactionOutput(
@@ -137,18 +137,18 @@ expression: results
         cost: ExecutionCost(
           write_length: 1,
           write_count: 1,
-          read_length: 41996,
+          read_length: 41938,
           read_count: 8,
-          runtime: 90240,
+          runtime: 90182,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 1,
       write_count: 1,
-      read_length: 41996,
+      read_length: 41938,
       read_count: 8,
-      runtime: 90240,
+      runtime: 90182,
     ),
   )),
 ]
