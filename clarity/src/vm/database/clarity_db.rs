@@ -861,7 +861,7 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or_else(|| VmInternalError::Expect(
                 "Failed to read non-consensus contract metadata, even though contract exists in MARF."
                 .into()))?;
-        data.canonicalize_types(&self.get_clarity_epoch_version()?);
+        data.canonicalize_types(&self.get_clarity_epoch_version()?)?;
         Ok(data)
     }
 
@@ -1614,7 +1614,7 @@ impl ClarityDatabase<'_> {
         {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(variable_descriptor.value_type.clone()),
-                Box::new(value),
+                value.to_error_string(),
             )
             .into());
         }
@@ -1775,7 +1775,7 @@ impl ClarityDatabase<'_> {
         {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
-                Box::new(key_value.clone()),
+                key_value.to_error_string(),
             )
             .into());
         }
@@ -1806,7 +1806,7 @@ impl ClarityDatabase<'_> {
         {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
-                Box::new(key_value.clone()),
+                key_value.to_error_string(),
             )
             .into());
         }
@@ -1951,7 +1951,7 @@ impl ClarityDatabase<'_> {
         {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
-                Box::new(key_value),
+                key_value.to_error_string(),
             )
             .into());
         }
@@ -1961,7 +1961,7 @@ impl ClarityDatabase<'_> {
         {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.value_type.clone()),
-                Box::new(value),
+                value.to_error_string(),
             )
             .into());
         }
@@ -2012,7 +2012,7 @@ impl ClarityDatabase<'_> {
         {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
-                Box::new(key_value.clone()),
+                key_value.to_error_string(),
             )
             .into());
         }
@@ -2236,7 +2236,7 @@ impl ClarityDatabase<'_> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
-                Box::new(asset.clone()),
+                asset.to_error_string(),
             )
             .into());
         }
@@ -2296,7 +2296,7 @@ impl ClarityDatabase<'_> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
-                Box::new(asset.clone()),
+                asset.to_error_string(),
             )
             .into());
         }
@@ -2327,7 +2327,7 @@ impl ClarityDatabase<'_> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
-                Box::new(asset.clone()),
+                asset.to_error_string(),
             )
             .into());
         }

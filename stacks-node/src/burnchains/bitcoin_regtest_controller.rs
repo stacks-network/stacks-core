@@ -2240,11 +2240,11 @@ impl BitcoinRegtestController {
     /// and does not affect which UTXOs are included in the result.
     ///
     /// # Arguments
-    /// - `address`: The Bitcoin address whose UTXOs should be retrieved.  
-    /// - `include_unsafe`: Whether to include unsafe UTXOs.  
-    /// - `minimum_sum_amount`: Minimum amount (in satoshis) that a UTXO must have to be included in the final set.  
-    /// - `utxos_to_exclude`: Optional set of UTXOs to exclude from the final result.  
-    /// - `block_height`: The block height at which to resolve the block hash used in the result.  
+    /// - `address`: The Bitcoin address whose UTXOs should be retrieved.
+    /// - `include_unsafe`: Whether to include unsafe UTXOs.
+    /// - `minimum_sum_amount`: Minimum amount (in satoshis) that a UTXO must have to be included in the final set.
+    /// - `utxos_to_exclude`: Optional set of UTXOs to exclude from the final result.
+    /// - `block_height`: The block height at which to resolve the block hash used in the result.
     ///
     /// # Returns
     /// A [`UTXOSet`] containing the filtered UTXOs and the block hash corresponding to `block_height`.
@@ -2386,15 +2386,23 @@ impl BurnchainController for BitcoinRegtestController {
         Ok((burnchain_tip, burnchain_height))
     }
 
-    // returns true if the operation was submitted successfully, false otherwise
+    /// Build and send a burnchain operation transaction.
+    /// Returns the [`Txid`] on success, [`BurnchainControllerError`] otherwise.
+    /// On [`BitcoinRegtestController::send_transaction`] failure for block commits,
+    /// clears `ongoing_block_commit` so the commit can be resubmitted.
     fn submit_operation(
         &mut self,
         epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
     ) -> Result<Txid, BurnchainControllerError> {
+        let is_block_commit = matches!(operation, BlockstackOperationType::LeaderBlockCommit(_));
         let transaction = self.make_operation_tx(epoch_id, operation, op_signer)?;
-        self.send_transaction(&transaction)
+        self.send_transaction(&transaction).inspect_err(|_| {
+            if is_block_commit {
+                self.ongoing_block_commit = None;
+            }
+        })
     }
 
     #[cfg(test)]
@@ -3963,6 +3971,86 @@ mod tests {
             assert_eq!(
                 "1a74106bd760117892fbd90fca11646b4de46f99fd2b065c9e0706cfdcea0336",
                 tx_id.to_hex()
+            );
+        }
+
+        #[test]
+        #[ignore]
+        fn test_submit_operation_block_commit_clears_ongoing_on_send_failure() {
+            if env::var("BITCOIND_TEST") != Ok("1".into()) {
+                return;
+            }
+
+            let keychain = utils::create_keychain();
+            let miner_pubkey = keychain.get_pub_key();
+            let mut op_signer = keychain.generate_op_signer();
+
+            let mut config = utils::create_miner_config();
+            config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+            config.burnchain.pox_reward_length = Some(11);
+
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+            btcd_controller
+                .start_bitcoind()
+                .expect("bitcoind should be started!");
+
+            let mut btc_controller = BitcoinRegtestController::new(config.clone(), None);
+            btc_controller
+                .connect_dbs()
+                .expect("Dbs initialization required!");
+            btc_controller.bootstrap_chain(101);
+
+            let mut commit_op = utils::create_templated_commit_op();
+            commit_op.sunset_burn = 5_500;
+            commit_op.burn_fee = 110_000;
+
+            // First submit succeeds and sets ongoing_block_commit
+            btc_controller
+                .submit_operation(
+                    StacksEpochId::Epoch31,
+                    BlockstackOperationType::LeaderBlockCommit(commit_op.clone()),
+                    &mut op_signer,
+                )
+                .expect("First submit should succeed");
+
+            assert!(
+                btc_controller.get_ongoing_commit().is_some(),
+                "ongoing_block_commit should be set after successful submit"
+            );
+
+            // Corrupt the cached UTXOs so the RBF transaction references
+            // non-existent inputs, causing send_transaction to be rejected
+            // by bitcoind immediately.
+            let mut ongoing = btc_controller.get_ongoing_commit().unwrap();
+            for utxo in ongoing.utxos.utxos.iter_mut() {
+                utxo.txid = Sha256dHash::default();
+            }
+            btc_controller.set_ongoing_commit(Some(ongoing));
+
+            // Second submit with different payload triggers the RBF path.
+            // make_operation_tx builds the tx using the corrupted UTXOs,
+            // then send_transaction fails because the inputs don't exist.
+            let mut op_signer = keychain.generate_op_signer();
+            commit_op.burn_fee += 10;
+
+            let err = btc_controller
+                .submit_operation(
+                    StacksEpochId::Epoch31,
+                    BlockstackOperationType::LeaderBlockCommit(commit_op),
+                    &mut op_signer,
+                )
+                .unwrap_err();
+
+            assert!(
+                matches!(
+                    err,
+                    BurnchainControllerError::TransactionSubmissionFailed(_)
+                ),
+                "Error should be TransactionSubmissionFailed, but was {err}"
+            );
+            assert!(
+                btc_controller.get_ongoing_commit().is_none(),
+                "ongoing_block_commit should be cleared after send failure"
             );
         }
     }

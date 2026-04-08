@@ -8,9 +8,12 @@ on:
 ## env vars are transferred to composite action steps
 env:
   BITCOIND_TEST: 1
+  # Docker tag for the Bitcoin Core image used when spinning up container with `testcontainers` crate.
+  BITCOIN_IMAGE_TAG: "25"
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
   TEST_TIMEOUT: 30
+  TEST_TAG_CI_SKIP: ci_skip
 
 concurrency:
   group: bitcoin-tests-${{ github.head_ref || github.ref || github.run_id }}
@@ -104,6 +107,10 @@ jobs:
           tests::signer::v0::larger_mempool
           EOF
 
+          # Exclude tests tagged with a skip tag
+          ci_skip_regex="$(.github/workflows/scripts/test-tag-regex.sh "$TEST_TAG_CI_SKIP")"
+          jq -r '.[]' ignored_tests.json | grep -P "$ci_skip_regex" >> raw_exclude.txt || true
+
           # Clean: remove empty lines and comments
           grep -v '^\s*$' raw_exclude.txt | grep -v '^\s*#' > clean_exclude.txt
 
@@ -184,7 +191,6 @@ jobs:
         uses: stacks-network/actions/stacks-core/run-tests@main
         with:
           test-name: ${{ matrix.test-name }}
-          threads: 1
 
       - name: Code Coverage
         uses: stacks-network/actions/codecov@main
@@ -217,7 +223,6 @@ jobs:
         uses: stacks-network/actions/stacks-core/run-tests@main
         with:
           test-name: ${{ matrix.test-name }}
-          threads: 1
 
       - name: Code Coverage
         uses: stacks-network/actions/codecov@main

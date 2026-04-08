@@ -61,9 +61,10 @@ impl RawRewardSetEntry {
         })?;
 
         let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
-            .ok_or_else(|| {
-                ChainstateError::Expects(format!("not a valid PoX address: {pox_addr_tuple}"))
-            })?;
+            .unwrap_or_else(|| {
+                warn!("Invalid PoX address supplied, replacing with burn address"; "pox_addr_tuple" => %pox_addr_tuple);
+                PoxAddress::standard_burn_address(is_mainnet)
+            });
 
         let total_ustx = tuple_data
             .remove("total-ustx")
@@ -307,14 +308,16 @@ impl NakamotoSigners {
 
         let (value, _, events, _) = clarity.with_abort_callback(
             |vm_env| {
-                vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
-                    env.execute_contract_allow_private(
+                vm_env.execute_in_env(sender_addr.clone(), None, None, |exec_state, invoke_ctx| {
+                    exec_state.execute_contract_allow_private(
+                        invoke_ctx,
                         signers_contract,
                         "stackerdb-set-signer-slots",
                         &set_stackerdb_args,
                         false,
                     )?;
-                    env.execute_contract_allow_private(
+                    exec_state.execute_contract_allow_private(
+                        invoke_ctx,
                         signers_contract,
                         "set-signers",
                         &set_signers_args,

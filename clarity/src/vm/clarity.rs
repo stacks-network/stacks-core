@@ -22,7 +22,7 @@ use crate::vm::analysis::{
 };
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
-use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
+use crate::vm::contexts::{AssetMap, ExecutionState, InvocationContext, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{ClarityEvalError, VmExecutionError};
@@ -206,7 +206,7 @@ pub trait ClarityConnection {
         to_do: F,
     ) -> Result<R, ClarityEvalError>
     where
-        F: FnOnce(&mut Environment) -> Result<R, ClarityEvalError>,
+        F: FnOnce(&mut ExecutionState, &InvocationContext) -> Result<R, ClarityEvalError>,
     {
         let epoch_id = self.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);

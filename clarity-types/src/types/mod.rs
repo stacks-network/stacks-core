@@ -57,6 +57,8 @@ pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
 pub const MAX_TYPE_DEPTH: u8 = 32;
 /// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
+/// Maximum byte length for Value string representations in error messages.
+const MAX_ERROR_VALUE_DISPLAY_LEN: usize = 512;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
@@ -310,7 +312,7 @@ impl TraitIdentifier {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Value {
     Int(i128),
     UInt(u128),
@@ -333,8 +335,8 @@ pub enum SequenceData {
     String(CharType),
 }
 
-/// A helper to properly propogate errors from retain_values
-#[derive(Debug)]
+/// A helper to properly propagate errors from try_retain
+#[derive(Debug, PartialEq)]
 pub enum RetainValuesError<E> {
     /// An internal error from Clarity type system operations occurred
     Internal(ClarityTypeError),
@@ -541,41 +543,44 @@ impl SequenceData {
         }
     }
 
-    /// Retains elements where the predicate returns Ok(true).
-    /// Removes elements where it returns Ok(false).
-    /// If the predicate or internal value conversion returns an error, the operation
-    /// is aborted and the original sequence is left unmodified. The first error is propagated.
-    pub fn retain_values<E, F>(&mut self, mut predicate: F) -> Result<(), RetainValuesError<E>>
+    /// Filters the sequence in-place, retaining only elements for which the                                                                                    
+    /// predicate returns `Ok(true)`.                                                                                                                           
+    ///                                                                                                                                                         
+    /// Uses a single forward pass (O(n)): kept elements are swapped to the                                                                                     
+    /// front, then the tail is truncated.                                                                                                                      
+    ///                                                         
+    /// On error the sequence is consumed and cannot be recovered
+    pub fn try_retain<E, F>(mut self, mut predicate: F) -> Result<Self, RetainValuesError<E>>
     where
         F: FnMut(SymbolicExpression) -> Result<bool, E>,
     {
-        // Note: this macro can probably get removed once
-        // ```Vec::drain_filter<F>(&mut self, filter: F) -> DrainFilter<T, F>```
-        // is available in rust stable channel (experimental at this point).
         macro_rules! retain_inner {
             ($data:expr, $seq_type:ident) => {{
-                let mut i = 0;
-                while i != $data.data.len() {
+                let mut write = 0;
+                for read in 0..$data.data.len() {
                     let atom_value = SymbolicExpression::atom_value(
-                        $seq_type::to_value(&$data.data[i]).map_err(RetainValuesError::Internal)?,
+                        $seq_type::to_value(&$data.data[read])
+                            .map_err(RetainValuesError::Internal)?,
                     );
                     let keep = predicate(atom_value).map_err(RetainValuesError::Predicate)?;
                     if keep {
-                        i += 1;
-                    } else {
-                        $data.data.remove(i);
+                        if write != read {
+                            $data.data.swap(write, read);
+                        }
+                        write += 1;
                     }
                 }
+                $data.data.truncate(write);
             }};
         }
 
-        match self {
+        match &mut self {
             SequenceData::Buffer(data) => retain_inner!(data, BuffData),
             SequenceData::List(data) => retain_inner!(data, ListData),
             SequenceData::String(CharType::ASCII(data)) => retain_inner!(data, ASCIIData),
             SequenceData::String(CharType::UTF8(data)) => retain_inner!(data, UTF8Data),
         }
-        Ok(())
+        Ok(self)
     }
 
     pub fn concat(
@@ -1343,6 +1348,21 @@ impl Value {
                 Box::new(TypeSignature::STRING_ASCII_MIN),
                 Box::new(self),
             ))
+        }
+    }
+
+    /// Format as a truncated string for use in error messages.
+    /// Avoids cloning potentially large Values in error paths.
+    pub fn to_error_string(&self) -> String {
+        let full = format!("{self:?}");
+        if full.len() <= MAX_ERROR_VALUE_DISPLAY_LEN {
+            full
+        } else {
+            let end = (0..=MAX_ERROR_VALUE_DISPLAY_LEN)
+                .rev()
+                .find(|&i| full.is_char_boundary(i))
+                .unwrap_or(0);
+            format!("{}...", &full[..end])
         }
     }
 }
