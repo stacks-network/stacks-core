@@ -428,7 +428,7 @@ fn trigger_bad_block_height() {
 }
 
 #[test]
-fn epoch_recovers_after_rollback() {
+fn epoch_cache_recovers_after_rollback() {
     let mut store = MemoryBackingStore::default();
     let mut db = store.as_clarity_db();
 
@@ -464,4 +464,91 @@ fn epoch_recovers_after_rollback() {
         "epoch should have reverted after rollback"
     );
     db.roll_back().unwrap();
+}
+
+#[test]
+fn epoch_cache_pre_populated_from_constructor() {
+    let mut store = MemoryBackingStore::default();
+    let mut db = ClarityDatabase::new(
+        &mut store,
+        &NULL_HEADER_DB,
+        &NULL_BURN_STATE_DB,
+        Some(StacksEpochId::Epoch30),
+    );
+
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30,
+    );
+}
+
+#[test]
+fn epoch_cache_survives_commit() {
+    let mut store = MemoryBackingStore::default();
+    let mut db = store.as_clarity_db();
+
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch25)
+        .unwrap();
+
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch30)
+        .unwrap();
+    db.commit().unwrap();
+
+    // After commit the cache should still serve Epoch30
+    // without needing a store read.
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30,
+    );
+}
+
+#[test]
+fn epoch_cache_constructor_overrides_store() {
+    let mut store = MemoryBackingStore::default();
+
+    // Write Epoch25 to the store
+    let mut db = store.as_clarity_db();
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch25)
+        .unwrap();
+    db.commit().unwrap();
+
+    // Construct with Epoch30: the cache takes precedence over the store
+    let mut db = ClarityDatabase::new(
+        &mut store,
+        &NULL_HEADER_DB,
+        &NULL_BURN_STATE_DB,
+        Some(StacksEpochId::Epoch30),
+    );
+    db.begin();
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch30,
+        "constructor epoch should override the stored value"
+    );
+
+    // After rollback the cache is cleared and the store value surfaces
+    db.roll_back().unwrap();
+    db.begin();
+    assert_eq!(
+        db.get_clarity_epoch_version().unwrap(),
+        StacksEpochId::Epoch25,
+        "stored value should surface after cache invalidation"
+    );
+}
+
+#[test]
+fn read_epoch_from_store_returns_committed_value() {
+    let mut store = MemoryBackingStore::default();
+    let mut db = store.as_clarity_db();
+
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch30)
+        .unwrap();
+    db.commit().unwrap();
+
+    let epoch = ClarityDatabase::read_epoch_from_store(&mut store).unwrap();
+    assert_eq!(epoch, StacksEpochId::Epoch30);
 }
