@@ -5,5 +5,6 @@ required: true
 description: |
   Standard Stacks address (e.g. `SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0`).
   Must be 28-41 characters long using Stacks c32check format.
+example: SP31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZW97B5P0
 schema:
   $ref: '../schemas/standard-principal.schema.yaml'
