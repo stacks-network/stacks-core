@@ -151,6 +151,8 @@ pub trait ClarityMarfStore: ClarityBackingStore {
         ClarityDatabase::new(self, headers_db, burn_state_db, None)
     }
 
+    /// Same as [`Self::as_clarity_db`], but pre-populates the epoch cache,
+    /// avoiding a MARF read on the first [`ClarityDatabase::get_clarity_epoch_version`] call.
     fn as_clarity_db_with_epoch<'b>(
         &'b mut self,
         headers_db: &'b dyn HeadersDB,
