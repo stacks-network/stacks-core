@@ -869,12 +869,10 @@ impl<'a> ClarityDatabase<'a> {
         "_stx-data::ustx_liquid_supply"
     }
 
-    /// Returns the epoch version currently applied in the stored Clarity state.
-    /// Since Clarity did not exist in stacks 1.0, the lowest valid epoch ID is stacks 2.0.
-    /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
-    /// Clarity is updated in that epoch.
-    /// Convert a stored epoch u32 to a `StacksEpochId`, defaulting to `Epoch20`
-    /// if no value is stored.
+    /// Converts an optional stored `u32` epoch value into a [`StacksEpochId`].
+    ///
+    /// If stored is [`None`], defaults to [`StacksEpochId::Epoch20`], since Clarity
+    /// was not available in Stacks 1.0.
     fn parse_epoch(stored: Option<u32>) -> Result<StacksEpochId, VmExecutionError> {
         match stored {
             Some(x) => u32::try_into(x).map_err(|_| {
@@ -899,6 +897,15 @@ impl<'a> ClarityDatabase<'a> {
         Self::parse_epoch(raw)
     }
 
+    /// Returns the epoch version currently applied in the stored Clarity state.
+    ///
+    /// The result is cached after the first store read. The cache is:
+    /// - invalidated by: [`Self::roll_back`] and [`Self::set_block_hash`]
+    /// - updated by: [`Self::set_clarity_epoch_version`]
+    ///
+    /// Since Clarity did not exist in stacks 1.0, this will never return an
+    /// epoch earlier than [`StacksEpochId::Epoch20`]. If no epoch is stored,
+    /// it defaults to that value.
     pub fn get_clarity_epoch_version(&mut self) -> Result<StacksEpochId, VmExecutionError> {
         if let Some(epoch) = self.cached_epoch {
             return Ok(epoch);
