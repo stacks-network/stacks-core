@@ -271,7 +271,7 @@ macro_rules! guarded_string {
             }
         }
 
-        impl stacks_common::util::MustInto<$Name> for str {
+        impl $crate::util::MustInto<$Name> for str {
             fn must_into(&'static self) -> $Name {
                 $Name::must_from(self)
             }
