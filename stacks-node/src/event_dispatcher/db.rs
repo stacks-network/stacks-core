@@ -72,7 +72,7 @@ impl EventDispatcherDbConnection {
     pub fn insert_payload_with_retry(&self, data: &EventRequestData, timestamp: SystemTime) -> i64 {
         with_retry(
             || self.insert_payload(data, timestamp),
-            "Failed to insert payload into event observer database".to_string(),
+            "Failed to insert payload into event observer database",
         )
     }
 
@@ -83,7 +83,7 @@ impl EventDispatcherDbConnection {
                 Err(db_error::SqliteError(rusqlite::Error::QueryReturnedNoRows)) => Ok(None),
                 Err(e) => Err(e),
             },
-            "Failed to retrieve payload {id} from event observer database".to_string(),
+            "Failed to retrieve payload {id} from event observer database",
         )
     }
 
@@ -280,7 +280,7 @@ fn row_to_pending_payload(row: &Row) -> Result<PendingPayload, db_error> {
 /// # Example
 ///
 ///     let response = with_retry(|| perform_db_op(42), "database operation 42 failed");
-fn with_retry<T, E, F>(f: F, error_log_text: String) -> T
+fn with_retry<T, E, F>(f: F, error_log_text: &str) -> T
 where
     F: Fn() -> Result<T, E>,
     E: Debug,
@@ -517,7 +517,7 @@ mod test {
     #[test]
     fn test_with_retry_returns_original_result() {
         let f = || Result::<i32, String>::Ok(6_7);
-        let result = with_retry(f, "failed".to_string());
+        let result = with_retry(f, "failed");
         assert_eq!(result, 67);
     }
 
@@ -533,7 +533,7 @@ mod test {
             }
         };
         let now = Instant::now();
-        let result = with_retry(f, "failed".to_string());
+        let result = with_retry(f, "failed");
         let elapsed_millis = now.elapsed().as_millis();
         assert_eq!(result, "you did it");
         let count = *call_count.borrow();
