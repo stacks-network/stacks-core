@@ -136,10 +136,10 @@ pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
-    /// Cached epoch version — lazily populated on first
-    /// `get_clarity_epoch_version()` call and updated by
-    /// `set_clarity_epoch_version()`.  The epoch never changes
-    /// mid-block except through `set_clarity_epoch_version()`
+    /// Cached epoch version. Pre-populated from the constructor when the
+    /// caller knows the epoch, otherwise lazily filled on the first
+    /// [`Self::get_clarity_epoch_version`] read. Invalidated by [`Self::roll_back`]
+    /// and [`Self::set_block_hash`]; updated by [`Self::set_clarity_epoch_version`].
     cached_epoch: Option<StacksEpochId>,
 }
 
@@ -490,11 +490,13 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Drop current key-value wrapper layer
+    /// and invalidate the epoch cache.
     pub fn roll_back(&mut self) -> Result<(), VmExecutionError> {
         self.cached_epoch = None;
         self.store.rollback().map_err(|e| e.into())
     }
 
+    /// Set a block context and invalidate the epoch cache.
     pub fn set_block_hash(
         &mut self,
         bhh: StacksBlockId,
@@ -915,7 +917,8 @@ impl<'a> ClarityDatabase<'a> {
         Ok(out)
     }
 
-    /// Should be called _after_ all of the epoch's initialization has been invoked
+    /// Write the epoch version to the store and update the epoch cache.
+    /// Note: Should be called _after_ all of the epoch's initialization has been invoked
     pub fn set_clarity_epoch_version(
         &mut self,
         epoch: StacksEpochId,
