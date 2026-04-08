@@ -4110,14 +4110,12 @@ export const contracts = {
         name: 'update-amount-ustx-staked',
         access: 'private',
         args: [
-          { name: 'staker', type: 'principal' },
           { name: 'amount-ustx', type: 'uint128' },
           { name: 'cycles-remaining', type: 'uint128' },
         ],
         outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
       } as TypedAbiFunction<
         [
-          staker: TypedAbiArg<string, 'staker'>,
           amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
           cyclesRemaining: TypedAbiArg<number | bigint, 'cyclesRemaining'>,
         ],

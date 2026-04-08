@@ -630,9 +630,7 @@
         ;;;;  must be called directly by the tx-sender or by an allowed contract-caller
         (try! (verify-caller-allowed))
 
-        (try! (update-amount-ustx-staked tx-sender amount-ustx-increase
-            cycles-remaining
-        ))
+        (try! (update-amount-ustx-staked amount-ustx-increase cycles-remaining))
 
         (map-set staking-state tx-sender {
             amount-ustx: new-amount-ustx,
@@ -1263,7 +1261,6 @@
 ;; Iterate over the remaining cycles for a staker and update the total amount of uSTX staked.
 ;; Called from `stake-update` and `stake-update-pooled`.
 (define-private (update-amount-ustx-staked
-        (staker principal)
         (amount-ustx uint)
         (cycles-remaining uint)
     )
