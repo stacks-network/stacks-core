@@ -256,7 +256,7 @@ impl<T: MarfTrieId> UncommittedState<T> {
     /// Panics of the UncommittedState is sealed already.
     pub fn write_nodetype(
         &mut self,
-        node_array_ptr: u32,
+        node_array_ptr: u64,
         node: &TrieNodeType,
         hash: TrieHash,
     ) -> Result<(), Error> {
@@ -284,7 +284,7 @@ impl<T: MarfTrieId> UncommittedState<T> {
     }
 
     /// Get the last pointer (i.e. last slot) of the TrieRAM
-    pub fn last_ptr(&mut self) -> Result<u32, Error> {
+    pub fn last_ptr(&mut self) -> Result<u64, Error> {
         self.trie_ram_mut().last_ptr()
     }
 
@@ -379,6 +379,12 @@ impl<T: MarfTrieId> UncommittedState<T> {
 
 /// In-RAM trie storage.
 /// Used by TrieFileStorage to buffer the next trie being built.
+///
+/// Pointers in `TrieRAM` are index-based, not disk-offset-based:
+/// `TriePtr::ptr()` is treated as an in-memory node index into `data`, and
+/// traversal/indexing paths are intentionally bounded to `u32`.
+/// Large `u64` byte offsets are only materialized when serializing this trie
+/// to persistent storage (see `dump_consume`/`write_trie_indirect`).
 #[derive(Clone)]
 pub struct TrieRAM<T: MarfTrieId> {
     data: Vec<(TrieNodeType, TrieHash)>,
@@ -626,7 +632,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         f: &mut F,
         node_data_order: &[u32],
         node_data: &[(TrieNodeType, TrieHash)],
-        offsets: &[u32],
+        offsets: &[u64],
         parent_hash: &T,
     ) -> Result<(), Error> {
         assert_eq!(node_data_order.len(), offsets.len());
@@ -652,7 +658,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             let next_offset = *offsets.get(ix).ok_or_else(|| {
                 Error::CorruptionError("node_data_order.len() != offsets.len()".into())
             })?;
-            f.seek(SeekFrom::Start(next_offset.into()))?;
+            f.seek(SeekFrom::Start(next_offset))?;
         }
 
         Ok(())
@@ -668,7 +674,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         f: &mut F,
         node_data_order: &[DumpPtr],
         node_data: &[(TrieNodeType, TrieHash)],
-        offsets: &[u32],
+        offsets: &[u64],
         parent_hash: &T,
     ) -> Result<(), Error> {
         assert_eq!(node_data_order.len(), offsets.len());
@@ -711,7 +717,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             let next_offset = *offsets.get(ix).ok_or_else(|| {
                 Error::CorruptionError("node_data_order.len() != offsets.len()".into())
             })?;
-            f.seek(SeekFrom::Start(u64::from(next_offset)))?;
+            f.seek(SeekFrom::Start(next_offset))?;
         }
 
         Ok(())
@@ -818,11 +824,11 @@ impl<T: MarfTrieId> TrieRAM<T> {
     fn calculate_node_hashes(
         &mut self,
         storage_tx: &mut TrieStorageTransaction<T>,
-        node_ptr: u64,
+        node_ptr: u32, // in-memory index is always a u32
     ) -> Result<TrieHash, Error> {
         let start_time = storage_tx.bench.write_children_hashes_start();
         let mut start_node_time = Some(storage_tx.bench.write_children_hashes_same_block_start());
-        let (node, node_hash) = self.get_nodetype(node_ptr as u32)?.to_owned();
+        let (node, node_hash) = self.get_nodetype(node_ptr)?.to_owned();
         if node.is_leaf() {
             // base case: we already have the hash of the leaf, so return it.
             Ok(node_hash)
@@ -863,7 +869,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         .write_children_hashes_empty_finish(start_time);
                 } else if !is_backptr(ptr.id()) {
                     // hash is the hash of this node's children
-                    let node_hash = self.calculate_node_hashes(storage_tx, ptr.ptr() as u64)?;
+                    let node_hash = self.calculate_node_hashes(storage_tx, ptr.ptr_as_u32()?)?;
 
                     // count the time taken to store the hash towards the
                     // write_children_hashes_same_benchmark
@@ -882,7 +888,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         && ptr.id() != TrieNodeID::Leaf as u8
                     {
                         // need to store this hash too, since we deferred calculation
-                        self.write_node_hash(ptr.ptr(), node_hash)?;
+                        self.write_node_hash(ptr.ptr_as_u32()?, node_hash)?;
                     }
 
                     storage_tx
@@ -930,63 +936,119 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
     /// Walk through the buffered TrieNodes and dump them to f.
     /// This consumes this TrieRAM instance.
-    fn dump_consume<F: Write + Seek>(mut self, f: &mut F) -> Result<u64, Error> {
-        // step 1: write out each node in breadth-first order to get their ptr offsets
+    pub(crate) fn dump_consume<F: Write + Seek>(mut self, f: &mut F) -> Result<u64, Error> {
+        // step 1: determine breadth-first node order
         let mut frontier: VecDeque<u32> = VecDeque::new();
-
         let mut node_data = vec![];
-        let mut offsets = vec![];
+        let mut forward_ptr_count = 0usize;
+        // True when a node has forward pointers whose encoding may widen.
+        let mut has_forward_ptrs = vec![];
 
         let start = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr();
-        frontier.push_back(start);
-
-        // first 32 bytes is reserved for the parent block hash
-        //    next 4 bytes is the local block identifier
-        let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        frontier.push_back(
+            u32::try_from(start)
+                .map_err(|_| Error::CorruptionError("Root pointer exceeds u32::MAX".into()))?,
+        );
 
         while let Some(pointer) = frontier.pop_front() {
             let (node, _node_hash) = self.get_nodetype(pointer)?;
-            // calculate size
-            let num_written = get_node_byte_len(node);
-            ptr += num_written as u64;
 
             // queue each child
+            let mut has_fwd = false;
             if !node.is_leaf() {
                 for ptr in node.ptrs().iter() {
                     if !ptr.is_empty() && !is_backptr(ptr.id) {
-                        frontier.push_back(ptr.ptr());
+                        let idx = ptr.ptr_as_u32()?;
+                        frontier.push_back(idx);
+                        forward_ptr_count = forward_ptr_count
+                            .checked_add(1)
+                            .ok_or_else(|| Error::OverflowError)?;
+                        has_fwd = true;
                     }
                 }
             }
 
+            has_forward_ptrs.push(has_fwd);
             node_data.push(pointer);
-            offsets.push(ptr as u32);
         }
 
-        assert_eq!(offsets.len(), node_data.len());
+        // step 2: repeatedly lay out nodes until serialized offsets stabilize
+        // The first 32 bytes are reserved for the parent block hash,
+        // and the next 4 bytes for the local block identifier.
+        let mut end_offset = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        let mut offsets = Vec::with_capacity(node_data.len());
+        // Cached byte lengths: nodes without forward pointers have constant
+        // sizes across passes, so we only recompute nodes with forward ptrs.
+        let mut byte_lens = node_data
+            .iter()
+            .map(|p| {
+                let (node, _) = self.get_nodetype(*p)?;
+                u64::try_from(get_node_byte_len(node)).map_err(|_| Error::OverflowError)
+            })
+            .collect::<Result<Vec<u64>, Error>>()?;
+        // The first pass replaces in-memory indices with serialized offsets.
+        // Afterwards, each mutable child pointer can widen from u32 to u64 at most once.
+        // A pass that changes offsets without introducing any new wide pointers is the final
+        // settling pass, so `forward_ptr_count + 2` bounds convergence.
+        let max_layout_passes = forward_ptr_count.saturating_add(2);
+        let mut converged = false;
+        for _ in 0..max_layout_passes {
+            offsets.clear();
+            let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+            for ((&pointer, &has_fwd), blen) in node_data
+                .iter()
+                .zip(has_forward_ptrs.iter())
+                .zip(byte_lens.iter_mut())
+            {
+                if has_fwd {
+                    let (node, _) = self.get_nodetype(pointer)?;
+                    *blen =
+                        u64::try_from(get_node_byte_len(node)).map_err(|_| Error::OverflowError)?;
+                }
+                ptr += *blen;
+                offsets.push(ptr);
+            }
+            end_offset = ptr;
 
-        // step 2: update ptrs in all nodes
-        let mut i = 0;
-        for node_data_ptr in node_data.iter() {
-            let next_node = &mut self
-                .data
-                .get_mut(*node_data_ptr as usize)
-                .ok_or_else(|| Error::CorruptionError("Miscalculated dump_consume pointer".into()))?
-                .0;
-            if !next_node.is_leaf() {
+            let mut changed = false;
+            let mut i = 0;
+            for (&node_data_ptr, &has_fwd) in node_data.iter().zip(has_forward_ptrs.iter()) {
+                if !has_fwd {
+                    continue;
+                }
+                let next_node = &mut self
+                    .data
+                    .get_mut(usize::try_from(node_data_ptr).map_err(|_| Error::OverflowError)?)
+                    .ok_or_else(|| {
+                        Error::CorruptionError("Miscalculated dump_consume pointer".into())
+                    })?
+                    .0;
                 let ptrs = next_node.ptrs_mut();
                 for ptr in ptrs.iter_mut() {
                     if !ptr.is_empty() && !is_backptr(ptr.id) {
-                        ptr.ptr = *offsets.get(i).ok_or_else(|| {
+                        let next_offset = *offsets.get(i).ok_or_else(|| {
                             Error::CorruptionError("Miscalculated dump_consume offsets".into())
                         })?;
+                        if ptr.ptr != next_offset {
+                            ptr.ptr = next_offset;
+                            changed = true;
+                        }
                         i += 1;
                     }
                 }
             }
+            if !changed {
+                converged = true;
+                break;
+            }
+        }
+        if !converged {
+            return Err(Error::CorruptionError(format!(
+                "dump_consume layout did not converge after {max_layout_passes} passes"
+            )));
         }
 
-        // step 3: write out each node (now that they have the write ptrs)
+        // step 3: write out each node (now that they have stable write ptrs)
         TrieRAM::write_trie_indirect(
             f,
             &node_data,
@@ -995,7 +1057,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             &self.parent,
         )?;
 
-        Ok(ptr)
+        Ok(end_offset)
     }
 
     fn make_node_patch(
@@ -1078,23 +1140,23 @@ impl<T: MarfTrieId> TrieRAM<T> {
     ///
     /// Returns Ok(len) to report number of bytes written
     /// Returns Err(..) if we fail to write
-    fn dump_compressed_consume<F: Write + Seek>(
+    pub(crate) fn dump_compressed_consume<F: Write + Seek>(
         mut self,
         storage_tx: &mut TrieStorageTransaction<T>,
         f: &mut F,
     ) -> Result<u64, Error> {
-        // step 1: write out each node in breadth-first order to get their ptr offsets
+        // step 1: determine breadth-first node order and any patch payloads
         let mut frontier: VecDeque<u32> = VecDeque::new();
 
         let mut node_data = vec![];
-        let mut offsets = vec![];
+        let mut forward_ptr_count = 0usize;
+        let mut has_forward_ptrs = vec![];
 
         let start = TriePtr::new(TrieNodeID::Node256 as u8, 0, 0).ptr();
-        frontier.push_back(start);
-
-        // first 32 bytes is reserved for the parent block hash
-        //    next 4 bytes is the local block identifier
-        let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        frontier.push_back(
+            u32::try_from(start)
+                .map_err(|_| Error::CorruptionError("Root pointer exceeds u32::MAX".into()))?,
+        );
 
         while let Some(pointer) = frontier.pop_front() {
             let (node, node_hash) = self.get_nodetype(pointer)?;
@@ -1146,97 +1208,160 @@ impl<T: MarfTrieId> TrieRAM<T> {
                 None
             };
 
-            // calculate size
             if let Some((_, patch_node)) = patch_node_opt.as_ref() {
-                // IMPROVEMENT: don't store a copy of a node that was copied forward via
-                // MARF::walk_cow(). Instead, store only the new ptrs in the copied node, and store
-                // a pointer to the original node in the ancestral trie.
-                // TRIEHASH_ENCODED_SIZE accounts for the trie hash bytes written before the patch
-                trace!(
-                    "Patch node {:?} for {:?} to be written at {}",
-                    &patch_node,
-                    &node,
-                    ptr
-                );
-                let num_written = TRIEHASH_ENCODED_SIZE + patch_node.size();
-                ptr += num_written as u64;
-
-                let mut num_new_nodes = 0;
-                if !node.is_leaf() {
-                    for ptr in node.ptrs().iter() {
-                        if !ptr.is_empty() && !is_backptr(ptr.id) {
-                            num_new_nodes += 1;
-                        }
-                    }
-                }
-                assert_eq!(num_new_nodes, patch_node.ptr_diff.len());
-            } else {
-                // IMPROVEMENT: don't store backptr block ID if it's 0
-                trace!("Normal node {:?} to be written at {}", &node, ptr);
-                let num_written = get_node_byte_len_compressed(node);
-                ptr += num_written as u64;
+                // The BFS frontier and the convergence loop must visit the
+                // exact same forward children in the same order. Compare the
+                // chr() sequence of forward pointers in the full node against
+                // the patch diff to guarantee this.
+                let node_forward = node
+                    .ptrs()
+                    .iter()
+                    .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                    .map(|p| p.chr());
+                let diff_forward = patch_node
+                    .ptr_diff
+                    .iter()
+                    .filter(|p| !p.is_empty() && !is_backptr(p.id))
+                    .map(|p| p.chr());
+                assert!(node_forward.eq(diff_forward));
             }
 
             // queue each child
+            let mut has_fwd = false;
             if !node.is_leaf() {
                 for ptr in node.ptrs().iter() {
                     if !ptr.is_empty() && !is_backptr(ptr.id) {
-                        frontier.push_back(ptr.ptr());
+                        let idx = u32::try_from(ptr.ptr()).map_err(|_| {
+                            Error::CorruptionError(format!(
+                                "In-memory node index {} exceeds u32::MAX",
+                                ptr.ptr()
+                            ))
+                        })?;
+                        frontier.push_back(idx);
+                        forward_ptr_count = forward_ptr_count
+                            .checked_add(1)
+                            .ok_or_else(|| Error::OverflowError)?;
+                        has_fwd = true;
                     }
                 }
             }
 
+            // Nodes with forward ptrs need re-measurement each layout
+            // pass because child offsets can widen from u32 to u64.
             if let Some((hash_bytes, patch)) = patch_node_opt.take() {
                 node_data.push(DumpPtr::Patch(pointer, hash_bytes, patch));
             } else {
                 node_data.push(DumpPtr::Normal(pointer));
             }
-            offsets.push(ptr as u32);
+            has_forward_ptrs.push(has_fwd);
         }
 
-        assert_eq!(offsets.len(), node_data.len());
-
-        // step 2: update ptrs in all nodes
-        let mut i = 0;
-        for node_data_ptr in node_data.iter_mut() {
-            if let Some(patch) = node_data_ptr.patch_mut() {
-                for ptr in patch.ptr_diff.iter_mut() {
-                    if !ptr.is_empty() && !is_backptr(ptr.id) {
-                        ptr.ptr = *offsets.get(i).ok_or_else(|| {
-                            Error::CorruptionError(
-                                "Miscalculated dump_compressed_consume offsets".into(),
-                            )
-                        })?;
-                        i += 1;
-                    }
+        // step 2: repeatedly lay out nodes until serialized offsets stabilize
+        // The first 32 bytes are reserved for the parent block hash,
+        // and the next 4 bytes for the local block identifier.
+        let mut end_offset = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+        let mut offsets = vec![];
+        // Cached byte lengths: leaf / pointer-free / patch node sizes are
+        // constant across passes, so we only recompute non-leaf nodes.
+        let mut byte_lens = node_data
+            .iter()
+            .map(|dp| {
+                let byte_len = if let Some(patch) = dp.patch() {
+                    TRIEHASH_ENCODED_SIZE + patch.size()
+                } else {
+                    let (node, _) = self.get_nodetype(dp.ptr())?;
+                    get_node_byte_len_compressed(node)
+                };
+                u64::try_from(byte_len).map_err(|_| Error::OverflowError)
+            })
+            .collect::<Result<Vec<u64>, Error>>()?;
+        // The first pass replaces in-memory indices with serialized offsets.
+        // Afterwards, each mutable child pointer can widen from u32 to u64 at most once.
+        // A pass that changes offsets without introducing any new wide pointers is the final
+        // settling pass, so `forward_ptr_count + 2` bounds convergence.
+        let max_layout_passes = forward_ptr_count.saturating_add(2);
+        let mut converged = false;
+        for _pass in 0..max_layout_passes {
+            offsets.clear();
+            let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
+            for (node_data_ptr, (&has_fwd, blen)) in node_data
+                .iter()
+                .zip(has_forward_ptrs.iter().zip(byte_lens.iter_mut()))
+            {
+                if has_fwd {
+                    let new_len = if let Some(patch) = node_data_ptr.patch() {
+                        TRIEHASH_ENCODED_SIZE + patch.size()
+                    } else {
+                        let (node, _) = self.get_nodetype(node_data_ptr.ptr())?;
+                        get_node_byte_len_compressed(node)
+                    };
+                    *blen = u64::try_from(new_len).map_err(|_| Error::OverflowError)?;
                 }
-            } else {
-                let next_node = &mut self
-                    .data
-                    .get_mut(node_data_ptr.ptr() as usize)
-                    .ok_or_else(|| {
-                        Error::CorruptionError(
-                            "Miscalculated dump_compressed_consume pointer".into(),
-                        )
-                    })?
-                    .0;
-                if !next_node.is_leaf() {
-                    let ptrs = next_node.ptrs_mut();
-                    for ptr in ptrs.iter_mut() {
+                ptr += *blen;
+                offsets.push(ptr);
+            }
+            end_offset = ptr;
+
+            let mut changed = false;
+            let mut i = 0;
+            for (node_data_ptr, &has_fwd) in node_data.iter_mut().zip(has_forward_ptrs.iter()) {
+                if let Some(patch) = node_data_ptr.patch_mut() {
+                    for ptr in patch.ptr_diff.iter_mut() {
                         if !ptr.is_empty() && !is_backptr(ptr.id) {
-                            ptr.ptr = *offsets.get(i).ok_or_else(|| {
+                            let next_offset = *offsets.get(i).ok_or_else(|| {
                                 Error::CorruptionError(
                                     "Miscalculated dump_compressed_consume offsets".into(),
                                 )
                             })?;
+                            if ptr.ptr != next_offset {
+                                ptr.ptr = next_offset;
+                                changed = true;
+                            }
+                            i += 1;
+                        }
+                    }
+                } else if has_fwd {
+                    let next_node = &mut self
+                        .data
+                        .get_mut(
+                            usize::try_from(node_data_ptr.ptr())
+                                .map_err(|_| Error::OverflowError)?,
+                        )
+                        .ok_or_else(|| {
+                            Error::CorruptionError(
+                                "Miscalculated dump_compressed_consume pointer".into(),
+                            )
+                        })?
+                        .0;
+                    let ptrs = next_node.ptrs_mut();
+                    for ptr in ptrs.iter_mut() {
+                        if !ptr.is_empty() && !is_backptr(ptr.id) {
+                            let next_offset = *offsets.get(i).ok_or_else(|| {
+                                Error::CorruptionError(
+                                    "Miscalculated dump_compressed_consume offsets".into(),
+                                )
+                            })?;
+                            if ptr.ptr != next_offset {
+                                ptr.ptr = next_offset;
+                                changed = true;
+                            }
                             i += 1;
                         }
                     }
                 }
             }
+            if !changed {
+                converged = true;
+                break;
+            }
+        }
+        if !converged {
+            return Err(Error::CorruptionError(format!(
+                "dump_compressed_consume layout did not converge after {max_layout_passes} passes"
+            )));
         }
 
-        // step 3: write out each node (now that they have the write ptrs)
+        // step 3: write out each node (now that they have stable write ptrs)
         TrieRAM::write_trie_indirect_compressed(
             f,
             &node_data,
@@ -1245,14 +1370,14 @@ impl<T: MarfTrieId> TrieRAM<T> {
             &self.parent,
         )?;
 
-        Ok(ptr)
+        Ok(end_offset)
     }
 
     /// load the trie from F.
     /// The trie will have the same structure as the on-disk trie, but it may have nodes in a
     /// different order.
     pub fn load<F: Read + Seek>(f: &mut F, bhh: &T) -> Result<TrieRAM<T>, Error> {
-        let mut data = vec![];
+        let mut data: Vec<(TrieNodeType, TrieHash)> = vec![];
         let mut frontier = VecDeque::new();
 
         // read parent
@@ -1262,7 +1387,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
         let root_disk_ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 + 4;
 
-        let root_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, root_disk_ptr as u32);
+        let root_ptr = TriePtr::new(TrieNodeID::Node256 as u8, 0, root_disk_ptr);
         let (mut root_node, root_hash) = read_nodetype(f, &root_ptr)
             .inspect_err(|e| error!("Failed to read root node info for {bhh:?}: {e:?}"))?;
 
@@ -1343,7 +1468,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
     /// Read a node's hash from the TrieRAM.  ptr.ptr() is an array index.
     pub fn read_node_hash(&self, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        let (_, node_trie_hash) = self.data.get(ptr.ptr() as usize).ok_or_else(|| {
+        let idx = ptr.ptr_as_usize()?;
+        let (_, node_trie_hash) = self.data.get(idx).ok_or_else(|| {
             error!(
                 "TrieRAM: Failed to read node bytes: {} >= {}",
                 ptr.ptr(),
@@ -1388,7 +1514,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
             self.read_node_count += 1;
         }
 
-        if let Some(node) = self.data.get(ptr.ptr() as usize) {
+        let idx = ptr.ptr_as_usize()?;
+        if let Some(node) = self.data.get(idx) {
             Ok(node.clone())
         } else {
             error!(
@@ -1405,7 +1532,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     /// Store a node and its hash to the TrieRAM at the given slot.
     pub fn write_nodetype(
         &mut self,
-        node_array_ptr: u32,
+        node_array_ptr: u64,
         node: &TrieNodeType,
         hash: TrieHash,
     ) -> Result<(), Error> {
@@ -1432,10 +1559,13 @@ impl<T: MarfTrieId> TrieRAM<T> {
             }
         }
 
-        if let Some(existing_node) = self.data.get_mut(node_array_ptr as usize) {
+        let node_index = usize::try_from(node_array_ptr).map_err(|_| Error::NotFoundError)?;
+        if let Some(existing_node) = self.data.get_mut(node_index) {
             *existing_node = (node.clone(), hash);
             Ok(())
-        } else if node_array_ptr == (self.data.len() as u32) {
+        } else if node_array_ptr
+            == u64::try_from(self.data.len()).map_err(|_| Error::OverflowError)?
+        {
             self.data.push((node.clone(), hash));
             self.total_bytes += get_node_byte_len(node);
             Ok(())
@@ -1460,7 +1590,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
         );
 
         // can only set the hash of an existing node
-        if let Some(existing_node) = self.data.get_mut(node_array_ptr as usize) {
+        let node_index = usize::try_from(node_array_ptr).map_err(|_| Error::NotFoundError)?;
+        if let Some(existing_node) = self.data.get_mut(node_index) {
             existing_node.1 = hash;
             Ok(())
         } else {
@@ -1470,8 +1601,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
     }
 
     /// Get the next ptr value for a node to store.
-    pub fn last_ptr(&mut self) -> Result<u32, Error> {
-        Ok(self.data.len() as u32)
+    pub fn last_ptr(&mut self) -> Result<u64, Error> {
+        u64::try_from(self.data.len()).map_err(|_| Error::OverflowError)
     }
 
     #[cfg(test)]
@@ -1489,7 +1620,8 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
 impl<T: MarfTrieId> NodeHashReader for TrieRAM<T> {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
-        let (_, node_trie_hash) = self.data.get(ptr.ptr() as usize).ok_or_else(|| {
+        let idx = ptr.ptr_as_usize()?;
+        let (_, node_trie_hash) = self.data.get(idx).ok_or_else(|| {
             error!(
                 "TrieRAM: Failed to read node bytes: {} >= {}",
                 ptr.ptr(),
@@ -1634,6 +1766,26 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
 
     /// Does this trie represent unconfirmed state?
     unconfirmed: bool,
+
+    /// Snapshot metadata if this MARF is squashed.
+    squash_info: Option<SquashInfo>,
+}
+
+/// Snapshot metadata cached at open time for squashed MARFs.
+///
+/// Contains the archival root hash, squash root node hash, height, and
+/// block hash at which the MARF was squashed.  This is populated once
+/// when the MARF is opened and used by the ancestor-hash computation to
+/// avoid opening pruned historical blocks.
+#[derive(Clone, Debug)]
+pub struct SquashInfo {
+    /// Archival MARF root hash committed to the chain at the squash height.
+    pub archival_marf_root_hash: TrieHash,
+    /// Root node hash of the squash trie. i.e. `hash(consensus_bytes(root) || children_content_hashes)`
+    /// `TrieHash::from_data(&[])` if not yet computed.
+    pub squash_root_node_hash: TrieHash,
+    /// Height at which the MARF was squashed.
+    pub height: u32,
 }
 
 // disk-backed Trie.
@@ -1678,6 +1830,10 @@ impl<T: MarfTrieId> TrieStorageTransientData<T> {
 
     fn clear_block_id(&mut self) {
         self.cur_block_id = None;
+    }
+
+    fn set_squash_info(&mut self, squash_info: Option<SquashInfo>) {
+        self.squash_info = squash_info;
     }
 }
 
@@ -1728,6 +1884,33 @@ impl<'a, T: MarfTrieId> ReopenedTrieStorageConnection<'a, T> {
 }
 
 impl<T: MarfTrieId> TrieFileStorage<T> {
+    /// Detect whether this MARF was produced by a squash operation and, if
+    /// so, cache the squash metadata [`SquashInfo`].
+    ///
+    /// The metadata is read from the `marf_squash_info` SQL table
+    fn init_squash_info(&mut self) -> Result<(), Error> {
+        let squash_info = match trie_sql::read_squash_info(&self.db)? {
+            Some((archival_marf_root_hash, squash_root_node_hash_opt, height)) => {
+                Some(SquashInfo {
+                    archival_marf_root_hash,
+                    // While creating a squash, this may still be empty.
+                    squash_root_node_hash: squash_root_node_hash_opt
+                        .unwrap_or_else(|| TrieHash::from_data(&[])),
+                    height,
+                })
+            }
+            None => None,
+        };
+
+        self.data.set_squash_info(squash_info);
+        Ok(())
+    }
+
+    /// Returns cached squashing metadata, if present.
+    pub fn squash_info(&self) -> Option<&SquashInfo> {
+        self.data.squash_info.as_ref()
+    }
+
     pub fn connection(&mut self) -> TrieStorageConnection<'_, T> {
         TrieStorageConnection {
             db: SqliteConnection::ConnRef(&self.db),
@@ -1768,6 +1951,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
             readonly: true,
             unconfirmed: self.unconfirmed(),
+
+            squash_info: self.data.squash_info.clone(),
         };
         // perf note: should we attempt to clone the cache
         let cache = TrieCache::default();
@@ -1881,17 +2066,21 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             None
         };
 
-        let prev_schema_version = trie_sql::migrate_tables_if_needed::<T>(&mut db)?;
-        if prev_schema_version != trie_sql::SQL_MARF_SCHEMA_VERSION || marf_opts.force_db_migrate {
-            if let Some(blobs) = blobs.as_mut() {
-                if TrieFile::exists(&db_path)? {
-                    // migrate blobs out of the old DB
-                    blobs.export_trie_blobs::<T>(&db, &db_path)?;
+        let prev_schema_version = trie_sql::migrate_tables_if_needed::<T>(&mut db, readonly)?;
+        if !readonly {
+            if prev_schema_version != trie_sql::SQL_MARF_SCHEMA_VERSION
+                || marf_opts.force_db_migrate
+            {
+                if let Some(blobs) = blobs.as_mut() {
+                    if TrieFile::exists(&db_path)? {
+                        // migrate blobs out of the old DB
+                        blobs.export_trie_blobs::<T>(&db, &db_path)?;
+                    }
                 }
             }
-        }
-        if trie_sql::detect_partial_migration(&db)? {
-            panic!("PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis.");
+            if trie_sql::detect_partial_migration(&db)? {
+                panic!("PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis.");
+            }
         }
 
         debug!(
@@ -1902,7 +2091,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
         let cache = TrieCache::new(&marf_opts.cache_strategy);
 
-        let ret = TrieFileStorage {
+        let mut ret = TrieFileStorage {
             db_path,
             db,
             cache,
@@ -1929,6 +2118,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
                 readonly,
                 unconfirmed,
+
+                squash_info: None,
             },
 
             // used in testing in order to short-circuit block-height lookups
@@ -1937,6 +2128,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             test_genesis_block: None,
         };
 
+        ret.init_squash_info()?;
         Ok(ret)
     }
 
@@ -1992,7 +2184,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         trace!("Make read-only view of TrieFileStorage: {}", &self.db_path);
 
         // TODO: borrow self.uncommitted_writes; don't copy them
-        let ret = TrieFileStorage {
+        let mut ret = TrieFileStorage {
             db_path: self.db_path.clone(),
             db,
             blobs,
@@ -2019,6 +2211,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
                 readonly: true,
                 unconfirmed: self.unconfirmed(),
+
+                squash_info: self.data.squash_info.clone(),
             },
 
             // used in testing in order to short-circuit block-height lookups
@@ -2027,6 +2221,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             test_genesis_block: self.test_genesis_block.clone(),
         };
 
+        ret.init_squash_info()?;
         Ok(ret)
     }
 
@@ -2062,7 +2257,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         let cache = TrieCache::default();
 
         // TODO: borrow self.uncommitted_writes; don't copy them
-        let ret = TrieFileStorage {
+        let mut ret = TrieFileStorage {
             db_path: self.db_path.to_string(),
             db,
             blobs,
@@ -2089,6 +2284,8 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
                 readonly: true,
                 unconfirmed: self.unconfirmed(),
+
+                squash_info: self.data.squash_info.clone(),
             },
 
             // used in testing in order to short-circuit block-height lookups
@@ -2097,11 +2294,12 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             test_genesis_block: self.test_genesis_block.clone(),
         };
 
+        ret.init_squash_info()?;
         Ok(ret)
     }
 
     /// Run `cls` with a mutable reference to the inner trie blobs opt.
-    fn with_trie_blobs<F, R>(&mut self, cls: F) -> R
+    pub(crate) fn with_trie_blobs<F, R>(&mut self, cls: F) -> R
     where
         F: FnOnce(&Connection, &mut Option<&mut TrieFile>) -> R,
     {
@@ -2433,6 +2631,26 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         self.data.unconfirmed
     }
 
+    /// Returns true when this storage represents a squashed MARF.
+    pub fn is_squashed(&self) -> bool {
+        self.data.squash_info.is_some()
+    }
+
+    /// Returns cached squashing metadata, if present.
+    pub fn squash_info(&self) -> Option<&SquashInfo> {
+        self.data.squash_info.as_ref()
+    }
+
+    /// Set cached squashing metadata for this storage connection.
+    pub(crate) fn set_squash_info(&mut self, squash_info: Option<SquashInfo>) {
+        self.data.set_squash_info(squash_info);
+    }
+
+    /// Returns a reference to the underlying SQLite connection.
+    pub(crate) fn sqlite_conn(&self) -> &Connection {
+        &self.db
+    }
+
     pub fn set_cached_ancestor_hashes_bytes(&mut self, bhh: &T, bytes: Vec<TrieHash>) {
         self.data.trie_ancestor_hash_bytes_cache = Some((bhh.clone(), bytes));
     }
@@ -2527,10 +2745,46 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         Ok(ret)
     }
 
-    /// Generate a mapping between Trie root hashes and the blocks that contain them
+    /// Generate a mapping between Trie root hashes and the blocks that contain them.
+    ///
+    /// For squashed MARFs, blocks within the squashed range (0..=H) share a
+    /// single shared trie storage whose stored trie hash was computed at height H. The
+    /// standard blob-scanning approach would produce collisions (all blocks
+    /// get the same trie hash). Instead, for each squashed block at height
+    /// K we re-derive the trie hash by combining the squash trie's content
+    /// hash with the archival ancestor hashes at height K from the SQL
+    /// metadata. This mirrors what the proof verifier computes when it
+    /// processes a segment proof inside the squash trie and the subsequent
+    /// initial shunt.
     #[cfg(test)]
     pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, T>, Error> {
         let mut ret = self.inner_read_persisted_root_to_blocks()?;
+
+        // Override entries for blocks in the squashed range.
+        // All blocks at heights 0..=H share a single squash trie, so
+        // `inner_read_persisted_root_to_blocks` maps them all to the same
+        // trie hash. Replace those entries with the per-height archival
+        // trie hashes stored during squashing. These are the hashes that
+        // the proof verifier expects (the squash shunt at idx = -1 injects
+        // the archival trie hash directly).
+        if let Some(info) = self.data.squash_info.clone() {
+            for h in 0..=info.height {
+                let bh: T = match trie_sql::read_squash_block_height_reverse(self.sqlite_conn(), h)
+                {
+                    Ok(Some(bh)) => bh,
+                    _ => continue,
+                };
+
+                let archival_trie_hash =
+                    match trie_sql::read_squash_archival_marf_root_hash(self.sqlite_conn(), h) {
+                        Ok(Some(h)) => h,
+                        _ => continue,
+                    };
+
+                ret.insert(archival_trie_hash, bh);
+            }
+        }
+
         let uncommitted_writes = match self.data.uncommitted_writes.take() {
             Some((bhh, trie_ram)) => {
                 let ptr = TriePtr::new(set_backptr(TrieNodeID::Node256 as u8), 0, 0);
@@ -2749,7 +3003,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     }
 
     /// Get the TriePtr::ptr() value for the root node in the currently-open block.
-    pub fn root_ptr(&self) -> u32 {
+    pub fn root_ptr(&self) -> u64 {
         if let Some((ref uncommitted_bhh, _)) = self.data.uncommitted_writes {
             if &self.data.cur_block == uncommitted_bhh {
                 return 0;
@@ -2765,10 +3019,10 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     }
 
     /// Get the TriePtr::ptr() value for a trie's root node if the node is stored to disk.
-    pub fn root_ptr_disk() -> u32 {
+    pub fn root_ptr_disk() -> u64 {
         // first 32 bytes are the block parent hash
         //   next 4 are the identifier
-        (BLOCK_HEADER_HASH_ENCODED_SIZE as u32) + 4
+        (BLOCK_HEADER_HASH_ENCODED_SIZE as u64) + 4
     }
 
     /// Read a node's children's hashes into the provided <Write> implementation.
@@ -3161,7 +3415,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     /// If the uncommitted state is not instantiated, then this panics.
     pub fn write_nodetype(
         &mut self,
-        disk_ptr: u32,
+        disk_ptr: u64,
         node: &TrieNodeType,
         hash: TrieHash,
     ) -> Result<(), Error> {
@@ -3201,7 +3455,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     /// Store a node and its hash to uncommitted state.
     pub fn write_node<N: TrieNode + std::fmt::Debug>(
         &mut self,
-        ptr: u32,
+        ptr: u64,
         node: &N,
         hash: TrieHash,
     ) -> Result<(), Error> {
@@ -3215,7 +3469,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
 
     /// Get the last slot into which a node will be inserted in the uncommitted state.
     /// Panics if there is no uncommmitted state instantiated.
-    pub fn last_ptr(&mut self) -> Result<u32, Error> {
+    pub fn last_ptr(&mut self) -> Result<u64, Error> {
         if let Some((_, ref mut uncommitted_trie)) = self.data.uncommitted_writes {
             uncommitted_trie.last_ptr()
         } else {

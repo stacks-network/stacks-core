@@ -139,6 +139,125 @@ fn trie_node_patch_deserialize_ok_with_ptr_diffs_len_1() {
     assert_eq!(expected, patch_node);
 }
 
+#[test]
+fn trie_node_patch_u64_ptr_roundtrip_ok() {
+    let patch_node = TrieNodePatch {
+        ptr: TriePtr::new(1, 10, u64::from(u32::MAX) + 7),
+        ptr_diff: vec![TriePtr::new(1, 20, u64::from(u32::MAX) + 11)],
+    };
+
+    let mut buffer = Cursor::new(Vec::new());
+    patch_node
+        .consensus_serialize(&mut buffer)
+        .expect("u64 ptr serialization should be ok");
+
+    let decoded = TrieNodePatch::consensus_deserialize(&mut Cursor::new(buffer.into_inner()))
+        .expect("u64 ptr deserialization should be ok");
+    assert_eq!(patch_node, decoded);
+}
+
+#[test]
+fn trie_node_patch_u64_ptr_serialize_fails_with_ptr_diffs_len_0() {
+    let patch_node = TrieNodePatch {
+        ptr: TriePtr::new(TrieNodeID::Node4 as u8, 1, 77),
+        ptr_diff: vec![],
+    };
+    let mut buffer = Cursor::new(Vec::new());
+    let error = patch_node
+        .consensus_serialize(&mut buffer)
+        .expect_err("u64 ptr serialization should fail");
+    assert!(
+        matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 0")),
+        "instead got: {error}"
+    );
+}
+
+#[test]
+fn trie_node_patch_u64_ptr_serialize_fails_with_ptr_diffs_len_257() {
+    let patch_node = TrieNodePatch {
+        ptr: TriePtr::new(TrieNodeID::Node4 as u8, 1, 77),
+        ptr_diff: vec![TriePtr::new(TrieNodeID::Node4 as u8, 2, 88); 257],
+    };
+    let mut buffer = Cursor::new(Vec::new());
+    let error = patch_node
+        .consensus_serialize(&mut buffer)
+        .expect_err("u64 ptr serialization should fail");
+    assert!(
+        matches!(&error, codec_error::SerializeError(msg) if msg.contains("len 257")),
+        "instead got: {error}"
+    );
+}
+
+#[test]
+fn trie_node_patch_u64_ptr_deserialize_fails_on_truncated_payload() {
+    let patch_node = TrieNodePatch {
+        ptr: TriePtr::new_backptr(TrieNodeID::Node4 as u8, 0x01, u64::from(u32::MAX) + 2, 5),
+        ptr_diff: vec![
+            TriePtr::new(TrieNodeID::Node16 as u8, 0x02, u64::from(u32::MAX) + 3),
+            TriePtr::new_backptr(TrieNodeID::Node16 as u8, 0x03, u64::from(u32::MAX) + 4, 7),
+        ],
+    };
+
+    let mut buffer = Cursor::new(Vec::new());
+    patch_node
+        .consensus_serialize(&mut buffer)
+        .expect("u64 ptr serialization should be ok");
+    let mut payload = buffer.into_inner();
+    payload.pop();
+
+    let error = TrieNodePatch::consensus_deserialize(&mut Cursor::new(payload))
+        .expect_err("u64 ptr deserialization should fail on truncated payload");
+    assert!(
+        error.to_string().contains("fill whole buffer"),
+        "instead got: {error}"
+    );
+}
+
+#[test]
+fn trie_node_patch_u64_ptr_deserialize_fails_on_malformed_payload() {
+    let patch_node = TrieNodePatch {
+        ptr: TriePtr::new(TrieNodeID::Node4 as u8, 1, 2),
+        ptr_diff: vec![TriePtr::new(TrieNodeID::Node16 as u8, 2, 3)],
+    };
+    let mut buffer = Cursor::new(Vec::new());
+    patch_node
+        .consensus_serialize(&mut buffer)
+        .expect("u64 ptr serialization should be ok");
+    let mut payload = buffer.into_inner();
+
+    // Corrupt the patch node marker.
+    payload[0] = TrieNodeID::Leaf as u8;
+
+    let error = TrieNodePatch::consensus_deserialize(&mut Cursor::new(payload))
+        .expect_err("u64 ptr deserialization should fail on malformed payload");
+    assert!(
+        error
+            .to_string()
+            .contains("Did not read a TrieNodeID::Patch"),
+        "instead got: {error}"
+    );
+}
+
+#[test]
+fn trie_node_patch_u64_ptr_roundtrip_mixed_backptrs() {
+    let patch_node = TrieNodePatch {
+        ptr: TriePtr::new_backptr(TrieNodeID::Node16 as u8, 0x10, u64::from(u32::MAX) + 55, 42),
+        ptr_diff: vec![
+            TriePtr::new(TrieNodeID::Node4 as u8, 0x11, u64::from(u32::MAX) + 56),
+            TriePtr::new_backptr(TrieNodeID::Node48 as u8, 0x12, u64::from(u32::MAX) + 57, 43),
+            TriePtr::new(TrieNodeID::Node256 as u8, 0x13, 19),
+        ],
+    };
+
+    let mut buffer = Cursor::new(Vec::new());
+    patch_node
+        .consensus_serialize(&mut buffer)
+        .expect("u64 ptr mixed serialization should be ok");
+    let decoded = TrieNodePatch::consensus_deserialize(&mut Cursor::new(buffer.into_inner()))
+        .expect("u64 ptr mixed deserialization should be ok");
+    assert_eq!(patch_node, decoded);
+}
+
 /// [`TrieNodePatch::make_ptr_diff`] in the following scenario:
 ///
 /// ## Input
