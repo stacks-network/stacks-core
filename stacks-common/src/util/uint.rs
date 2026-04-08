@@ -600,9 +600,7 @@ macro_rules! construct_uint {
         impl ::std::ops::Div<Self> for $name {
             type Output = Self;
 
-            fn div(self, other: Self) -> Self {
-                let mut sub_copy = self;
-                let mut shift_copy = other;
+            fn div(mut self, mut other: Self) -> Self {
                 let mut ret = [0u64; Self::N_WORDS];
 
                 let my_bits = self.bits();
@@ -618,13 +616,13 @@ macro_rules! construct_uint {
 
                 // Bitwise long division
                 let mut shift = my_bits - your_bits;
-                shift_copy = shift_copy << shift;
+                other = other << shift;
                 loop {
-                    if sub_copy >= shift_copy {
+                    if self >= other {
                         ret[shift / 64] |= 1 << (shift % 64);
-                        sub_copy = sub_copy - shift_copy;
+                        self = self - other;
                     }
-                    shift_copy = shift_copy >> 1;
+                    other = other >> 1;
                     if shift == 0 {
                         break;
                     }
@@ -698,14 +696,11 @@ macro_rules! construct_uint {
             type Output = Self;
 
             #[inline]
-            fn bitand(self, other: Self) -> Self {
-                let $name(ref arr1) = self;
-                let $name(ref arr2) = other;
-                let mut ret = [0u64; Self::N_WORDS];
+            fn bitand(mut self, other: Self) -> Self {
                 for i in 0..Self::N_WORDS {
-                    ret[i] = arr1[i] & arr2[i];
+                    self.0[i] &= other.0[i];
                 }
-                Self(ret)
+                self
             }
         }
 
@@ -713,14 +708,11 @@ macro_rules! construct_uint {
             type Output = Self;
 
             #[inline]
-            fn bitxor(self, other: Self) -> Self {
-                let $name(ref arr1) = self;
-                let $name(ref arr2) = other;
-                let mut ret = [0u64; Self::N_WORDS];
+            fn bitxor(mut self, other: Self) -> Self {
                 for i in 0..$n_words {
-                    ret[i] = arr1[i] ^ arr2[i];
+                    self.0[i] ^= other.0[i];
                 }
-                Self(ret)
+                self
             }
         }
 
@@ -728,14 +720,11 @@ macro_rules! construct_uint {
             type Output = $name;
 
             #[inline]
-            fn bitor(self, other: $name) -> $name {
-                let $name(ref arr1) = self;
-                let $name(ref arr2) = other;
-                let mut ret = [0u64; $n_words];
+            fn bitor(mut self, other: $name) -> $name {
                 for i in 0..$n_words {
-                    ret[i] = arr1[i] | arr2[i];
+                    self.0[i] |= other.0[i];
                 }
-                $name(ret)
+                self
             }
         }
 
@@ -755,42 +744,48 @@ macro_rules! construct_uint {
         impl ::std::ops::Shl<usize> for $name {
             type Output = $name;
 
-            fn shl(self, shift: usize) -> $name {
-                let $name(ref original) = self;
-                let mut ret = [0u64; $n_words];
+            // Iterate destination high-to-low so we read from lower source
+            // indices that haven't been overwritten yet.
+            fn shl(mut self, shift: usize) -> $name {
                 let word_shift = shift / 64;
                 let bit_shift = shift % 64;
-                for i in 0..$n_words {
-                    // Shift
-                    if bit_shift < 64 && i + word_shift < $n_words {
-                        ret[i + word_shift] += original[i] << bit_shift;
+                for d in (0..$n_words).rev() {
+                    let mut val = 0u64;
+                    // Main contribution from the source word
+                    if bit_shift < 64 && d >= word_shift {
+                        val = self.0[d - word_shift] << bit_shift;
                     }
-                    // Carry
-                    if bit_shift > 0 && i + word_shift + 1 < $n_words {
-                        ret[i + word_shift + 1] += original[i] >> (64 - bit_shift);
+                    // Carry-in: high bits spilled from the next-lower source word
+                    if bit_shift > 0 && d >= word_shift + 1 {
+                        val |= self.0[d - word_shift - 1] >> (64 - bit_shift);
                     }
+                    self.0[d] = val;
                 }
-                $name(ret)
+                self
             }
         }
 
         impl ::std::ops::Shr<usize> for $name {
             type Output = $name;
 
-            fn shr(self, shift: usize) -> $name {
-                let $name(ref original) = self;
-                let mut ret = [0u64; $n_words];
+            // Iterate destination low-to-high so we read from higher source
+            // indices that haven't been overwritten yet.
+            fn shr(mut self, shift: usize) -> $name {
                 let word_shift = shift / 64;
                 let bit_shift = shift % 64;
-                for i in word_shift..$n_words {
-                    // Shift
-                    ret[i - word_shift] += original[i] >> bit_shift;
-                    // Carry
-                    if bit_shift > 0 && i < $n_words - 1 {
-                        ret[i - word_shift] += original[i + 1] << (64 - bit_shift);
+                for d in 0..$n_words {
+                    let mut val = 0u64;
+                    // Main contribution from the source word
+                    if d + word_shift < $n_words {
+                        val = self.0[d + word_shift] >> bit_shift;
                     }
+                    // Carry-in: low bits spilled from the next-higher source word
+                    if bit_shift > 0 && d + word_shift + 1 < $n_words {
+                        val |= self.0[d + word_shift + 1] << (64 - bit_shift);
+                    }
+                    self.0[d] = val;
                 }
-                $name(ret)
+                self
             }
         }
 
@@ -1153,6 +1148,18 @@ mod tests {
             .prop_map(|(a, b, c, d, e, f, g, h)| Uint512([a, b, c, d, e, f, g, h]))
     }
 
+    /// Proptest strategy for non-zero Uint512 values.
+    fn arb_uint512_nonzero() -> impl Strategy<Value = Uint512> {
+        arb_uint512().prop_filter("must be non-zero", |v| *v != BitArray::zero())
+    }
+
+    /// Proptest strategy for "small" Uint512 values (fits in lower 256 bits)
+    /// to avoid overflow in arithmetic tests.
+    fn arb_uint512_small() -> impl Strategy<Value = Uint512> {
+        (any::<u64>(), any::<u64>(), any::<u64>(), any::<u64>())
+            .prop_map(|(a, b, c, d)| Uint512([a, b, c, d, 0, 0, 0, 0]))
+    }
+
     proptest! {
         // ---------------------------------------------------------------
         // Uint256: Arithmetic identities
@@ -1512,6 +1519,75 @@ mod tests {
             }
         }
 
+        /// bit() matches the individual bit in the underlying limb
+        #[test]
+        fn u256_bit_matches_limb(a in arb_uint256(), idx in 0usize..256) {
+            let word = idx / 64;
+            let bit_in_word = idx % 64;
+            let expected = (a.0[word] >> bit_in_word) & 1 == 1;
+            prop_assert_eq!(a.bit(idx), expected);
+        }
+
+        /// bit_slice extracts the correct sub-range
+        #[test]
+        fn u256_bit_slice_matches_shift_and_mask(
+            a in arb_uint256(),
+            start in 0usize..128,
+            width in 1usize..128,
+        ) {
+            let end = start + width;
+            prop_assume!(end <= 256);
+            let sliced = a.bit_slice(start, end);
+            let manual = (a >> start).mask(width);
+            prop_assert_eq!(sliced, manual);
+        }
+
+        /// mask(n) zeroes out all bits at position n and above
+        #[test]
+        fn u256_mask_clears_high_bits(a in arb_uint256(), n in 1usize..256) {
+            let masked = a.mask(n);
+            // bits() of the result should be <= n
+            if masked != BitArray::zero() {
+                prop_assert!(masked.bits() <= n, "mask({n}) should clear bits >= {n}, but bits() = {}", masked.bits());
+            }
+            // All bits below n should be preserved
+            for i in 0..n {
+                prop_assert_eq!(masked.bit(i), a.bit(i), "mask should preserve bit {}", i);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Uint256: Ref-variant operators
+        // ---------------------------------------------------------------
+
+        /// Add<&Self> matches Add<Self>
+        #[test]
+        fn u256_add_ref_matches_owned(a in arb_uint256(), b in arb_uint256()) {
+            prop_assert_eq!(a + &b, a + b);
+        }
+
+        /// Sub<&Self> matches Sub<Self>
+        #[test]
+        fn u256_sub_ref_matches_owned(a in arb_uint256(), b in arb_uint256()) {
+            prop_assert_eq!(a - &b, a - b);
+        }
+
+        /// Mul<&Self> matches Mul<Self>
+        #[test]
+        fn u256_mul_ref_matches_owned(a in arb_uint256_small(), b in arb_uint256_small()) {
+            prop_assert_eq!(a * &b, a * b);
+        }
+
+        // ---------------------------------------------------------------
+        // Uint256: low_u32
+        // ---------------------------------------------------------------
+
+        /// low_u32 returns the bottom 32 bits
+        #[test]
+        fn u256_low_u32_matches_low_u64(a in arb_uint256()) {
+            prop_assert_eq!(a.low_u32(), a.low_u64() as u32);
+        }
+
         // ---------------------------------------------------------------
         // Uint256: increment
         // ---------------------------------------------------------------
@@ -1538,11 +1614,119 @@ mod tests {
             prop_assert_eq!(a + b, b + a);
         }
 
+        /// Uint512: addition by zero is identity
+        #[test]
+        fn u512_add_zero_identity(a in arb_uint512()) {
+            let zero: Uint512 = BitArray::zero();
+            prop_assert_eq!(a + zero, a);
+        }
+
+        /// Uint512: add then sub roundtrip
+        #[test]
+        fn u512_add_sub_roundtrip(a in arb_uint512(), b in arb_uint512()) {
+            prop_assert_eq!((a + b) - b, a);
+        }
+
         /// Uint512: a - a == 0
         #[test]
         fn u512_sub_self_is_zero(a in arb_uint512()) {
             let zero: Uint512 = BitArray::zero();
             prop_assert_eq!(a - a, zero);
+        }
+
+        /// Uint512: multiplication is commutative
+        #[test]
+        fn u512_mul_commutative(a in arb_uint512_small(), b in arb_uint512_small()) {
+            prop_assert_eq!(a * b, b * a);
+        }
+
+        /// Uint512: multiplication by one is identity
+        #[test]
+        fn u512_mul_one_identity(a in arb_uint512()) {
+            let one: Uint512 = BitArray::one();
+            prop_assert_eq!(a * one, a);
+        }
+
+        /// Uint512: multiplication by zero is zero
+        #[test]
+        fn u512_mul_zero(a in arb_uint512()) {
+            let zero: Uint512 = BitArray::zero();
+            prop_assert_eq!(a * zero, zero);
+        }
+
+        /// Uint512: mul_u32 matches full multiplication
+        #[test]
+        fn u512_mul_u32_matches_mul(
+            a in arb_uint512_small(),
+            b in 0u32..u32::MAX,
+        ) {
+            let via_mul_u32 = a.mul_u32(b);
+            let via_mul = a * Uint512::from_u64(b as u64);
+            prop_assert_eq!(via_mul_u32, via_mul);
+        }
+
+        /// Uint512: a / a == 1 for non-zero a
+        #[test]
+        fn u512_div_self_is_one(a in arb_uint512_nonzero()) {
+            let one: Uint512 = BitArray::one();
+            prop_assert_eq!(a / a, one);
+        }
+
+        /// Uint512: a / 1 == a
+        #[test]
+        fn u512_div_one_identity(a in arb_uint512()) {
+            let one: Uint512 = BitArray::one();
+            prop_assert_eq!(a / one, a);
+        }
+
+        /// Uint512: 0 / a == 0 for non-zero a
+        #[test]
+        fn u512_zero_div(a in arb_uint512_nonzero()) {
+            let zero: Uint512 = BitArray::zero();
+            prop_assert_eq!(zero / a, zero);
+        }
+
+        /// Uint512: (a / b) * b + remainder == a
+        #[test]
+        fn u512_div_mul_relationship(
+            a in arb_uint512(),
+            b in arb_uint512_nonzero(),
+        ) {
+            let quotient = a / b;
+            let product = quotient * b;
+            prop_assert!(product <= a, "(a/b)*b should be <= a");
+            let remainder = a - product;
+            prop_assert!(remainder < b, "remainder should be < divisor");
+        }
+
+        // ---------------------------------------------------------------
+        // Uint512: Bitwise operations
+        // ---------------------------------------------------------------
+
+        /// Uint512: a & a == a (idempotent)
+        #[test]
+        fn u512_bitand_idempotent(a in arb_uint512()) {
+            prop_assert_eq!(a & a, a);
+        }
+
+        /// Uint512: a & 0 == 0
+        #[test]
+        fn u512_bitand_zero(a in arb_uint512()) {
+            let zero: Uint512 = BitArray::zero();
+            prop_assert_eq!(a & zero, zero);
+        }
+
+        /// Uint512: a | a == a (idempotent)
+        #[test]
+        fn u512_bitor_idempotent(a in arb_uint512()) {
+            prop_assert_eq!(a | a, a);
+        }
+
+        /// Uint512: a | 0 == a (identity)
+        #[test]
+        fn u512_bitor_zero_identity(a in arb_uint512()) {
+            let zero: Uint512 = BitArray::zero();
+            prop_assert_eq!(a | zero, a);
         }
 
         /// Uint512: a ^ a == 0
@@ -1557,6 +1741,153 @@ mod tests {
         fn u512_not_involution(a in arb_uint512()) {
             prop_assert_eq!(!!a, a);
         }
+
+        /// Uint512: a & !a == 0
+        #[test]
+        fn u512_and_not_is_zero(a in arb_uint512()) {
+            let zero: Uint512 = BitArray::zero();
+            prop_assert_eq!(a & !a, zero);
+        }
+
+        /// Uint512: a | !a == MAX
+        #[test]
+        fn u512_or_not_is_max(a in arb_uint512()) {
+            let max: Uint512 = BitArray::max();
+            prop_assert_eq!(a | !a, max);
+        }
+
+        /// Uint512: De Morgan's: !(a & b) == !a | !b
+        #[test]
+        fn u512_de_morgan_and(a in arb_uint512(), b in arb_uint512()) {
+            prop_assert_eq!(!(a & b), !a | !b);
+        }
+
+        /// Uint512: De Morgan's: !(a | b) == !a & !b
+        #[test]
+        fn u512_de_morgan_or(a in arb_uint512(), b in arb_uint512()) {
+            prop_assert_eq!(!(a | b), !a & !b);
+        }
+
+        // ---------------------------------------------------------------
+        // Uint512: Shift operations
+        // ---------------------------------------------------------------
+
+        /// Uint512: shift left then right roundtrips
+        #[test]
+        fn u512_shl_shr_roundtrip(
+            val in any::<u64>(),
+            shift in 0usize..64,
+        ) {
+            let a = Uint512::from_u64(val);
+            prop_assert_eq!((a << shift) >> shift, a);
+        }
+
+        /// Uint512: shifting by 0 is identity
+        #[test]
+        fn u512_shift_zero_identity(a in arb_uint512()) {
+            prop_assert_eq!(a << 0, a);
+            prop_assert_eq!(a >> 0, a);
+        }
+
+        /// Uint512: shifting left by 512 or more gives zero
+        #[test]
+        fn u512_shl_overflow(a in arb_uint512(), extra in 0usize..64) {
+            let shifted = a << (512 + extra);
+            let zero: Uint512 = BitArray::zero();
+            prop_assert_eq!(shifted, zero);
+        }
+
+        /// Uint512: shifting right by 512 or more gives zero
+        #[test]
+        fn u512_shr_overflow(a in arb_uint512(), extra in 0usize..64) {
+            let shifted = a >> (512 + extra);
+            let zero: Uint512 = BitArray::zero();
+            prop_assert_eq!(shifted, zero);
+        }
+
+        /// Uint512: shift left by 1 == multiply by 2
+        #[test]
+        fn u512_shl1_is_mul2(a in arb_uint512()) {
+            let mask = !(Uint512([0, 0, 0, 0, 0, 0, 0, 1u64 << 63]));
+            let a_safe = a & mask;
+            let two = Uint512::from_u64(2);
+            prop_assert_eq!(a_safe << 1, a_safe * two);
+        }
+
+        // ---------------------------------------------------------------
+        // Uint512: BitArray trait
+        // ---------------------------------------------------------------
+
+        /// Uint512: bits() is consistent
+        #[test]
+        fn u512_bits_consistent(a_raw in arb_uint256_nonzero()) {
+            let a = Uint512::from_uint256(&a_raw);
+            let b = a.bits();
+            prop_assert!(b > 0 && b <= 512);
+            let zero: Uint512 = BitArray::zero();
+            prop_assert_eq!(a >> b, zero);
+        }
+
+        /// Uint512: bit() matches the individual bit in the underlying limb
+        #[test]
+        fn u512_bit_matches_limb(a in arb_uint512(), idx in 0usize..512) {
+            let word = idx / 64;
+            let bit_in_word = idx % 64;
+            let expected = (a.0[word] >> bit_in_word) & 1 == 1;
+            prop_assert_eq!(a.bit(idx), expected);
+        }
+
+        /// Uint512: trailing_zeros is correct
+        #[test]
+        fn u512_trailing_zeros_correct(a in arb_uint512_nonzero()) {
+            let tz = a.trailing_zeros();
+            prop_assert!(tz < 512);
+            prop_assert!(a.bit(tz), "bit at trailing_zeros() should be set");
+            for i in 0..tz {
+                prop_assert!(!a.bit(i), "bit {i} below trailing_zeros should be unset");
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Uint512: Serialization roundtrips
+        // ---------------------------------------------------------------
+
+        /// Uint512: to_u8_slice / from_bytes_le roundtrip
+        #[test]
+        fn u512_bytes_le_roundtrip(a in arb_uint512()) {
+            let bytes = a.to_u8_slice().to_vec();
+            let reconstructed = Uint512::from_bytes_le(bytes).expect("valid bytes");
+            prop_assert_eq!(reconstructed, a);
+        }
+
+        /// Uint512: to_hex_le / from_hex_le roundtrip
+        #[test]
+        fn u512_hex_le_roundtrip(a in arb_uint512()) {
+            let hex = a.to_hex_le();
+            let reconstructed = Uint512::from_hex_le(&hex).expect("valid hex");
+            prop_assert_eq!(reconstructed, a);
+        }
+
+        /// Uint512: to_hex_be / from_hex_be roundtrip
+        #[test]
+        fn u512_hex_be_roundtrip(a in arb_uint512()) {
+            let hex = a.to_hex_be();
+            let reconstructed = Uint512::from_hex_be(&hex).expect("valid hex");
+            prop_assert_eq!(reconstructed, a);
+        }
+
+        /// Uint512: LE and BE byte representations are reverses of each other
+        #[test]
+        fn u512_le_be_inverse(a in arb_uint512()) {
+            let le = a.to_u8_slice();
+            let be = a.to_u8_slice_be();
+            let reversed_be: Vec<u8> = be.iter().rev().cloned().collect();
+            prop_assert_eq!(le, &reversed_be[..]);
+        }
+
+        // ---------------------------------------------------------------
+        // Uint512: Conversion
+        // ---------------------------------------------------------------
 
         /// Uint512 ↔ Uint256 roundtrip: converting a Uint256 to Uint512
         /// and back yields the original value
@@ -1577,24 +1908,21 @@ mod tests {
             prop_assert_eq!(wide.0[7], 0);
         }
 
-        /// Uint512: shift left then right roundtrips
+        /// Uint512: from_u64 then low_u64 roundtrips
         #[test]
-        fn u512_shl_shr_roundtrip(
-            val in any::<u64>(),
-            shift in 0usize..64,
-        ) {
-            let a = Uint512::from_u64(val);
-            prop_assert_eq!((a << shift) >> shift, a);
+        fn u512_from_u64_low_u64_roundtrip(val in any::<u64>()) {
+            prop_assert_eq!(Uint512::from_u64(val).low_u64(), val);
         }
 
-        /// Uint512: bits() is consistent
+        /// Uint512: from_u128 then extract lower 128 bits roundtrips
         #[test]
-        fn u512_bits_consistent(a_raw in arb_uint256_nonzero()) {
-            let a = Uint512::from_uint256(&a_raw);
-            let b = a.bits();
-            prop_assert!(b > 0 && b <= 512);
-            let zero: Uint512 = BitArray::zero();
-            prop_assert_eq!(a >> b, zero);
+        fn u512_from_u128_roundtrip(val in any::<u128>()) {
+            let u = Uint512::from_u128(val);
+            let lo = u.0[0] as u128 | ((u.0[1] as u128) << 64);
+            prop_assert_eq!(lo, val);
+            for i in 2..8 {
+                prop_assert_eq!(u.0[i], 0);
+            }
         }
     }
 
@@ -2154,6 +2482,67 @@ mod tests {
         a.increment();
         let zero: Uint256 = BitArray::zero();
         assert_eq!(a, zero);
+    }
+
+    // -------------------------------------------------------------------
+    // Input validation / rejection tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn from_bytes_le_wrong_length_returns_none() {
+        assert!(Uint256::from_bytes_le(vec![0u8; 31]).is_none());
+        assert!(Uint256::from_bytes_le(vec![0u8; 33]).is_none());
+        assert!(Uint256::from_bytes_le(vec![]).is_none());
+        assert!(Uint512::from_bytes_le(vec![0u8; 63]).is_none());
+        assert!(Uint512::from_bytes_le(vec![0u8; 65]).is_none());
+    }
+
+    #[test]
+    fn from_hex_le_wrong_length_returns_none() {
+        // 30 bytes (60 hex chars) instead of 32
+        let short = "00".repeat(30);
+        assert!(Uint256::from_hex_le(&short).is_none());
+        // 34 bytes (68 hex chars) instead of 32
+        let long = "00".repeat(34);
+        assert!(Uint256::from_hex_le(&long).is_none());
+    }
+
+    #[test]
+    fn from_hex_be_wrong_length_returns_none() {
+        let short = "00".repeat(30);
+        assert!(Uint256::from_hex_be(&short).is_none());
+        let long = "00".repeat(34);
+        assert!(Uint256::from_hex_be(&long).is_none());
+    }
+
+    #[test]
+    fn from_hex_le_invalid_hex_returns_none() {
+        let bad = "zz".repeat(32);
+        assert!(Uint256::from_hex_le(&bad).is_none());
+    }
+
+    #[test]
+    fn from_hex_be_invalid_hex_returns_none() {
+        let bad = "zz".repeat(32);
+        assert!(Uint256::from_hex_be(&bad).is_none());
+    }
+
+    #[test]
+    #[should_panic]
+    fn from_i64_negative_panics() {
+        Uint256::from_i64(-1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn u256_div_by_zero_panics() {
+        let _ = Uint256::from_u64(1) / Uint256::zero();
+    }
+
+    #[test]
+    #[should_panic]
+    fn u512_div_by_zero_panics() {
+        let _ = Uint512::from_u64(1) / Uint512::zero();
     }
 
     #[test]
