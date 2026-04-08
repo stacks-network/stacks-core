@@ -4261,11 +4261,7 @@ impl NakamotoChainState {
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
-            StacksChainState::process_epoch_transition(
-                &mut clarity_tx,
-                sortition_dbconn.as_burn_state_db(),
-                burn_header_height,
-            )?;
+            StacksChainState::process_epoch_transition(&mut clarity_tx, burn_header_height)?;
 
         debug!(
             "Setup block: Processed epoch transition";
