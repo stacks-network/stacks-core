@@ -8429,7 +8429,7 @@ fn test_vtxindex_zero_two_miners() {
     std::env::set_var("FAULT_INJECTION_BLOCK_COMMIT_PARENT_SENTINEL", "1");
 
     // Let miner 2 submit a commit (it will be bad due to fault injection)
-    miners.submit_commit_miner_2(&sortdb);
+    miners.ensure_commit_miner_2(&sortdb);
 
     // Disable fault injection now that the bad commit is submitted
     std::env::remove_var("FAULT_INJECTION_BLOCK_COMMIT_VTXINDEX_SENTINEL");
