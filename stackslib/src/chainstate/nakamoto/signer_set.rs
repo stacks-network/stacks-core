@@ -624,7 +624,7 @@ impl<'a, 'b, 'c> Iterator for StakeEntryIteratorPox5<'a, 'b, 'c> {
 }
 
 impl NakamotoSigners {
-    fn pox_5_stake_entries<'a, 'b, 'c>(
+    pub(crate) fn pox_5_stake_entries<'a, 'b, 'c>(
         clarity: &'a mut ClarityTransactionConnection<'b, 'c>,
         reward_cycle: u64,
         pox_contract: &str,
