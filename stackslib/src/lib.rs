@@ -84,12 +84,66 @@ const BUILD_TYPE: &str = "debug";
 #[cfg(not(debug_assertions))]
 const BUILD_TYPE: &str = "release";
 
+/// Returns a version string with package name
 pub fn version_string(pkg_name: &str, pkg_version: Option<&str>) -> String {
     let pkg_version = pkg_version.unwrap_or(STACKS_NODE_VERSION);
+    inner_version_string(Some(pkg_name), pkg_version)
+}
+
+/// Returns a version string without package name
+pub fn version_only_string(pkg_version: &str) -> String {
+    inner_version_string(None, pkg_version)
+}
+
+/// Returns a formatted version string given a optional package name and a version
+fn inner_version_string(pkg_name: Option<&str>, pkg_version: &str) -> String {
     let git_commit = GIT_COMMIT_ENV.unwrap_or_else(|| GIT_COMMIT.unwrap_or(""));
     let git_tree_clean = GIT_TREE_CLEAN_ENV.unwrap_or_else(|| GIT_TREE_CLEAN.unwrap_or(""));
+    let suffix = format!("({git_commit}{git_tree_clean}, {BUILD_TYPE} build, {OS} [{ARCH}])");
+    match pkg_name {
+        Some(name) => format!("{name} {pkg_version} {suffix}"),
+        None => format!("{pkg_version} {suffix}"),
+    }
+}
 
-    format!(
-        "{pkg_name} {pkg_version} ({git_commit}{git_tree_clean}, {BUILD_TYPE} build, {OS} [{ARCH}])"
-    )
+#[cfg(test)]
+mod lib_tests {
+    use stacks_common::versions::STACKS_NODE_VERSION;
+
+    use super::*;
+
+    fn expected_version_named(pkg_name: &str, pkg_version: &str) -> String {
+        let git_commit = GIT_COMMIT_ENV.unwrap_or_else(|| GIT_COMMIT.unwrap_or(""));
+        let git_tree_clean = GIT_TREE_CLEAN_ENV.unwrap_or_else(|| GIT_TREE_CLEAN.unwrap_or(""));
+        format!(
+            "{pkg_name} {pkg_version} ({git_commit}{git_tree_clean}, {BUILD_TYPE} build, {OS} [{ARCH}])"
+        )
+    }
+
+    fn expected_version_only(pkg_version: &str) -> String {
+        let git_commit = GIT_COMMIT_ENV.unwrap_or_else(|| GIT_COMMIT.unwrap_or(""));
+        let git_tree_clean = GIT_TREE_CLEAN_ENV.unwrap_or_else(|| GIT_TREE_CLEAN.unwrap_or(""));
+        format!("{pkg_version} ({git_commit}{git_tree_clean}, {BUILD_TYPE} build, {OS} [{ARCH}])")
+    }
+
+    #[test]
+    fn test_version_named_string_explicit_version() {
+        let version = version_string("mypackage", Some("1.2.3"));
+        assert_eq!(expected_version_named("mypackage", "1.2.3"), version);
+    }
+
+    #[test]
+    fn test_version_named_string_default_version() {
+        let version = version_string("mypackage", None);
+        assert_eq!(
+            expected_version_named("mypackage", STACKS_NODE_VERSION),
+            version
+        );
+    }
+
+    #[test]
+    fn test_version_only_string() {
+        let version = version_only_string("1.2.3");
+        assert_eq!(expected_version_only("1.2.3"), version);
+    }
 }

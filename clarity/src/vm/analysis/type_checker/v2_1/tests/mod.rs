@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::token::Token;
 use clarity_types::types::SequenceSubtype;
 #[cfg(test)]
 use rstest::rstest;
@@ -28,6 +27,7 @@ use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrorKind;
+use crate::vm::ast::parser::v2::lexer::token::Token;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
@@ -927,12 +927,51 @@ fn test_at_block() {
     for (good_test, expected) in good.iter() {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(good_test).unwrap())
+            &format!(
+                "{}",
+                type_check_helper_version(
+                    good_test,
+                    ClarityVersion::Clarity4,
+                    StacksEpochId::Epoch33
+                )
+                .unwrap()
+            )
         );
     }
 
     for (bad_test, expected) in bad.iter() {
-        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(
+            *expected,
+            *type_check_helper_version(bad_test, ClarityVersion::Clarity4, StacksEpochId::Epoch33)
+                .unwrap_err()
+                .err
+        );
+    }
+
+    assert_eq!(
+        StaticCheckErrorKind::AtBlockUnavailable,
+        *type_check_helper_version(
+            "(at-block (sha256 u0) u1)",
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch34
+        )
+        .unwrap_err()
+        .err
+    );
+
+    let mut versions_gt_clarity4 = ClarityVersion::ALL.to_vec();
+    versions_gt_clarity4.retain(|version| *version > ClarityVersion::Clarity4);
+    for version in versions_gt_clarity4 {
+        assert_eq!(
+            StaticCheckErrorKind::UnknownFunction("at-block".to_string()),
+            *type_check_helper_version(
+                "(at-block (sha256 u0) u1)",
+                version,
+                StacksEpochId::latest()
+            )
+            .unwrap_err()
+            .err
+        );
     }
 }
 

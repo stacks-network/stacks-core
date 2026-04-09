@@ -20,8 +20,6 @@ keywords = [
     "dapps",
     "blockchain",
 ]
-readme = "README.md"
-resolver = "2"
 edition = "2021"
 build = "build.rs"
 
@@ -79,6 +77,7 @@ sha2 = { version = "0.10" }
 
 [dev-dependencies]
 proptest = "1.6.0"
+pinny = { workspace = true }
 
 [target.'cfg(windows)'.dev-dependencies]
 winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
@@ -105,3 +104,6 @@ bech32_strict = []
 # Wasm-specific features for easier configuration
 wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context"]
 wasm-deterministic = ["getrandom/custom"]
+
+[package.metadata.pinny]
+allowed = ["t_prop"]

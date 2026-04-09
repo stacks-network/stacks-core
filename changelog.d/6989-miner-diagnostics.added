@@ -1,0 +1,1 @@
+Added some diagnostics data to a miner's block proposal StackerDB message. This data contains nothing confidential, only some information about the miner's view of the world. This may help with investigating issues where a miner keeps submitting blocks that are then rejected by signers.
