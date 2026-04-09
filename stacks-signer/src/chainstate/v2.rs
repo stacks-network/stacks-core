@@ -332,7 +332,7 @@ impl GlobalStateView {
         // We already confirmed in check miner activity that the current tenure is valid. So check we are not
         // reorging the tenure blocks
         let last_in_current_tenure = signer_db
-            .get_last_globally_accepted_block(&block.header.consensus_hash)
+            .get_last_accepted_block(&block.header.consensus_hash)
             .map_err(|e| {
                 SignerChainstateError::from(ClientError::InvalidResponse(e.to_string()))
             })?;
