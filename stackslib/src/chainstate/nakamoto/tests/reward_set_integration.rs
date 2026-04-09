@@ -259,10 +259,7 @@ fn sym(v: Value) -> SymbolicExpression {
 fn pox_addr_tuple(hash_bytes: [u8; 20]) -> Value {
     Value::Tuple(
         TupleData::from_data(vec![
-            (
-                "version".into(),
-                Value::buff_from(vec![0x00]).unwrap(),
-            ),
+            ("version".into(), Value::buff_from(vec![0x00]).unwrap()),
             (
                 "hashbytes".into(),
                 Value::buff_from(hash_bytes.to_vec()).unwrap(),
@@ -357,10 +354,7 @@ impl Pox5TestEnv {
 
         // Block 0: initialize + fund + set epoch
         {
-            let mut store = marf.begin(
-                &StacksBlockId::sentinel(),
-                &block_id(0),
-            );
+            let mut store = marf.begin(&StacksBlockId::sentinel(), &block_id(0));
 
             let mut db = store.as_clarity_db(&TestHeadersDB, &TestBurnStateDB);
             db.initialize();
@@ -377,8 +371,7 @@ impl Pox5TestEnv {
                 owned.stx_faucet(&PrincipalData::Standard(p.clone()), INITIAL_BALANCE);
             }
             // Also fund the boot address (contract deployer)
-            let boot_principal =
-                PrincipalData::Standard(StacksAddress::burn_address(false).into());
+            let boot_principal = PrincipalData::Standard(StacksAddress::burn_address(false).into());
             owned.stx_faucet(&boot_principal, INITIAL_BALANCE);
 
             store.test_commit();
@@ -404,8 +397,7 @@ impl Pox5TestEnv {
                 .expect("Failed to deploy pox-5 contract");
 
             // Call set-burnchain-parameters
-            let boot_addr =
-                PrincipalData::Standard(StacksAddress::burn_address(false).into());
+            let boot_addr = PrincipalData::Standard(StacksAddress::burn_address(false).into());
             owned
                 .execute_in_env(boot_addr, None, None, |exec_state, invoke_ctx| {
                     exec_state.execute_contract(
@@ -453,26 +445,21 @@ impl Pox5TestEnv {
         let pox5_id = Self::pox5_contract_id();
         let sender = PrincipalData::Standard(staker.clone());
 
-        let result = owned.execute_in_env(
-            sender,
-            None,
-            None,
-            |exec_state, invoke_ctx| {
-                exec_state.execute_contract_allow_private(
-                    invoke_ctx,
-                    &pox5_id,
-                    "inner-stake",
-                    &[
-                        sym(Value::UInt(amount_ustx)),
-                        sym(Value::UInt(num_cycles)),
-                        sym(Value::buff_from(vec![]).unwrap()), // unlock-bytes
-                        sym(Value::UInt(STAKING_START_HEIGHT)),
-                        sym(solo_pool_or_solo_info(pox_addr_hash, signer_key)),
-                    ],
-                    false,
-                )
-            },
-        );
+        let result = owned.execute_in_env(sender, None, None, |exec_state, invoke_ctx| {
+            exec_state.execute_contract_allow_private(
+                invoke_ctx,
+                &pox5_id,
+                "inner-stake",
+                &[
+                    sym(Value::UInt(amount_ustx)),
+                    sym(Value::UInt(num_cycles)),
+                    sym(Value::buff_from(vec![]).unwrap()), // unlock-bytes
+                    sym(Value::UInt(STAKING_START_HEIGHT)),
+                    sym(solo_pool_or_solo_info(pox_addr_hash, signer_key)),
+                ],
+                false,
+            )
+        });
 
         match &result {
             Ok((val, _, _)) => {
@@ -515,14 +502,8 @@ impl Pox5TestEnv {
 
         let mut db = store.as_clarity_db(&TestHeadersDB, &TestBurnStateDB);
         db.begin();
-        db.set_entry_unknown_descriptor(
-            &pox5_id,
-            "pools",
-            key,
-            value,
-            &StacksEpochId::Epoch35,
-        )
-        .expect("Failed to write pools map entry");
+        db.set_entry_unknown_descriptor(&pox5_id, "pools", key, value, &StacksEpochId::Epoch35)
+            .expect("Failed to write pools map entry");
         db.commit().unwrap();
 
         store.test_commit();
@@ -548,26 +529,21 @@ impl Pox5TestEnv {
         let pox5_id = Self::pox5_contract_id();
         let sender = PrincipalData::Standard(staker.clone());
 
-        let result = owned.execute_in_env(
-            sender,
-            None,
-            None,
-            |exec_state, invoke_ctx| {
-                exec_state.execute_contract_allow_private(
-                    invoke_ctx,
-                    &pox5_id,
-                    "inner-stake",
-                    &[
-                        sym(Value::UInt(amount_ustx)),
-                        sym(Value::UInt(num_cycles)),
-                        sym(Value::buff_from(vec![]).unwrap()), // unlock-bytes
-                        sym(Value::UInt(STAKING_START_HEIGHT)),
-                        sym(pool_pool_or_solo_info(pool_principal.clone())),
-                    ],
-                    false,
-                )
-            },
-        );
+        let result = owned.execute_in_env(sender, None, None, |exec_state, invoke_ctx| {
+            exec_state.execute_contract_allow_private(
+                invoke_ctx,
+                &pox5_id,
+                "inner-stake",
+                &[
+                    sym(Value::UInt(amount_ustx)),
+                    sym(Value::UInt(num_cycles)),
+                    sym(Value::buff_from(vec![]).unwrap()), // unlock-bytes
+                    sym(Value::UInt(STAKING_START_HEIGHT)),
+                    sym(pool_pool_or_solo_info(pool_principal.clone())),
+                ],
+                false,
+            )
+        });
 
         match &result {
             Ok((val, _, _)) => {
@@ -653,10 +629,7 @@ impl Pox5TestEnv {
                         "pool-or-solo-info".into(),
                         solo_pool_or_solo_info(*pox_hash, *signer_key),
                     ),
-                    (
-                        "unlock-bytes".into(),
-                        Value::buff_from(vec![]).unwrap(),
-                    ),
+                    ("unlock-bytes".into(), Value::buff_from(vec![]).unwrap()),
                 ])
                 .unwrap(),
             );
@@ -675,10 +648,7 @@ impl Pox5TestEnv {
                         "pool-or-solo-info".into(),
                         pool_pool_or_solo_info(pool_principal.clone()),
                     ),
-                    (
-                        "unlock-bytes".into(),
-                        Value::buff_from(vec![]).unwrap(),
-                    ),
+                    ("unlock-bytes".into(), Value::buff_from(vec![]).unwrap()),
                 ])
                 .unwrap(),
             );
@@ -903,11 +873,7 @@ fn test_stake_entry_iterator_pool() {
     let staker1 = test_principal(0x01);
     let staker2 = test_principal(0x02);
 
-    let mut env = Pox5TestEnv::new(&[
-        pool_owner.clone(),
-        staker1.clone(),
-        staker2.clone(),
-    ]);
+    let mut env = Pox5TestEnv::new(&[pool_owner.clone(), staker1.clone(), staker2.clone()]);
 
     // Set up pool info and pool stakers
     env.add_pool(&pool_principal, pool_hash, pool_signer_key);
@@ -1018,11 +984,7 @@ fn test_end_to_end_pool_make_reward_set() {
     let staker1 = test_principal(0x01);
     let staker2 = test_principal(0x02);
 
-    let mut env = Pox5TestEnv::new(&[
-        pool_owner.clone(),
-        staker1.clone(),
-        staker2.clone(),
-    ]);
+    let mut env = Pox5TestEnv::new(&[pool_owner.clone(), staker1.clone(), staker2.clone()]);
 
     env.add_pool(&pool_principal, pool_hash, pool_signer_key);
     env.add_pool_staker(&staker1, 300_000_000, 1, &pool_principal);
@@ -1072,8 +1034,7 @@ fn test_end_to_end_pool_make_reward_set() {
             );
             assert_eq!(signers[0].signing_key, pool_signer_key);
             assert_eq!(
-                signers[0].stacked_amt,
-                1_000_000_000,
+                signers[0].stacked_amt, 1_000_000_000,
                 "Aggregated pool amount should be 300M + 700M"
             );
         });
@@ -1249,9 +1210,7 @@ fn test_stress_make_reward_set_large_staker_set() {
         4000, // v4_unlock_height
     );
 
-    eprintln!(
-        "Stress test: {num_solo} solo + {num_pool_stakers} pool stakers ({num_pools} pools)"
-    );
+    eprintln!("Stress test: {num_solo} solo + {num_pool_stakers} pool stakers ({num_pools} pools)");
 
     // --- Build staker data ---
     //
@@ -1265,7 +1224,12 @@ fn test_stress_make_reward_set_large_staker_set() {
         .map(|i| {
             // 500K STX + small variance to avoid identical entries
             let amount = 500_000_000_000u128 + (i as u128 * 1_000_000);
-            (indexed_principal(i), amount, indexed_hash(i), indexed_signer_key(i))
+            (
+                indexed_principal(i),
+                amount,
+                indexed_hash(i),
+                indexed_signer_key(i),
+            )
         })
         .collect();
 
@@ -1405,8 +1369,10 @@ fn test_stress_make_reward_set_large_staker_set() {
 
             // Verify pool aggregation: each pool's signer key should appear at most once
             for (_pool_principal, _, pool_key) in &pools {
-                let pool_signers: Vec<_> =
-                    signers.iter().filter(|s| s.signing_key == *pool_key).collect();
+                let pool_signers: Vec<_> = signers
+                    .iter()
+                    .filter(|s| s.signing_key == *pool_key)
+                    .collect();
                 assert!(
                     pool_signers.len() <= 1,
                     "Pool signer key should appear at most once (aggregated)"
@@ -1427,9 +1393,7 @@ fn test_stress_make_reward_set_large_staker_set() {
                 .filter(|s| pools.iter().any(|(_, _, key)| *key == s.signing_key))
                 .count();
 
-            eprintln!(
-                "  Signer breakdown: {solo_signer_count} solo, {pool_signer_count} pool"
-            );
+            eprintln!("  Signer breakdown: {solo_signer_count} solo, {pool_signer_count} pool");
             assert!(
                 solo_signer_count > 0,
                 "Should have at least one solo signer"
@@ -1447,10 +1411,7 @@ fn test_stress_make_reward_set_large_staker_set() {
 
             // Verify the total stacked amount is sane
             let total_stacked: u128 = signers.iter().map(|s| s.stacked_amt).sum();
-            assert!(
-                total_stacked > 0,
-                "Total stacked amount must be positive"
-            );
+            assert!(total_stacked > 0, "Total stacked amount must be positive");
 
             eprintln!(
                 "  Total stacked: {total_stacked} uSTX across {} signers",

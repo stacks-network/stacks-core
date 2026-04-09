@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use clarity::util::uint::{FixedPointU256, Uint256};
 use clarity::vm::clarity::ClarityError;
-use clarity::vm::database::DataVariableMetadata;
+use clarity::vm::database::{DataMapMetadata, DataVariableMetadata};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{
     BufferLength, ListTypeData, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -263,6 +263,8 @@ pub struct ClarityPox5PoolInfoProvider<'a, 'b, 'c> {
     clarity: &'a mut ClarityTransactionConnection<'b, 'c>,
     pox_contract: &'a QualifiedContractIdentifier,
     is_mainnet: bool,
+    epoch: StacksEpochId,
+    pools_descriptor: DataMapMetadata,
 }
 
 impl<'a, 'b, 'c> ClarityPox5PoolInfoProvider<'a, 'b, 'c> {
@@ -271,10 +273,16 @@ impl<'a, 'b, 'c> ClarityPox5PoolInfoProvider<'a, 'b, 'c> {
         pox_contract: &'a QualifiedContractIdentifier,
     ) -> Self {
         let is_mainnet = clarity.is_mainnet();
+        let epoch = clarity.get_epoch();
+        let pools_descriptor = clarity
+            .with_clarity_db_readonly(|db| db.load_map(pox_contract, "pools"))
+            .expect("FATAL: failed to load pools map descriptor");
         Self {
             clarity,
             pox_contract,
             is_mainnet,
+            epoch,
+            pools_descriptor,
         }
     }
 }
@@ -284,22 +292,24 @@ impl<'a, 'b, 'c> Pox5PoolInfoProvider for ClarityPox5PoolInfoProvider<'a, 'b, 'c
         &mut self,
         pool_principal: &PrincipalData,
     ) -> Result<Option<([u8; 33], PoxAddress)>, PoxEntryParsingError> {
+        let pox_contract = self.pox_contract.clone();
+        let epoch = self.epoch;
+        let pools_descriptor = self.pools_descriptor.clone();
+
         let pool_entry_opt = self
             .clarity
-            .eval_method_read_only(
-                self.pox_contract,
-                "get-pool-info",
-                &[SymbolicExpression::atom_value(Value::from(
-                    pool_principal.clone(),
-                ))],
-            )
-            .map_err(|e| {
-                PoxEntryParsingError::Abort(format!("Error executing get-pool-info: {e}"))
-            })?
+            .with_clarity_db_readonly(|db| {
+                db.fetch_entry(
+                    &pox_contract,
+                    "pools",
+                    &Value::Principal(pool_principal.clone()),
+                    &pools_descriptor,
+                    &epoch,
+                )
+            })
+            .map_err(|e| PoxEntryParsingError::Abort(format!("Error reading pools map: {e}")))?
             .expect_optional()
-            .map_err(|_| {
-                PoxEntryParsingError::Abort("get-pool-info did not return optional".into())
-            })?;
+            .map_err(|_| PoxEntryParsingError::Abort("pools map did not return optional".into()))?;
 
         match pool_entry_opt {
             Some(entry) => {
@@ -541,9 +551,12 @@ pub struct StakeEntryIteratorPox5<'a, 'b, 'c> {
     pox_contract: QualifiedContractIdentifier,
     is_mainnet: bool,
     clarity: &'a mut ClarityTransactionConnection<'b, 'c>,
-    reward_cycle_clar: SymbolicExpression,
+    reward_cycle: u128,
     pox_constants: PoxConstants,
     first_block_ht: u64,
+    epoch: StacksEpochId,
+    ll_descriptor: DataMapMetadata,
+    staking_state_descriptor: DataMapMetadata,
 }
 
 #[derive(Debug)]
@@ -561,44 +574,105 @@ impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
             return Ok(None);
         };
 
-        let lookup_staker = SymbolicExpression::atom_value(Value::Principal(cur_staker.clone()));
-        // update the iterator using the linked list
-        let next_staker = self
-            .clarity
-            .eval_method_read_only(
-                &self.pox_contract,
-                "get-staker-set-next-item-for-cycle",
-                &[lookup_staker.clone(), self.reward_cycle_clar.clone()],
-            )
-            .map_err(|e| PoxEntryParsingError::Abort(e.to_string()))?
-            .expect_optional()
-            .map_err(|_| {
-                PoxEntryParsingError::Abort(
-                    "get-staker-set-next-item-for-cycle did not return optional".into(),
+        // Read the linked-list node directly from the staker-set-ll-for-cycle map
+        // instead of executing the Clarity function get-staker-set-next-item-for-cycle.
+        let ll_key = Value::Tuple(
+            TupleData::from_data(vec![
+                ("cycle".into(), Value::UInt(self.reward_cycle)),
+                ("staker".into(), Value::Principal(cur_staker.clone())),
+            ])
+            .map_err(|e| {
+                PoxEntryParsingError::Abort(format!(
+                    "Failed to construct linked-list lookup key: {e}"
+                ))
+            })?,
+        );
+
+        let pox_contract = self.pox_contract.clone();
+        let epoch = self.epoch;
+        let ll_descriptor = self.ll_descriptor.clone();
+        let ss_descriptor = self.staking_state_descriptor.clone();
+
+        let next_staker = self.clarity.with_clarity_db_readonly(|db| {
+            let ll_entry = db
+                .fetch_entry(
+                    &pox_contract,
+                    "staker-set-ll-for-cycle",
+                    &ll_key,
+                    &ll_descriptor,
+                    &epoch,
                 )
-            })?
-            .map(|entry| entry.expect_principal())
-            .transpose()
-            .map_err(|_| {
-                PoxEntryParsingError::Abort(
-                    "get-staker-set-next-item-for-cycle did not return principal".into(),
-                )
-            })?;
+                .map_err(|e| {
+                    PoxEntryParsingError::Abort(format!(
+                        "Failed to read staker-set-ll-for-cycle: {e}"
+                    ))
+                })?
+                .expect_optional()
+                .map_err(|_| {
+                    PoxEntryParsingError::Abort(
+                        "staker-set-ll-for-cycle did not return optional".into(),
+                    )
+                })?;
+
+            match ll_entry {
+                Some(tuple_val) => {
+                    let tuple = tuple_val.expect_tuple().map_err(|_| {
+                        PoxEntryParsingError::Abort(
+                            "staker-set-ll-for-cycle entry is not a tuple".into(),
+                        )
+                    })?;
+                    let next_opt = tuple
+                        .get("next")
+                        .map_err(|_| {
+                            PoxEntryParsingError::Abort(
+                                "staker-set-ll-for-cycle entry missing 'next' field".into(),
+                            )
+                        })?
+                        .clone()
+                        .expect_optional()
+                        .map_err(|_| {
+                            PoxEntryParsingError::Abort("'next' field is not optional".into())
+                        })?;
+                    match next_opt {
+                        Some(principal_val) => {
+                            let p = principal_val.expect_principal().map_err(|_| {
+                                PoxEntryParsingError::Abort(
+                                    "'next' value is not a principal".into(),
+                                )
+                            })?;
+                            Ok(Some(p))
+                        }
+                        None => Ok(None),
+                    }
+                }
+                None => Ok(None),
+            }
+        })?;
+
         self.current_staker = next_staker;
 
+        // Read the staking-state map directly instead of executing get-staker-info.
         // errors below this point just continue the iterator, while errors above should
         //  cancel the calculation.
         let staker_entry_clar = self
             .clarity
-            .eval_method_read_only(&self.pox_contract, "get-staker-info", &[lookup_staker])
-            .map_err(|e| PoxEntryParsingError::Skip(e.to_string()))?
+            .with_clarity_db_readonly(|db| {
+                db.fetch_entry(
+                    &pox_contract,
+                    "staking-state",
+                    &Value::Principal(cur_staker.clone()),
+                    &ss_descriptor,
+                    &epoch,
+                )
+            })
+            .map_err(|e| PoxEntryParsingError::Skip(format!("Failed to read staking-state: {e}")))?
             .expect_optional()
             .map_err(|_| {
-                PoxEntryParsingError::Skip("get-staker-info did not return optional".into())
+                PoxEntryParsingError::Skip("staking-state did not return optional".into())
             })?
             .ok_or_else(|| {
                 PoxEntryParsingError::Skip(format!(
-                    "get-staker-info did not return Some: {cur_staker}"
+                    "staking-state did not return Some: {cur_staker}"
                 ))
             })?;
 
@@ -644,24 +718,48 @@ impl NakamotoSigners {
         };
 
         let pox_contract = boot_code_id(pox_contract, is_mainnet);
-        let reward_cycle_clar = SymbolicExpression::atom_value(Value::UInt(reward_cycle.into()));
+        let epoch = clarity.get_epoch();
+        let reward_cycle_u128: u128 = reward_cycle.into();
+
+        // Pre-load map descriptors once to avoid repeated metadata lookups
+        let (first_for_cycle_descriptor, ll_descriptor, staking_state_descriptor) = clarity
+            .with_clarity_db_readonly(|db| {
+                let first = db.load_map(&pox_contract, "staker-set-ll-first-for-cycle")?;
+                let ll = db.load_map(&pox_contract, "staker-set-ll-for-cycle")?;
+                let ss = db.load_map(&pox_contract, "staking-state")?;
+                Ok::<_, clarity::vm::errors::VmExecutionError>((first, ll, ss))
+            })
+            .map_err(|e| {
+                ChainstateError::Expects(format!("Failed to load map descriptors: {e}"))
+            })?;
+
+        // Read the first staker directly from the staker-set-ll-first-for-cycle map
         let current_staker = clarity
-            .eval_method_read_only(
-                &pox_contract,
-                "get-staker-set-first-item-for-cycle",
-                &[reward_cycle_clar.clone()],
-            )?
+            .with_clarity_db_readonly(|db| {
+                db.fetch_entry(
+                    &pox_contract,
+                    "staker-set-ll-first-for-cycle",
+                    &Value::UInt(reward_cycle_u128),
+                    &first_for_cycle_descriptor,
+                    &epoch,
+                )
+            })
+            .map_err(|e| {
+                ChainstateError::Expects(format!(
+                    "Failed to read staker-set-ll-first-for-cycle: {e}"
+                ))
+            })?
             .expect_optional()
             .map_err(|_| {
                 ChainstateError::Expects(
-                    "get-staker-set-first-item-for-cycle did not return optional".into(),
+                    "staker-set-ll-first-for-cycle did not return optional".into(),
                 )
             })?
             .map(|value| value.expect_principal())
             .transpose()
             .map_err(|_| {
                 ChainstateError::Expects(
-                    "get-staker-set-first-item-for-cycle did not return optional principal".into(),
+                    "staker-set-ll-first-for-cycle did not return optional principal".into(),
                 )
             })?;
 
@@ -670,9 +768,12 @@ impl NakamotoSigners {
             pox_contract,
             is_mainnet,
             clarity,
-            reward_cycle_clar,
+            reward_cycle: reward_cycle_u128,
             pox_constants,
             first_block_ht: first_block_height,
+            epoch,
+            ll_descriptor,
+            staking_state_descriptor,
         })
     }
 
