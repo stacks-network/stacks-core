@@ -50,6 +50,18 @@ mod utils {
         )
         .expect("Rpc Client creation should be ok!")
     }
+
+    /// Create a config exposing the fields required by BitcoinRpcClient.
+    pub fn create_stx_config() -> Config {
+        let mut config = Config::default();
+        config.burnchain.username = Some(String::from("user"));
+        config.burnchain.password = Some(String::from("12345"));
+        config.burnchain.peer_host = String::from("127.0.0.1");
+        config.burnchain.wallet_name = "my_wallet".to_string();
+        config.burnchain.rpc_port = 10000;
+        config.burnchain.timeout = 300;
+        config
+    }
 }
 
 #[test]
@@ -1024,4 +1036,23 @@ pub fn test_convert_sat_to_btc() {
     assert_eq!("1.00000000", to_btc(100_000_000), "SAT 100_000_000 ok!");
     assert_eq!("0.50000000", to_btc(50_000_000), "SAT 50_000_000 ok!");
     assert_eq!("0.00000001", to_btc(1), "SAT 1 ok!");
+}
+
+#[test]
+fn test_client_creation_ok_from_stx_config() {
+    let config = utils::create_stx_config();
+
+    _ = BitcoinRpcClient::from_stx_config(&config).expect("Client creation should work!");
+}
+
+#[test]
+fn test_client_creation_fails_due_to_stx_config_missing_auth() {
+    let mut config_no_auth = utils::create_stx_config();
+    config_no_auth.burnchain.username = None;
+    config_no_auth.burnchain.password = None;
+
+    let err = BitcoinRpcClient::from_stx_config(&config_no_auth)
+        .expect_err("Client creation should fail!");
+
+    assert!(matches!(err, BitcoinRpcClientError::MissingCredentials));
 }

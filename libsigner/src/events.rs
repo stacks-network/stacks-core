@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -36,6 +36,7 @@ use stacks_common::codec::{
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksPublicKey,
 };
+use stacks_common::types::MinerDiagnosticData;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex, prefix_string_0x};
 use stacks_common::versions::STACKS_NODE_VERSION;
@@ -91,15 +92,19 @@ impl StacksMessageCodec for BlockProposal {
 }
 
 /// The latest version of the block response data
-pub const BLOCK_PROPOSAL_DATA_VERSION: u8 = 2;
+pub const BLOCK_PROPOSAL_DATA_VERSION: u8 = 3;
 
-/// Versioned, backwards-compatible struct for block response data
+/// Versioned, backwards-compatible struct for block proposal data
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockProposalData {
     /// The version of the block proposal data
     pub version: u8,
     /// The miner's server version
     pub server_version: String,
+
+    /// Added in version 3
+    pub miner_diagnostic_data: Option<MinerDiagnosticData>,
+
     /// When deserializing future versions,
     /// there may be extra bytes that we don't know about
     pub unknown_bytes: Vec<u8>,
@@ -107,31 +112,46 @@ pub struct BlockProposalData {
 
 impl BlockProposalData {
     /// Create a new BlockProposalData for the provided server version and unknown bytes
-    pub fn new(server_version: String) -> Self {
+    pub fn new(server_version: String, miner_diagnostic_data: MinerDiagnosticData) -> Self {
         Self {
             version: BLOCK_PROPOSAL_DATA_VERSION,
             server_version,
+            miner_diagnostic_data: Some(miner_diagnostic_data),
             unknown_bytes: vec![],
         }
     }
 
     /// Create a new BlockProposalData with the current build's version
-    pub fn from_current_version() -> Self {
+    pub fn from_current_version(miner_diagnostic_data: MinerDiagnosticData) -> Self {
         let server_version = version_string(
             "stacks-node",
             option_env!("STACKS_NODE_VERSION").or(Some(STACKS_NODE_VERSION)),
         );
-        Self::new(server_version)
+        Self::new(server_version, miner_diagnostic_data)
     }
 
     /// Create an empty BlockProposalData
     pub fn empty() -> Self {
-        Self::new(String::new())
+        Self {
+            version: 1,
+            server_version: String::new(),
+            miner_diagnostic_data: None,
+            unknown_bytes: vec![],
+        }
     }
 
-    /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
+    /// Serialize the "inner" block proposal data. Used to determine the bytes length of the serialized block proposal data
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.server_version.as_bytes().to_vec())?;
+        if self.version >= 3 {
+            let miner_diagnostic_data =
+                self.miner_diagnostic_data
+                    .as_ref()
+                    .ok_or(CodecError::SerializeError(
+                        "BlockProposalData v3+ must have miner diagnostic data".into(),
+                    ))?;
+            miner_diagnostic_data.consensus_serialize(fd)?;
+        }
         fd.write_all(&self.unknown_bytes)
             .map_err(CodecError::WriteError)?;
         Ok(())
@@ -166,9 +186,17 @@ impl StacksMessageCodec for BlockProposalData {
         let server_version = String::from_utf8(server_version).map_err(|e| {
             CodecError::DeserializeError(format!("Failed to decode server version: {:?}", &e))
         })?;
+        let miner_diagnostic_data = if version >= 3 {
+            Some(MinerDiagnosticData::consensus_deserialize(
+                &mut inner_reader,
+            )?)
+        } else {
+            None
+        };
         Ok(Self {
             version,
             server_version,
+            miner_diagnostic_data,
             unknown_bytes: inner_reader.to_vec(),
         })
     }
@@ -669,6 +697,7 @@ pub fn get_signers_db_signer_set_message_id(name: &str) -> Option<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
+    use clarity::types::MiningReason;
 
     use super::*;
 
@@ -734,7 +763,7 @@ mod tests {
             block: block.clone(),
             burn_height: 1,
             reward_cycle: 2,
-            block_proposal_data: BlockProposalData::from_current_version(),
+            block_proposal_data: BlockProposalData::from_current_version(dummy_diagnostic_data()),
         };
         let mut bytes = vec![];
         new_block_proposal.consensus_serialize(&mut bytes).unwrap();
@@ -782,5 +811,16 @@ mod tests {
             new_block_proposal.block_proposal_data.server_version,
             String::new()
         );
+    }
+
+    fn dummy_diagnostic_data() -> MinerDiagnosticData {
+        MinerDiagnosticData {
+            burnchain_tip_height: 42,
+            burnchain_tip_consensus_hash: ConsensusHash::from_bytes(&[42u8; 20]).unwrap(),
+            burnchain_tip_header_hash: BurnchainHeaderHash::from_bytes(&[42u8; 32]).unwrap(),
+            read_count_extend_timestamp: 1773830677,
+            tenure_extend_time_stamp: 1773830677,
+            mining_reason: MiningReason::ReadCountExtend,
+        }
     }
 }
