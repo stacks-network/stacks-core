@@ -1,0 +1,1 @@
+Added `contrib/marf-squash` crate, a cli tool to generate a snapshot of the chainstate at a given tenure height squashing the MARFs.
