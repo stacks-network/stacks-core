@@ -13,6 +13,8 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#[cfg(test)]
+use std::collections::HashSet;
 use std::ops::DerefMut;
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
@@ -24,6 +26,9 @@ use rusqlite::{Connection, Transaction};
 use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
+pub use super::squash::{
+    SquashStats, MARF_SQUASHED_BLOCK_ROOT_HASH_KEY, MARF_SQUASH_HEIGHT_KEY, MARF_SQUASH_ROOT_KEY,
+};
 use super::storage::ReopenedTrieStorageConnection;
 use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use crate::chainstate::stacks::index::node::{
@@ -31,10 +36,13 @@ use crate::chainstate::stacks::index::node::{
     TrieCursor, TrieNode256, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::{
-    TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
+    SquashInfo, TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
+    TrieStorageTransaction,
 };
 use crate::chainstate::stacks::index::trie::Trie;
-use crate::chainstate::stacks::index::{Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
+use crate::chainstate::stacks::index::{
+    trie_sql, Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof,
+};
 use crate::util_lib::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
@@ -101,7 +109,7 @@ pub struct MARF<T: MarfTrieId> {
 }
 
 pub struct MarfTransaction<'a, T: MarfTrieId> {
-    storage: TrieStorageTransaction<'a, T>,
+    pub(crate) storage: TrieStorageTransaction<'a, T>,
     open_chain_tip: &'a mut Option<WriteChainTip<T>>,
 }
 
@@ -409,6 +417,42 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         self.storage.sqlite_tx_mut()
     }
 
+    /// Commit the SQL transaction without flushing TrieRAM to disk.
+    ///
+    /// Used by `squash_to_path` which writes the blob directly, bypassing
+    /// the normal TrieRAM flush path.
+    pub(crate) fn commit_squash(mut self) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        self.open_chain_tip.take();
+        self.storage.drop_extending_trie();
+        self.storage.commit_tx();
+        Ok(())
+    }
+
+    /// Set squash metadata on the underlying storage connection.
+    ///
+    /// Called during `squash_to_path` so the ancestor-hash computation can
+    /// use stored root hashes instead of opening pruned historical blocks.
+    pub(crate) fn set_squash_info(&mut self, info: Option<SquashInfo>) {
+        self.storage.set_squash_info(info);
+    }
+
+    /// Write a trie node directly to the uncommitted TrieRAM at `slot`.
+    ///
+    /// Used by `squash_to_path` to populate the TrieRAM with a
+    /// structure-preserving deep copy of the source trie, bypassing the
+    /// normal walk-cow insertion path.
+    pub(crate) fn write_node_direct(
+        &mut self,
+        slot: u64,
+        node: &TrieNodeType,
+        hash: TrieHash,
+    ) -> Result<(), Error> {
+        self.storage.write_nodetype(slot, node, hash)
+    }
+
     /// Reopen this MARF transaction with readonly storage.
     ///   NOTE: any pending operations in the SQLite transaction _will not_
     ///         have materialized in the reopened view.
@@ -596,6 +640,22 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         Ok(())
     }
 
+    pub fn insert_raw(&mut self, path: TrieHash, marf_leaf: TrieLeaf) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        let block_hash = match self.open_chain_tip {
+            None => Err(Error::WriteNotBegunError),
+            Some(WriteChainTip { ref block_hash, .. }) => Ok(block_hash.clone()),
+        }?;
+
+        let (cur_block_hash, cur_block_id) = self.storage.get_cur_block_and_id();
+        let result = MARF::insert_leaf(&mut self.storage, &block_hash, &path, &marf_leaf);
+        self.storage
+            .open_block_maybe_id(&cur_block_hash, cur_block_id)?;
+        result
+    }
+
     /// Begin extending the MARF to an unconfirmed trie.  The resulting trie will have a block hash
     /// equal to MARF::make_unconfirmed_block_hash(chain_tip) to avoid collision
     /// and block hash reuse.
@@ -746,16 +806,17 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
+    /// Copy a node forward from an ancestor trie by converting its inline children into
+    /// back-pointers. Returns the node hash (leaf hash for leaves, empty hash for internal
+    /// nodes whose hash will be computed at commit time).
     fn node_copy_update(node: &mut TrieNodeType, child_block_id: u32) -> TrieHash {
-        let hash = match node {
+        match node {
             TrieNodeType::Leaf(leaf) => get_leaf_hash(leaf),
             _ => {
                 node_copy_update_ptrs(node.ptrs_mut(), child_block_id);
                 TrieHash::EMPTY
             }
-        };
-
-        hash
+        }
     }
 
     /// Given a node, and the chr of one of its children, go find the last instance of that child in
@@ -1317,6 +1378,16 @@ impl<T: MarfTrieId> MARF<T> {
             }
         }
 
+        // In a squashed MARF, OWN_BLOCK_HEIGHT_KEY returns the squash
+        // height H for every block in the squashed range.  Use the
+        // side-table when available.
+        if storage.squash_info().is_some() {
+            if let Some(h) = trie_sql::read_squash_block_height(storage.sqlite_conn(), block_hash)?
+            {
+                return Ok(Some(h));
+            }
+        }
+
         let marf_value = if block_hash == current_block_hash {
             MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_HEIGHT_KEY)?
         } else {
@@ -1659,6 +1730,21 @@ impl<T: MarfTrieId> MARF<T> {
         self.storage.connection()
     }
 
+    /// Build the set of trusted squash trie root-node hashes from this
+    /// MARF's squash metadata.  Returns an empty set for archival
+    /// (non-squashed) MARFs.
+    #[cfg(test)]
+    pub fn trusted_squash_node_hashes(&self) -> HashSet<TrieHash> {
+        let mut set = HashSet::new();
+        if let Some(info) = self.storage.squash_info() {
+            let h = info.squash_root_node_hash;
+            if h != TrieHash::from_data(&[]) {
+                set.insert(h);
+            }
+        }
+        set
+    }
+
     #[cfg(test)]
     pub fn borrow_storage_transaction(&mut self) -> TrieStorageTransaction<'_, T> {
         self.storage.transaction().unwrap()
@@ -1726,7 +1812,7 @@ impl<T: MarfTrieId> MARF<T> {
     }
 }
 
-// --- Leaf traversal -----------------------------------------------------------
+// Leaf traversal
 
 impl<T: MarfTrieId> MARF<T> {
     /// Walk all leaves in the trie at `block_hash`, yielding full paths and values.
@@ -1736,13 +1822,13 @@ impl<T: MarfTrieId> MARF<T> {
     pub(crate) fn for_each_leaf<F>(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
-        handle_leaf: F,
+        mut handle_leaf: F,
     ) -> Result<u64, Error>
     where
-        F: Fn(TrieHash, MARFValue) -> Result<(), Error>,
+        F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
     {
         let (original_block_hash, original_block_id) = storage.get_cur_block_and_id();
-        let result = Self::inner_each_leaf(storage, block_hash, &handle_leaf);
+        let result = Self::inner_each_leaf(storage, block_hash, &mut handle_leaf);
 
         storage
             .open_block_maybe_id(&original_block_hash, original_block_id)
@@ -1762,10 +1848,10 @@ impl<T: MarfTrieId> MARF<T> {
     fn inner_each_leaf<F>(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
-        handle_leaf: &F,
+        handle_leaf: &mut F,
     ) -> Result<u64, Error>
     where
-        F: Fn(TrieHash, MARFValue) -> Result<(), Error>,
+        F: FnMut(TrieHash, MARFValue) -> Result<(), Error>,
     {
         storage.open_block(block_hash)?;
         let (root_node, _root_hash) = Trie::read_root(storage)?;
@@ -1774,11 +1860,11 @@ impl<T: MarfTrieId> MARF<T> {
         let mut stack: Vec<(TriePtr, Vec<u8>, T, Option<u32>)> = Vec::new();
 
         // Process a node: emit leaf or push children onto the stack.
-        let process_node = |node: TrieNodeType,
-                            prefix: Vec<u8>,
-                            block_hash: T,
-                            block_id: Option<u32>,
-                            stack: &mut Vec<(TriePtr, Vec<u8>, T, Option<u32>)>|
+        let mut process_node = |node: TrieNodeType,
+                                prefix: Vec<u8>,
+                                block_hash: T,
+                                block_id: Option<u32>,
+                                stack: &mut Vec<(TriePtr, Vec<u8>, T, Option<u32>)>|
          -> Result<bool, Error> {
             let mut full_prefix = prefix;
             full_prefix.extend_from_slice(node.path_bytes());
