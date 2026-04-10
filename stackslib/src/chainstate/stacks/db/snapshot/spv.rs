@@ -77,12 +77,6 @@ pub fn copy_spv_headers(
         fs::create_dir_all(parent).map_err(Error::IOError)?;
     }
 
-    // Remove stale destination to ensure a clean copy.
-    let dst = Path::new(dst_path);
-    if dst.exists() {
-        fs::remove_file(dst).map_err(Error::IOError)?;
-    }
-
     let conn = Connection::open(dst_path).map_err(Error::SQLError)?;
 
     // Match the journal mode used by stacks-node (WAL) so the database can be
