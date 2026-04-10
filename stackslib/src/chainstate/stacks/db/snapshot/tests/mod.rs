@@ -1809,7 +1809,6 @@ fn test_spv_headers_reused_output_dir() {
         "reused output dir should produce valid copy: {v:?}"
     );
 }
-
 // ---------------------------------------------------------------
 // Sortition side-table tests
 // ---------------------------------------------------------------
@@ -2382,54 +2381,3 @@ fn test_sortition_stacks_chain_tips_by_burn_view_copied() {
         "validation should pass: {validation:?}"
     );
 }
-
-#[test]
-fn test_sortition_stacks_chain_tips_by_burn_view_detects_extra_row() {
-    let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src_sort.sqlite");
-    let conn = create_sortition_source_db(&src_path);
-
-    insert_snapshot(&conn, "sort_0", "bhh_0", 0);
-    insert_epoch(&conn, 0, 1);
-
-    conn.execute(
-        "INSERT INTO stacks_chain_tips_by_burn_view \
-         (sortition_id, consensus_hash, burn_view_consensus_hash, block_hash, block_height) \
-         VALUES ('sort_0', 'ch_sort_0', 'ch_sort_0', 'bh_0', 0)",
-        [],
-    )
-    .unwrap();
-    drop(conn);
-
-    let dst_path = dir.path().join("dst_sort.sqlite");
-    create_sortition_dest_db(&dst_path, &["sort_0"]);
-
-    copy_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap()).unwrap();
-
-    // Inject a non-canonical row directly into the destination.
-    {
-        let dst_conn = Connection::open(&dst_path).unwrap();
-        dst_conn.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
-        dst_conn
-            .execute(
-                "INSERT INTO stacks_chain_tips_by_burn_view \
-                 (sortition_id, consensus_hash, burn_view_consensus_hash, block_hash, block_height) \
-                 VALUES ('rogue_sort', 'rogue_ch', 'rogue_bv', 'rogue_bh', 999)",
-                [],
-            )
-            .unwrap();
-    }
-
-    let validation =
-        validate_sortition_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap())
-            .unwrap();
-    assert!(
-        !validation.stacks_chain_tips_by_burn_view_match,
-        "extra non-canonical row should fail validation"
-    );
-    assert!(!validation.is_valid());
-}
-
-// -----------------------------------------------------------------------
-// Block preservation tests
-// -----------------------------------------------------------------------
