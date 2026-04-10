@@ -56,7 +56,7 @@ const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60; // two weeks, in secon
 
 pub const SPV_DB_VERSION: &str = "3";
 
-const SPV_INITIAL_SCHEMA: &[&str] = &[
+pub(crate) const SPV_INITIAL_SCHEMA: &[&str] = &[
     r#"
     CREATE TABLE headers(
         version INTEGER NOT NULL,
@@ -75,7 +75,7 @@ const SPV_INITIAL_SCHEMA: &[&str] = &[
 // unlike the `headers` table, this table will never be deleted from, since we use it to determine
 // whether or not newly-arrived headers represent a better chain than the best-known chain.  The
 // only way to _replace_ a row is to find a header difficulty interval with a _higher_ work score.
-const SPV_SCHEMA_2: &[&str] = &[r#"
+pub(crate) const SPV_SCHEMA_2: &[&str] = &[r#"
     CREATE TABLE chain_work(
         interval INTEGER PRIMARY KEY,
         work TEXT NOT NULL  -- 32-byte (256-bit) integer
@@ -83,7 +83,7 @@ const SPV_SCHEMA_2: &[&str] = &[r#"
     "#];
 
 // force the node to go and store the burnchain block header hash as well
-const SPV_SCHEMA_3: &[&str] = &[
+pub(crate) const SPV_SCHEMA_3: &[&str] = &[
     r#"
     DROP TABLE headers;
     "#,

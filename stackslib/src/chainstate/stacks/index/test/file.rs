@@ -48,7 +48,7 @@ fn setup_db(test_name: &str) -> Connection {
 fn test_load_store_trie_blob() {
     let mut db = setup_db("test_load_store_trie_blob");
     let mut blobs = TrieFile::from_db_path(&db_path("test_load_store_trie_blob"), false).unwrap();
-    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db, false).unwrap();
 
     blobs
         .store_trie_blob::<BlockHeaderHash>(&db, &BlockHeaderHash([0x01; 32]), &[1, 2, 3, 4, 5])
@@ -72,6 +72,38 @@ fn test_load_store_trie_blob() {
 
     let buf = blobs.read_trie_blob(&db, block_id).unwrap();
     assert_eq!(buf, vec![10, 20, 30, 40, 50]);
+}
+
+#[test]
+fn test_migrate_tables_readonly_succeeds_when_current() {
+    let mut db = setup_db("test_migrate_tables_readonly_ok");
+    // First migrate in writable mode to bring schema to current version
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db, false).unwrap();
+    // Now a read-only migration check should succeed
+    let version = trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db, true).unwrap();
+    assert_eq!(version, trie_sql::SQL_MARF_SCHEMA_VERSION);
+}
+
+#[test]
+fn test_migrate_tables_readonly_fails_when_outdated() {
+    let path = db_path("test_migrate_tables_readonly_fail");
+    if fs::metadata(&path).is_ok() {
+        fs::remove_file(&path).unwrap();
+    }
+    let mut db = sqlite_open(
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+        true,
+    )
+    .unwrap();
+    trie_sql::create_tables_if_needed(&mut db).unwrap();
+    // Don't migrate - schema is at version 1.
+    // A read-only open should fail because the schema is outdated.
+    let err = trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db, true).unwrap_err();
+    assert!(
+        matches!(&err, crate::chainstate::stacks::index::Error::CorruptionError(msg) if msg.contains("not compatible with read-only")),
+        "instead got: {err}"
+    );
 }
 
 #[test]
@@ -157,4 +189,40 @@ fn test_migrate_existing_trie_blobs() {
             assert_eq!(leaf.data.to_vec(), marf_leaf.data.to_vec());
         }
     }
+}
+
+#[test]
+fn test_bulk_read_block_entries_rejects_negative_external_offset() {
+    let mut db = setup_db("test_bulk_read_block_entries_rejects_negative_external_offset");
+    trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db, false).unwrap();
+
+    let block_hash = BlockHeaderHash([0x11; 32]);
+    db.execute(
+        "INSERT INTO marf_data (block_hash, data, unconfirmed, external_offset, external_length) \
+         VALUES (?1, ?2, 0, ?3, ?4)",
+        rusqlite::params![block_hash.to_string(), Vec::<u8>::new(), -1i64, 0i64],
+    )
+    .unwrap();
+
+    let err = trie_sql::bulk_read_block_entries::<BlockHeaderHash>(&db).unwrap_err();
+    assert!(
+        matches!(err, crate::chainstate::stacks::index::Error::OverflowError),
+        "instead got: {err:?}"
+    );
+}
+
+#[test]
+fn test_update_squash_root_node_hash_requires_existing_row() {
+    let db = setup_db("test_update_squash_root_node_hash_requires_existing_row");
+    let hash = TrieHash::from_data(b"squash-root");
+
+    let err = trie_sql::update_squash_root_node_hash(&db, &hash).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            crate::chainstate::stacks::index::Error::CorruptionError(ref msg)
+                if msg.contains("no marf_squash_info row exists")
+        ),
+        "instead got: {err:?}"
+    );
 }
