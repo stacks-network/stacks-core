@@ -516,23 +516,23 @@ impl SignerCoordinator {
 
                 // Only act on failed txids that a blocking minority (>30% weight) agrees on
                 let blocking_minority = self.total_weight.saturating_sub(self.weight_threshold);
-                let mut excluded_txids = HashSet::new();
-                let mut problematic_txids = HashSet::new();
+                let mut temporarily_excluded_txids = HashSet::new();
+                let mut permanently_excluded_txids = HashSet::new();
                 for (txid, info) in &block_status.failed_txids {
                     if info.total_weight > blocking_minority {
                         // Do not perma ban txids that only a small minority of signers reported as problematic
                         // But make sure its removed from the next block proposal
                         if info.problematic_weight > blocking_minority {
-                            problematic_txids.insert(txid.clone());
+                            permanently_excluded_txids.insert(txid.clone());
                         } else {
-                            excluded_txids.insert(txid.clone());
+                            temporarily_excluded_txids.insert(txid.clone());
                         }
                     }
                 }
 
                 return Err(NakamotoNodeError::SignersRejected {
-                    excluded_txids,
-                    problematic_txids,
+                    temporarily_excluded_txids,
+                    permanently_excluded_txids,
                 });
             } else if block_status.total_weight_approved >= self.weight_threshold {
                 info!("Received enough signatures, block accepted";

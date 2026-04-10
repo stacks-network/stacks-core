@@ -1507,7 +1507,7 @@ pub const BLOCK_RESPONSE_DATA_VERSION: u8 = 5;
 /// The first version of the block response data that added the tenure read count extend
 ///  timestamp.
 pub const FIRST_RESPONSE_DATA_VERSION_WITH_READ_COUNT: u8 = 4;
-/// The first version of the block response data that added the failed txid field.
+/// The first version of the block response data that added the `failed_txid` field.
 pub const FIRST_RESPONSE_DATA_VERSION_WITH_FAILED_TXID: u8 = 5;
 
 /// Versioned, backwards-compatible struct for block response data

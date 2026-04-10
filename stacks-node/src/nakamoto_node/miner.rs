@@ -303,10 +303,10 @@ pub struct BlockMinerThread {
     miner_db: MinerDB,
     /// Transaction IDs to exclude from the next block proposal only.
     /// Replaced (not accumulated) on each signer rejection.
-    excluded_txids: HashSet<Txid>,
-    /// Transaction IDs that signers identified as genuinely problematic.
+    temporarily_excluded_txids: HashSet<Txid>,
+    /// Transaction IDs to permanently ban from the mempool.
     /// Drained and blacklisted from the mempool in mine_block().
-    problematic_txids: HashSet<Txid>,
+    permanently_excluded_txids: HashSet<Txid>,
 }
 
 /// Trait for the coordinator's read count extend timestamp check.
@@ -356,8 +356,8 @@ impl BlockMinerThread {
             tenure_budget: ExecutionCost::ZERO,
             reset_mempool_caches: true,
             miner_db: MinerDB::open_with_config(&rt.config)?,
-            excluded_txids: HashSet::new(),
-            problematic_txids: HashSet::new(),
+            temporarily_excluded_txids: HashSet::new(),
+            permanently_excluded_txids: HashSet::new(),
         })
     }
 
@@ -679,9 +679,6 @@ impl BlockMinerThread {
             return Ok(());
         }
 
-        // Block was accepted — clear any single-block exclusions
-        self.excluded_txids.clear();
-
         // Wait until the last block has been mined and processed
         self.wait_for_last_block_mined_and_processed(&mut chain_state)?;
 
@@ -852,17 +849,17 @@ impl BlockMinerThread {
                     return Ok(false);
                 }
                 NakamotoNodeError::SignersRejected {
-                    ref excluded_txids,
-                    ref problematic_txids,
+                    ref temporarily_excluded_txids,
+                    ref permanently_excluded_txids,
                 } => {
-                    // Replace (not extend) excluded_txids so the ban only applies
-                    // to the next block proposal — transient failures may resolve
-                    // after one block.
-                    self.excluded_txids = excluded_txids.clone();
-                    // Problematic txids will be blacklisted from the mempool
-                    // when mine_block opens the mempool connection.
-                    self.problematic_txids
-                        .extend(problematic_txids.iter().cloned());
+                    // Replace (not extend) temporarily_excluded_txids so the ban
+                    // only applies to the next block proposal — transient failures
+                    // may resolve after one block.
+                    self.temporarily_excluded_txids = temporarily_excluded_txids.clone();
+                    // Permanently excluded txids will be blacklisted from the
+                    // mempool when mine_block opens the mempool connection.
+                    self.permanently_excluded_txids
+                        .extend(permanently_excluded_txids.iter().cloned());
                     self.pause_and_retry(&new_block, last_block_rejected, &e);
                     return Ok(false);
                 }
@@ -890,6 +887,8 @@ impl BlockMinerThread {
 
             // We successfully mined, so the mempool caches are valid.
             self.reset_mempool_caches = false;
+            // Block was accepted — clear any single-block exclusions
+            self.temporarily_excluded_txids.clear();
         }
 
         // update mined-block counters and mined-tenure counters
@@ -1557,14 +1556,14 @@ impl BlockMinerThread {
             .connect_mempool_db()
             .expect("Database failure opening mempool");
 
-        // Blacklist problematic transactions reported by signers
-        if !self.problematic_txids.is_empty() {
-            let txids: Vec<Txid> = self.problematic_txids.drain().collect();
-            info!("Miner: blacklisting problematic transaction(s) from mempool";
+        // Blacklist permanently excluded transactions reported by signers
+        if !self.permanently_excluded_txids.is_empty() {
+            let txids: Vec<Txid> = self.permanently_excluded_txids.drain().collect();
+            info!("Miner: blacklisting permanently excluded transaction(s) from mempool";
                 "count" => txids.len(),
             );
             if let Err(e) = mem_pool.drop_and_blacklist_txs(&txids) {
-                warn!("Miner: failed to blacklist problematic transactions: {e:?}");
+                warn!("Miner: failed to blacklist permanently excluded transactions: {e:?}");
             }
         }
 
@@ -1678,11 +1677,11 @@ impl BlockMinerThread {
                 let mut settings = self
                     .config
                     .make_nakamoto_block_builder_settings(self.globals.get_miner_status());
-                if !self.excluded_txids.is_empty() {
+                if !self.temporarily_excluded_txids.is_empty() {
                     info!("Miner: excluding signer-rejected transaction(s) from block building";
-                        "count" => self.excluded_txids.len(),
+                        "count" => self.temporarily_excluded_txids.len(),
                     );
-                    settings.excluded_txids = self.excluded_txids.clone();
+                    settings.temporarily_excluded_txids = self.temporarily_excluded_txids.clone();
                 }
                 settings
             },
@@ -2204,8 +2203,8 @@ fn should_read_count_extend_units() {
         abort_flag: Arc::new(AtomicBool::new(false)),
         reset_mempool_caches: false,
         miner_db: MinerDB::open("/tmp/should_read_count_extend_units.db").unwrap(),
-        excluded_txids: HashSet::new(),
-        problematic_txids: HashSet::new(),
+        temporarily_excluded_txids: HashSet::new(),
+        permanently_excluded_txids: HashSet::new(),
     };
     miner.config.miner.read_count_extend_cost_threshold = 20;
 
