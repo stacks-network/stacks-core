@@ -685,6 +685,26 @@ impl<'a, 'b, 'c> StakeEntryIteratorPox5<'a, 'b, 'c> {
         )
         .map_err(PoxEntryParsingError::Skip)?;
 
+        // Replicate the expiration check from get-staker-info in pox-5.clar:
+        // if (first-reward-cycle + num-cycles) <= current-pox-reward-cycle, the lock has expired.
+        //
+        // Note: get-staker-info compares against current-pox-reward-cycle (derived
+        // from burn-block-height), whereas here we compare against self.reward_cycle
+        // (the target cycle for which the reward set is being built). This is strictly
+        // more aggressive: it also filters entries whose lock expires between the
+        // current cycle and the target cycle. This is intentional — a staker whose
+        // lock does not cover the target cycle should not be in its reward set.
+        if staker_entry
+            .first_reward_cycle
+            .saturating_add(staker_entry.num_cycles)
+            <= self.reward_cycle
+        {
+            return Err(PoxEntryParsingError::Skip(format!(
+                "staking entry expired: first_reward_cycle ({}) + num_cycles ({}) <= reward_cycle ({})",
+                staker_entry.first_reward_cycle, staker_entry.num_cycles, self.reward_cycle
+            )));
+        }
+
         Ok(Some(staker_entry))
     }
 }

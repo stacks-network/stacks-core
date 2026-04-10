@@ -1142,6 +1142,207 @@ fn test_stake_entry_iterator_empty_cycle() {
     });
 }
 
+/// Test that expired staking entries (first_reward_cycle + num_cycles <= reward_cycle)
+/// are filtered out by the iterator's expiration check, and that the iterator's
+/// filtering matches the Clarity `get-staker-info` contract function.
+///
+/// We set up three solo stakers in the linked list for cycle 11.
+/// All three share the linked list, but have different staking-state entries:
+///   - staker1: first_reward_cycle=5, num_cycles=1  → 5+1=6  <= 10 → EXPIRED
+///   - staker2: first_reward_cycle=11, num_cycles=1  → 11+1=12 > 11 → ACTIVE
+///   - staker3: first_reward_cycle=1, num_cycles=9   → 1+9=10 <= 10 → EXPIRED
+///
+/// Note: `get-staker-info` compares against `current-pox-reward-cycle` (= 10,
+/// derived from burn-block-height=105), while our Rust iterator compares against
+/// `self.reward_cycle` (= 11, the target cycle). The expired entries here are
+/// chosen so that both checks agree (expiry <= 10 < 11).
+///
+/// Only staker2 should appear in the reward set.
+#[test]
+fn test_expired_staking_entries_are_skipped() {
+    let staker1 = test_principal(0x01);
+    let staker2 = test_principal(0x02);
+    let staker3 = test_principal(0x03);
+    let key1 = [0x11u8; 33];
+    let key2 = [0x22u8; 33];
+    let key3 = [0x33u8; 33];
+    let hash1 = [0x01u8; 20];
+    let hash2 = [0x02u8; 20];
+    let hash3 = [0x03u8; 20];
+
+    let mut env = Pox5TestEnv::new(&[staker1.clone(), staker2.clone(), staker3.clone()]);
+
+    // First, set up all three stakers with a valid linked list and placeholder
+    // staking-state via bulk_setup_stakers. The first_reward_cycle/num_cycles
+    // here apply uniformly, so we pick active values initially.
+    env.bulk_setup_stakers(
+        &[
+            (staker1.clone(), 100_000_000, hash1, key1),
+            (staker2.clone(), 200_000_000, hash2, key2),
+            (staker3.clone(), 300_000_000, hash3, key3),
+        ],
+        &[],
+        &[],
+        STAKING_REWARD_CYCLE as u128,
+        11, // first_reward_cycle (active placeholder)
+        1,  // num_cycles
+    );
+
+    // Now overwrite the staking-state entries for staker1 and staker3 with
+    // expired parameters, leaving the linked list intact.
+    {
+        let prev = block_id(env.block_height);
+        env.block_height += 1;
+        let next = block_id(env.block_height);
+
+        let mut store = env.marf.begin(&prev, &next);
+        let pox5_id = Pox5TestEnv::pox5_contract_id();
+        let epoch = StacksEpochId::Epoch35;
+
+        let mut db = store.as_clarity_db(&TestHeadersDB, &TestBurnStateDB);
+        db.begin();
+
+        // staker1: expired (first_reward_cycle=5, num_cycles=1 → 6 <= 10)
+        db.set_entry_unknown_descriptor(
+            &pox5_id,
+            "staking-state",
+            Value::Principal(PrincipalData::Standard(staker1.clone())),
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    ("amount-ustx".into(), Value::UInt(100_000_000)),
+                    ("first-reward-cycle".into(), Value::UInt(5)),
+                    ("num-cycles".into(), Value::UInt(1)),
+                    (
+                        "pool-or-solo-info".into(),
+                        solo_pool_or_solo_info(hash1, key1),
+                    ),
+                    ("unlock-bytes".into(), Value::buff_from(vec![]).unwrap()),
+                ])
+                .unwrap(),
+            ),
+            &epoch,
+        )
+        .expect("Failed to overwrite staker1 staking-state");
+
+        // staker3: expired (first_reward_cycle=1, num_cycles=9 → 10 <= 10)
+        db.set_entry_unknown_descriptor(
+            &pox5_id,
+            "staking-state",
+            Value::Principal(PrincipalData::Standard(staker3.clone())),
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    ("amount-ustx".into(), Value::UInt(300_000_000)),
+                    ("first-reward-cycle".into(), Value::UInt(1)),
+                    ("num-cycles".into(), Value::UInt(9)),
+                    (
+                        "pool-or-solo-info".into(),
+                        solo_pool_or_solo_info(hash3, key3),
+                    ),
+                    ("unlock-bytes".into(), Value::buff_from(vec![]).unwrap()),
+                ])
+                .unwrap(),
+            ),
+            &epoch,
+        )
+        .expect("Failed to overwrite staker3 staking-state");
+
+        db.commit().unwrap();
+        store.test_commit();
+    }
+
+    // Call get-staker-info in the Clarity contract for each staker to establish
+    // the ground truth from the contract's own expiration logic.
+    // get-staker-info checks: (first-reward-cycle + num-cycles) <= current-pox-reward-cycle
+    // where current-pox-reward-cycle = burn-height-to-reward-cycle(105) = 10.
+    let contract_results: Vec<bool> = {
+        let prev = block_id(env.block_height);
+        env.block_height += 1;
+        let next = block_id(env.block_height);
+
+        let mut store = env.marf.begin(&prev, &next);
+        let db = store.as_clarity_db(&TestHeadersDB, &TestBurnStateDB);
+        let mut owned = OwnedEnvironment::new_toplevel(db);
+
+        let pox5_id = Pox5TestEnv::pox5_contract_id();
+        let results: Vec<bool> = [&staker1, &staker2, &staker3]
+            .iter()
+            .map(|staker| {
+                let program = format!("(get-staker-info '{staker})");
+                let (val, _, _) = owned
+                    .eval_read_only(&pox5_id, &program)
+                    .expect("get-staker-info should succeed");
+                // Returns (some ...) for active, none for expired
+                val != Value::none()
+            })
+            .collect();
+
+        store.test_commit();
+        results
+    };
+
+    // Contract says: staker1=expired, staker2=active, staker3=expired
+    assert!(
+        !contract_results[0],
+        "get-staker-info should return none for expired staker1"
+    );
+    assert!(
+        contract_results[1],
+        "get-staker-info should return some for active staker2"
+    );
+    assert!(
+        !contract_results[2],
+        "get-staker-info should return none for expired staker3"
+    );
+
+    // Now run the iterator and verify it matches the contract behavior.
+    let pox_constants = make_test_pox_constants();
+
+    env.with_block_conn(|block_conn| {
+        block_conn.as_transaction(|clarity| {
+            let raw_entries: Vec<RawPox5Entry> = NakamotoSigners::pox_5_stake_entries(
+                clarity,
+                STAKING_REWARD_CYCLE,
+                "pox-5",
+                pox_constants.clone(),
+                FIRST_BURN_HEIGHT,
+            )
+            .expect("pox_5_stake_entries should succeed")
+            .filter_map(|r| r.ok())
+            .collect();
+
+            // The iterator should match get-staker-info: only staker2 survives.
+            assert_eq!(
+                raw_entries.len(),
+                1,
+                "Iterator should return only 1 non-expired entry, matching get-staker-info"
+            );
+            assert_eq!(raw_entries[0].amount_ustx, 200_000_000);
+
+            // Build the reward set to confirm end-to-end behavior.
+            let entries_with_outputs: Vec<_> = raw_entries
+                .into_iter()
+                .map(|e| (e, vec![make_test_watched_output(1_000_000)]))
+                .collect();
+
+            let pox5_id = Pox5TestEnv::pox5_contract_id();
+            let mut provider = ClarityPox5PoolInfoProvider::new(clarity, &pox5_id);
+
+            let (reward_set, _) = NakamotoSigners::pox_5_make_reward_set(
+                entries_with_outputs,
+                &pox_constants,
+                &mut provider,
+                vec![],
+            )
+            .expect("pox_5_make_reward_set should succeed");
+
+            let signers = reward_set.signers.expect("Should have signers");
+            assert_eq!(signers.len(), 1, "Only 1 signer from the active entry");
+            assert_eq!(signers[0].signing_key, key2);
+            assert_eq!(signers[0].stacked_amt, 200_000_000);
+        });
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Stress test helpers
 // ---------------------------------------------------------------------------
