@@ -323,6 +323,271 @@ fn test_all_required_tables_exist() {
     assert_eq!(count, 0, "invalidated_microblocks_data should be empty");
 }
 
+/// Insert a minimal nakamoto_block_headers row into the source DB.
+fn insert_nakamoto_header(conn: &Connection, ibh: &str, burn_height: u32) {
+    conn.execute(
+        "INSERT INTO nakamoto_block_headers ( \
+             block_height, index_root, burn_header_hash, burn_header_height, \
+             burn_header_timestamp, block_size, version, chain_length, burn_spent, \
+             consensus_hash, parent_block_id, tx_merkle_root, state_index_root, \
+             miner_signature, signer_signature, signer_bitvec, header_type, \
+             block_hash, index_block_hash, cost, total_tenure_cost, tenure_changed, \
+             tenure_tx_fees, vrf_proof, timestamp, burn_view, height_in_tenure, \
+             total_tenure_size) \
+         VALUES (?1,'ir','bhh',?2,0,'0',1,?1,0,'ch','pid','mr','sr','ms','ss','bv', \
+                 'nakamoto','bh',?3,'0','0',0,'0',NULL,0,NULL,0,0)",
+        params![burn_height, burn_height, ibh],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_signer_stats_validates_with_source_drift() {
+    // signer_stats is a non-consensus counter table. After the squash, the
+    // source node continues running and increments blocks_signed for existing
+    // (public_key, reward_cycle) pairs. Validation should still pass because
+    // we only check that the destination keys are a subset of the source keys.
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_index.sqlite");
+    let conn = create_source_db(&src_path);
+
+    insert_block_header(&conn, 1, "1");
+    // Nakamoto header so derive_max_reward_cycle can compute a cycle.
+    insert_nakamoto_header(&conn, "ibh1", 10);
+    conn.execute(
+        "INSERT INTO signer_stats (public_key, reward_cycle, blocks_signed) \
+         VALUES ('pk1', 1, 5), ('pk2', 1, 3)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_index.sqlite");
+    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1"]);
+
+    // Copy with first_burn_height=0, reward_cycle_len=1 so max_cycle = 10/1 = 10,
+    // which covers the test row at reward_cycle=1.
+    let _stats =
+        copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+
+    // Simulate source drift: increment blocks_signed counters.
+    {
+        let src_conn = Connection::open(&src_path).unwrap();
+        src_conn
+            .execute("UPDATE signer_stats SET blocks_signed = 100", [])
+            .unwrap();
+    }
+
+    let validation =
+        validate_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+
+    assert!(
+        validation.signer_stats_match,
+        "signer_stats should pass with drifted counter values"
+    );
+    assert!(
+        validation.is_valid(),
+        "overall validation should pass: {validation:?}"
+    );
+}
+
+#[test]
+fn test_signer_stats_detects_fabricated_keys() {
+    // If the destination has a (public_key, reward_cycle) pair that doesn't
+    // exist in the source at all, validation must fail.
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_index.sqlite");
+    let conn = create_source_db(&src_path);
+
+    insert_block_header(&conn, 1, "1");
+    insert_nakamoto_header(&conn, "ibh1", 10);
+    conn.execute(
+        "INSERT INTO signer_stats (public_key, reward_cycle, blocks_signed) \
+         VALUES ('pk1', 1, 5)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_index.sqlite");
+    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1"]);
+
+    let _stats =
+        copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+
+    // Inject a fabricated signer key into the destination.
+    {
+        let dst_conn = Connection::open(&dst_path).unwrap();
+        dst_conn
+            .execute(
+                "INSERT INTO signer_stats (public_key, reward_cycle, blocks_signed) \
+                 VALUES ('pk_FAKE', 1, 99)",
+                [],
+            )
+            .unwrap();
+    }
+
+    let validation =
+        validate_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+
+    assert!(
+        !validation.signer_stats_match,
+        "signer_stats should fail with fabricated key"
+    );
+    assert!(!validation.is_valid());
+}
+
+#[test]
+fn test_signer_stats_detects_inflated_counters() {
+    // If the destination has blocks_signed > source for an existing key,
+    // validation must fail (the counter is monotonically increasing).
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_index.sqlite");
+    let conn = create_source_db(&src_path);
+
+    insert_block_header(&conn, 1, "1");
+    insert_nakamoto_header(&conn, "ibh1", 10);
+    conn.execute(
+        "INSERT INTO signer_stats (public_key, reward_cycle, blocks_signed) \
+         VALUES ('pk1', 1, 5)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_index.sqlite");
+    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1"]);
+
+    let _stats =
+        copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+
+    // Inflate the counter in the destination beyond the source value.
+    {
+        let dst_conn = Connection::open(&dst_path).unwrap();
+        dst_conn
+            .execute(
+                "UPDATE signer_stats SET blocks_signed = 999 WHERE public_key = 'pk1'",
+                [],
+            )
+            .unwrap();
+    }
+
+    let validation =
+        validate_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+
+    assert!(
+        !validation.signer_stats_match,
+        "signer_stats should fail with inflated counter"
+    );
+    assert!(!validation.is_valid());
+}
+
+#[test]
+fn test_matured_rewards_validates_with_source_growth() {
+    // matured_rewards is a non-consensus cache. After the squash, new blocks
+    // on the source trigger maturation of rewards for older canonical blocks,
+    // adding rows that match the canonical filter. Validation should still
+    // pass because we only check dst ⊆ filtered-src.
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_index.sqlite");
+    let conn = create_source_db(&src_path);
+
+    insert_block_header(&conn, 1, "1");
+    insert_nakamoto_header(&conn, "ibh1", 10);
+    conn.execute(
+        "INSERT INTO matured_rewards (address, recipient, vtxindex, coinbase, \
+             tx_fees_anchored, tx_fees_streamed_confirmed, tx_fees_streamed_produced, \
+             child_index_block_hash, parent_index_block_hash) \
+         VALUES ('addr1', NULL, 0, '100', '0', '0', '0', 'ibh1', 'pibh0')",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_index.sqlite");
+    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1"]);
+
+    let _stats =
+        copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+
+    // Simulate source growth: add a new matured_rewards row for a canonical block.
+    {
+        let src_conn = Connection::open(&src_path).unwrap();
+        src_conn
+            .execute(
+                "INSERT INTO matured_rewards (address, recipient, vtxindex, coinbase, \
+                     tx_fees_anchored, tx_fees_streamed_confirmed, tx_fees_streamed_produced, \
+                     child_index_block_hash, parent_index_block_hash) \
+                 VALUES ('addr2', NULL, 0, '0', '0', '0', '0', 'ibh1', 'pibh0')",
+                [],
+            )
+            .unwrap();
+    }
+
+    let validation =
+        validate_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+
+    assert!(
+        validation.matured_rewards_match,
+        "matured_rewards should pass when source has grown"
+    );
+    assert!(
+        validation.is_valid(),
+        "overall validation should pass: {validation:?}"
+    );
+}
+
+#[test]
+fn test_matured_rewards_detects_fabricated_rows() {
+    // If the destination has a matured_rewards row not in the filtered source,
+    // validation must fail.
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_index.sqlite");
+    let conn = create_source_db(&src_path);
+
+    insert_block_header(&conn, 1, "1");
+    insert_nakamoto_header(&conn, "ibh1", 10);
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_index.sqlite");
+    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1"]);
+
+    let _stats =
+        copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+
+    // Inject a fabricated matured_rewards row.
+    {
+        let dst_conn = Connection::open(&dst_path).unwrap();
+        dst_conn
+            .execute(
+                "INSERT INTO matured_rewards (address, recipient, vtxindex, coinbase, \
+                     tx_fees_anchored, tx_fees_streamed_confirmed, tx_fees_streamed_produced, \
+                     child_index_block_hash, parent_index_block_hash) \
+                 VALUES ('addr_FAKE', NULL, 0, '999', '0', '0', '0', 'ibh1', 'pibh0')",
+                [],
+            )
+            .unwrap();
+    }
+
+    let validation =
+        validate_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+
+    assert!(
+        !validation.matured_rewards_match,
+        "matured_rewards should fail with fabricated row"
+    );
+    assert!(!validation.is_valid());
+}
 
 /// Create a source headers.sqlite (SPV v3 schema with chain_work).
 /// Replays the real SPV migration pipeline: INITIAL -> SCHEMA_2 -> SCHEMA_3.
@@ -578,8 +843,6 @@ fn test_spv_headers_validate_both_absent_is_error() {
     assert!(result.is_err(), "both absent should error");
 }
 
-
-
 #[test]
 fn test_spv_headers_stale_destination_errors_when_source_absent() {
     let dir = tempdir().unwrap();
@@ -597,8 +860,6 @@ fn test_spv_headers_stale_destination_errors_when_source_absent() {
         "missing source should error even with stale destination"
     );
 }
-
-
 
 #[test]
 fn test_spv_headers_reused_output_dir() {
