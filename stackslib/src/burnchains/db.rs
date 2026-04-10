@@ -204,7 +204,7 @@ impl FromRow<BlockstackOperationType> for BlockstackOperationType {
         Ok(deserialized)
     }
 }
-const BURNCHAIN_DB_SCHEMA_2: &str = r#"
+pub(crate) const BURNCHAIN_DB_SCHEMA_2: &str = r#"
 CREATE TABLE IF NOT EXISTS  burnchain_db_block_headers (
     -- height of the block (non-negative)
     block_height INTEGER NOT NULL,
@@ -295,7 +295,7 @@ INSERT INTO affirmation_maps(affirmation_id,weight,affirmation_map) VALUES (0,0,
 "#;
 
 const LAST_BURNCHAIN_DB_INDEX: &str = "index_block_commit_metadata_burn_block_hash_anchor_block";
-const BURNCHAIN_DB_INDEXES: &[&str] = &[
+pub(crate) const BURNCHAIN_DB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_txid ON burnchain_db_block_ops(txid);",
@@ -307,7 +307,7 @@ const BURNCHAIN_DB_INDEXES: &[&str] = &[
 ];
 
 // Required to drop old affirmation maps from Burnchain DB schema V2 and migrate to V3
-const BURNCHAIN_DB_MIGRATION_V2_TO_V3: &str = r#"
+pub(crate) const BURNCHAIN_DB_MIGRATION_V2_TO_V3: &str = r#"
     CREATE TABLE IF NOT EXISTS block_commit_metadata_new (
         burn_block_hash TEXT NOT NULL,
         txid TEXT NOT NULL,

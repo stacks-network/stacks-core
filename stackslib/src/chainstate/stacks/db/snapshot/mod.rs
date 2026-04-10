@@ -13,15 +13,31 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod blocks;
+pub mod burnchain;
 pub mod common;
 pub mod index;
+pub mod sortition;
 pub mod spv;
 
 #[cfg(test)]
 mod tests;
 
+pub use blocks::{
+    copy_confirmed_epoch2_microblocks, copy_epoch2_block_files, copy_nakamoto_staging_blocks,
+    validate_epoch2_block_files, validate_microblock_streams, validate_nakamoto_staging_blocks,
+    Epoch2BlockFileCopyStats, Epoch2BlockFileValidation, Epoch2MicroblockCopyStats,
+    MicroblockValidation, NakamotoBlockCopyStats, NakamotoBlockValidation,
+};
+pub use burnchain::{
+    copy_burnchain_db, validate_burnchain_db, BurnchainDbCopyStats, BurnchainDbValidation,
+};
 pub use index::{
     copy_index_side_tables, validate_index_side_tables, IndexSideTableStats,
     IndexSideTableValidation,
+};
+pub use sortition::{
+    copy_sortition_side_tables, validate_sortition_side_tables, SortitionSideTableStats,
+    SortitionSideTableValidation,
 };
 pub use spv::{copy_spv_headers, validate_spv_headers, SpvHeadersCopyStats, SpvHeadersValidation};
