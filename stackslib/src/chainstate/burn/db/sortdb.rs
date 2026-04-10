@@ -487,7 +487,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
 
 pub const SORTITION_DB_VERSION: u32 = 11;
 
-const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
+pub(crate) const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
     PRAGMA foreign_keys = ON;
     "#,
@@ -622,7 +622,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
 ];
 
-const SORTITION_DB_SCHEMA_2: &[&str] = &[r#"
+pub(crate) const SORTITION_DB_SCHEMA_2: &[&str] = &[r#"
      CREATE TABLE epochs (
          start_block_height INTEGER NOT NULL,
          end_block_height INTEGER NOT NULL,
@@ -632,7 +632,7 @@ const SORTITION_DB_SCHEMA_2: &[&str] = &[r#"
          PRIMARY KEY(start_block_height,epoch_id)
      );"#];
 
-const SORTITION_DB_SCHEMA_3: &[&str] = &[r#"
+pub(crate) const SORTITION_DB_SCHEMA_3: &[&str] = &[r#"
     CREATE TABLE block_commit_parents (
         block_commit_txid TEXT NOT NULL,
         block_commit_sortition_id TEXT NOT NULL,
@@ -643,7 +643,7 @@ const SORTITION_DB_SCHEMA_3: &[&str] = &[r#"
         FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
     );"#];
 
-const SORTITION_DB_SCHEMA_4: &[&str] = &[
+pub(crate) const SORTITION_DB_SCHEMA_4: &[&str] = &[
     r#"
     CREATE TABLE delegate_stx (
         txid TEXT NOT NULL,
@@ -668,16 +668,16 @@ const SORTITION_DB_SCHEMA_4: &[&str] = &[
 
 /// The changes for version five *just* replace the existing epochs table
 ///  by deleting all the current entries and inserting the new epochs definition.
-const SORTITION_DB_SCHEMA_5: &[&str] = &[r#"
+pub(crate) const SORTITION_DB_SCHEMA_5: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-const SORTITION_DB_SCHEMA_6: &[&str] = &[r#"
+pub(crate) const SORTITION_DB_SCHEMA_6: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-const SORTITION_DB_SCHEMA_7: &[&str] = &[r#"
+pub(crate) const SORTITION_DB_SCHEMA_7: &[&str] = &[r#"
      DELETE FROM epochs;"#];
 
-const SORTITION_DB_SCHEMA_8: &[&str] = &[
+pub(crate) const SORTITION_DB_SCHEMA_8: &[&str] = &[
     r#"DELETE FROM epochs;"#,
     r#"DROP INDEX IF EXISTS index_user_burn_support_txid;"#,
     r#"DROP INDEX IF EXISTS index_user_burn_support_sortition_id_vtxindex;"#,
@@ -722,17 +722,17 @@ const SORTITION_DB_SCHEMA_8: &[&str] = &[
     );"#,
 ];
 
-static SORTITION_DB_SCHEMA_9: &[&str] =
+pub(crate) static SORTITION_DB_SCHEMA_9: &[&str] =
     &[r#"ALTER TABLE block_commits ADD punished TEXT DEFAULT NULL;"#];
-static SORTITION_DB_SCHEMA_10: &[&str] = &[r#"DROP TABLE IF EXISTS ast_rule_heights;"#];
+pub(crate) static SORTITION_DB_SCHEMA_10: &[&str] = &[r#"DROP TABLE IF EXISTS ast_rule_heights;"#];
 
-static SORTITION_DB_SCHEMA_11: &[&str] = &[r#"
+pub(crate) static SORTITION_DB_SCHEMA_11: &[&str] = &[r#"
     -- replacement for `stacks_chain_tips`, which considers the Nakamoto block burn view.
     -- Unlike `stacks_chain_tips`, rows in this table are only inserted for Nakamoto blocks
     -- if they happen to have the same burn view as the given sortition.
     CREATE TABLE stacks_chain_tips_by_burn_view (
         sortition_id TEXT PRIMARY KEY,
-        consensus_hash TEXT NOT NULL, 
+        consensus_hash TEXT NOT NULL,
         burn_view_consensus_hash TEXT NOT NULL,
         block_hash TEXT NOT NULL,
         block_height INTEGER NOT NULL,
@@ -2706,12 +2706,12 @@ impl SortitionDB {
         self.marf.sqlite_conn()
     }
 
-    /// Open or create the sortition MARF index database with internal blobs.
+    /// Open or create the sortition MARF index database.
     ///
     /// This function opens the SQLite-based MARF index at `marf_path`.
     /// If the index database does not exist, it will be created.
-    /// This index stores all blobs internally within the SQLite database
-    /// (i.e., no separate `.blobs` file).
+    /// Archival sortition DBs store blobs internally. Squashed sortition DBs
+    /// are expected to store blobs externally in `marf.sqlite.blobs`.
     ///
     /// # Arguments
     /// * `marf_path` - Path to the MARF SQLite index database.
@@ -2719,7 +2719,7 @@ impl SortitionDB {
     ///
     /// # Behavior
     /// Given a `marf_path` such as `burnchain/sortition/marf.sqlite`,
-    /// the MARF blobs are stored internally within the SQLite database.
+    /// the MARF blobs are stored internally unless `marf.sqlite.blobs` exists.
     /// This function also enables SQLite foreign key enforcement.
     fn open_index(
         marf_path: &str,
@@ -2727,7 +2727,7 @@ impl SortitionDB {
     ) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
         let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
-        open_opts.external_blobs = false;
+        open_opts.external_blobs = std::path::Path::new(&format!("{marf_path}.blobs")).exists();
         test_override_marf_compression(&mut open_opts);
         let marf = MARF::from_path(marf_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
