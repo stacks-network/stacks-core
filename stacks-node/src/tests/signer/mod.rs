@@ -492,9 +492,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     pub fn wait_for_registered(&self) {
         let mut finished_signers = HashSet::new();
         wait_for(120, || {
-            self.send_status_request(&HashSet::new());
-            thread::sleep(Duration::from_secs(5));
-            let latest_states = self.get_states(&HashSet::new());
+            self.send_status_request(&finished_signers);
+            thread::sleep(Duration::from_secs(1));
+            let latest_states = self.get_states(&finished_signers);
             for (ix, state) in latest_states.iter().enumerate() {
                 let Some(state) = state else { continue; };
                 if state.runloop_state == State::RegisteredSigners {

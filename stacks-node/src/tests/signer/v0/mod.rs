@@ -323,7 +323,7 @@ impl SignerTest<SpawnedSigner> {
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
         let reward_cycle = self.get_current_reward_cycle().wrapping_add(1);
-        wait_for(60, || {
+        wait_for(240, || {
             match self.stacks_client.get_reward_set_signers(reward_cycle) {
                 Ok(Some(reward_set)) => {
                     debug!("Signer set: {reward_set:?}");
