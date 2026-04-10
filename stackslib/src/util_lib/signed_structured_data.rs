@@ -414,6 +414,7 @@ pub mod pox4 {
 
 #[cfg(test)]
 mod test {
+    use clarity::util::MustInto;
     use clarity::vm::types::{TupleData, Value};
     use stacks_common::consts::CHAIN_ID_MAINNET;
     use stacks_common::util::hash::to_hex;

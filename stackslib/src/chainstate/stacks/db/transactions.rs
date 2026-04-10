@@ -1710,6 +1710,7 @@ impl StacksChainState {
 #[cfg(test)]
 pub mod test {
     use clarity::util::secp256k1::Secp256k1PrivateKey;
+    use clarity::util::MustInto;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
