@@ -1785,6 +1785,11 @@ impl fmt::Display for FunctionIdentifier {
 }
 
 impl FunctionIdentifier {
+    /// Returns the heap capacity of the backing `String` buffer.
+    pub fn heap_capacity(&self) -> usize {
+        self.identifier.capacity()
+    }
+
     pub fn new_native_function(name: &str) -> FunctionIdentifier {
         let identifier = format!("_native_:{name}");
         FunctionIdentifier { identifier }

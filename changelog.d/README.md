@@ -24,7 +24,7 @@ CHANGELOG.md.
 
 2. Write the changelog entry text in the file (one or more lines of markdown):
 
-   ```
+   ```text
    Added `marf_compress` as a node configuration parameter to enable MARF compression feature ([#6811](https://github.com/stacks-network/stacks-core/pull/6811))
    ```
 

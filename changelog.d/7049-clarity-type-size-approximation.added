@@ -1,0 +1,1 @@
+New `ResidentBytes` trait for types which can approximate their resident memory size (stack+heap)

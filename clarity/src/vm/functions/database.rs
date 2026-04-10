@@ -148,14 +148,14 @@ pub fn special_contract_call(
                         .into());
                     }
 
-                    let contract_to_check = exec_state
+                    let cached_to_check = exec_state
                         .global_context
                         .database
-                        .get_contract(&contract_identifier)
+                        .get_contract_cached(&contract_identifier)
                         .map_err(|_e| {
                             RuntimeCheckErrorKind::NoSuchContract(contract_identifier.to_string())
                         })?;
-                    let contract_context_to_check = contract_to_check.contract_context;
+                    let contract_context_to_check = &cached_to_check.contract.contract_context;
 
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
@@ -167,17 +167,17 @@ pub fn special_contract_call(
                         let trait_name = trait_identifier.name.to_string();
 
                         // Retrieve, from the trait definition, the expected method signature
-                        let contract_defining_trait = exec_state
+                        let cached_defining_trait = exec_state
                             .global_context
                             .database
-                            .get_contract(&trait_identifier.contract_identifier)
+                            .get_contract_cached(&trait_identifier.contract_identifier)
                             .map_err(|_e| {
                                 RuntimeCheckErrorKind::NoSuchContract(
                                     trait_identifier.contract_identifier.to_string(),
                                 )
                             })?;
                         let contract_context_defining_trait =
-                            contract_defining_trait.contract_context;
+                            &cached_defining_trait.contract.contract_context;
 
                         // Retrieve the function that will be invoked
                         let function_to_check = contract_context_to_check
@@ -207,7 +207,7 @@ pub fn special_contract_call(
                         // If this check succeeds, the subsequent trait reference and method checks cannot fail
                         function_to_check.check_trait_expectations(
                             exec_state.epoch(),
-                            &contract_context_defining_trait,
+                            contract_context_defining_trait,
                             &trait_identifier,
                         )?;
 

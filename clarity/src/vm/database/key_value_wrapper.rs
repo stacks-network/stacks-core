@@ -595,4 +595,20 @@ impl RollbackWrapper<'_> {
     ) -> bool {
         matches!(self.get_metadata(contract, key), Ok(Some(_)))
     }
+
+    /// Returns `true` when the store has been retargeted (e.g. via `(at-block ...)`) and is no
+    /// longer reading from the current chain tip.
+    ///
+    /// In this state, pending data is not consulted and caches over the current tip must be
+    /// bypassed.
+    pub fn is_retargeted(&self) -> bool {
+        !self.query_pending_data
+    }
+
+    /// Simulate a retarget for testing. In production this happens via
+    /// [`set_block_hash()`](Self::set_block_hash) with `query_pending_data: false`.
+    #[cfg(test)]
+    pub fn test_set_retargeted(&mut self, retargeted: bool) {
+        self.query_pending_data = !retargeted;
+    }
 }

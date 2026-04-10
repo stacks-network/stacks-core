@@ -28,6 +28,7 @@ stacks_common = { package = "stacks-common", path = "../stacks-common", default-
 rstest = { version = "0.17.0", optional = true }
 rstest_reuse = { version = "0.5.0", optional = true }
 rusqlite = { workspace = true, optional = true }
+TinyUFO = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
@@ -47,6 +48,11 @@ harness = false
 [[bench]]
 name = "value_ref"
 harness = false
+
+[[bench]]
+name = "contract_cache"
+harness = false
+required-features = ["testing"]
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 serde_stacker = "0.1"

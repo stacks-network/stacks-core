@@ -21,6 +21,7 @@ pub use self::clarity_db::{
     STORE_CONTRACT_SRC_INTERFACE, StoreType,
 };
 pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
+pub use self::contract_cache::{CachedContract, ContractCache};
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
 #[cfg(feature = "rusqlite")]
 pub use self::sqlite::SqliteConnection;
@@ -31,6 +32,7 @@ pub use self::structures::{
 
 pub mod clarity_db;
 pub mod clarity_store;
+mod contract_cache;
 mod key_value_wrapper;
 #[cfg(feature = "rusqlite")]
 pub mod sqlite;
