@@ -2861,7 +2861,6 @@ fn test_sortition_validate_detects_extra_rows() {
     );
     assert!(!validation.is_valid(), "validation must fail");
 }
-
 #[test]
 fn test_sortition_burn_header_hash_filtering() {
     // Verify that burn_header_hash-keyed tables (stack_stx, transfer_stx, etc.)
