@@ -255,8 +255,8 @@ fn replay_block_with_pc_failure() {
             );
 
             let contract_call = {
-                let contract_name = ContractName::must_from("test");
-                let function_name = ClarityName::must_from("test");
+                let contract_name = ContractName::from_literal("test");
+                let function_name = ClarityName::from_literal("test");
 
                 let payload = TransactionContractCall {
                     address: addr.clone(),

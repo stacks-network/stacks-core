@@ -19,6 +19,7 @@ pub mod signatures;
 
 use std::str;
 
+use clarity_types::ClarityName;
 pub use clarity_types::types::{
     ASCIIData, BOUND_VALUE_SERIALIZATION_BYTES, BOUND_VALUE_SERIALIZATION_HEX, BuffData,
     CallableData, CharType, ContractIdentifier, ListData, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, NONE,
@@ -26,7 +27,6 @@ pub use clarity_types::types::{
     SequencedValue, StacksAddressExtensions, TraitIdentifier, TupleData, UTF8Data, Value,
     WRAPPER_VALUE_SIZE, byte_len_of_serialization,
 };
-use stacks_common::util::MustInto;
 
 pub use self::std_principals::StandardPrincipalData;
 use crate::vm::ClarityVersion;
@@ -96,12 +96,18 @@ impl BurnBlockInfoProperty {
             HeaderHash => TypeSignature::BUFFER_32,
             PoxAddrs => TupleTypeSignature::try_from(vec![
                 (
-                    "addrs".must_into(),
+                    ClarityName::from_literal("addrs"),
                     TypeSignature::list_of(
                         TypeSignature::TupleType(
                             TupleTypeSignature::try_from(vec![
-                                ("version".must_into(), TypeSignature::BUFFER_1),
-                                ("hashbytes".must_into(), TypeSignature::BUFFER_32),
+                                (
+                                    ClarityName::from_literal("version"),
+                                    TypeSignature::BUFFER_1,
+                                ),
+                                (
+                                    ClarityName::from_literal("hashbytes"),
+                                    TypeSignature::BUFFER_32,
+                                ),
                             ])
                             .map_err(|_| {
                                 RuntimeCheckErrorKind::Unreachable(
@@ -115,7 +121,7 @@ impl BurnBlockInfoProperty {
                         RuntimeCheckErrorKind::Unreachable("FATAL: bad list type signature".into())
                     })?,
                 ),
-                ("payout".must_into(), TypeSignature::UIntType),
+                (ClarityName::from_literal("payout"), TypeSignature::UIntType),
             ])
             .map_err(|_| {
                 RuntimeCheckErrorKind::Unreachable("FATAL: bad type signature for pox addr".into())

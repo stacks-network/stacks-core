@@ -844,7 +844,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::SmartContract(contract, ..) => {
-                contract.name == ContractName::must_from("increment-contract")
+                contract.name == ContractName::from_literal("increment-contract")
             }
             _ => false,
         },
@@ -876,7 +876,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
-                contract.contract_name == ContractName::must_from("increment-contract")
+                contract.contract_name == ContractName::from_literal("increment-contract")
             }
             _ => false,
         },
@@ -910,7 +910,7 @@ fn test_cost_limit_switch_version205() {
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
             TransactionPayload::ContractCall(contract) => {
-                contract.contract_name == ContractName::must_from("increment-contract")
+                contract.contract_name == ContractName::from_literal("increment-contract")
             }
             _ => false,
         },

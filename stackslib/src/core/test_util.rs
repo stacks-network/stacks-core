@@ -495,8 +495,8 @@ pub fn make_contract_call_mblock_only(
     function_name: &'static str,
     function_args: &[Value],
 ) -> Vec<u8> {
-    let contract_name = ContractName::must_from(contract_name);
-    let function_name = ClarityName::must_from(function_name);
+    let contract_name = ContractName::from_literal(contract_name);
+    let function_name = ClarityName::from_literal(function_name);
 
     let payload = TransactionContractCall {
         address: contract_addr.clone(),

@@ -15,12 +15,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::types::{SequenceData, TupleData, Value};
+use clarity::vm::ClarityName;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use stacks_common::address::{b58, AddressHashMode};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::{to_hex, Hash160};
-use stacks_common::util::MustInto;
 
 use crate::burnchains::bitcoin::address::{
     legacy_address_type_to_version_byte, legacy_version_byte_to_address_type, to_b58_version_byte,
@@ -371,8 +371,8 @@ impl PoxAddress {
                     .expect("FATAL: hash160 does not fit into a Clarity value");
 
                 let tuple_data = TupleData::from_data(vec![
-                    ("version".must_into(), version),
-                    ("hashbytes".must_into(), hashbytes),
+                    (ClarityName::from_literal("version"), version),
+                    (ClarityName::from_literal("hashbytes"), hashbytes),
                 ])
                 .expect("FATAL: cannot encode PoxAddress::Standard as a Clarity tuple");
 
@@ -384,8 +384,8 @@ impl PoxAddress {
                     .expect("FATAL: could not create a 20-byte buffer");
 
                 let tuple_data = TupleData::from_data(vec![
-                    ("version".must_into(), version),
-                    ("hashbytes".must_into(), hashbytes),
+                    (ClarityName::from_literal("version"), version),
+                    (ClarityName::from_literal("hashbytes"), hashbytes),
                 ])
                 .expect("FATAL: Cannot fit PoxAddress::Addr20 as a Clarity tuple");
 
@@ -397,8 +397,8 @@ impl PoxAddress {
                     .expect("FATAL: could not create a 32-byte buffer");
 
                 let tuple_data = TupleData::from_data(vec![
-                    ("version".must_into(), version),
-                    ("hashbytes".must_into(), hashbytes),
+                    (ClarityName::from_literal("version"), version),
+                    (ClarityName::from_literal("hashbytes"), hashbytes),
                 ])
                 .expect("FATAL: Cannot fit PoxAddress::Addr32 as a Clarity tuple");
 

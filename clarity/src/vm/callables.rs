@@ -629,7 +629,7 @@ mod test {
         }
 
         // {a: principal} -> {a: <trait>}
-        let a_name = ClarityName::must_from("a");
+        let a_name = ClarityName::from_literal("a");
         let tuple_ty = TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![(a_name.clone(), trait_ty)]).unwrap(),
         );

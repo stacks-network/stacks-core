@@ -43,14 +43,13 @@ use clarity::types::PrivateKey;
 use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
-use clarity::vm::Value;
+use clarity::vm::{ClarityName, Value};
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
 };
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
-use stacks_common::util::MustInto;
 
 use crate::stacks_common::types::PublicKey;
 use crate::v0::signer_state::{ReplayTransactionSet, SignerStateMachine};
@@ -372,25 +371,25 @@ impl MockProposal {
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "stacks-tip-consensus-hash".must_into(),
+                    ClarityName::from_literal("stacks-tip-consensus-hash"),
                     Value::buff_from(self.peer_info.stacks_tip_consensus_hash.as_bytes().into())
                         .unwrap(),
                 ),
                 (
-                    "stacks-tip".must_into(),
+                    ClarityName::from_literal("stacks-tip"),
                     Value::buff_from(self.peer_info.stacks_tip.as_bytes().into()).unwrap(),
                 ),
                 (
-                    "stacks-tip-height".must_into(),
+                    ClarityName::from_literal("stacks-tip-height"),
                     Value::UInt(self.peer_info.stacks_tip_height.into()),
                 ),
                 (
-                    "server-version".must_into(),
+                    ClarityName::from_literal("server-version"),
                     Value::string_ascii_from_bytes(self.peer_info.server_version.clone().into())
                         .unwrap(),
                 ),
                 (
-                    "pox-consensus".must_into(),
+                    ClarityName::from_literal("pox-consensus"),
                     Value::buff_from(self.peer_info.pox_consensus.as_bytes().into()).unwrap(),
                 ),
             ])
@@ -406,11 +405,11 @@ impl MockProposal {
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "miner-signature-hash".must_into(),
+                    ClarityName::from_literal("miner-signature-hash"),
                     Value::buff_from(self.miner_signature_hash().as_bytes().into()).unwrap(),
                 ),
                 (
-                    "miner-signature".must_into(),
+                    ClarityName::from_literal("miner-signature"),
                     Value::buff_from(self.signature.as_bytes().into()).unwrap(),
                 ),
             ])

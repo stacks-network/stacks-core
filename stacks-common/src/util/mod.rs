@@ -159,5 +159,8 @@ pub trait MustInto<T> {
     /// at a glance that the conversion will succeed.
     ///
     /// For values only known at runtime, use `try_into()` and deal with errors.
+    #[cfg(any(test, feature = "testing"))]
     fn must_into(&'static self) -> T;
+    //#[cfg(not(any(test, feature = "testing")))]
+    //fn must_into(&'static self) -> ();
 }

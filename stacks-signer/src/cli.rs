@@ -28,7 +28,7 @@ use clarity::types::{PrivateKey, PublicKey};
 use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
-use clarity::vm::Value;
+use clarity::vm::{ClarityName, Value};
 use libsigner::VERSION_ONLY_STRING;
 use serde::{Deserialize, Serialize};
 use stacks_common::address::{
@@ -38,7 +38,6 @@ use stacks_common::address::{
 };
 use stacks_common::define_u8_enum;
 use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::util::MustInto;
 
 extern crate alloc;
 
@@ -185,8 +184,14 @@ impl VoteInfo {
     /// Get the digest to sign that authenticates this vote data
     fn digest(&self) -> Sha256Sum {
         let vote_message = TupleData::from_data(vec![
-            ("sip".must_into(), Value::UInt(self.sip.into())),
-            ("vote".must_into(), Value::UInt(self.vote.to_u8().into())),
+            (
+                ClarityName::from_literal("sip"),
+                Value::UInt(self.sip.into()),
+            ),
+            (
+                ClarityName::from_literal("vote"),
+                Value::UInt(self.vote.to_u8().into()),
+            ),
         ])
         .unwrap();
         let data_domain =

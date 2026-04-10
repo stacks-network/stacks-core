@@ -7328,8 +7328,8 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
 
             let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
                 address: spender_addr.clone(),
-                contract_name: ContractName::must_from("increment-contract"),
-                function_name: ClarityName::must_from("increment-many"),
+                contract_name: ContractName::from_literal("increment-contract"),
+                function_name: ClarityName::from_literal("increment-many"),
                 function_args: vec![],
             });
 

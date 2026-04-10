@@ -25,7 +25,6 @@ use costs_4::Costs4;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::MustInto;
 
 use super::errors::{RuntimeCheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
@@ -71,11 +70,26 @@ lazy_static! {
         #[allow(clippy::expect_used)]
         TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![
-                ("runtime".must_into(), TypeSignature::UIntType),
-                ("write_length".must_into(), TypeSignature::UIntType),
-                ("write_count".must_into(), TypeSignature::UIntType),
-                ("read_count".must_into(), TypeSignature::UIntType),
-                ("read_length".must_into(), TypeSignature::UIntType),
+                (
+                    ClarityName::from_literal("runtime"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("write_length"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("write_count"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("read_count"),
+                    TypeSignature::UIntType,
+                ),
+                (
+                    ClarityName::from_literal("read_length"),
+                    TypeSignature::UIntType,
+                ),
             ])
             .expect("BUG: failed to construct type signature for cost tuple"),
         )
@@ -544,7 +558,7 @@ fn load_cost_functions(
                 "confirmed-proposals",
                 &Value::from(
                     TupleData::from_data(vec![(
-                        "confirmed-id".must_into(),
+                        ClarityName::from_literal("confirmed-id"),
                         Value::UInt(confirmed_proposal),
                     )])
                     .map_err(|_| {

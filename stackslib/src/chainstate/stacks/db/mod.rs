@@ -39,7 +39,6 @@ use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::{hex_bytes, to_hex};
-use stacks_common::util::MustInto;
 
 use crate::burnchains::bitcoin::address::LegacyBitcoinAddress;
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
@@ -1461,8 +1460,14 @@ impl StacksChainState {
                             StacksChainState::parse_genesis_address(&schedule.address, mainnet);
                         let value = Value::Tuple(
                             TupleData::from_data(vec![
-                                ("recipient".must_into(), Value::Principal(stx_address)),
-                                ("amount".must_into(), Value::UInt(schedule.amount.into())),
+                                (
+                                    ClarityName::from_literal("recipient"),
+                                    Value::Principal(stx_address),
+                                ),
+                                (
+                                    ClarityName::from_literal("amount"),
+                                    Value::UInt(schedule.amount.into()),
+                                ),
                             ])
                             .unwrap(),
                         );
@@ -1541,32 +1546,38 @@ impl StacksChainState {
 
                                     TupleData::from_data(vec![
                                         (
-                                            "buckets".must_into(),
+                                            ClarityName::from_literal("buckets"),
                                             Value::cons_list(buckets, &epoch).unwrap(),
                                         ),
-                                        ("base".must_into(), base),
-                                        ("coeff".must_into(), coeff),
-                                        ("nonalpha-discount".must_into(), nonalpha_discount),
-                                        ("no-vowel-discount".must_into(), no_vowel_discount),
+                                        (ClarityName::from_literal("base"), base),
+                                        (ClarityName::from_literal("coeff"), coeff),
+                                        (
+                                            ClarityName::from_literal("nonalpha-discount"),
+                                            nonalpha_discount,
+                                        ),
+                                        (
+                                            ClarityName::from_literal("no-vowel-discount"),
+                                            no_vowel_discount,
+                                        ),
                                     ])
                                     .unwrap()
                                 };
 
                                 let namespace_props = Value::Tuple(
                                     TupleData::from_data(vec![
-                                        ("revealed-at".must_into(), revealed_at),
+                                        (ClarityName::from_literal("revealed-at"), revealed_at),
                                         (
-                                            "launched-at".must_into(),
+                                            ClarityName::from_literal("launched-at"),
                                             Value::some(launched_at).unwrap(),
                                         ),
-                                        ("lifetime".must_into(), lifetime),
-                                        ("namespace-import".must_into(), importer),
+                                        (ClarityName::from_literal("lifetime"), lifetime),
+                                        (ClarityName::from_literal("namespace-import"), importer),
                                         (
-                                            "can-update-price-function".must_into(),
+                                            ClarityName::from_literal("can-update-price-function"),
                                             Value::Bool(true),
                                         ),
                                         (
-                                            "price-function".must_into(),
+                                            ClarityName::from_literal("price-function"),
                                             Value::Tuple(price_function),
                                         ),
                                     ])
@@ -1618,8 +1629,8 @@ impl StacksChainState {
 
                                 let fqn = Value::Tuple(
                                     TupleData::from_data(vec![
-                                        ("namespace".must_into(), namespace),
-                                        ("name".must_into(), name),
+                                        (ClarityName::from_literal("namespace"), namespace),
+                                        (ClarityName::from_literal("name"), name),
                                     ])
                                     .unwrap(),
                                 );
@@ -1652,12 +1663,12 @@ impl StacksChainState {
                                 let name_props = Value::Tuple(
                                     TupleData::from_data(vec![
                                         (
-                                            "registered-at".must_into(),
+                                            ClarityName::from_literal("registered-at"),
                                             Value::some(registered_at).unwrap(),
                                         ),
-                                        ("imported-at".must_into(), Value::none()),
-                                        ("revoked-at".must_into(), Value::none()),
-                                        ("zonefile-hash".must_into(), zonefile_hash),
+                                        (ClarityName::from_literal("imported-at"), Value::none()),
+                                        (ClarityName::from_literal("revoked-at"), Value::none()),
+                                        (ClarityName::from_literal("zonefile-hash"), zonefile_hash),
                                     ])
                                     .unwrap(),
                                 );

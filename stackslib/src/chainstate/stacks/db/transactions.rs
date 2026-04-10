@@ -2466,7 +2466,7 @@ pub mod test {
 
             let contract_id = QualifiedContractIdentifier::new(
                 StandardPrincipalData::from(addr.clone()),
-                ContractName::must_from("hello-world"),
+                ContractName::from_literal("hello-world"),
             );
             let contract_before_res =
                 StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
@@ -2649,7 +2649,7 @@ pub mod test {
 
                 let _contract_id = QualifiedContractIdentifier::new(
                     StandardPrincipalData::from(addr.clone()),
-                    ContractName::must_from(contract_name),
+                    ContractName::from_literal(contract_name),
                 );
 
                 let (fee, receipt) =
@@ -2823,7 +2823,7 @@ pub mod test {
 
             let contract_id = QualifiedContractIdentifier::new(
                 StandardPrincipalData::from(addr.clone()),
-                ContractName::must_from("hello-world"),
+                ContractName::from_literal("hello-world"),
             );
             let contract_before_res =
                 StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
@@ -2934,7 +2934,7 @@ pub mod test {
 
             let contract_id = QualifiedContractIdentifier::new(
                 StandardPrincipalData::from(addr.clone()),
-                ContractName::must_from("hello-world"),
+                ContractName::from_literal("hello-world"),
             );
             let contract_before_res =
                 StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
@@ -3018,7 +3018,7 @@ pub mod test {
         let contractPrincipalValue =
             Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
                 StandardPrincipalData::from(addr.clone()),
-                ContractName::must_from("aip10-arkadiko-update-tvl-liquidation-ratio"),
+                ContractName::from_literal("aip10-arkadiko-update-tvl-liquidation-ratio"),
             )));
         let mut tx_contract_call = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -3059,7 +3059,7 @@ pub mod test {
 
             let contract_id = QualifiedContractIdentifier::new(
                 StandardPrincipalData::from(addr.clone()),
-                ContractName::must_from("hello-world"),
+                ContractName::from_literal("hello-world"),
             );
             let contract_before_res =
                 StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
@@ -3148,7 +3148,7 @@ pub mod test {
 
             let contract_id = QualifiedContractIdentifier::new(
                 StandardPrincipalData::from(addr.clone()),
-                ContractName::must_from("hello-world"),
+                ContractName::from_literal("hello-world"),
             );
             let (_fee, _) =
                 StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
@@ -3231,7 +3231,7 @@ pub mod test {
         let addr = auth.origin().address_testnet();
         let contract_id = QualifiedContractIdentifier::new(
             StandardPrincipalData::from(addr.clone()),
-            ContractName::must_from("hello-world"),
+            ContractName::from_literal("hello-world"),
         );
 
         let mut tx_contract = StacksTransaction::new(
@@ -3282,7 +3282,7 @@ pub mod test {
         let addr = auth.origin().address_testnet();
         let contract_id = QualifiedContractIdentifier::new(
             StandardPrincipalData::from(addr.clone()),
-            ContractName::must_from("hello-world"),
+            ContractName::from_literal("hello-world"),
         );
 
         // for contract-calls
@@ -3561,7 +3561,7 @@ pub mod test {
 
             let contract_id = QualifiedContractIdentifier::new(
                 StandardPrincipalData::from(addr_publisher.clone()),
-                ContractName::must_from("hello-world"),
+                ContractName::from_literal("hello-world"),
             );
             let contract_before_res =
                 StacksChainState::get_contract(&mut conn, &contract_id).unwrap();
@@ -10023,7 +10023,7 @@ pub mod test {
 
         let contract_id = QualifiedContractIdentifier::new(
             StandardPrincipalData::from(addr.clone()),
-            ContractName::must_from("trait-runtime-analysis-error"),
+            ContractName::from_literal("trait-runtime-analysis-error"),
         );
 
         // in 2.0, this invalidates the block
@@ -10598,7 +10598,7 @@ pub mod test {
 
         let contract_id = QualifiedContractIdentifier::new(
             StandardPrincipalData::from(addr.clone()),
-            ContractName::must_from("trait-runtime-analysis-error"),
+            ContractName::from_literal("trait-runtime-analysis-error"),
         );
 
         // in 2.0: analysis error should cause contract publish to fail
@@ -11134,7 +11134,7 @@ pub mod test {
 
         let contract_id = QualifiedContractIdentifier::new(
             StandardPrincipalData::from(addr.clone()),
-            ContractName::must_from("trait-runtime-analysis-error"),
+            ContractName::from_literal("trait-runtime-analysis-error"),
         );
 
         // in 2.0: calling call-foo invalidates the block

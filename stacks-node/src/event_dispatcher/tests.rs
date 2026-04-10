@@ -59,8 +59,8 @@ fn test_post_condition_aborted_transaction_does_not_emit_events() {
         let private_key = StacksPrivateKey::from_seed("PostConditionFailure".as_bytes());
         let addr = to_addr(&private_key);
 
-        let contract_name = ContractName::must_from("test");
-        let function_name = ClarityName::must_from("test");
+        let contract_name = ContractName::from_literal("test");
+        let function_name = ClarityName::from_literal("test");
 
         let payload = TransactionContractCall {
             address: addr.clone(),

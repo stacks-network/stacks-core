@@ -15,12 +15,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::types::TupleData;
-use clarity::vm::Value;
+use clarity::vm::{ClarityName, Value};
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
-use stacks_common::util::MustInto;
 
 use crate::chainstate::stacks::address::PoxAddress;
 
@@ -62,21 +61,24 @@ pub fn make_structured_data_domain(name: &str, version: &str, chain_id: u32) -> 
     Value::Tuple(
         TupleData::from_data(vec![
             (
-                "name".must_into(),
+                ClarityName::from_literal("name"),
                 Value::string_ascii_from_bytes(name.into()).unwrap(),
             ),
             (
-                "version".must_into(),
+                ClarityName::from_literal("version"),
                 Value::string_ascii_from_bytes(version.into()).unwrap(),
             ),
-            ("chain-id".must_into(), Value::UInt(chain_id.into())),
+            (
+                ClarityName::from_literal("chain-id"),
+                Value::UInt(chain_id.into()),
+            ),
         ])
         .unwrap(),
     )
 }
 
 pub mod pox4 {
-    use stacks_common::util::MustInto;
+    use clarity::vm::ClarityName;
 
     use super::{
         make_structured_data_domain, structured_data_message_hash, MessageSignature, PoxAddress,
@@ -108,21 +110,27 @@ pub mod pox4 {
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "pox-addr".must_into(),
+                    ClarityName::from_literal("pox-addr"),
                     pox_addr
                         .clone()
                         .as_clarity_tuple()
                         .expect("Error creating signature hash - invalid PoX Address")
                         .into(),
                 ),
-                ("reward-cycle".must_into(), Value::UInt(reward_cycle)),
-                ("period".must_into(), Value::UInt(period)),
                 (
-                    "topic".must_into(),
+                    ClarityName::from_literal("reward-cycle"),
+                    Value::UInt(reward_cycle),
+                ),
+                (ClarityName::from_literal("period"), Value::UInt(period)),
+                (
+                    ClarityName::from_literal("topic"),
                     Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
                 ),
-                ("auth-id".must_into(), Value::UInt(auth_id)),
-                ("max-amount".must_into(), Value::UInt(max_amount)),
+                (ClarityName::from_literal("auth-id"), Value::UInt(auth_id)),
+                (
+                    ClarityName::from_literal("max-amount"),
+                    Value::UInt(max_amount),
+                ),
             ])
             .expect("Error creating signature hash"),
         );

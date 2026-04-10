@@ -239,8 +239,12 @@ macro_rules! guarded_string {
             /// like `ClarityName`s, where the source value is hardcoded and thus it's visible
             /// at a glance that the conversion will succeed.
             ///
-            /// For values only known at runtime, use `try_from()` and deal with errors.
-            pub fn must_from(value: &'static str) -> Self {
+            /// # Panics
+            ///
+            /// If the value is not a legal instance of this guarded string, this method will
+            /// panic. Only pass hardcoded known-good values. For anything else, use `try_from`
+            /// and deal with errors.
+            pub fn from_literal(value: &'static str) -> Self {
                 Self::try_from(value).expect("Expected must_from to never fail")
             }
         }
@@ -272,8 +276,9 @@ macro_rules! guarded_string {
         }
 
         impl $crate::util::MustInto<$Name> for str {
+            #[cfg(any(test, feature = "testing"))]
             fn must_into(&'static self) -> $Name {
-                $Name::must_from(self)
+                $Name::from_literal(self)
             }
         }
 

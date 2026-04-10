@@ -15902,8 +15902,8 @@ fn check_sip040_post_conditions() {
         PostConditionPrincipal::Origin,
         AssetInfo {
             contract_address: sender_addr.clone(),
-            contract_name: ContractName::must_from(contract_name),
-            asset_name: ClarityName::must_from("asset"),
+            contract_name: ContractName::from_literal(contract_name),
+            asset_name: ClarityName::from_literal("asset"),
         },
         Value::UInt(1),
         NonfungibleConditionCode::MaybeSent,

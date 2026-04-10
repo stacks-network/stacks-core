@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::MustInto;
 
 use super::{
     TypeChecker, TypingContext, check_argument_count, check_arguments_at_least,
@@ -725,9 +724,9 @@ fn check_principal_construct(
     Ok(TypeSignature::new_response(
             TypeSignature::PrincipalType,
             TupleTypeSignature::try_from(vec![
-                ("error_code".must_into(), TypeSignature::UIntType),
+                (ClarityName::from_literal("error_code"), TypeSignature::UIntType),
                 (
-                    "value".must_into(),
+                    ClarityName::from_literal("value"),
                     TypeSignature::new_option(TypeSignature::PrincipalType).map_err(|_| StaticCheckErrorKind::Unreachable("FATAL: failed to create (optional principal) type signature".into()))?,
                 ),
             ])
@@ -1087,10 +1086,16 @@ impl TypedNativeFunction {
                     fn parse_principal_basic_type()
                     -> Result<TupleTypeSignature, StaticCheckErrorKind> {
                         TupleTypeSignature::try_from(vec![
-                            ("version".must_into(), TypeSignature::BUFFER_1),
-                            ("hash-bytes".must_into(), TypeSignature::BUFFER_20),
                             (
-                                "name".must_into(),
+                                ClarityName::from_literal("version"),
+                                TypeSignature::BUFFER_1,
+                            ),
+                            (
+                                ClarityName::from_literal("hash-bytes"),
+                                TypeSignature::BUFFER_20,
+                            ),
+                            (
+                                ClarityName::from_literal("name"),
                                 TypeSignature::new_option(
                                     TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX,
                                 )
@@ -1122,9 +1127,15 @@ impl TypedNativeFunction {
                     })?,
                 )],
                 returns: TupleTypeSignature::try_from(vec![
-                    ("unlocked".must_into(), TypeSignature::UIntType),
-                    ("locked".must_into(), TypeSignature::UIntType),
-                    ("unlock-height".must_into(), TypeSignature::UIntType),
+                    (
+                        ClarityName::from_literal("unlocked"),
+                        TypeSignature::UIntType,
+                    ),
+                    (ClarityName::from_literal("locked"), TypeSignature::UIntType),
+                    (
+                        ClarityName::from_literal("unlock-height"),
+                        TypeSignature::UIntType,
+                    ),
                 ])
                 .map_err(|_| {
                     StaticCheckErrorKind::Unreachable(

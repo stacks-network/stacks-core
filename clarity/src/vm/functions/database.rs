@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::ClarityName;
 use clarity_types::types::CallableData;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::util::MustInto;
 
 use crate::vm::callables::DefineType;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
@@ -1172,7 +1172,7 @@ pub fn special_get_burn_block_info(
                 Some((addrs, payout)) => Ok(Value::some(Value::Tuple(
                     TupleData::from_data(vec![
                         (
-                            "addrs".must_into(),
+                            ClarityName::from_literal("addrs"),
                             Value::cons_list(
                                 addrs.into_iter().map(Value::Tuple).collect(),
                                 exec_state.epoch(),
@@ -1183,7 +1183,7 @@ pub fn special_get_burn_block_info(
                                 )
                             })?,
                         ),
-                        ("payout".must_into(), Value::UInt(payout)),
+                        (ClarityName::from_literal("payout"), Value::UInt(payout)),
                     ])
                     .map_err(|_| {
                         VmInternalError::Expect(

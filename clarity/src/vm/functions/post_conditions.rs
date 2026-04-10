@@ -18,7 +18,6 @@ use std::collections::HashMap;
 use clarity_types::ClarityName;
 use clarity_types::types::{AssetIdentifier, PrincipalData, StandardPrincipalData};
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::MustInto;
 
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::{AssetMap, ExecutionState, InvocationContext};
@@ -561,7 +560,7 @@ fn check_allowances(
 
             if let Some(wildcard_vec) = ft_allowances.get(&AssetIdentifier {
                 contract_identifier: asset.contract_identifier.clone(),
-                asset_name: "*".must_into(),
+                asset_name: ClarityName::from_literal("*"),
             }) {
                 merged.extend(wildcard_vec.iter().cloned());
             }
@@ -590,7 +589,7 @@ fn check_allowances(
 
             if let Some((index, allowance_vec)) = nft_allowances.get(&AssetIdentifier {
                 contract_identifier: asset.contract_identifier.clone(),
-                asset_name: "*".must_into(),
+                asset_name: ClarityName::from_literal("*"),
             }) {
                 merged.push((*index, allowance_vec));
             }

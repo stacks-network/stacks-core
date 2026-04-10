@@ -12,11 +12,11 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use clarity_types::ClarityName;
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks_common::util::MustInto;
 
 use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -99,19 +99,19 @@ fn create_principal_destruct_tuple(
     Ok(Value::Tuple(
         TupleData::from_data(vec![
             (
-                "version".must_into(),
+                ClarityName::from_literal("version"),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: vec![version],
                 })),
             ),
             (
-                "hash-bytes".must_into(),
+                ClarityName::from_literal("hash-bytes"),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: hash_bytes.to_vec(),
                 })),
             ),
             (
-                "name".must_into(),
+                ClarityName::from_literal("name"),
                 Value::Optional(OptionalData {
                     data: name_opt.map(|name| Box::new(Value::from(ASCIIData::from(name)))),
                 }),
@@ -130,8 +130,11 @@ fn create_principal_true_error_response(
 ) -> Result<Value, VmExecutionError> {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
-            ("error_code".must_into(), Value::UInt(error_int as u128)),
-            ("value".must_into(), Value::none()),
+            (
+                ClarityName::from_literal("error_code"),
+                Value::UInt(error_int as u128),
+            ),
+            (ClarityName::from_literal("value"), Value::none()),
         ])
         .map_err(|_| VmInternalError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
@@ -151,9 +154,12 @@ fn create_principal_value_error_response(
 ) -> Result<Value, VmExecutionError> {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
-            ("error_code".must_into(), Value::UInt(error_int as u128)),
             (
-                "value".must_into(),
+                ClarityName::from_literal("error_code"),
+                Value::UInt(error_int as u128),
+            ),
+            (
+                ClarityName::from_literal("value"),
                 Value::some(value).map_err(|_| {
                     VmInternalError::Expect("Unexpected problem creating Value.".into())
                 })?,
