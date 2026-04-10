@@ -1,8 +1,10 @@
 use rusqlite::{params, Connection};
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
+};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use tempfile::tempdir;
 
 use super::index::{copy_index_side_tables, validate_index_side_tables};
@@ -292,6 +294,218 @@ fn test_validate_index_side_tables_detects_extra_rows() {
         "count should mismatch"
     );
     assert!(!validation.is_valid(), "validation must fail");
+}
+
+/// Insert a staging_blocks row for a canonical processed block.
+fn insert_staging_block(conn: &Connection, suffix: &str, height: u32) {
+    conn.execute(
+        "INSERT INTO staging_blocks (\
+                anchored_block_hash, parent_anchored_block_hash, \
+                consensus_hash, parent_consensus_hash, \
+                parent_microblock_hash, parent_microblock_seq, \
+                microblock_pubkey_hash, height, attachable, orphaned, processed, \
+                commit_burn, sortition_burn, index_block_hash, \
+                download_time, arrival_time, processed_time) \
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, 'mph', ?6, 1, 0, 1, 0, 0, ?7, 100, 200, 300)",
+        params![
+            format!("bh{suffix}"),
+            format!("parent_bh{suffix}"),
+            format!("ch{suffix}"),
+            format!("parent_ch{suffix}"),
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            height,
+            format!("ibh{suffix}"),
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_staging_blocks_populated_for_canonical() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src.sqlite");
+    let conn = create_source_db(&src_path);
+
+    // Insert block headers and staging blocks at heights 1, 2, 3.
+    for (h, s) in [(1, "1"), (2, "2"), (3, "3")] {
+        insert_block_header(&conn, h, s);
+        insert_staging_block(&conn, s, h);
+    }
+    drop(conn);
+
+    // Canonical set includes ibh1 and ibh2, but NOT ibh3.
+    let dst_path = dir.path().join("dst.sqlite");
+    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1", "ibh2"]);
+
+    let stats =
+        copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+
+    // Only 2 staging_blocks rows for canonical blocks.
+    assert_eq!(stats.staging_blocks_rows, 2);
+
+    // Verify all columns preserved verbatim.
+    let dst_conn = Connection::open(&dst_path).unwrap();
+    let (download_time, arrival_time, processed_time): (i64, i64, i64) = dst_conn
+            .query_row(
+                "SELECT download_time, arrival_time, processed_time FROM staging_blocks WHERE index_block_hash = 'ibh1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+    assert_eq!(download_time, 100);
+    assert_eq!(arrival_time, 200);
+    assert_eq!(processed_time, 300);
+
+    // ibh3 should NOT be present.
+    let count: i64 = dst_conn
+        .query_row(
+            "SELECT COUNT(*) FROM staging_blocks WHERE index_block_hash = 'ibh3'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn test_staging_blocks_validation_detects_drift() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src.sqlite");
+    let conn = create_source_db(&src_path);
+
+    insert_block_header(&conn, 1, "1");
+    insert_staging_block(&conn, "1", 1);
+    drop(conn);
+
+    let dst_path = dir.path().join("dst.sqlite");
+    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1"]);
+
+    copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1).unwrap();
+
+    // Validation should pass initially.
+    let v =
+        validate_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+    assert!(v.staging_blocks_match);
+
+    // Now corrupt a column in destination staging_blocks.
+    let dst_conn = Connection::open(&dst_path).unwrap();
+    dst_conn
+            .execute(
+                "UPDATE staging_blocks SET parent_consensus_hash = 'corrupted' WHERE index_block_hash = 'ibh1'",
+                [],
+            )
+            .unwrap();
+    drop(dst_conn);
+
+    // Validation should now fail.
+    let v =
+        validate_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+            .unwrap();
+    assert!(!v.staging_blocks_match, "should detect column drift: {v:?}");
+}
+
+#[test]
+fn test_epoch2_block_file_copy_and_validate() {
+    let dir = tempdir().unwrap();
+    let src_blocks_dir = dir.path().join("src_blocks");
+    let dst_blocks_dir = dir.path().join("dst_blocks");
+
+    // Create a squashed index.sqlite with 2 block headers (height 0 = genesis, height 1).
+    let idx_path = dir.path().join("squashed_index.sqlite");
+    let conn = Connection::open(&idx_path).unwrap();
+    conn.execute_batch(
+            "CREATE TABLE block_headers (index_block_hash TEXT NOT NULL, block_height INTEGER NOT NULL)",
+        )
+        .unwrap();
+    conn.execute(
+            "INSERT INTO block_headers VALUES ('0000000000000000000000000000000000000000000000000000000000000000', 0)",
+            [],
+        )
+        .unwrap();
+    // Height 1 block: hex hash that maps to a known path.
+    let hash_hex = "aabbccdd00000000000000000000000000000000000000000000000000000001";
+    conn.execute(
+        "INSERT INTO block_headers VALUES (?1, 1)",
+        params![hash_hex],
+    )
+    .unwrap();
+    drop(conn);
+
+    // Create source block file for height 1.
+    // index_block_hash_to_rel_path uses 2-byte (4 hex char) directory segments.
+    let rel = format!("aabb/ccdd/{hash_hex}");
+    let src_file = src_blocks_dir.join(&rel);
+    std::fs::create_dir_all(src_file.parent().unwrap()).unwrap();
+    std::fs::write(&src_file, b"block data here").unwrap();
+
+    // Copy.
+    let stats = super::blocks::copy_epoch2_block_files(
+        idx_path.to_str().unwrap(),
+        src_blocks_dir.to_str().unwrap(),
+        dst_blocks_dir.to_str().unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(stats.files_copied, 1);
+    assert_eq!(stats.genesis_skipped, 1);
+    assert_eq!(stats.total_bytes, 15); // "block data here".len()
+
+    // Destination file exists and matches.
+    let dst_file = dst_blocks_dir.join(&rel);
+    assert!(dst_file.exists());
+    assert_eq!(std::fs::read(&dst_file).unwrap(), b"block data here");
+
+    // Validate.
+    let v = super::blocks::validate_epoch2_block_files(
+        idx_path.to_str().unwrap(),
+        src_blocks_dir.to_str().unwrap(),
+        dst_blocks_dir.to_str().unwrap(),
+    )
+    .unwrap();
+    assert!(v.is_valid(), "validation should pass: {v:?}");
+}
+
+#[test]
+fn test_epoch2_block_file_missing_source_is_error() {
+    let dir = tempdir().unwrap();
+    let src_blocks_dir = dir.path().join("src_blocks");
+    let dst_blocks_dir = dir.path().join("dst_blocks");
+
+    // Index with height-1 block but NO source file.
+    let idx_path = dir.path().join("squashed_index.sqlite");
+    let conn = Connection::open(&idx_path).unwrap();
+    conn.execute_batch(
+            "CREATE TABLE block_headers (index_block_hash TEXT NOT NULL, block_height INTEGER NOT NULL)",
+        )
+        .unwrap();
+    let hash_hex = "aabbccdd00000000000000000000000000000000000000000000000000000001";
+    conn.execute(
+        "INSERT INTO block_headers VALUES (?1, 1)",
+        params![hash_hex],
+    )
+    .unwrap();
+    drop(conn);
+
+    std::fs::create_dir_all(&src_blocks_dir).unwrap();
+
+    let err = super::blocks::copy_epoch2_block_files(
+        idx_path.to_str().unwrap(),
+        src_blocks_dir.to_str().unwrap(),
+        dst_blocks_dir.to_str().unwrap(),
+    )
+    .expect_err("copy should fail when a required source epoch-2 block file is missing");
+
+    match err {
+        Error::CorruptionError(msg) => {
+            assert!(
+                msg.contains("Missing source epoch-2 block file"),
+                "unexpected error message: {msg}"
+            );
+        }
+        other => panic!("unexpected error type: {other:?}"),
+    }
 }
 
 #[test]
@@ -601,6 +815,687 @@ fn test_matured_rewards_detects_fabricated_rows() {
         "matured_rewards should fail with fabricated row"
     );
     assert!(!validation.is_valid());
+}
+
+/// Build a minimal serializable StacksMicroblock with the given sequence
+/// and prev_block, returning (block_hash, serialized_bytes).
+fn make_test_microblock(sequence: u16, prev_block: &BlockHeaderHash) -> (BlockHeaderHash, Vec<u8>) {
+    // Create a minimal STX transfer transaction.
+    let privk = Secp256k1PrivateKey::from_hex(
+        "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+    )
+    .unwrap();
+    let auth = TransactionAuth::Standard(
+        TransactionSpendingCondition::new_singlesig_p2pkh(Secp256k1PublicKey::from_private(&privk))
+            .unwrap(),
+    );
+    let recipient = StacksAddress::new(1, Hash160([0xAA; 20])).unwrap().into();
+    let tx = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        auth,
+        TransactionPayload::TokenTransfer(recipient, 1, TokenTransferMemo([0u8; 34])),
+    );
+
+    // Use StacksMicroblock::first_unsigned for sequence 0,
+    // or build with from_parent_unsigned for others.
+    let txid_bytes = tx.txid().as_bytes().to_vec();
+    let merkle_tree =
+        stacks_common::util::hash::MerkleTree::<Sha512Trunc256Sum>::new(&[txid_bytes]);
+    let tx_merkle_root = merkle_tree.root();
+
+    let header = StacksMicroblockHeader {
+        version: 0,
+        sequence,
+        prev_block: prev_block.clone(),
+        tx_merkle_root,
+        signature: MessageSignature::empty(),
+    };
+
+    let mblock = StacksMicroblock {
+        header,
+        txs: vec![tx],
+    };
+    let hash = mblock.block_hash();
+    let mut bytes = vec![];
+    mblock.consensus_serialize(&mut bytes).unwrap();
+    (hash, bytes)
+}
+
+/// Insert a staging_microblocks row into the given connection.
+fn insert_staging_microblock(
+    conn: &Connection,
+    anchored_block_hash: &str,
+    consensus_hash: &ConsensusHash,
+    index_block_hash: &StacksBlockId,
+    microblock_hash: &BlockHeaderHash,
+    parent_hash: &BlockHeaderHash,
+    index_microblock_hash: &StacksBlockId,
+    sequence: u16,
+    processed: i32,
+    orphaned: i32,
+) {
+    conn.execute(
+        "INSERT INTO staging_microblocks \
+             (anchored_block_hash, consensus_hash, index_block_hash, microblock_hash, \
+              parent_hash, index_microblock_hash, sequence, processed, orphaned) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            anchored_block_hash,
+            consensus_hash,
+            index_block_hash,
+            microblock_hash,
+            parent_hash,
+            index_microblock_hash,
+            sequence as i32,
+            processed,
+            orphaned,
+        ],
+    )
+    .unwrap();
+}
+
+/// Insert a staging_microblocks_data row.
+fn insert_staging_microblock_data(
+    conn: &Connection,
+    block_hash: &BlockHeaderHash,
+    block_data: &[u8],
+) {
+    conn.execute(
+        "INSERT INTO staging_microblocks_data (block_hash, block_data) VALUES (?1, ?2)",
+        params![block_hash, block_data],
+    )
+    .unwrap();
+}
+
+/// Insert a staging_blocks row with microblock parent linkage.
+fn insert_staging_block_with_microblock_parent(
+    conn: &Connection,
+    anchored_block_hash: &str,
+    consensus_hash: &str,
+    parent_consensus_hash: &str,
+    parent_anchored_block_hash: &str,
+    parent_microblock_hash: &str,
+    parent_microblock_seq: i32,
+    index_block_hash: &str,
+    height: i32,
+) {
+    conn.execute(
+        "INSERT INTO staging_blocks \
+             (anchored_block_hash, parent_anchored_block_hash, consensus_hash, \
+              parent_consensus_hash, parent_microblock_hash, parent_microblock_seq, \
+              microblock_pubkey_hash, height, attachable, orphaned, processed, \
+              commit_burn, sortition_burn, index_block_hash, \
+              download_time, arrival_time, processed_time) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'mph', ?7, 1, 0, 1, 0, 0, ?8, 0, 0, 0)",
+        params![
+            anchored_block_hash,
+            parent_anchored_block_hash,
+            consensus_hash,
+            parent_consensus_hash,
+            parent_microblock_hash,
+            parent_microblock_seq,
+            height,
+            index_block_hash,
+        ],
+    )
+    .unwrap();
+}
+
+/// Create a source nakamoto.sqlite with the full schema (v1 through v5).
+fn create_source_nakamoto_db(path: &std::path::Path) -> Connection {
+    let conn = Connection::open(path).unwrap();
+    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_1 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_2 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_3 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_4 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_5 {
+        conn.execute_batch(cmd).unwrap();
+    }
+    conn
+}
+
+/// Insert a nakamoto_staging_blocks row.
+fn insert_nakamoto_staging_block(
+    conn: &Connection,
+    block_hash: &str,
+    consensus_hash: &str,
+    parent_block_id: &str,
+    height: i64,
+    index_block_hash: &str,
+    obtain_method: &str,
+    data: &[u8],
+) {
+    conn.execute(
+        "INSERT INTO nakamoto_staging_blocks \
+             (block_hash, consensus_hash, parent_block_id, is_tenure_start, \
+              burn_attachable, processed, orphaned, height, index_block_hash, \
+              processed_time, obtain_method, signing_weight, data) \
+             VALUES (?1, ?2, ?3, 1, 1, 1, 0, ?4, ?5, 0, ?6, 100, ?7)",
+        params![
+            block_hash,
+            consensus_hash,
+            parent_block_id,
+            height,
+            index_block_hash,
+            obtain_method,
+            data,
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_microblock_stream_copy_and_validate() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_index.sqlite");
+    let dst_path = dir.path().join("dst_index.sqlite");
+
+    // Create source DB with full schema.
+    let src_conn = create_source_db(&src_path);
+
+    // Set up a parent anchored block "parent_bh" with consensus_hash "parent_ch".
+    let parent_ch = ConsensusHash([0xAA; 20]);
+    let parent_bh = BlockHeaderHash([0xBB; 32]);
+    let parent_ibh = StacksBlockId::new(&parent_ch, &parent_bh);
+
+    // Build a 2-microblock stream: mblock0 (seq=0, prev=parent_bh) -> mblock1 (seq=1, prev=mblock0_hash).
+    let (mblock0_hash, mblock0_data) = make_test_microblock(0, &parent_bh);
+    let (mblock1_hash, mblock1_data) = make_test_microblock(1, &mblock0_hash);
+
+    // Insert microblock metadata and data into source.
+    let imh0 = StacksBlockId::new(&parent_ch, &mblock0_hash);
+    let imh1 = StacksBlockId::new(&parent_ch, &mblock1_hash);
+
+    insert_staging_microblock(
+        &src_conn,
+        &format!("{parent_bh}"),
+        &parent_ch,
+        &parent_ibh,
+        &mblock0_hash,
+        &parent_bh,
+        &imh0,
+        0,
+        1,
+        0,
+    );
+    insert_staging_microblock(
+        &src_conn,
+        &format!("{parent_bh}"),
+        &parent_ch,
+        &parent_ibh,
+        &mblock1_hash,
+        &mblock0_hash,
+        &imh1,
+        1,
+        1,
+        0,
+    );
+    insert_staging_microblock_data(&src_conn, &mblock0_hash, &mblock0_data);
+    insert_staging_microblock_data(&src_conn, &mblock1_hash, &mblock1_data);
+
+    // Also insert an orphaned fork microblock that should NOT be copied.
+    let (fork_hash, fork_data) = make_test_microblock(0, &BlockHeaderHash([0xCC; 32]));
+    let fork_imh = StacksBlockId::new(&parent_ch, &fork_hash);
+    insert_staging_microblock(
+        &src_conn,
+        &format!("{parent_bh}"),
+        &parent_ch,
+        &parent_ibh,
+        &fork_hash,
+        &BlockHeaderHash([0xCC; 32]),
+        &fork_imh,
+        0,
+        1,
+        1, // orphaned = 1: this fork microblock should be excluded by the copy query
+    );
+    insert_staging_microblock_data(&src_conn, &fork_hash, &fork_data);
+    drop(src_conn);
+
+    // Create dest DB with schema, canonical blocks, and staging_blocks populated.
+    create_dest_db_with_canonical_blocks(&dst_path, &[]);
+    let dst_conn = Connection::open(&dst_path).unwrap();
+
+    // Clone schemas from source for staging tables.
+    dst_conn
+        .execute(
+            "ATTACH DATABASE ?1 AS src",
+            params![src_path.to_str().unwrap()],
+        )
+        .unwrap();
+    super::common::clone_schemas_from_source(
+        &dst_conn,
+        &[
+            "staging_blocks",
+            "staging_microblocks",
+            "staging_microblocks_data",
+        ],
+    )
+    .unwrap();
+    dst_conn.execute_batch("DETACH DATABASE src").unwrap();
+
+    // Insert a canonical child block that references mblock1_hash as its parent_microblock_hash.
+    // All values must be valid hex for ConsensusHash (40 hex chars) / BlockHeaderHash (64 hex chars).
+    let child_ch = ConsensusHash([0x11; 20]);
+    let child_bh = BlockHeaderHash([0x22; 32]);
+    let child_ibh = StacksBlockId::new(&child_ch, &child_bh);
+    insert_staging_block_with_microblock_parent(
+        &dst_conn,
+        &format!("{child_bh}"),
+        &format!("{child_ch}"),
+        &format!("{parent_ch}"),
+        &format!("{parent_bh}"),
+        &format!("{mblock1_hash}"),
+        1,
+        &format!("{child_ibh}"),
+        2,
+    );
+
+    // Also insert a child with no microblock stream (empty parent).
+    let nostream_ch = ConsensusHash([0x33; 20]);
+    let nostream_bh = BlockHeaderHash([0x44; 32]);
+    let nostream_ibh = StacksBlockId::new(&nostream_ch, &nostream_bh);
+    let nostream_pch = ConsensusHash([0x55; 20]);
+    let nostream_pbh = BlockHeaderHash([0x66; 32]);
+    insert_staging_block_with_microblock_parent(
+        &dst_conn,
+        &format!("{nostream_bh}"),
+        &format!("{nostream_ch}"),
+        &format!("{nostream_pch}"),
+        &format!("{nostream_pbh}"),
+        &format!("{EMPTY_MICROBLOCK_PARENT_HASH}"),
+        0,
+        &format!("{nostream_ibh}"),
+        3,
+    );
+    drop(dst_conn);
+
+    // Copy microblocks.
+    let stats = super::blocks::copy_confirmed_epoch2_microblocks(
+        src_path.to_str().unwrap(),
+        dst_path.to_str().unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(stats.streams_copied, 1);
+    assert_eq!(stats.microblock_rows_copied, 2);
+    assert!(stats.microblock_bytes_copied > 0);
+
+    // The fork microblock should NOT be in destination.
+    let dst_conn = Connection::open(&dst_path).unwrap();
+    let fork_count: i64 = dst_conn
+        .query_row(
+            "SELECT COUNT(*) FROM staging_microblocks_data WHERE block_hash = ?1",
+            params![fork_hash],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(fork_count, 0, "fork microblock should not be copied");
+
+    // Validate.
+    let v = super::blocks::validate_microblock_streams(
+        src_path.to_str().unwrap(),
+        dst_path.to_str().unwrap(),
+    )
+    .unwrap();
+    assert!(v.is_valid(), "microblock validation should pass: {v:?}");
+}
+
+#[test]
+fn test_microblock_stream_unprocessed_skipped() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src_index.sqlite");
+    let dst_path = dir.path().join("dst_index.sqlite");
+
+    let src_conn = create_source_db(&src_path);
+
+    let parent_ch = ConsensusHash([0xDD; 20]);
+    let parent_bh = BlockHeaderHash([0xEE; 32]);
+    let parent_ibh = StacksBlockId::new(&parent_ch, &parent_bh);
+
+    // Build a 1-microblock stream where the microblock is NOT processed.
+    let (mblock0_hash, mblock0_data) = make_test_microblock(0, &parent_bh);
+    let imh0 = StacksBlockId::new(&parent_ch, &mblock0_hash);
+    insert_staging_microblock(
+        &src_conn,
+        &format!("{parent_bh}"),
+        &parent_ch,
+        &parent_ibh,
+        &mblock0_hash,
+        &parent_bh,
+        &imh0,
+        0,
+        0,
+        0, // processed=0
+    );
+    insert_staging_microblock_data(&src_conn, &mblock0_hash, &mblock0_data);
+    drop(src_conn);
+
+    // Create dest with staging_blocks referencing the stream.
+    create_dest_db_with_canonical_blocks(&dst_path, &[]);
+    let dst_conn = Connection::open(&dst_path).unwrap();
+    dst_conn
+        .execute(
+            "ATTACH DATABASE ?1 AS src",
+            params![src_path.to_str().unwrap()],
+        )
+        .unwrap();
+    super::common::clone_schemas_from_source(
+        &dst_conn,
+        &[
+            "staging_blocks",
+            "staging_microblocks",
+            "staging_microblocks_data",
+        ],
+    )
+    .unwrap();
+    dst_conn.execute_batch("DETACH DATABASE src").unwrap();
+
+    let child_ch = ConsensusHash([0x11; 20]);
+    let child_bh = BlockHeaderHash([0x22; 32]);
+    let child_ibh = StacksBlockId::new(&child_ch, &child_bh);
+    insert_staging_block_with_microblock_parent(
+        &dst_conn,
+        &format!("{child_bh}"),
+        &format!("{child_ch}"),
+        &format!("{parent_ch}"),
+        &format!("{parent_bh}"),
+        &format!("{mblock0_hash}"),
+        0,
+        &format!("{child_ibh}"),
+        2,
+    );
+    drop(dst_conn);
+
+    // Copy - stream should be skipped (not error).
+    let stats = super::blocks::copy_confirmed_epoch2_microblocks(
+        src_path.to_str().unwrap(),
+        dst_path.to_str().unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(stats.streams_copied, 0);
+    assert_eq!(stats.streams_skipped, 1);
+    assert_eq!(stats.microblock_rows_copied, 0);
+}
+
+#[test]
+fn test_nakamoto_copy_and_validate() {
+    let dir = tempdir().unwrap();
+    let src_nak_path = dir.path().join("src_nakamoto.sqlite");
+    let dst_nak_path = dir.path().join("dst_nakamoto.sqlite");
+    let idx_path = dir.path().join("squashed_index.sqlite");
+
+    // Create source nakamoto.sqlite with canonical + non-canonical rows.
+    let src_conn = create_source_nakamoto_db(&src_nak_path);
+    insert_nakamoto_staging_block(
+        &src_conn,
+        "canonical_bh_1",
+        "canonical_ch_1",
+        "parent_1",
+        100,
+        "canonical_ibh_1",
+        "Fetched",
+        b"block_data_1",
+    );
+    insert_nakamoto_staging_block(
+        &src_conn,
+        "canonical_bh_2",
+        "canonical_ch_2",
+        "parent_2",
+        101,
+        "canonical_ibh_2",
+        "Shadow",
+        b"block_data_2",
+    );
+    // Non-canonical block (not in index).
+    insert_nakamoto_staging_block(
+        &src_conn,
+        "orphan_bh",
+        "orphan_ch",
+        "parent_x",
+        100,
+        "orphan_ibh",
+        "Fetched",
+        b"orphan_data",
+    );
+    drop(src_conn);
+
+    // Create squashed index with nakamoto_block_headers for canonical blocks only.
+    let idx_conn = Connection::open(&idx_path).unwrap();
+    idx_conn
+        .execute_batch(
+            "CREATE TABLE nakamoto_block_headers (index_block_hash TEXT NOT NULL PRIMARY KEY)",
+        )
+        .unwrap();
+    idx_conn
+        .execute(
+            "INSERT INTO nakamoto_block_headers VALUES ('canonical_ibh_1')",
+            [],
+        )
+        .unwrap();
+    idx_conn
+        .execute(
+            "INSERT INTO nakamoto_block_headers VALUES ('canonical_ibh_2')",
+            [],
+        )
+        .unwrap();
+    drop(idx_conn);
+
+    // Copy.
+    let stats = super::blocks::copy_nakamoto_staging_blocks(
+        src_nak_path.to_str().unwrap(),
+        dst_nak_path.to_str().unwrap(),
+        idx_path.to_str().unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(stats.rows_copied, 2);
+
+    // Verify orphan not copied.
+    let dst_conn = Connection::open(&dst_nak_path).unwrap();
+    let orphan_count: i64 = dst_conn
+        .query_row(
+            "SELECT COUNT(*) FROM nakamoto_staging_blocks WHERE block_hash = 'orphan_bh'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(orphan_count, 0, "orphan should not be copied");
+
+    // Verify obtain_method preserved.
+    let method: String = dst_conn
+        .query_row(
+            "SELECT obtain_method FROM nakamoto_staging_blocks WHERE block_hash = 'canonical_bh_2'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(method, "Shadow", "obtain_method must be preserved");
+
+    // Verify db_version matches source.
+    let dst_ver: i64 = dst_conn
+        .query_row("SELECT version FROM db_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(dst_ver, 5, "db_version should be 5 (latest migration)");
+    drop(dst_conn);
+
+    // Validate.
+    let v = super::blocks::validate_nakamoto_staging_blocks(
+        src_nak_path.to_str().unwrap(),
+        dst_nak_path.to_str().unwrap(),
+        idx_path.to_str().unwrap(),
+    )
+    .unwrap();
+    assert!(v.is_valid(), "nakamoto validation should pass: {v:?}");
+    assert!(v.db_version_match, "db_version should match");
+    assert!(v.schema_match, "schema should match");
+}
+
+#[test]
+fn test_nakamoto_validate_detects_db_version_drift() {
+    let dir = tempdir().unwrap();
+    let src_nak_path = dir.path().join("src_nakamoto.sqlite");
+    let dst_nak_path = dir.path().join("dst_nakamoto.sqlite");
+    let idx_path = dir.path().join("squashed_index.sqlite");
+
+    // Create matching source and destination with one canonical row.
+    let src_conn = create_source_nakamoto_db(&src_nak_path);
+    insert_nakamoto_staging_block(
+        &src_conn, "bh1", "ch1", "p1", 100, "ibh1", "Fetched", b"data1",
+    );
+    drop(src_conn);
+
+    let idx_conn = Connection::open(&idx_path).unwrap();
+    idx_conn
+        .execute_batch(
+            "CREATE TABLE nakamoto_block_headers (index_block_hash TEXT NOT NULL PRIMARY KEY)",
+        )
+        .unwrap();
+    idx_conn
+        .execute("INSERT INTO nakamoto_block_headers VALUES ('ibh1')", [])
+        .unwrap();
+    drop(idx_conn);
+
+    // Copy first.
+    super::blocks::copy_nakamoto_staging_blocks(
+        src_nak_path.to_str().unwrap(),
+        dst_nak_path.to_str().unwrap(),
+        idx_path.to_str().unwrap(),
+    )
+    .unwrap();
+
+    // Tamper with destination db_version.
+    let dst_conn = Connection::open(&dst_nak_path).unwrap();
+    dst_conn
+        .execute("UPDATE db_version SET version = 99", [])
+        .unwrap();
+    drop(dst_conn);
+
+    // Validate - should detect drift.
+    let v = super::blocks::validate_nakamoto_staging_blocks(
+        src_nak_path.to_str().unwrap(),
+        dst_nak_path.to_str().unwrap(),
+        idx_path.to_str().unwrap(),
+    )
+    .unwrap();
+    assert!(!v.db_version_match, "should detect db_version drift");
+    assert!(!v.is_valid(), "overall validation should fail");
+}
+
+#[test]
+fn test_nakamoto_validate_detects_schema_drift() {
+    let dir = tempdir().unwrap();
+    let src_nak_path = dir.path().join("src_nakamoto.sqlite");
+    let dst_nak_path = dir.path().join("dst_nakamoto.sqlite");
+    let idx_path = dir.path().join("squashed_index.sqlite");
+
+    let src_conn = create_source_nakamoto_db(&src_nak_path);
+    insert_nakamoto_staging_block(
+        &src_conn, "bh1", "ch1", "p1", 100, "ibh1", "Fetched", b"data1",
+    );
+    drop(src_conn);
+
+    let idx_conn = Connection::open(&idx_path).unwrap();
+    idx_conn
+        .execute_batch(
+            "CREATE TABLE nakamoto_block_headers (index_block_hash TEXT NOT NULL PRIMARY KEY)",
+        )
+        .unwrap();
+    idx_conn
+        .execute("INSERT INTO nakamoto_block_headers VALUES ('ibh1')", [])
+        .unwrap();
+    drop(idx_conn);
+
+    super::blocks::copy_nakamoto_staging_blocks(
+        src_nak_path.to_str().unwrap(),
+        dst_nak_path.to_str().unwrap(),
+        idx_path.to_str().unwrap(),
+    )
+    .unwrap();
+
+    // Add an extra index to destination to cause schema drift.
+    let dst_conn = Connection::open(&dst_nak_path).unwrap();
+    dst_conn
+        .execute_batch("CREATE INDEX extra_idx ON nakamoto_staging_blocks(height)")
+        .unwrap();
+    drop(dst_conn);
+
+    let v = super::blocks::validate_nakamoto_staging_blocks(
+        src_nak_path.to_str().unwrap(),
+        dst_nak_path.to_str().unwrap(),
+        idx_path.to_str().unwrap(),
+    )
+    .unwrap();
+    assert!(
+        !v.schema_match,
+        "should detect schema drift from extra index"
+    );
+    assert!(!v.is_valid());
+}
+
+#[test]
+fn test_epoch2_file_validation_ignores_nakamoto_sqlite() {
+    let dir = tempdir().unwrap();
+    let src_blocks_dir = dir.path().join("src_blocks");
+    let dst_blocks_dir = dir.path().join("dst_blocks");
+
+    // Create a squashed index with one block at height 1.
+    let idx_path = dir.path().join("squashed_index.sqlite");
+    let conn = Connection::open(&idx_path).unwrap();
+    conn.execute_batch(
+            "CREATE TABLE block_headers (index_block_hash TEXT NOT NULL, block_height INTEGER NOT NULL)",
+        ).unwrap();
+    conn.execute(
+            "INSERT INTO block_headers VALUES ('0000000000000000000000000000000000000000000000000000000000000000', 0)",
+            [],
+        ).unwrap();
+    let hash_hex = "aabbccdd00000000000000000000000000000000000000000000000000000001";
+    conn.execute(
+        "INSERT INTO block_headers VALUES (?1, 1)",
+        params![hash_hex],
+    )
+    .unwrap();
+    drop(conn);
+
+    // Create source + dest block files.
+    // index_block_hash_to_rel_path uses 2-byte (4 hex char) directory segments.
+    let rel = format!("aabb/ccdd/{hash_hex}");
+    let src_file = src_blocks_dir.join(&rel);
+    std::fs::create_dir_all(src_file.parent().unwrap()).unwrap();
+    std::fs::write(&src_file, b"block data").unwrap();
+
+    super::blocks::copy_epoch2_block_files(
+        idx_path.to_str().unwrap(),
+        src_blocks_dir.to_str().unwrap(),
+        dst_blocks_dir.to_str().unwrap(),
+    )
+    .unwrap();
+
+    // Plant nakamoto.sqlite and sidecar files in destination blocks dir.
+    std::fs::write(dst_blocks_dir.join("nakamoto.sqlite"), b"fake db").unwrap();
+    std::fs::write(dst_blocks_dir.join("nakamoto.sqlite-journal"), b"journal").unwrap();
+    std::fs::write(dst_blocks_dir.join("nakamoto.sqlite-wal"), b"wal").unwrap();
+
+    // Validate should still pass - nakamoto files are not "extra" epoch-2 files.
+    let v = super::blocks::validate_epoch2_block_files(
+        idx_path.to_str().unwrap(),
+        src_blocks_dir.to_str().unwrap(),
+        dst_blocks_dir.to_str().unwrap(),
+    )
+    .unwrap();
+    assert!(
+        v.is_valid(),
+        "nakamoto.sqlite sidecars should not cause validation failure: {v:?}"
+    );
+    assert!(v.no_extra_files, "no_extra_files should be true");
 }
 
 /// Create a source headers.sqlite (SPV v3 schema with chain_work).
@@ -914,903 +1809,3 @@ fn test_spv_headers_reused_output_dir() {
         "reused output dir should produce valid copy: {v:?}"
     );
 }
-
-fn insert_staging_block(conn: &Connection, suffix: &str, height: u32) {
-    conn.execute(
-        "INSERT INTO staging_blocks (\
-                anchored_block_hash, parent_anchored_block_hash, \
-                consensus_hash, parent_consensus_hash, \
-                parent_microblock_hash, parent_microblock_seq, \
-                microblock_pubkey_hash, height, attachable, orphaned, processed, \
-                commit_burn, sortition_burn, index_block_hash, \
-                download_time, arrival_time, processed_time) \
-             VALUES (?1, ?2, ?3, ?4, ?5, 0, 'mph', ?6, 1, 0, 1, 0, 0, ?7, 100, 200, 300)",
-        params![
-            format!("bh{suffix}"),
-            format!("parent_bh{suffix}"),
-            format!("ch{suffix}"),
-            format!("parent_ch{suffix}"),
-            "0000000000000000000000000000000000000000000000000000000000000000",
-            height,
-            format!("ibh{suffix}"),
-        ],
-    )
-    .unwrap();
-}
-
-#[test]
-fn test_staging_blocks_populated_for_canonical() {
-    let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src.sqlite");
-    let conn = create_source_db(&src_path);
-
-    // Insert block headers and staging blocks at heights 1, 2, 3.
-    for (h, s) in [(1, "1"), (2, "2"), (3, "3")] {
-        insert_block_header(&conn, h, s);
-        insert_staging_block(&conn, s, h);
-    }
-    drop(conn);
-
-    // Canonical set includes ibh1 and ibh2, but NOT ibh3.
-    let dst_path = dir.path().join("dst.sqlite");
-    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1", "ibh2"]);
-
-    let stats =
-        copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
-            .unwrap();
-
-    // Only 2 staging_blocks rows for canonical blocks.
-    assert_eq!(stats.staging_blocks_rows, 2);
-
-    // Verify all columns preserved verbatim.
-    let dst_conn = Connection::open(&dst_path).unwrap();
-    let (download_time, arrival_time, processed_time): (i64, i64, i64) = dst_conn
-            .query_row(
-                "SELECT download_time, arrival_time, processed_time FROM staging_blocks WHERE index_block_hash = 'ibh1'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .unwrap();
-    assert_eq!(download_time, 100);
-    assert_eq!(arrival_time, 200);
-    assert_eq!(processed_time, 300);
-
-    // ibh3 should NOT be present.
-    let count: i64 = dst_conn
-        .query_row(
-            "SELECT COUNT(*) FROM staging_blocks WHERE index_block_hash = 'ibh3'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 0);
-}
-
-#[test]
-fn test_staging_blocks_validation_detects_drift() {
-    let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src.sqlite");
-    let conn = create_source_db(&src_path);
-
-    insert_block_header(&conn, 1, "1");
-    insert_staging_block(&conn, "1", 1);
-    drop(conn);
-
-    let dst_path = dir.path().join("dst.sqlite");
-    create_dest_db_with_canonical_blocks(&dst_path, &["ibh1"]);
-
-    copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1).unwrap();
-
-    // Validation should pass initially.
-    let v =
-        validate_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
-            .unwrap();
-    assert!(v.staging_blocks_match);
-
-    // Now corrupt a column in destination staging_blocks.
-    let dst_conn = Connection::open(&dst_path).unwrap();
-    dst_conn
-            .execute(
-                "UPDATE staging_blocks SET parent_consensus_hash = 'corrupted' WHERE index_block_hash = 'ibh1'",
-                [],
-            )
-            .unwrap();
-    drop(dst_conn);
-
-    // Validation should now fail.
-    let v =
-        validate_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
-            .unwrap();
-    assert!(!v.staging_blocks_match, "should detect column drift: {v:?}");
-}
-
-#[test]
-fn test_epoch2_block_file_copy_and_validate() {
-    let dir = tempdir().unwrap();
-    let src_blocks_dir = dir.path().join("src_blocks");
-    let dst_blocks_dir = dir.path().join("dst_blocks");
-
-    // Create a squashed index.sqlite with 2 block headers (height 0 = genesis, height 1).
-    let idx_path = dir.path().join("squashed_index.sqlite");
-    let conn = Connection::open(&idx_path).unwrap();
-    conn.execute_batch(
-            "CREATE TABLE block_headers (index_block_hash TEXT NOT NULL, block_height INTEGER NOT NULL)",
-        )
-        .unwrap();
-    conn.execute(
-            "INSERT INTO block_headers VALUES ('0000000000000000000000000000000000000000000000000000000000000000', 0)",
-            [],
-        )
-        .unwrap();
-    // Height 1 block: hex hash that maps to a known path.
-    let hash_hex = "aabbccdd00000000000000000000000000000000000000000000000000000001";
-    conn.execute(
-        "INSERT INTO block_headers VALUES (?1, 1)",
-        params![hash_hex],
-    )
-    .unwrap();
-    drop(conn);
-
-    // Create source block file for height 1.
-    // index_block_hash_to_rel_path uses 2-byte (4 hex char) directory segments.
-    let rel = format!("aabb/ccdd/{hash_hex}");
-    let src_file = src_blocks_dir.join(&rel);
-    std::fs::create_dir_all(src_file.parent().unwrap()).unwrap();
-    std::fs::write(&src_file, b"block data here").unwrap();
-
-    // Copy.
-    let stats = super::blocks::copy_epoch2_block_files(
-        idx_path.to_str().unwrap(),
-        src_blocks_dir.to_str().unwrap(),
-        dst_blocks_dir.to_str().unwrap(),
-    )
-    .unwrap();
-
-    assert_eq!(stats.files_copied, 1);
-    assert_eq!(stats.genesis_skipped, 1);
-    assert_eq!(stats.total_bytes, 15); // "block data here".len()
-
-    // Destination file exists and matches.
-    let dst_file = dst_blocks_dir.join(&rel);
-    assert!(dst_file.exists());
-    assert_eq!(std::fs::read(&dst_file).unwrap(), b"block data here");
-
-    // Validate.
-    let v = super::blocks::validate_epoch2_block_files(
-        idx_path.to_str().unwrap(),
-        src_blocks_dir.to_str().unwrap(),
-        dst_blocks_dir.to_str().unwrap(),
-    )
-    .unwrap();
-    assert!(v.is_valid(), "validation should pass: {v:?}");
-}
-
-#[test]
-fn test_epoch2_block_file_missing_source_is_error() {
-    let dir = tempdir().unwrap();
-    let src_blocks_dir = dir.path().join("src_blocks");
-    let dst_blocks_dir = dir.path().join("dst_blocks");
-
-    // Index with height-1 block but NO source file.
-    let idx_path = dir.path().join("squashed_index.sqlite");
-    let conn = Connection::open(&idx_path).unwrap();
-    conn.execute_batch(
-            "CREATE TABLE block_headers (index_block_hash TEXT NOT NULL, block_height INTEGER NOT NULL)",
-        )
-        .unwrap();
-    let hash_hex = "aabbccdd00000000000000000000000000000000000000000000000000000001";
-    conn.execute(
-        "INSERT INTO block_headers VALUES (?1, 1)",
-        params![hash_hex],
-    )
-    .unwrap();
-    drop(conn);
-
-    std::fs::create_dir_all(&src_blocks_dir).unwrap();
-
-    let err = super::blocks::copy_epoch2_block_files(
-        idx_path.to_str().unwrap(),
-        src_blocks_dir.to_str().unwrap(),
-        dst_blocks_dir.to_str().unwrap(),
-    )
-    .expect_err("copy should fail when a required source epoch-2 block file is missing");
-
-    match err {
-        Error::CorruptionError(msg) => {
-            assert!(
-                msg.contains("Missing source epoch-2 block file"),
-                "unexpected error message: {msg}"
-            );
-        }
-        other => panic!("unexpected error type: {other:?}"),
-    }
-}
-
-/// Build a minimal serializable StacksMicroblock with the given sequence
-/// and prev_block, returning (block_hash, serialized_bytes).
-fn make_test_microblock(sequence: u16, prev_block: &BlockHeaderHash) -> (BlockHeaderHash, Vec<u8>) {
-    use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::util::hash::Hash160;
-    use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-
-    // Create a minimal STX transfer transaction.
-    let privk = Secp256k1PrivateKey::from_hex(
-        "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-    )
-    .unwrap();
-    let auth = TransactionAuth::Standard(
-        TransactionSpendingCondition::new_singlesig_p2pkh(Secp256k1PublicKey::from_private(&privk))
-            .unwrap(),
-    );
-    let recipient = StacksAddress::new(1, Hash160([0xAA; 20])).unwrap().into();
-    let tx = StacksTransaction::new(
-        TransactionVersion::Testnet,
-        auth,
-        TransactionPayload::TokenTransfer(recipient, 1, TokenTransferMemo([0u8; 34])),
-    );
-
-    // Use StacksMicroblock::first_unsigned for sequence 0,
-    // or build with from_parent_unsigned for others.
-    let txid_bytes = tx.txid().as_bytes().to_vec();
-    let merkle_tree =
-        stacks_common::util::hash::MerkleTree::<Sha512Trunc256Sum>::new(&[txid_bytes]);
-    let tx_merkle_root = merkle_tree.root();
-
-    let header = StacksMicroblockHeader {
-        version: 0,
-        sequence,
-        prev_block: prev_block.clone(),
-        tx_merkle_root,
-        signature: MessageSignature::empty(),
-    };
-
-    let mblock = StacksMicroblock {
-        header,
-        txs: vec![tx],
-    };
-    let hash = mblock.block_hash();
-    let mut bytes = vec![];
-    mblock.consensus_serialize(&mut bytes).unwrap();
-    (hash, bytes)
-}
-
-/// Insert a staging_microblocks row into the given connection.
-fn insert_staging_microblock(
-    conn: &Connection,
-    anchored_block_hash: &str,
-    consensus_hash: &ConsensusHash,
-    index_block_hash: &StacksBlockId,
-    microblock_hash: &BlockHeaderHash,
-    parent_hash: &BlockHeaderHash,
-    index_microblock_hash: &StacksBlockId,
-    sequence: u16,
-    processed: i32,
-    orphaned: i32,
-) {
-    conn.execute(
-        "INSERT INTO staging_microblocks \
-             (anchored_block_hash, consensus_hash, index_block_hash, microblock_hash, \
-              parent_hash, index_microblock_hash, sequence, processed, orphaned) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![
-            anchored_block_hash,
-            consensus_hash,
-            index_block_hash,
-            microblock_hash,
-            parent_hash,
-            index_microblock_hash,
-            sequence as i32,
-            processed,
-            orphaned,
-        ],
-    )
-    .unwrap();
-}
-
-/// Insert a staging_microblocks_data row.
-fn insert_staging_microblock_data(
-    conn: &Connection,
-    block_hash: &BlockHeaderHash,
-    block_data: &[u8],
-) {
-    conn.execute(
-        "INSERT INTO staging_microblocks_data (block_hash, block_data) VALUES (?1, ?2)",
-        params![block_hash, block_data],
-    )
-    .unwrap();
-}
-
-/// Insert a staging_blocks row with microblock parent linkage.
-fn insert_staging_block_with_microblock_parent(
-    conn: &Connection,
-    anchored_block_hash: &str,
-    consensus_hash: &str,
-    parent_consensus_hash: &str,
-    parent_anchored_block_hash: &str,
-    parent_microblock_hash: &str,
-    parent_microblock_seq: i32,
-    index_block_hash: &str,
-    height: i32,
-) {
-    conn.execute(
-        "INSERT INTO staging_blocks \
-             (anchored_block_hash, parent_anchored_block_hash, consensus_hash, \
-              parent_consensus_hash, parent_microblock_hash, parent_microblock_seq, \
-              microblock_pubkey_hash, height, attachable, orphaned, processed, \
-              commit_burn, sortition_burn, index_block_hash, \
-              download_time, arrival_time, processed_time) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'mph', ?7, 1, 0, 1, 0, 0, ?8, 0, 0, 0)",
-        params![
-            anchored_block_hash,
-            parent_anchored_block_hash,
-            consensus_hash,
-            parent_consensus_hash,
-            parent_microblock_hash,
-            parent_microblock_seq,
-            height,
-            index_block_hash,
-        ],
-    )
-    .unwrap();
-}
-
-/// Create a source nakamoto.sqlite with the full schema (v1 through v5).
-fn create_source_nakamoto_db(path: &std::path::Path) -> Connection {
-    let conn = Connection::open(path).unwrap();
-    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_1 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_2 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_3 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_4 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    for cmd in NAKAMOTO_STAGING_DB_SCHEMA_5 {
-        conn.execute_batch(cmd).unwrap();
-    }
-    conn
-}
-
-/// Insert a nakamoto_staging_blocks row.
-fn insert_nakamoto_staging_block(
-    conn: &Connection,
-    block_hash: &str,
-    consensus_hash: &str,
-    parent_block_id: &str,
-    height: i64,
-    index_block_hash: &str,
-    obtain_method: &str,
-    data: &[u8],
-) {
-    conn.execute(
-        "INSERT INTO nakamoto_staging_blocks \
-             (block_hash, consensus_hash, parent_block_id, is_tenure_start, \
-              burn_attachable, processed, orphaned, height, index_block_hash, \
-              processed_time, obtain_method, signing_weight, data) \
-             VALUES (?1, ?2, ?3, 1, 1, 1, 0, ?4, ?5, 0, ?6, 100, ?7)",
-        params![
-            block_hash,
-            consensus_hash,
-            parent_block_id,
-            height,
-            index_block_hash,
-            obtain_method,
-            data,
-        ],
-    )
-    .unwrap();
-}
-
-#[test]
-fn test_microblock_stream_copy_and_validate() {
-    let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src_index.sqlite");
-    let dst_path = dir.path().join("dst_index.sqlite");
-
-    // Create source DB with full schema.
-    let src_conn = create_source_db(&src_path);
-
-    // Set up a parent anchored block "parent_bh" with consensus_hash "parent_ch".
-    let parent_ch = ConsensusHash([0xAA; 20]);
-    let parent_bh = BlockHeaderHash([0xBB; 32]);
-    let parent_ibh = StacksBlockId::new(&parent_ch, &parent_bh);
-
-    // Build a 2-microblock stream: mblock0 (seq=0, prev=parent_bh) -> mblock1 (seq=1, prev=mblock0_hash).
-    let (mblock0_hash, mblock0_data) = make_test_microblock(0, &parent_bh);
-    let (mblock1_hash, mblock1_data) = make_test_microblock(1, &mblock0_hash);
-
-    // Insert microblock metadata and data into source.
-    let imh0 = StacksBlockId::new(&parent_ch, &mblock0_hash);
-    let imh1 = StacksBlockId::new(&parent_ch, &mblock1_hash);
-
-    insert_staging_microblock(
-        &src_conn,
-        &format!("{parent_bh}"),
-        &parent_ch,
-        &parent_ibh,
-        &mblock0_hash,
-        &parent_bh,
-        &imh0,
-        0,
-        1,
-        0,
-    );
-    insert_staging_microblock(
-        &src_conn,
-        &format!("{parent_bh}"),
-        &parent_ch,
-        &parent_ibh,
-        &mblock1_hash,
-        &mblock0_hash,
-        &imh1,
-        1,
-        1,
-        0,
-    );
-    insert_staging_microblock_data(&src_conn, &mblock0_hash, &mblock0_data);
-    insert_staging_microblock_data(&src_conn, &mblock1_hash, &mblock1_data);
-
-    // Also insert an orphaned fork microblock that should NOT be copied.
-    let (fork_hash, fork_data) = make_test_microblock(0, &BlockHeaderHash([0xCC; 32]));
-    let fork_imh = StacksBlockId::new(&parent_ch, &fork_hash);
-    insert_staging_microblock(
-        &src_conn,
-        &format!("{parent_bh}"),
-        &parent_ch,
-        &parent_ibh,
-        &fork_hash,
-        &BlockHeaderHash([0xCC; 32]),
-        &fork_imh,
-        0,
-        1,
-        1, // orphaned = 1: this fork microblock should be excluded by the copy query
-    );
-    insert_staging_microblock_data(&src_conn, &fork_hash, &fork_data);
-    drop(src_conn);
-
-    // Create dest DB with schema, canonical blocks, and staging_blocks populated.
-    create_dest_db_with_canonical_blocks(&dst_path, &[]);
-    let dst_conn = Connection::open(&dst_path).unwrap();
-
-    // Clone schemas from source for staging tables.
-    dst_conn
-        .execute_batch(&format!(
-            "ATTACH DATABASE '{}' AS src",
-            src_path.to_str().unwrap()
-        ))
-        .unwrap();
-    super::common::clone_schemas_from_source(
-        &dst_conn,
-        &[
-            "staging_blocks",
-            "staging_microblocks",
-            "staging_microblocks_data",
-        ],
-    )
-    .unwrap();
-    dst_conn.execute_batch("DETACH DATABASE src").unwrap();
-
-    // Insert a canonical child block that references mblock1_hash as its parent_microblock_hash.
-    // All values must be valid hex for ConsensusHash (40 hex chars) / BlockHeaderHash (64 hex chars).
-    let child_ch = ConsensusHash([0x11; 20]);
-    let child_bh = BlockHeaderHash([0x22; 32]);
-    let child_ibh = StacksBlockId::new(&child_ch, &child_bh);
-    insert_staging_block_with_microblock_parent(
-        &dst_conn,
-        &format!("{child_bh}"),
-        &format!("{child_ch}"),
-        &format!("{parent_ch}"),
-        &format!("{parent_bh}"),
-        &format!("{mblock1_hash}"),
-        1,
-        &format!("{child_ibh}"),
-        2,
-    );
-
-    // Also insert a child with no microblock stream (empty parent).
-    let nostream_ch = ConsensusHash([0x33; 20]);
-    let nostream_bh = BlockHeaderHash([0x44; 32]);
-    let nostream_ibh = StacksBlockId::new(&nostream_ch, &nostream_bh);
-    let nostream_pch = ConsensusHash([0x55; 20]);
-    let nostream_pbh = BlockHeaderHash([0x66; 32]);
-    insert_staging_block_with_microblock_parent(
-        &dst_conn,
-        &format!("{nostream_bh}"),
-        &format!("{nostream_ch}"),
-        &format!("{nostream_pch}"),
-        &format!("{nostream_pbh}"),
-        &format!("{EMPTY_MICROBLOCK_PARENT_HASH}"),
-        0,
-        &format!("{nostream_ibh}"),
-        3,
-    );
-    drop(dst_conn);
-
-    // Copy microblocks.
-    let stats = super::blocks::copy_confirmed_epoch2_microblocks(
-        src_path.to_str().unwrap(),
-        dst_path.to_str().unwrap(),
-    )
-    .unwrap();
-
-    assert_eq!(stats.streams_copied, 1);
-    assert_eq!(stats.microblock_rows_copied, 2);
-    assert!(stats.microblock_bytes_copied > 0);
-
-    // The fork microblock should NOT be in destination.
-    let dst_conn = Connection::open(&dst_path).unwrap();
-    let fork_count: i64 = dst_conn
-        .query_row(
-            "SELECT COUNT(*) FROM staging_microblocks_data WHERE block_hash = ?1",
-            params![fork_hash],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(fork_count, 0, "fork microblock should not be copied");
-
-    // Validate.
-    let v = super::blocks::validate_microblock_streams(
-        src_path.to_str().unwrap(),
-        dst_path.to_str().unwrap(),
-    )
-    .unwrap();
-    assert!(v.is_valid(), "microblock validation should pass: {v:?}");
-}
-
-#[test]
-fn test_microblock_stream_unprocessed_skipped() {
-    let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src_index.sqlite");
-    let dst_path = dir.path().join("dst_index.sqlite");
-
-    let src_conn = create_source_db(&src_path);
-
-    let parent_ch = ConsensusHash([0xDD; 20]);
-    let parent_bh = BlockHeaderHash([0xEE; 32]);
-    let parent_ibh = StacksBlockId::new(&parent_ch, &parent_bh);
-
-    // Build a 1-microblock stream where the microblock is NOT processed.
-    let (mblock0_hash, mblock0_data) = make_test_microblock(0, &parent_bh);
-    let imh0 = StacksBlockId::new(&parent_ch, &mblock0_hash);
-    insert_staging_microblock(
-        &src_conn,
-        &format!("{parent_bh}"),
-        &parent_ch,
-        &parent_ibh,
-        &mblock0_hash,
-        &parent_bh,
-        &imh0,
-        0,
-        0,
-        0, // processed=0
-    );
-    insert_staging_microblock_data(&src_conn, &mblock0_hash, &mblock0_data);
-    drop(src_conn);
-
-    // Create dest with staging_blocks referencing the stream.
-    create_dest_db_with_canonical_blocks(&dst_path, &[]);
-    let dst_conn = Connection::open(&dst_path).unwrap();
-    dst_conn
-        .execute_batch(&format!(
-            "ATTACH DATABASE '{}' AS src",
-            src_path.to_str().unwrap()
-        ))
-        .unwrap();
-    super::common::clone_schemas_from_source(
-        &dst_conn,
-        &[
-            "staging_blocks",
-            "staging_microblocks",
-            "staging_microblocks_data",
-        ],
-    )
-    .unwrap();
-    dst_conn.execute_batch("DETACH DATABASE src").unwrap();
-
-    let child_ch = ConsensusHash([0x11; 20]);
-    let child_bh = BlockHeaderHash([0x22; 32]);
-    let child_ibh = StacksBlockId::new(&child_ch, &child_bh);
-    insert_staging_block_with_microblock_parent(
-        &dst_conn,
-        &format!("{child_bh}"),
-        &format!("{child_ch}"),
-        &format!("{parent_ch}"),
-        &format!("{parent_bh}"),
-        &format!("{mblock0_hash}"),
-        0,
-        &format!("{child_ibh}"),
-        2,
-    );
-    drop(dst_conn);
-
-    // Copy - stream should be skipped (not error).
-    let stats = super::blocks::copy_confirmed_epoch2_microblocks(
-        src_path.to_str().unwrap(),
-        dst_path.to_str().unwrap(),
-    )
-    .unwrap();
-
-    assert_eq!(stats.streams_copied, 0);
-    assert_eq!(stats.streams_skipped, 1);
-    assert_eq!(stats.microblock_rows_copied, 0);
-}
-
-#[test]
-fn test_nakamoto_copy_and_validate() {
-    let dir = tempdir().unwrap();
-    let src_nak_path = dir.path().join("src_nakamoto.sqlite");
-    let dst_nak_path = dir.path().join("dst_nakamoto.sqlite");
-    let idx_path = dir.path().join("squashed_index.sqlite");
-
-    // Create source nakamoto.sqlite with canonical + non-canonical rows.
-    let src_conn = create_source_nakamoto_db(&src_nak_path);
-    insert_nakamoto_staging_block(
-        &src_conn,
-        "canonical_bh_1",
-        "canonical_ch_1",
-        "parent_1",
-        100,
-        "canonical_ibh_1",
-        "Fetched",
-        b"block_data_1",
-    );
-    insert_nakamoto_staging_block(
-        &src_conn,
-        "canonical_bh_2",
-        "canonical_ch_2",
-        "parent_2",
-        101,
-        "canonical_ibh_2",
-        "Shadow",
-        b"block_data_2",
-    );
-    // Non-canonical block (not in index).
-    insert_nakamoto_staging_block(
-        &src_conn,
-        "orphan_bh",
-        "orphan_ch",
-        "parent_x",
-        100,
-        "orphan_ibh",
-        "Fetched",
-        b"orphan_data",
-    );
-    drop(src_conn);
-
-    // Create squashed index with nakamoto_block_headers for canonical blocks only.
-    let idx_conn = Connection::open(&idx_path).unwrap();
-    idx_conn
-        .execute_batch(
-            "CREATE TABLE nakamoto_block_headers (index_block_hash TEXT NOT NULL PRIMARY KEY)",
-        )
-        .unwrap();
-    idx_conn
-        .execute(
-            "INSERT INTO nakamoto_block_headers VALUES ('canonical_ibh_1')",
-            [],
-        )
-        .unwrap();
-    idx_conn
-        .execute(
-            "INSERT INTO nakamoto_block_headers VALUES ('canonical_ibh_2')",
-            [],
-        )
-        .unwrap();
-    drop(idx_conn);
-
-    // Copy.
-    let stats = super::blocks::copy_nakamoto_staging_blocks(
-        src_nak_path.to_str().unwrap(),
-        dst_nak_path.to_str().unwrap(),
-        idx_path.to_str().unwrap(),
-    )
-    .unwrap();
-
-    assert_eq!(stats.rows_copied, 2);
-
-    // Verify orphan not copied.
-    let dst_conn = Connection::open(&dst_nak_path).unwrap();
-    let orphan_count: i64 = dst_conn
-        .query_row(
-            "SELECT COUNT(*) FROM nakamoto_staging_blocks WHERE block_hash = 'orphan_bh'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(orphan_count, 0, "orphan should not be copied");
-
-    // Verify obtain_method preserved.
-    let method: String = dst_conn
-        .query_row(
-            "SELECT obtain_method FROM nakamoto_staging_blocks WHERE block_hash = 'canonical_bh_2'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(method, "Shadow", "obtain_method must be preserved");
-
-    // Verify db_version matches source.
-    let dst_ver: i64 = dst_conn
-        .query_row("SELECT version FROM db_version", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(dst_ver, 5, "db_version should be 5 (latest migration)");
-    drop(dst_conn);
-
-    // Validate.
-    let v = super::blocks::validate_nakamoto_staging_blocks(
-        src_nak_path.to_str().unwrap(),
-        dst_nak_path.to_str().unwrap(),
-        idx_path.to_str().unwrap(),
-    )
-    .unwrap();
-    assert!(v.is_valid(), "nakamoto validation should pass: {v:?}");
-    assert!(v.db_version_match, "db_version should match");
-    assert!(v.schema_match, "schema should match");
-}
-
-#[test]
-fn test_nakamoto_validate_detects_db_version_drift() {
-    let dir = tempdir().unwrap();
-    let src_nak_path = dir.path().join("src_nakamoto.sqlite");
-    let dst_nak_path = dir.path().join("dst_nakamoto.sqlite");
-    let idx_path = dir.path().join("squashed_index.sqlite");
-
-    // Create matching source and destination with one canonical row.
-    let src_conn = create_source_nakamoto_db(&src_nak_path);
-    insert_nakamoto_staging_block(
-        &src_conn, "bh1", "ch1", "p1", 100, "ibh1", "Fetched", b"data1",
-    );
-    drop(src_conn);
-
-    let idx_conn = Connection::open(&idx_path).unwrap();
-    idx_conn
-        .execute_batch(
-            "CREATE TABLE nakamoto_block_headers (index_block_hash TEXT NOT NULL PRIMARY KEY)",
-        )
-        .unwrap();
-    idx_conn
-        .execute("INSERT INTO nakamoto_block_headers VALUES ('ibh1')", [])
-        .unwrap();
-    drop(idx_conn);
-
-    // Copy first.
-    super::blocks::copy_nakamoto_staging_blocks(
-        src_nak_path.to_str().unwrap(),
-        dst_nak_path.to_str().unwrap(),
-        idx_path.to_str().unwrap(),
-    )
-    .unwrap();
-
-    // Tamper with destination db_version.
-    let dst_conn = Connection::open(&dst_nak_path).unwrap();
-    dst_conn
-        .execute("UPDATE db_version SET version = 99", [])
-        .unwrap();
-    drop(dst_conn);
-
-    // Validate - should detect drift.
-    let v = super::blocks::validate_nakamoto_staging_blocks(
-        src_nak_path.to_str().unwrap(),
-        dst_nak_path.to_str().unwrap(),
-        idx_path.to_str().unwrap(),
-    )
-    .unwrap();
-    assert!(!v.db_version_match, "should detect db_version drift");
-    assert!(!v.is_valid(), "overall validation should fail");
-}
-
-#[test]
-fn test_nakamoto_validate_detects_schema_drift() {
-    let dir = tempdir().unwrap();
-    let src_nak_path = dir.path().join("src_nakamoto.sqlite");
-    let dst_nak_path = dir.path().join("dst_nakamoto.sqlite");
-    let idx_path = dir.path().join("squashed_index.sqlite");
-
-    let src_conn = create_source_nakamoto_db(&src_nak_path);
-    insert_nakamoto_staging_block(
-        &src_conn, "bh1", "ch1", "p1", 100, "ibh1", "Fetched", b"data1",
-    );
-    drop(src_conn);
-
-    let idx_conn = Connection::open(&idx_path).unwrap();
-    idx_conn
-        .execute_batch(
-            "CREATE TABLE nakamoto_block_headers (index_block_hash TEXT NOT NULL PRIMARY KEY)",
-        )
-        .unwrap();
-    idx_conn
-        .execute("INSERT INTO nakamoto_block_headers VALUES ('ibh1')", [])
-        .unwrap();
-    drop(idx_conn);
-
-    super::blocks::copy_nakamoto_staging_blocks(
-        src_nak_path.to_str().unwrap(),
-        dst_nak_path.to_str().unwrap(),
-        idx_path.to_str().unwrap(),
-    )
-    .unwrap();
-
-    // Add an extra index to destination to cause schema drift.
-    let dst_conn = Connection::open(&dst_nak_path).unwrap();
-    dst_conn
-        .execute_batch("CREATE INDEX extra_idx ON nakamoto_staging_blocks(height)")
-        .unwrap();
-    drop(dst_conn);
-
-    let v = super::blocks::validate_nakamoto_staging_blocks(
-        src_nak_path.to_str().unwrap(),
-        dst_nak_path.to_str().unwrap(),
-        idx_path.to_str().unwrap(),
-    )
-    .unwrap();
-    assert!(
-        !v.schema_match,
-        "should detect schema drift from extra index"
-    );
-    assert!(!v.is_valid());
-}
-
-#[test]
-fn test_epoch2_file_validation_ignores_nakamoto_sqlite() {
-    let dir = tempdir().unwrap();
-    let src_blocks_dir = dir.path().join("src_blocks");
-    let dst_blocks_dir = dir.path().join("dst_blocks");
-
-    // Create a squashed index with one block at height 1.
-    let idx_path = dir.path().join("squashed_index.sqlite");
-    let conn = Connection::open(&idx_path).unwrap();
-    conn.execute_batch(
-            "CREATE TABLE block_headers (index_block_hash TEXT NOT NULL, block_height INTEGER NOT NULL)",
-        ).unwrap();
-    conn.execute(
-            "INSERT INTO block_headers VALUES ('0000000000000000000000000000000000000000000000000000000000000000', 0)",
-            [],
-        ).unwrap();
-    let hash_hex = "aabbccdd00000000000000000000000000000000000000000000000000000001";
-    conn.execute(
-        "INSERT INTO block_headers VALUES (?1, 1)",
-        params![hash_hex],
-    )
-    .unwrap();
-    drop(conn);
-
-    // Create source + dest block files.
-    // index_block_hash_to_rel_path uses 2-byte (4 hex char) directory segments.
-    let rel = format!("aabb/ccdd/{hash_hex}");
-    let src_file = src_blocks_dir.join(&rel);
-    std::fs::create_dir_all(src_file.parent().unwrap()).unwrap();
-    std::fs::write(&src_file, b"block data").unwrap();
-
-    super::blocks::copy_epoch2_block_files(
-        idx_path.to_str().unwrap(),
-        src_blocks_dir.to_str().unwrap(),
-        dst_blocks_dir.to_str().unwrap(),
-    )
-    .unwrap();
-
-    // Plant nakamoto.sqlite and sidecar files in destination blocks dir.
-    std::fs::write(dst_blocks_dir.join("nakamoto.sqlite"), b"fake db").unwrap();
-    std::fs::write(dst_blocks_dir.join("nakamoto.sqlite-journal"), b"journal").unwrap();
-    std::fs::write(dst_blocks_dir.join("nakamoto.sqlite-wal"), b"wal").unwrap();
-
-    // Validate should still pass - nakamoto files are not "extra" epoch-2 files.
-    let v = super::blocks::validate_epoch2_block_files(
-        idx_path.to_str().unwrap(),
-        src_blocks_dir.to_str().unwrap(),
-        dst_blocks_dir.to_str().unwrap(),
-    )
-    .unwrap();
-    assert!(
-        v.is_valid(),
-        "nakamoto.sqlite sidecars should not cause validation failure: {v:?}"
-    );
-    assert!(v.no_extra_files, "no_extra_files should be true");
-}
-
-// -----------------------------------------------------------------------
-// Burnchain auxiliary: burnchain.sqlite tests
-// -----------------------------------------------------------------------
