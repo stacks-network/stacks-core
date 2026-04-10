@@ -33,6 +33,7 @@ pub mod marf;
 pub mod node;
 pub mod profile;
 pub mod proofs;
+pub mod squash;
 pub mod storage;
 pub mod trie;
 pub mod trie_sql;
