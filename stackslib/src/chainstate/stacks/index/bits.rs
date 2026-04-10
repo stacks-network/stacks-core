@@ -22,7 +22,7 @@ use sha2::{Digest, Sha512_256 as TrieHasher};
 use crate::chainstate::stacks::index::node::{
     clear_compressed, clear_ctrl_bits, is_compressed, ptrs_fmt, ConsensusSerializable, TrieNode,
     TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodePatch, TrieNodeType,
-    TriePtr, TRIEPTR_SIZE,
+    TriePtr,
 };
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieLeaf};
@@ -101,10 +101,10 @@ fn node_id_to_ptr_count(node_id: u8) -> usize {
     }
 }
 
-/// Helper to determine the maximum number of bytes a Trie node's child pointers will take to encode.
+/// Helper to determine how many bytes a Trie node's child pointers will take to encode.
 pub fn get_ptrs_byte_len(ptrs: &[TriePtr]) -> usize {
     let node_id_len = 1;
-    node_id_len + TRIEPTR_SIZE * ptrs.len()
+    node_id_len + ptrs.iter().map(TriePtr::encoded_size).sum::<usize>()
 }
 
 /// Helper to determine a sparse TriePtr list's bitmap size, given the node ID's numeric value.
@@ -238,7 +238,9 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
         ptrs_start_disk_ptr
     );
 
-    let mut bytes = vec![0u8; 1 + num_ptrs * TRIEPTR_SIZE];
+    let max_ptr_size = TriePtr::max_encoded_size();
+    let patch_overhead = max_ptr_size + 1;
+    let mut bytes = vec![0u8; 1 + num_ptrs * max_ptr_size + patch_overhead];
     let mut offset = 0;
     loop {
         let nr = match r.read(
@@ -269,7 +271,11 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
         offset = offset.checked_add(nr).ok_or_else(|| Error::OverflowError)?;
     }
 
-    trace!("Read bytes ({}) {}", bytes.len(), &to_hex(&bytes));
+    let bytes = bytes
+        .get(0..offset)
+        .ok_or_else(|| Error::CorruptionError("Failed to trim bytes array".into()))?;
+
+    trace!("Read bytes ({}) {}", bytes.len(), &to_hex(bytes));
 
     // verify the id is correct
     let nid = bytes
@@ -445,15 +451,30 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
         }
     } else {
         // ptrs list is not compressed
-        // iterate over the read-in bytes in chunks of TRIEPTR_SIZE and store them
-        //   to `ptrs_buf`
+        // iterate over the read-in bytes one pointer at a time since each encoded pointer
+        // can independently choose u32 or u64 storage.
         trace!("Node {} has uncompressed ptrs", cleared_nid);
-        let reading_ptrs = ptr_bytes
-            .chunks_exact(TRIEPTR_SIZE)
-            .zip(ptrs_buf.iter_mut());
-        for (next_ptr_bytes, ptr_slot) in reading_ptrs {
-            *ptr_slot = TriePtr::from_bytes(next_ptr_bytes);
+        let mut cursor = 0;
+        for ptr_slot in ptrs_buf.iter_mut() {
+            let ptr_id = *ptr_bytes
+                .get(cursor)
+                .ok_or_else(|| Error::CorruptionError("ptr_bytes runs short".into()))?;
+            *ptr_slot = TriePtr::from_bytes(
+                ptr_bytes
+                    .get(cursor..)
+                    .ok_or_else(|| Error::CorruptionError("ptr_bytes runs short".into()))?,
+            );
+            cursor = cursor
+                .checked_add(TriePtr::encoded_size_for_id(ptr_id))
+                .ok_or_else(|| Error::OverflowError)?;
         }
+        let seek_target = u64::try_from(cursor)
+            .ok()
+            .and_then(|c| c.checked_add(1))
+            .and_then(|c| ptrs_start_disk_ptr.checked_add(c))
+            .ok_or(Error::OverflowError)?;
+        r.seek(SeekFrom::Start(seek_target))
+            .inspect_err(|e| error!("Failed to seek to the end of the uncompressed ptrs: {e:?}"))?;
     }
 
     Ok(clear_compressed(*nid))
@@ -568,8 +589,7 @@ pub fn read_node_hash_bytes<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
 ) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
-    f.seek(SeekFrom::Start(ptr.ptr() as u64))
-        .map_err(Error::IOError)?;
+    f.seek(SeekFrom::Start(ptr.ptr())).map_err(Error::IOError)?;
     read_hash_bytes(f)
 }
 
@@ -601,8 +621,7 @@ pub fn read_nodetype<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
 ) -> Result<(TrieNodeType, TrieHash), Error> {
-    f.seek(SeekFrom::Start(ptr.ptr() as u64))
-        .map_err(Error::IOError)?;
+    f.seek(SeekFrom::Start(ptr.ptr())).map_err(Error::IOError)?;
     trace!("read_nodetype at {:?}", ptr);
     read_nodetype_at_head(f, ptr.id())
 }
@@ -615,8 +634,7 @@ pub fn read_nodetype_nohash<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
 ) -> Result<TrieNodeType, Error> {
-    f.seek(SeekFrom::Start(ptr.ptr() as u64))
-        .map_err(Error::IOError)?;
+    f.seek(SeekFrom::Start(ptr.ptr())).map_err(Error::IOError)?;
     trace!("read_nodetype_nohash at {:?}", ptr);
     read_nodetype_at_head_nohash(f, ptr.id())
 }
