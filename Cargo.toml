@@ -13,7 +13,8 @@ members = [
     "stacks-node",
     "contrib/stacks-inspect",
     "contrib/clarity-cli",
-    "contrib/stacks-cli"
+    "contrib/stacks-cli",
+    "contrib/marf-squash"
 ]
 
 exclude = ["contrib/tools/config-docs-generator"]

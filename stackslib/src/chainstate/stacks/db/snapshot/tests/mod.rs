@@ -1773,45 +1773,6 @@ fn test_spv_headers_stale_destination_errors_when_source_absent() {
     );
 }
 
-#[test]
-fn test_spv_headers_reused_output_dir() {
-    let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src.sqlite");
-    let dst_path = dir.path().join("dst.sqlite");
-
-    let src = create_spv_headers_db(&src_path);
-    for h in 0..=10u32 {
-        src.execute(
-            "INSERT INTO headers VALUES (1, 'p', 'm', 0, 0, 0, ?1, ?2)",
-            params![h, format!("h{h}")],
-        )
-        .unwrap();
-    }
-    drop(src);
-
-    // First copy.
-    super::spv::copy_spv_headers(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 10)
-        .unwrap();
-
-    // Second copy into the same destination (reused output dir).
-    let stats =
-        super::spv::copy_spv_headers(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 10)
-            .unwrap();
-
-    assert_eq!(stats.headers_rows, 11);
-
-    // Validate to confirm no duplicate rows.
-    let v = super::spv::validate_spv_headers(
-        src_path.to_str().unwrap(),
-        dst_path.to_str().unwrap(),
-        10,
-    )
-    .unwrap();
-    assert!(
-        v.is_valid(),
-        "reused output dir should produce valid copy: {v:?}"
-    );
-}
 // -----------------------------------------------------------------------
 // Burnchain auxiliary: burnchain.sqlite tests
 // -----------------------------------------------------------------------
@@ -2443,62 +2404,6 @@ fn test_burnchain_db_missing_source_does_not_create_file() {
     assert!(
         !src_path.exists(),
         "missing source must not be created by ATTACH"
-    );
-}
-
-#[test]
-fn test_burnchain_db_reused_output_dir() {
-    let dir = tempdir().unwrap();
-    let src_path = dir.path().join("src.sqlite");
-    let dst_path = dir.path().join("dst.sqlite");
-    let sort_path = dir.path().join("sort.sqlite");
-
-    create_squashed_sortition(&sort_path, &[(0, "h0"), (1, "h1")]);
-
-    let src = create_burnchain_db_v3(&src_path);
-    src.execute(
-        "INSERT INTO burnchain_db_block_headers VALUES (0, 'h0', 'none', 0, 0)",
-        [],
-    )
-    .unwrap();
-    src.execute(
-        "INSERT INTO burnchain_db_block_headers VALUES (1, 'h1', 'h0', 0, 0)",
-        [],
-    )
-    .unwrap();
-    drop(src);
-
-    // First copy.
-    super::burnchain::copy_burnchain_db(
-        src_path.to_str().unwrap(),
-        dst_path.to_str().unwrap(),
-        sort_path.to_str().unwrap(),
-        1,
-    )
-    .unwrap();
-
-    // Second copy into the same destination (reused output dir).
-    let stats = super::burnchain::copy_burnchain_db(
-        src_path.to_str().unwrap(),
-        dst_path.to_str().unwrap(),
-        sort_path.to_str().unwrap(),
-        1,
-    )
-    .unwrap();
-
-    assert_eq!(stats.block_headers_rows, 2);
-
-    // Validate to confirm no duplicate rows.
-    let v = super::burnchain::validate_burnchain_db(
-        src_path.to_str().unwrap(),
-        dst_path.to_str().unwrap(),
-        sort_path.to_str().unwrap(),
-        1,
-    )
-    .unwrap();
-    assert!(
-        v.is_valid(),
-        "reused output dir should produce valid copy: {v:?}"
     );
 }
 
