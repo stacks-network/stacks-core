@@ -60,19 +60,17 @@ impl SpvHeadersValidation {
 
 /// Copy canonical SPV headers up to `burn_height` into a new destination.
 ///
-/// Returns `Ok(None)` if the source file does not exist (the SpvClient
-/// auto-creates and re-downloads headers on startup).
+/// Returns an error if the source file does not exist.
 pub fn copy_spv_headers(
     src_path: &str,
     dst_path: &str,
     burn_height: u32,
-) -> Result<Option<SpvHeadersCopyStats>, Error> {
+) -> Result<SpvHeadersCopyStats, Error> {
     if !Path::new(src_path).exists() {
-        let dst = Path::new(dst_path);
-        if dst.exists() {
-            fs::remove_file(dst).map_err(Error::IOError)?;
-        }
-        return Ok(None);
+        return Err(Error::IOError(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("SPV headers source not found: {src_path}"),
+        )));
     }
 
     if let Some(parent) = Path::new(dst_path).parent() {
@@ -106,7 +104,7 @@ pub fn copy_spv_headers(
             conn.execute_batch("DETACH DATABASE src")
                 .map_err(Error::SQLError)?;
             checkpoint_destination_wal(&conn)?;
-            Ok(Some(stats))
+            Ok(stats)
         }
         Err(e) => {
             let _ = conn.execute_batch("ROLLBACK");
@@ -153,25 +151,19 @@ fn copy_spv_headers_inner(
 }
 
 /// Validate a copied headers.sqlite against its source.
-///
-/// **Missing-file semantics:**
-/// - Source absent + destination absent -> `Ok(None)` (both agree it was skipped)
-/// - Source present + destination absent -> error
-/// - Source absent + destination present -> error
-/// - Both present -> full validation
 pub fn validate_spv_headers(
     src_path: &str,
     dst_path: &str,
     burn_height: u32,
-) -> Result<Option<SpvHeadersValidation>, Error> {
-    let src_exists = Path::new(src_path).exists();
-    let dst_exists = Path::new(dst_path).exists();
-
-    match (src_exists, dst_exists) {
-        (false, false) => return Ok(None),
-        (true, false) => return Err(Error::NotFoundError),
-        (false, true) => return Err(Error::ExistsError),
-        (true, true) => {}
+) -> Result<SpvHeadersValidation, Error> {
+    if !Path::new(src_path).exists() {
+        return Err(Error::IOError(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("SPV headers source not found: {src_path}"),
+        )));
+    }
+    if !Path::new(dst_path).exists() {
+        return Err(Error::NotFoundError);
     }
 
     let conn = Connection::open_with_flags(dst_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -221,10 +213,10 @@ pub fn validate_spv_headers(
     conn.execute_batch("DETACH DATABASE src")
         .map_err(Error::SQLError)?;
 
-    Ok(Some(SpvHeadersValidation {
+    Ok(SpvHeadersValidation {
         headers_match,
         chain_work_match,
         db_config_match,
         no_extra_headers,
-    }))
+    })
 }
