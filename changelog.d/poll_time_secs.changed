@@ -1,0 +1,1 @@
+Set `poll_time_secs` in integration test configuration to `0` to speedup tests.
