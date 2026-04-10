@@ -1356,6 +1356,7 @@ impl BlockResponse {
                 full_extend_ts,
                 RejectReason::NotRejected,
                 read_count_extend_ts,
+                None,
             ),
         })
     }
@@ -1534,20 +1535,21 @@ impl BlockResponseData {
         tenure_extend_timestamp: u64,
         reject_reason: RejectReason,
         tenure_extend_read_count_timestamp: u64,
+        failed_txid: Option<Txid>,
     ) -> Self {
         Self {
             version: BLOCK_RESPONSE_DATA_VERSION,
             tenure_extend_timestamp,
             reject_reason,
             tenure_extend_read_count_timestamp,
-            failed_txid: None,
+            failed_txid,
             unknown_bytes: vec![],
         }
     }
 
     /// Create an empty BlockResponseData
     pub fn empty() -> Self {
-        Self::new(u64::MAX, RejectReason::NotRejected, u64::MAX)
+        Self::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None)
     }
 
     /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
@@ -1675,6 +1677,7 @@ impl BlockAccepted {
                 full_extend_ts,
                 RejectReason::NotRejected,
                 read_count_extend_ts,
+                None,
             ),
         }
     }
@@ -1725,6 +1728,7 @@ impl BlockRejection {
                 full_extend_ts,
                 reject_reason,
                 read_count_extend_ts,
+                None,
             ),
         };
         rejection
@@ -1747,9 +1751,12 @@ impl BlockRejection {
             CHAIN_ID_TESTNET
         };
         let reject_code = RejectCode::ValidationFailed(reject.reason_code);
-        let mut response_data =
-            BlockResponseData::new(full_extend_ts, (&reject_code).into(), read_count_extend_ts);
-        response_data.failed_txid = reject.failed_txid;
+        let response_data = BlockResponseData::new(
+            full_extend_ts,
+            (&reject_code).into(),
+            read_count_extend_ts,
+            reject.failed_txid,
+        );
         let mut rejection = Self {
             reason: reject.reason,
             reason_code: reject_code,
@@ -2159,6 +2166,7 @@ mod test {
                 thread_rng().next_u64(),
                 RejectReason::NotRejected,
                 thread_rng().next_u64(),
+                None,
             ),
         };
         let response = BlockResponse::Accepted(accepted);
@@ -2191,6 +2199,7 @@ mod test {
                 thread_rng().next_u64(),
                 RejectReason::NotRejected,
                 thread_rng().next_u64(),
+                None,
             ),
         };
         let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted(accepted));
@@ -2358,7 +2367,7 @@ mod test {
                 chain_id: CHAIN_ID_TESTNET,
                 signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
                 metadata: SignerMessageMetadata::empty(),
-                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX),
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
             }))
         );
 
@@ -2371,7 +2380,7 @@ mod test {
                 .unwrap(),
                 metadata: SignerMessageMetadata::empty(),
                 signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
-                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX),
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
             }))
         );
     }
@@ -2398,7 +2407,7 @@ mod test {
                 metadata: SignerMessageMetadata {
                     server_version: "Hello world".to_string(),
                 },
-                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX),
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
             }))
         );
 
@@ -2429,7 +2438,7 @@ mod test {
 
     #[test]
     fn block_response_data_serialization() {
-        let mut response_data = BlockResponseData::new(2, RejectReason::ReorgNotAllowed, 3);
+        let mut response_data = BlockResponseData::new(2, RejectReason::ReorgNotAllowed, 3, None);
         response_data.unknown_bytes = vec![1, 2, 3, 4];
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
@@ -2441,7 +2450,7 @@ mod test {
             .expect("Failed to deserialize BlockResponseData");
         assert_eq!(response_data, deserialized_data);
 
-        let response_data = BlockResponseData::new(2, RejectReason::NotRejected, 3);
+        let response_data = BlockResponseData::new(2, RejectReason::NotRejected, 3, None);
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
         // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp
@@ -2568,7 +2577,7 @@ mod test {
             signer_signature_hash: Sha512Trunc256Sum::from_hex("11717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19").unwrap(),
             metadata: SignerMessageMetadata::default(),
             signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
-            response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX),
+            response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
         };
 
         let mut bytes = vec![];
