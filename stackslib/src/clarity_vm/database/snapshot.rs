@@ -20,7 +20,9 @@ use clarity::vm::database::SqliteConnection;
 use rusqlite::Connection;
 use stacks_common::types::chainstate::StacksBlockId;
 
-use crate::chainstate::stacks::db::snapshot::common::collect_leaf_value_hashes;
+use crate::chainstate::stacks::db::snapshot::common::{
+    checkpoint_destination_wal, collect_leaf_value_hashes,
+};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::index::{trie_sql, Error};
@@ -176,6 +178,7 @@ pub fn copy_clarity_side_tables(
         Ok(stats) => {
             conn.execute_batch("COMMIT").map_err(Error::SQLError)?;
             conn.execute_batch("DETACH src").map_err(Error::SQLError)?;
+            checkpoint_destination_wal(&conn)?;
             Ok(stats)
         }
         Err(e) => {
