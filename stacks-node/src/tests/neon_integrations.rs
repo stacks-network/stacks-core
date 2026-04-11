@@ -161,7 +161,7 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
         .magic_bytes;
     assert_eq!(magic_bytes.as_bytes(), b"T2");
     conf.burnchain.magic_bytes = magic_bytes;
-    conf.burnchain.poll_time_secs = 0;
+    conf.burnchain.poll_time_ms = Some(100);
     conf.node.pox_sync_sample_secs = 0;
 
     conf.miner.first_attempt_time_ms = i64::MAX as u64;

@@ -1417,10 +1417,21 @@ pub struct BurnchainConfig {
     /// The default value of 10 seconds is mainly intended for testing purposes.
     /// It's suggested to set this to a higher value for mainnet, e.g., 300 seconds
     /// (5 minutes).
+    ///
+    /// If [`BurnchainConfig::poll_time_ms`] is set, it takes priority over this field.
     /// ---
     /// @default: `10`
     /// @units: seconds
     pub poll_time_secs: u64,
+    /// The interval, in milliseconds, at which the node polls the bitcoin node for
+    /// new blocks and state updates.
+    ///
+    /// When set, this takes priority over [`BurnchainConfig::poll_time_secs`],
+    /// allowing sub-second poll intervals (e.g. 100 ms for integration tests).
+    /// ---
+    /// @default: `None`
+    /// @units: milliseconds
+    pub poll_time_ms: Option<u64>,
     /// The default fee rate in sats/vByte to use when estimating fees for miners
     /// to submit bitcoin transactions (like block commits or leader key registrations).
     /// ---
@@ -1647,6 +1658,7 @@ impl BurnchainConfig {
             local_mining_public_key: None,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
+            poll_time_ms: None,
             satoshis_per_byte: DEFAULT_SATS_PER_VB,
             max_rbf: DEFAULT_MAX_RBF_RATE,
             leader_key_tx_estimated_size: OP_TX_LEADER_KEY_ESTIM_SIZE,
@@ -1700,6 +1712,14 @@ impl BurnchainConfig {
     pub fn get_epoch_list(&self) -> EpochList<ExecutionCost> {
         StacksEpoch::get_epochs(self.get_bitcoin_network().1, self.epochs.as_ref())
     }
+
+    /// Returns the effective poll interval in milliseconds.
+    /// If `poll_time_ms` is set, it takes priority; otherwise falls back to
+    /// `poll_time_secs * 1000`.
+    pub fn effective_poll_time_ms(&self) -> u64 {
+        self.poll_time_ms
+            .unwrap_or(self.poll_time_secs.saturating_mul(1000))
+    }
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
@@ -1744,6 +1764,7 @@ pub struct BurnchainConfigFile {
     pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: Option<u64>,
+    pub poll_time_ms: Option<u64>,
     pub satoshis_per_byte: Option<u64>,
     pub leader_key_tx_estimated_size: Option<u64>,
     pub block_commit_tx_estimated_size: Option<u64>,
@@ -1857,6 +1878,7 @@ impl BurnchainConfigFile {
             poll_time_secs: self
                 .poll_time_secs
                 .unwrap_or(default_burnchain_config.poll_time_secs),
+            poll_time_ms: self.poll_time_ms.or(default_burnchain_config.poll_time_ms),
             satoshis_per_byte: self
                 .satoshis_per_byte
                 .unwrap_or(default_burnchain_config.satoshis_per_byte),

@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use stacks::burnchains::{Burnchain, Error as burnchain_error};
-use stacks_common::util::{get_epoch_time_secs, sleep_ms};
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
 use crate::burnchains::BurnchainTip;
 use crate::Config;
@@ -64,10 +64,10 @@ impl PoxSyncWatchdogComms {
         self.last_ibd.load(Ordering::SeqCst)
     }
 
-    fn interruptable_sleep(&self, secs: u64) -> Result<(), burnchain_error> {
-        let deadline = secs + get_epoch_time_secs();
-        while get_epoch_time_secs() < deadline {
-            sleep_ms(1000);
+    fn interruptable_sleep(&self, millis: u64) -> Result<(), burnchain_error> {
+        let deadline = u128::from(millis) + get_epoch_time_ms();
+        while get_epoch_time_ms() < deadline {
+            sleep_ms(millis.min(1_000));
             if !self.should_keep_running() {
                 return Err(burnchain_error::CoordinatorClosed);
             }
@@ -101,7 +101,7 @@ impl PoxSyncWatchdogComms {
 /// unless it's reasonably sure that it has processed all Stacks blocks for this reward cycle.
 /// This struct monitors the Stacks chainstate to make this determination.
 pub struct PoxSyncWatchdog {
-    /// time between burnchain syncs in steady state
+    /// time between burnchain syncs in steady state, in milliseconds
     steady_state_burnchain_sync_interval: u64,
     /// handle to relayer thread that informs the watchdog when the P2P state-machine does stuff
     relayer_comms: PoxSyncWatchdogComms,
@@ -114,7 +114,7 @@ impl PoxSyncWatchdog {
         config: &Config,
         watchdog_comms: PoxSyncWatchdogComms,
     ) -> Result<PoxSyncWatchdog, String> {
-        let burnchain_poll_time = config.burnchain.poll_time_secs;
+        let burnchain_poll_time = config.burnchain.effective_poll_time_ms();
         let unconditionally_download = config.node.pox_sync_sample_secs == 0;
 
         Ok(PoxSyncWatchdog {

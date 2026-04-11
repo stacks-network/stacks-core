@@ -722,7 +722,7 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     }
 
     conf.burnchain.magic_bytes = MagicBytes::from([b'T', b'3'].as_ref());
-    conf.burnchain.poll_time_secs = 0;
+    conf.burnchain.poll_time_ms = Some(100);
     conf.node.pox_sync_sample_secs = 0;
 
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
