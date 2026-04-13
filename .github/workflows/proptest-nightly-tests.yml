@@ -65,6 +65,8 @@ jobs:
     steps:
       ## Compute env variables depending on the workflow trigger (schedule vs dispatch)
       - name: Prepare env
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_CI_NIGHTLY }}
         run: |
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
             branch="${NIGHTLY_BRANCH}"
@@ -75,6 +77,13 @@ jobs:
             cases="${{ inputs.proptest_cases }}"
             slack_notify="${{ inputs.slack_notify }}"
           fi
+
+          # Disable Slack notifications if the webhook secret is not set (e.g. in forks)
+          if [[ -z "${SLACK_WEBHOOK}" ]]; then
+            echo "::notice::Slack notifications disabled: SLACK_WEBHOOK_CI_NIGHTLY secret is not set"
+            slack_notify="false"
+          fi
+
           artifact="proptest-nightly-${branch//\//-}"
 
           # Set computed env variables
