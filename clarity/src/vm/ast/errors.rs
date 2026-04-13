@@ -216,6 +216,7 @@ impl ParseError {
     }
 
     /// Returns true if this error is an unreachable error, indicating a potential bug.
+    /// Used only for monitoring (logging + prometheus counter), not for business logic.
     pub fn is_unreachable(&self) -> bool {
         matches!(
             *self.err,

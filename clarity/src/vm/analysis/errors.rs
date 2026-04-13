@@ -669,6 +669,7 @@ impl RuntimeCheckErrorKind {
     }
 
     /// Returns true if this error is an unreachable error, indicating a potential bug.
+    /// Used only for monitoring (logging + prometheus counter), not for business logic.
     pub fn is_unreachable(&self) -> bool {
         matches!(self, RuntimeCheckErrorKind::Unreachable(_))
     }
@@ -685,6 +686,7 @@ impl StaticCheckErrorKind {
     }
 
     /// Returns true if this error is an unreachable error, indicating a potential bug.
+    /// Used only for monitoring (logging + prometheus counter), not for business logic.
     pub fn is_unreachable(&self) -> bool {
         matches!(self, StaticCheckErrorKind::Unreachable(_))
     }
